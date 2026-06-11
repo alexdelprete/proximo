@@ -1,0 +1,7 @@
+proximo (0.1.0) UNRELEASED; urgency=medium
+
+  * Initial packaging scaffold for the foundation release ("Spaniard").
+  * Two backends (REST API + ssh->pct), full MCP tool surface, audit log,
+    confirm-gated mutations, fail-closed CTID allowlist.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Sun, 07 Jun 2026 12:00:00 +0000

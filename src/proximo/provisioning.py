@@ -1,0 +1,357 @@
+"""PROVISION pillar — create / clone / delete guests (the most destructive ops on the platform).
+
+Every mutating function returns a UPID (task ID) for tracking via task_status.
+Every plan function reads live state (one safe read) to surface facts and detect collisions,
+then returns a Plan the caller can inspect before confirming.
+
+Hard rules mirrored from the codebase:
+- Validators fire on every path/id component before it enters a URL.
+- Plans are HONEST — HIGH is maintained even when the op would fail; no false-safety claims.
+- The absence of a HIGH flag is NOT a safety signal (curated, not exhaustive).
+- No self-gating: the server layer adds confirm-gating + audit; these functions are pure ops.
+"""
+
+from __future__ import annotations
+
+from .backends import ProximoError, _check_kind, _check_node, _check_vmid
+from .planning import RISK_HIGH, RISK_MEDIUM, Plan
+
+# ---------------------------------------------------------------------------
+# Local validators
+# ---------------------------------------------------------------------------
+
+def _check_ostemplate(ostemplate: str) -> str:
+    """Non-empty check; PVE validates format on its side."""
+    s = str(ostemplate).strip()
+    if not s:
+        raise ProximoError("ostemplate must not be empty")
+    return s
+
+
+def _check_storage(storage: str) -> str:
+    """Non-empty check; PVE validates existence on its side."""
+    s = str(storage).strip()
+    if not s:
+        raise ProximoError("storage must not be empty")
+    return s
+
+
+def _same_vmid(a, b) -> bool:
+    """Compare vmids numerically (Proxmox returns int; callers pass validated strings). Avoids the
+    string-mismatch bug where '0500' != 500-as-'500' would miss a real collision."""
+    try:
+        return int(a) == int(b)
+    except (TypeError, ValueError):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Mutation operations — each validates params, builds exact PVE URL, returns UPID
+# ---------------------------------------------------------------------------
+
+def create_container(
+    api,
+    vmid: str,
+    ostemplate: str,
+    storage: str,
+    node: str | None = None,
+    **opts,
+) -> str:
+    """Create a new LXC container.
+
+    POST /nodes/{node}/lxc  →  UPID
+
+    Extra keyword args (rootfs, hostname, memory, cores, net0, …) are passed through
+    as form data — PVE validates them.
+    """
+    vmid = _check_vmid(vmid)
+    _check_node(node)
+    ostemplate = _check_ostemplate(ostemplate)
+    storage = _check_storage(storage)
+    n = node or api.config.node
+    data = {"vmid": vmid, "ostemplate": ostemplate, "storage": storage, **opts}
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/nodes/{n}/lxc", data)
+
+
+def create_vm(
+    api,
+    vmid: str,
+    node: str | None = None,
+    **opts,
+) -> str:
+    """Create a new QEMU VM.
+
+    POST /nodes/{node}/qemu  →  UPID
+
+    Extra keyword args (name, memory, cores, net0, scsi0, …) are passed through
+    as form data — PVE validates them.
+    """
+    vmid = _check_vmid(vmid)
+    _check_node(node)
+    n = node or api.config.node
+    data = {"vmid": vmid, **opts}
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/nodes/{n}/qemu", data)
+
+
+def clone_guest(
+    api,
+    vmid: str,
+    newid: str,
+    kind: str = "lxc",
+    node: str | None = None,
+    name: str | None = None,
+    full: bool = False,
+    pool: str | None = None,
+) -> str:
+    """Clone an existing LXC or QEMU guest to a new VMID.
+
+    POST /nodes/{node}/{kind}/{vmid}/clone  →  UPID
+
+    full=False (default): linked clone — requires the source to be a template.
+    full=True: full copy — independent disk; slower but no template requirement.
+    """
+    vmid = _check_vmid(vmid)
+    newid = _check_vmid(newid)
+    kind = _check_kind(kind)
+    _check_node(node)
+    n = node or api.config.node
+    data: dict = {"newid": newid}
+    if full:
+        data["full"] = 1
+    if name is not None:
+        data["name"] = name
+    if pool is not None:
+        data["pool"] = pool
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/nodes/{n}/{kind}/{vmid}/clone", data)
+
+
+def delete_guest(
+    api,
+    vmid: str,
+    kind: str = "lxc",
+    node: str | None = None,
+    purge: bool = False,
+    force: bool = False,
+) -> str:
+    """Permanently delete a guest and its disks.
+
+    DELETE /nodes/{node}/{kind}/{vmid}  →  UPID
+
+    purge=True: also removes the guest from backup jobs, HA, and replication config.
+    force=True: attempt deletion even if the guest is running.
+
+    This is the single most destructive operation on the platform — irreversible.
+    """
+    vmid = _check_vmid(vmid)
+    kind = _check_kind(kind)
+    _check_node(node)
+    n = node or api.config.node
+    params: dict = {}
+    if purge:
+        params["purge"] = 1
+    if force:
+        params["force"] = 1
+    # DESTRUCTIVE MUTATION — confirm-gated + audited at the server layer.
+    return api._delete(f"/nodes/{n}/{kind}/{vmid}", params or None)
+
+
+# ---------------------------------------------------------------------------
+# Plan functions — each returns a Plan for caller inspection (PLAN pillar)
+# ---------------------------------------------------------------------------
+
+def plan_create(
+    api,
+    vmid: str,
+    kind: str = "lxc",
+    node: str | None = None,
+) -> Plan:
+    """Preview creating a new guest with the given vmid.
+
+    Reads list_guests (a safe read) to detect whether vmid is already in use.
+    If the collision check itself fails, that uncertainty is disclosed — the absence
+    of a HIGH flag is not a safety signal.
+    """
+    vmid = _check_vmid(vmid)
+    kind = _check_kind(kind)
+    _check_node(node)
+
+    taken = False
+    check_error: str | None = None
+    try:
+        guests = api.list_guests(node) or []
+        # Proxmox returns vmid as int; compare numerically so '0500' vs 500 can't slip the check.
+        taken = any(_same_vmid(g.get("vmid"), vmid) for g in guests)
+    except Exception as e:
+        check_error = type(e).__name__
+
+    if check_error is not None:
+        blast = [
+            f"collision check failed ({check_error}) — could not confirm vmid {vmid} is free; "
+            "create may fail if already in use"
+        ]
+        reasons = [
+            f"resource consumption: creates a new {kind} {vmid}",
+            "collision check unavailable — absence of HIGH flag is not a safety signal",
+        ]
+    elif taken:
+        blast = [f"create will FAIL — vmid {vmid} already in use"]
+        reasons = [f"vmid {vmid} is already taken; create will be rejected by PVE"]
+    else:
+        blast = [f"new {kind}/{vmid} will be created, consuming resources (disk, memory, CPU allocation)"]
+        reasons = [f"resource consumption: creates a new {kind} {vmid}"]
+
+    return Plan(
+        action="pve_create",
+        target=f"{kind}/{vmid}",
+        change=f"create {kind} {vmid}",
+        current={},
+        blast_radius=blast,
+        risk=RISK_MEDIUM,
+        risk_reasons=reasons,
+    )
+
+
+def plan_clone(
+    api,
+    vmid: str,
+    newid: str,
+    kind: str = "lxc",
+    node: str | None = None,
+) -> Plan:
+    """Preview cloning guest vmid to newid.
+
+    Reads list_guests (a safe read) to detect whether newid is already in use.
+    """
+    vmid = _check_vmid(vmid)
+    newid = _check_vmid(newid)
+    kind = _check_kind(kind)
+    _check_node(node)
+
+    taken = False
+    source_found = True
+    check_error: str | None = None
+    try:
+        guests = api.list_guests(node) or []
+        # Compare numerically (Proxmox returns int); check BOTH that newid is free and the source exists.
+        taken = any(_same_vmid(g.get("vmid"), newid) for g in guests)
+        source_found = any(_same_vmid(g.get("vmid"), vmid) for g in guests)
+    except Exception as e:
+        check_error = type(e).__name__
+
+    if check_error is not None:
+        blast = [
+            f"check failed ({check_error}) — could not confirm newid {newid} is free or that "
+            f"source {kind}/{vmid} exists; clone may fail"
+        ]
+        reasons = [
+            f"resource consumption: clones {kind}/{vmid} → {newid}",
+            "collision/source check unavailable — absence of HIGH flag is not a safety signal",
+        ]
+    elif taken:
+        blast = [f"clone will FAIL — vmid {newid} already in use"]
+        reasons = [f"newid {newid} is already taken; clone will be rejected by PVE"]
+    elif not source_found:
+        blast = [f"clone will FAIL — source {kind}/{vmid} not found; nothing would be cloned"]
+        reasons = [f"source {kind}/{vmid} does not exist; clone will be rejected by PVE"]
+    else:
+        blast = [
+            f"clones {kind}/{vmid} → {newid} (new independent guest); "
+            "consumes additional disk and resource allocation"
+        ]
+        reasons = [f"resource consumption: clones {kind}/{vmid} to {newid}"]
+
+    return Plan(
+        action="pve_clone",
+        target=f"{kind}/{vmid}→{newid}",
+        change=f"clone {kind} {vmid} to {newid}",
+        current={},
+        blast_radius=blast,
+        risk=RISK_MEDIUM,
+        risk_reasons=reasons,
+    )
+
+
+def plan_delete(
+    api,
+    vmid: str,
+    kind: str = "lxc",
+    node: str | None = None,
+    purge: bool = False,
+) -> Plan:
+    """Preview permanently deleting a guest.
+
+    Reads guest_status (a safe read) to show what's being destroyed (name, status).
+    RISK_HIGH regardless of outcome — destruction is irreversible if it proceeds;
+    not-found means the op would fail, not that it's safe.
+    """
+    vmid = _check_vmid(vmid)
+    kind = _check_kind(kind)
+    _check_node(node)
+
+    current: dict = {}
+    found = True
+    check_failed = False
+    try:
+        gs = api.guest_status(vmid, kind, node)
+        current = {k: gs[k] for k in ("status", "name") if k in gs}
+    except Exception as e:
+        # Only a definitive 404 is "confirmed absent". A transient error must NOT be reported as
+        # "nothing would be destroyed" — that would be a false-safety claim on the platform's most
+        # destructive op.
+        resp = getattr(e, "response", None)
+        if resp is not None and getattr(resp, "status_code", None) == 404:
+            found = False
+        else:
+            check_failed = True
+
+    name = current.get("name", "unknown")
+    status = current.get("status", "unknown")
+
+    if check_failed:
+        # Existence UNKNOWN — if the guest exists, this destroys it. RISK_HIGH; no false safety.
+        blast = [
+            f"could NOT verify whether {kind}/{vmid} exists; if it does, this PERMANENTLY destroys "
+            "it and its disk(s) — irreversible"
+        ]
+        reasons = [
+            f"existence check for {kind}/{vmid} failed — cannot confirm what (if anything) is destroyed",
+            "RISK_HIGH maintained: uncertainty is not a safety signal",
+        ]
+    elif not found:
+        # Confirmed absent (404): the delete will fail — nothing gets destroyed.
+        # RISK_HIGH is maintained (plan_rollback precedent); blast does NOT claim destruction.
+        blast = [f"delete will FAIL — {kind}/{vmid} not found; nothing would be destroyed"]
+        reasons = [
+            f"{kind}/{vmid} not found — delete will fail",
+            "RISK_HIGH maintained: not-found is a failure state, not a safety signal",
+        ]
+    else:
+        blast = [
+            f"PERMANENTLY destroys {kind}/{vmid} (name={name}, currently {status}) "
+            "and its disk(s) — irreversible"
+        ]
+        if purge:
+            blast.append(
+                f"+ if configured, removes {kind}/{vmid} from backup jobs / HA / replication (purge=true)"
+            )
+        reasons = [
+            f"destroys {kind}/{vmid} (name={name}, status={status}) and all its disks — irreversible",
+            "delete is the single most destructive guest operation; no undo once confirmed",
+        ]
+        if purge:
+            reasons.append(
+                "purge also removes the guest from backup, HA, and replication config where configured"
+            )
+
+    return Plan(
+        action="pve_delete",
+        target=f"{kind}/{vmid}",
+        change=f"delete {kind} {vmid}" + (" (purge)" if purge else ""),
+        current=current,
+        blast_radius=blast,
+        risk=RISK_HIGH,
+        risk_reasons=reasons,
+    )

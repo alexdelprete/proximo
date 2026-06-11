@@ -1,0 +1,938 @@
+"""Proximo PBS (Proxmox Backup Server) lane — backend + tool/plan surface.
+
+Separate backend because PBS is a distinct service from the PVE host:
+- API base: https://<pbs-host>:8007/api2/json  (not :8006)
+- Auth:     PBSAPIToken= (not PVEAPIToken=)
+- Paths:    /admin/datastore/...  (not /nodes/{node}/...)
+
+VERIFIED live shapes (gathered 2026-06-08 against a PBS 4.2.1 instance):
+  GET /admin/datastore
+    → [{"gc-schedule":"sun 03:00","name":"test-datastore","path":"/datastore"}, ...]
+
+  GET /admin/datastore/{store}/gc
+    → {"disk-bytes":int,"disk-chunks":int,"index-data-bytes":int,"index-file-count":int,
+       "next-run":epoch,"pending-bytes":int,"pending-chunks":int,"removed-bad":int,
+       "removed-bytes":int,"removed-chunks":int,"schedule":str,"still-bad":int,
+       "store":str,"upid":str|null}
+
+All other endpoint shapes carry "Smoke-confirm:" — documented PBS API, not live-verified.
+
+Security posture mirrors backends.py (and is stricter on TLS):
+- Token read at call time from the token-path file; NEVER logged.
+- TLS verification prefers ca_bundle over disabling. FAIL-CLOSED: constructing a
+  PbsBackend with verify_tls=false AND no ca_bundle raises — the token-bearing backend
+  refuses to send the secret over a completely unverified channel.
+- Fingerprint is stored on config; honest note: not yet wire-enforced in httpx (would require
+  a custom SSL context); stored to surface in plans + future hardening.
+- Input validators use \\Z (not $) to block trailing-newline bypass.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import warnings
+from dataclasses import dataclass
+
+import httpx
+
+from ._tls import httpx_verify
+from .backends import ProximoError
+from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
+
+# ---------------------------------------------------------------------------
+# Validators
+# ---------------------------------------------------------------------------
+
+# Store name: path segment in /admin/datastore/{store}/... — reject traversal.
+# PBS datastore names are alphanumeric + hyphen/underscore; no slash or control chars.
+# \Z (not $) — Python's $ matches before a trailing newline, so "store\n" would slip through.
+# Smoke-confirm: exact accepted charset against a live PBS with non-ASCII / special names.
+_STORE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
+
+# Namespace: PBS namespaces ARE hierarchical (slash-delimited levels), so we cannot
+# blanket-reject '/'.  Reject: '..', control chars (including newline), and traversal
+# patterns. An empty string is the root namespace (valid).
+# Smoke-confirm: exact allowed charset and depth limits against a live PBS.
+_NS_UNSAFE_RE = re.compile(r"\.\.|[\x00-\x1f]|//")
+
+# Backup types: documented PBS values.
+# Smoke-confirm: full set of accepted values on the live PBS version.
+_VALID_BACKUP_TYPES = frozenset({"vm", "ct", "host"})
+
+# backup-id is typically a VMID (numeric) or a name, goes as a query/body param.
+# Reject newlines and path-traversal chars; be permissive otherwise (Smoke-confirm exact charset).
+_BACKUP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+
+
+def _check_store(store: str) -> str:
+    # Do NOT strip — stripping defeats \Z trailing-newline protection.
+    s = str(store)
+    if not _STORE_RE.match(s):
+        raise ProximoError(
+            f"invalid PBS datastore name: {store!r} "
+            "(must start with alnum, then alnum/_/-, <=64 chars, no slash or control chars)"
+        )
+    return s
+
+
+def _check_namespace(ns: str | None) -> str | None:
+    """Validate a PBS namespace string (may contain '/' for nested; may be empty = root).
+
+    Rejects: '..', control chars (incl. newline), double-slash.
+    Smoke-confirm: full accepted charset + max depth against a live PBS.
+    """
+    if ns is None:
+        return None
+    s = str(ns)
+    if _NS_UNSAFE_RE.search(s) or s.startswith("/") or s.endswith("/"):
+        raise ProximoError(
+            f"invalid PBS namespace: {ns!r} "
+            "(rejects '..', control chars, '//', leading/trailing '/'; "
+            "nested levels use single '/', root is the empty string)"
+        )
+    return s
+
+
+def _check_backup_type(backup_type: str | None) -> str | None:
+    if backup_type is None:
+        return None
+    # Do NOT strip — newlines and control chars must be rejected, not silently removed.
+    bt = str(backup_type)
+    if bt not in _VALID_BACKUP_TYPES:
+        raise ProximoError(
+            f"invalid backup_type: {backup_type!r} "
+            f"(expected one of {sorted(_VALID_BACKUP_TYPES)})"
+        )
+    return bt
+
+
+def _check_backup_id(backup_id: str | None) -> str | None:
+    if backup_id is None:
+        return None
+    # Do NOT strip — \Z must catch trailing newlines.
+    bid = str(backup_id)
+    if not _BACKUP_ID_RE.match(bid):
+        raise ProximoError(
+            f"invalid backup_id: {backup_id!r} "
+            "(start with alnum, then alnum/._/-, <=64 chars, no control chars)"
+        )
+    return bid
+
+
+def _check_backup_time(backup_time) -> int:
+    """Validate a backup timestamp (Unix epoch integer)."""
+    try:
+        t = int(backup_time)
+    except (ValueError, TypeError) as exc:
+        raise ProximoError(
+            f"invalid backup_time: {backup_time!r} (must be an integer Unix epoch)"
+        ) from exc
+    if t <= 0:
+        raise ProximoError(
+            f"invalid backup_time: {backup_time!r} (must be a positive epoch)"
+        )
+    return t
+
+
+def _check_namespace_component(name: str) -> str:
+    """Validate a single namespace name component (no '/' — used for namespace_create 'name').
+
+    Does NOT strip — control chars and newlines must be rejected, not silently removed.
+    Smoke-confirm: whether PBS namespace_create 'name' is a single component or a full path.
+    """
+    s = str(name)
+    if not s:
+        raise ProximoError("namespace name must not be empty")
+    if "/" in s or _NS_UNSAFE_RE.search(s) or any(c < " " for c in s):
+        raise ProximoError(
+            f"invalid namespace name component: {name!r} "
+            "(single component: no '/', no '..', no control chars)"
+        )
+    return s
+
+
+# ---------------------------------------------------------------------------
+# PbsConfig
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PbsConfig:
+    """Configuration for the PBS API backend.
+
+    All credentials are referenced by PATH — values are read at call time
+    and never logged, so the secrets vault is never echoed.
+
+    env vars:
+        PROXIMO_PBS_BASE_URL     required  https://<host>:8007/api2/json
+        PROXIMO_PBS_TOKEN_PATH   required  file containing USER@REALM!TOKENID:SECRET
+        PROXIMO_PBS_VERIFY_TLS   optional  default "true"; set "false" to skip (warn)
+        PROXIMO_PBS_CA_BUNDLE    optional  path to CA cert bundle (preferred over disabling TLS)
+        PROXIMO_PBS_FINGERPRINT  optional  SHA-256 fingerprint of PBS self-signed cert
+                                           (stored; honest note: not yet wire-enforced in httpx)
+    """
+
+    base_url: str          # e.g. "https://pbs.example.lan:8007/api2/json"
+    token_path: str        # file containing: USER@REALM!TOKENID:SECRET  (run-but-not-read)
+    verify_tls: bool = True
+    ca_bundle: str | None = None
+    fingerprint: str | None = None  # stored; not yet wire-enforced — see module docstring
+
+    @classmethod
+    def from_env(cls) -> PbsConfig:
+        try:
+            base_url = os.environ["PROXIMO_PBS_BASE_URL"]
+            token_path = os.environ["PROXIMO_PBS_TOKEN_PATH"]
+        except KeyError as e:
+            raise RuntimeError(f"Missing required PBS env var: {e.args[0]}") from e
+
+        verify_tls = os.environ.get("PROXIMO_PBS_VERIFY_TLS", "true").lower() != "false"
+        ca_bundle = os.environ.get("PROXIMO_PBS_CA_BUNDLE") or None
+        fingerprint = os.environ.get("PROXIMO_PBS_FINGERPRINT") or None
+
+        if not verify_tls and not ca_bundle:
+            warnings.warn(
+                "PROXIMO_PBS_VERIFY_TLS=false with no CA bundle — "
+                "talking to the PBS API without cert validation.",
+                stacklevel=2,
+            )
+
+        return cls(
+            base_url=base_url.rstrip("/"),
+            token_path=token_path,
+            verify_tls=verify_tls,
+            ca_bundle=ca_bundle,
+            fingerprint=fingerprint,
+        )
+
+
+# ---------------------------------------------------------------------------
+# PbsBackend
+# ---------------------------------------------------------------------------
+
+class PbsBackend:
+    """Management via the Proxmox Backup Server REST API using a PBS API token.
+
+    Self-contained: does NOT depend on ProximoConfig.  Use PbsConfig.from_env()
+    or construct PbsConfig directly for tests.
+
+    PBS auth header: PBSAPIToken=USER@REALM!TOKENID:SECRET
+    (token file holds the full 'USER@REALM!TOKENID:SECRET' string verbatim;
+    the colon before the secret is PBS convention — Smoke-confirm the exact
+    separator character against a live PBS auth test).
+    """
+
+    def __init__(self, config: PbsConfig):
+        self.config = config
+        verify: bool | str = config.ca_bundle if config.ca_bundle else config.verify_tls
+        # FAIL-CLOSED: this backend sends a real API-token secret on every request. Refuse
+        # to construct it over a completely unverified channel (verify_tls=false AND no
+        # ca_bundle). The stored fingerprint is NOT wire-enforced yet, so it does NOT make
+        # an otherwise-unverified connection safe — a ca_bundle (or system CA) is required.
+        if verify is False:
+            raise ProximoError(
+                "refusing to send the PBS token over unverified TLS: set PROXIMO_PBS_CA_BUNDLE "
+                "to the PBS CA cert (preferred) or PROXIMO_PBS_VERIFY_TLS=true. The stored "
+                "fingerprint is not yet wire-enforced and cannot substitute for verification."
+            )
+        self._client = httpx.Client(base_url=config.base_url, verify=httpx_verify(verify), timeout=60)
+        # NOTE: fingerprint is stored on config but NOT wire-enforced here.
+        # httpx requires a custom SSL context for fingerprint pinning; that
+        # hardening is deferred and explicitly noted in the module docstring.
+
+    def _auth_header(self) -> dict[str, str]:
+        # Token file holds: USER@REALM!TOKENID:SECRET  (e.g. backup@pbs!token:secret)
+        # Header: PBSAPIToken=USER@REALM!TOKENID:SECRET
+        # Read at call time; NEVER logged.
+        with open(self.config.token_path, encoding="utf-8") as f:
+            token = f.read().strip()
+        return {"Authorization": f"PBSAPIToken={token}"}
+
+    def _get(self, path: str, params: dict | None = None):
+        r = self._client.get(path, headers=self._auth_header(), params=params or {})
+        r.raise_for_status()
+        return r.json().get("data")
+
+    def _post(self, path: str, data: dict | None = None):
+        r = self._client.post(path, headers=self._auth_header(), data=data or {})
+        r.raise_for_status()
+        return r.json().get("data")
+
+    def _delete(self, path: str, params: dict | None = None):
+        r = self._client.request(
+            "DELETE", path, headers=self._auth_header(), params=params or {}
+        )
+        r.raise_for_status()
+        return r.json().get("data")
+
+
+# ---------------------------------------------------------------------------
+# READ operations — no plan needed; audited by the server layer
+# ---------------------------------------------------------------------------
+
+def datastore_list(api: PbsBackend) -> list[dict]:
+    """List all datastores on the PBS server.
+
+    GET /admin/datastore
+
+    VERIFIED response shape (PBS 4.2.1, 2026-06-08):
+      [{"gc-schedule": "sun 03:00", "name": "test-datastore", "path": "/datastore"}, ...]
+    """
+    return api._get("/admin/datastore") or []
+
+
+def datastore_status(api: PbsBackend, store: str) -> dict:
+    """Get usage statistics for a PBS datastore.
+
+    GET /admin/datastore/{store}/status
+
+    Smoke-confirm: response field names — expected {total, used, avail, ...}
+    but exact set and types not live-verified.
+    """
+    store = _check_store(store)
+    return api._get(f"/admin/datastore/{store}/status") or {}
+
+
+def gc_status(api: PbsBackend, store: str) -> dict:
+    """Get GC (garbage collection) status for a PBS datastore.
+
+    GET /admin/datastore/{store}/gc
+
+    VERIFIED response shape (PBS 4.2.1, 2026-06-08):
+      {"disk-bytes": int, "disk-chunks": int, "index-data-bytes": int,
+       "index-file-count": int, "next-run": epoch, "pending-bytes": int,
+       "pending-chunks": int, "removed-bad": int, "removed-bytes": int,
+       "removed-chunks": int, "schedule": str, "still-bad": int,
+       "store": str, "upid": str | null}
+    """
+    store = _check_store(store)
+    return api._get(f"/admin/datastore/{store}/gc") or {}
+
+
+def snapshots_list(
+    api: PbsBackend,
+    store: str,
+    ns: str | None = None,
+    backup_type: str | None = None,
+    backup_id: str | None = None,
+) -> list[dict]:
+    """List backup snapshots in a PBS datastore, with optional filters.
+
+    GET /admin/datastore/{store}/snapshots[?ns=&backup-type=&backup-id=]
+
+    ns:          PBS namespace (hierarchical, e.g. 'team/prod'); None = root namespace.
+    backup_type: 'vm', 'ct', or 'host' (Smoke-confirm full accepted set).
+    backup_id:   e.g. '100' for VM 100 (Smoke-confirm exact format + accepted chars).
+
+    Smoke-confirm: response field names per snapshot — expected {backup-id, backup-time,
+    backup-type, files, owner, protected, verification, ...} but not live-verified.
+    Smoke-confirm: whether 'ns' param is omitted for root or must be sent as empty string.
+    """
+    store = _check_store(store)
+    ns = _check_namespace(ns)
+    backup_type = _check_backup_type(backup_type)
+    backup_id = _check_backup_id(backup_id)
+
+    params: dict = {}
+    if ns is not None:
+        params["ns"] = ns
+    if backup_type is not None:
+        params["backup-type"] = backup_type
+    if backup_id is not None:
+        params["backup-id"] = backup_id
+
+    return api._get(f"/admin/datastore/{store}/snapshots", params=params) or []
+
+
+def namespace_list(
+    api: PbsBackend,
+    store: str,
+    parent: str | None = None,
+    max_depth: int | None = None,
+) -> list[dict]:
+    """List namespaces within a PBS datastore.
+
+    GET /admin/datastore/{store}/namespace[?parent=&max-depth=]
+
+    parent:    parent namespace to list under (None = root).
+    max_depth: limit recursion depth (Smoke-confirm exact param name 'max-depth' vs 'max_depth').
+
+    Smoke-confirm: response shape — expected [{"ns": str, ...}] but not live-verified.
+    Smoke-confirm: exact query param names (hyphenated vs underscored).
+    """
+    store = _check_store(store)
+    parent = _check_namespace(parent)
+
+    params: dict = {}
+    if parent is not None:
+        params["parent"] = parent
+    if max_depth is not None:
+        try:
+            d = int(max_depth)
+        except (ValueError, TypeError) as exc:
+            raise ProximoError(
+                f"invalid max_depth: {max_depth!r} (must be an integer)"
+            ) from exc
+        params["max-depth"] = d  # Smoke-confirm: hyphenated vs underscored
+
+    return api._get(f"/admin/datastore/{store}/namespace", params=params) or []
+
+
+# ---------------------------------------------------------------------------
+# MUTATION operations — confirm-gated at the server layer
+# ---------------------------------------------------------------------------
+
+def gc_start(api: PbsBackend, store: str) -> str:
+    """Start a GC (garbage collection) run on a PBS datastore.
+
+    POST /admin/datastore/{store}/gc  →  UPID (async PBS task)
+
+    GC permanently removes unreferenced chunks and frees disk space.
+    MUTATION — confirm-gated + audited at the server layer.
+
+    Smoke-confirm: response is a UPID string (async task) vs null.
+    """
+    store = _check_store(store)
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/admin/datastore/{store}/gc")
+
+
+def verify_start(
+    api: PbsBackend,
+    store: str,
+    ns: str | None = None,
+    backup_type: str | None = None,
+    backup_id: str | None = None,
+) -> str:
+    """Start an integrity verification run on a PBS datastore.
+
+    POST /admin/datastore/{store}/verify  →  UPID (async PBS task)
+
+    Non-destructive: reads and checks chunk checksums; no data is modified.
+    Heavy I/O — may impact backup performance while running.
+
+    body params (all optional):
+      ns:          namespace to restrict verification to.
+      backup-type: 'vm', 'ct', or 'host'.
+      backup-id:   specific backup ID.
+
+    MUTATION — confirm-gated + audited at the server layer (starts an async task).
+
+    Smoke-confirm: exact body param names (hyphenated vs underscored).
+    Smoke-confirm: whether partial-verification params are honored or the API ignores them.
+    """
+    store = _check_store(store)
+    ns = _check_namespace(ns)
+    backup_type = _check_backup_type(backup_type)
+    backup_id = _check_backup_id(backup_id)
+
+    data: dict = {}
+    if ns is not None:
+        data["ns"] = ns
+    if backup_type is not None:
+        data["backup-type"] = backup_type  # Smoke-confirm: hyphenated param name
+    if backup_id is not None:
+        data["backup-id"] = backup_id  # Smoke-confirm: hyphenated param name
+
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/admin/datastore/{store}/verify", data)
+
+
+def prune(
+    api: PbsBackend,
+    store: str,
+    keep_last: int | None = None,
+    keep_daily: int | None = None,
+    keep_weekly: int | None = None,
+    keep_monthly: int | None = None,
+    keep_yearly: int | None = None,
+    ns: str | None = None,
+    backup_type: str | None = None,
+    backup_id: str | None = None,
+    dry_run: bool = True,
+) -> list[dict]:
+    """Prune backup snapshots in a PBS datastore per a retention policy.
+
+    POST /admin/datastore/{store}/prune
+
+    dry_run DEFAULTS TO True — safe preview mode that returns the prune decisions
+    without deleting anything.  Set dry_run=False ONLY after reviewing the plan
+    (plan_prune with dry_run=False is RISK_HIGH — deletes recovery points permanently).
+
+    Returns a list of prune decision dicts: {backup-time, keep: bool, ...}.
+
+    body params (Smoke-confirm all hyphenated param names against live PBS):
+      keep-last, keep-daily, keep-weekly, keep-monthly, keep-yearly
+      ns, backup-type, backup-id
+      dry-run: 1 when dry_run=True
+
+    MUTATION — confirm-gated + audited at the server layer.
+
+    Smoke-confirm: exact hyphenated param names (keep-last vs keep_last etc.).
+    Smoke-confirm: response shape per entry — expected {backup-time, keep, ...}.
+    Smoke-confirm: whether 'ns' is required when the datastore has namespaces.
+    """
+    store = _check_store(store)
+    ns = _check_namespace(ns)
+    backup_type = _check_backup_type(backup_type)
+    backup_id = _check_backup_id(backup_id)
+
+    data: dict = {}
+
+    # Retention policy knobs — Smoke-confirm: hyphenated param names
+    for py_name, api_name in (
+        (keep_last, "keep-last"),
+        (keep_daily, "keep-daily"),
+        (keep_weekly, "keep-weekly"),
+        (keep_monthly, "keep-monthly"),
+        (keep_yearly, "keep-yearly"),
+    ):
+        if py_name is not None:
+            try:
+                data[api_name] = int(py_name)
+            except (ValueError, TypeError) as exc:
+                raise ProximoError(
+                    f"invalid {api_name}: {py_name!r} (must be an integer)"
+                ) from exc
+
+    if ns is not None:
+        data["ns"] = ns
+    if backup_type is not None:
+        data["backup-type"] = backup_type  # Smoke-confirm
+    if backup_id is not None:
+        data["backup-id"] = backup_id  # Smoke-confirm
+
+    if dry_run:
+        data["dry-run"] = 1  # Smoke-confirm: 'dry-run' vs 'dry_run' param name
+
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/admin/datastore/{store}/prune", data) or []
+
+
+def snapshot_delete(
+    api: PbsBackend,
+    store: str,
+    backup_type: str,
+    backup_id: str,
+    backup_time: int,
+    ns: str | None = None,
+) -> object:
+    """Delete a specific backup snapshot from a PBS datastore.
+
+    DELETE /admin/datastore/{store}/snapshots?backup-type=&backup-id=&backup-time=[&ns=]
+
+    Permanently destroys the named snapshot (a recovery point). No undo.
+
+    MUTATION — confirm-gated + audited at the server layer.
+
+    Smoke-confirm: whether params go as query params (preferred per REST DELETE conventions)
+    vs request body. Documented as query params in PBS API viewer — using params= here.
+    Smoke-confirm: hyphenated param names (backup-type, backup-id, backup-time).
+    Smoke-confirm: return value (expected null on success).
+    """
+    store = _check_store(store)
+    backup_type = _check_backup_type(backup_type)  # type: ignore[assignment]
+    backup_id = _check_backup_id(backup_id)  # type: ignore[assignment]
+    backup_time = _check_backup_time(backup_time)
+    ns = _check_namespace(ns)
+
+    params: dict = {
+        "backup-type": backup_type,   # Smoke-confirm: hyphenated
+        "backup-id": backup_id,
+        "backup-time": backup_time,
+    }
+    if ns is not None:
+        params["ns"] = ns
+
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._delete(f"/admin/datastore/{store}/snapshots", params=params)
+
+
+def namespace_create(
+    api: PbsBackend,
+    store: str,
+    name: str,
+    parent: str | None = None,
+) -> object:
+    """Create a namespace within a PBS datastore.
+
+    POST /admin/datastore/{store}/namespace
+    Body: {name: str, parent?: str}
+
+    name:   single namespace component (no '/').
+    parent: parent namespace path (hierarchical); None = create under root.
+
+    MUTATION — confirm-gated + audited at the server layer.
+
+    Smoke-confirm: whether 'name' is a single component or a full path.
+    Smoke-confirm: response shape (expected null or {ns: str} on success).
+    """
+    store = _check_store(store)
+    name = _check_namespace_component(name)
+    parent = _check_namespace(parent)
+
+    data: dict = {"name": name}
+    if parent is not None:
+        data["parent"] = parent
+
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/admin/datastore/{store}/namespace", data)
+
+
+def namespace_delete(
+    api: PbsBackend,
+    store: str,
+    ns: str,
+    delete_groups: bool = False,
+) -> object:
+    """Delete a namespace from a PBS datastore.
+
+    DELETE /admin/datastore/{store}/namespace?ns=&[delete-groups=1]
+
+    ns:            namespace to delete (required).
+    delete_groups: when True, also deletes all backup groups/snapshots inside the namespace.
+                   THIS ESCALATES TO RISK_HIGH — see plan_namespace_delete.
+
+    MUTATION — confirm-gated + audited at the server layer.
+
+    Smoke-confirm: exact param names and whether they go as query vs body.
+    Smoke-confirm: response shape (expected null on success).
+    Smoke-confirm: whether 'delete-groups' is the correct param name (vs 'delete_groups').
+    """
+    store = _check_store(store)
+    ns_val = _check_namespace(ns)
+    if ns_val is None or ns_val == "":
+        raise ProximoError("namespace to delete must not be empty")
+
+    params: dict = {"ns": ns_val}
+    if delete_groups:
+        params["delete-groups"] = 1  # Smoke-confirm: 'delete-groups' param name
+
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._delete(f"/admin/datastore/{store}/namespace", params=params)
+
+
+# ---------------------------------------------------------------------------
+# PLAN functions — pure factories; no mutation; the PLAN pillar
+# ---------------------------------------------------------------------------
+
+def plan_gc_start(store: str) -> Plan:
+    """Preview starting a GC run on a PBS datastore.  PURE — no API call.
+
+    RISK_HIGH:
+    - GC permanently removes unreferenced chunks to reclaim disk space.
+    - I/O-heavy and long-running; impacts backup/restore throughput while active.
+    - If chunk references are corrupt, GC can remove data that is still referenced
+      by an in-flight or partially-uploaded backup (a very rare but real blast radius).
+    - No undo: removed chunks cannot be recovered.
+    """
+    store = _check_store(store)
+    return Plan(
+        action="pbs_gc_start",
+        target=f"datastore/{store}",
+        change=f"start GC on PBS datastore '{store}'",
+        current={},
+        blast_radius=[
+            f"permanently removes unreferenced chunks from datastore '{store}'",
+            "freed disk space is NOT recoverable; no undo",
+            "I/O-heavy — may impact concurrent backup/restore operations",
+            "in rare cases (corrupt references), GC can remove chunks still needed; "
+            "verify datastore integrity first",
+        ],
+        risk=RISK_HIGH,
+        risk_reasons=[
+            "GC permanently destroys storage chunks — no undo",
+            "long-running I/O operation with cluster-wide impact on backup throughput",
+        ],
+        note=(
+            "GC is async — returns a UPID; poll task status for completion. "
+            "Ensure no backups are actively uploading before starting GC."
+        ),
+    )
+
+
+def plan_prune(
+    store: str,
+    keep_last: int | None = None,
+    keep_daily: int | None = None,
+    keep_weekly: int | None = None,
+    keep_monthly: int | None = None,
+    keep_yearly: int | None = None,
+    ns: str | None = None,
+    backup_type: str | None = None,
+    backup_id: str | None = None,
+    dry_run: bool = True,
+) -> Plan:
+    """Preview a prune operation on a PBS datastore.  PURE — no API call.
+
+    dry_run=True  → RISK_LOW:  preview only — returns what WOULD be pruned; deletes nothing.
+    dry_run=False → RISK_HIGH: DELETES backup snapshots per retention policy; no undo.
+
+    The 'keep_*' parameters define the retention policy:
+    - keep_last:    retain the N most recent backups regardless of time.
+    - keep_daily:   retain the last N days (one backup per day).
+    - keep_weekly:  retain the last N weeks.
+    - keep_monthly: retain the last N months.
+    - keep_yearly:  retain the last N years.
+
+    Deleted backups are recovery points — destroying them permanently reduces your
+    restore options.  NEVER claim this operation is "safe" even with dry_run=True
+    (a dry run does not change state; that is not the same as safe).
+    """
+    store = _check_store(store)
+    ns = _check_namespace(ns)
+    backup_type = _check_backup_type(backup_type)
+    backup_id = _check_backup_id(backup_id)
+
+    policy_parts = []
+    for label, val in (
+        ("keep-last", keep_last),
+        ("keep-daily", keep_daily),
+        ("keep-weekly", keep_weekly),
+        ("keep-monthly", keep_monthly),
+        ("keep-yearly", keep_yearly),
+    ):
+        if val is not None:
+            policy_parts.append(f"{label}={val}")
+    policy_str = ", ".join(policy_parts) if policy_parts else "(no keep policy set — ALL may be pruned)"
+
+    scope_parts = [f"datastore '{store}'"]
+    if ns is not None:
+        scope_parts.append(f"namespace '{ns}'")
+    if backup_type is not None:
+        scope_parts.append(f"type '{backup_type}'")
+    if backup_id is not None:
+        scope_parts.append(f"id '{backup_id}'")
+    scope_str = " / ".join(scope_parts)
+
+    if dry_run:
+        return Plan(
+            action="pbs_prune",
+            target=f"datastore/{store}",
+            change=f"prune preview (dry-run) on {scope_str} — policy: {policy_str}",
+            current={},
+            blast_radius=[
+                "DRY RUN — preview only; NO backups will be deleted",
+                f"shows which snapshots WOULD be removed under policy: {policy_str}",
+                "to execute: re-call prune() with dry_run=False (that is RISK_HIGH)",
+            ],
+            risk=RISK_LOW,
+            risk_reasons=["dry_run=True — no state change; returns prune decisions without deleting"],
+            note=(
+                "LOW means 'does not change state', NOT 'safe'. "
+                "Review the returned decisions carefully before executing with dry_run=False."
+            ),
+        )
+    else:
+        return Plan(
+            action="pbs_prune",
+            target=f"datastore/{store}",
+            change=f"EXECUTE prune on {scope_str} — policy: {policy_str}",
+            current={},
+            blast_radius=[
+                f"PERMANENTLY DELETES backup snapshots from {scope_str}",
+                f"retention policy: {policy_str}",
+                "deleted backups are RECOVERY POINTS — they cannot be recovered",
+                "no undo: once pruned, those restore points are gone",
+                "run with dry_run=True first to preview what will be deleted",
+            ],
+            risk=RISK_HIGH,
+            risk_reasons=[
+                "prune with dry_run=False DELETES backup snapshots permanently",
+                "deleted backups are the UNDO substrate itself — this destroys recovery points",
+                "no undo available",
+            ],
+            note=(
+                "Prune is the operation that deletes backup snapshots per retention policy. "
+                "GC (separate) is needed afterward to actually reclaim the freed disk space."
+            ),
+        )
+
+
+def plan_snapshot_delete(
+    store: str,
+    backup_type: str,
+    backup_id: str,
+    backup_time: int,
+    ns: str | None = None,
+) -> Plan:
+    """Preview deleting a specific PBS backup snapshot.  PURE — no API call.
+
+    RISK_HIGH: permanently destroys a specific recovery point; no undo.
+    """
+    store = _check_store(store)
+    backup_type = _check_backup_type(backup_type)  # type: ignore[assignment]
+    backup_id = _check_backup_id(backup_id)  # type: ignore[assignment]
+    backup_time = _check_backup_time(backup_time)
+    ns = _check_namespace(ns)
+
+    ns_note = f" in namespace '{ns}'" if ns else ""
+    target_desc = (
+        f"{backup_type}/{backup_id}@{backup_time}{ns_note} "
+        f"in datastore '{store}'"
+    )
+
+    return Plan(
+        action="pbs_snapshot_delete",
+        target=f"datastore/{store}/{backup_type}/{backup_id}@{backup_time}",
+        change=f"delete backup snapshot: {target_desc}",
+        current={},
+        blast_radius=[
+            f"PERMANENTLY DELETES backup snapshot: {target_desc}",
+            "this removes a specific recovery point — it cannot be restored",
+            "no undo: the snapshot data is gone once removed",
+        ],
+        risk=RISK_HIGH,
+        risk_reasons=[
+            "deletes a backup snapshot (a recovery point) permanently",
+            "no undo available — the specific restore point is destroyed",
+        ],
+        note=(
+            "Deleting a snapshot does not immediately reclaim disk space — "
+            "run GC afterward to free unreferenced chunks."
+        ),
+    )
+
+
+def plan_namespace_create(
+    store: str,
+    name: str,
+    parent: str | None = None,
+) -> Plan:
+    """Preview creating a namespace in a PBS datastore.  PURE — no API call.
+
+    RISK_LOW: additive operation — creates a new namespace hierarchy node.
+    No existing data is touched.
+    """
+    store = _check_store(store)
+    name = _check_namespace_component(name)
+    parent = _check_namespace(parent)
+
+    parent_note = f" under parent '{parent}'" if parent else " at root"
+    full_path = f"{parent}/{name}" if parent else name
+
+    return Plan(
+        action="pbs_namespace_create",
+        target=f"datastore/{store}/namespace/{full_path}",
+        change=f"create namespace '{name}'{parent_note} in datastore '{store}'",
+        current={},
+        blast_radius=[
+            f"creates namespace '{full_path}' in datastore '{store}' (additive — no data changed)",
+        ],
+        risk=RISK_LOW,
+        risk_reasons=["additive — creates a namespace; no existing data is modified or deleted"],
+        note=(
+            "Smoke-confirm: whether namespace_create 'name' is a single component or a full path."
+        ),
+    )
+
+
+def plan_namespace_delete(
+    store: str,
+    ns: str,
+    delete_groups: bool = False,
+) -> Plan:
+    """Preview deleting a namespace from a PBS datastore.  PURE — no API call.
+
+    delete_groups=False → RISK_MEDIUM: deletes an empty namespace; no backup data lost.
+    delete_groups=True  → RISK_HIGH:   deletes the namespace AND all backup groups/snapshots
+                          inside it — permanently destroys recovery points; no undo.
+    """
+    store = _check_store(store)
+    ns_val = _check_namespace(ns)
+    if ns_val is None or ns_val == "":
+        raise ProximoError("namespace to delete must not be empty")
+
+    if delete_groups:
+        return Plan(
+            action="pbs_namespace_delete",
+            target=f"datastore/{store}/namespace/{ns_val}",
+            change=f"delete namespace '{ns_val}' AND all its backup groups/snapshots "
+                   f"from datastore '{store}'",
+            current={},
+            blast_radius=[
+                f"PERMANENTLY DELETES namespace '{ns_val}' and ALL backup groups/snapshots inside it",
+                f"datastore: '{store}'",
+                "all recovery points inside the namespace are destroyed — no undo",
+                "this is equivalent to bulk snapshot deletion for everything under the namespace",
+            ],
+            risk=RISK_HIGH,
+            risk_reasons=[
+                "delete_groups=True: deletes ALL backup groups and snapshots inside the namespace",
+                "permanently destroys recovery points; no undo",
+            ],
+            note=(
+                "Smoke-confirm: 'delete-groups' is the correct PBS API param name. "
+                "Verify no active backups are running inside this namespace before deleting."
+            ),
+        )
+    else:
+        return Plan(
+            action="pbs_namespace_delete",
+            target=f"datastore/{store}/namespace/{ns_val}",
+            change=f"delete namespace '{ns_val}' from datastore '{store}' "
+                   f"(namespace must be empty — no backup groups deleted)",
+            current={},
+            blast_radius=[
+                f"deletes namespace '{ns_val}' from datastore '{store}'",
+                "namespace must be empty (no groups/snapshots); PBS will reject if non-empty",
+                "no backup data is deleted by this operation",
+                "to delete a non-empty namespace, use delete_groups=True (RISK_HIGH)",
+            ],
+            risk=RISK_MEDIUM,
+            risk_reasons=[
+                "removes a namespace container; backup data inside would need delete_groups=True",
+                "medium risk: structural change, but no data deleted when delete_groups=False",
+            ],
+            note=(
+                "Smoke-confirm: PBS behavior when namespace is non-empty and delete_groups=False "
+                "(expected rejection, but verify error shape)."
+            ),
+        )
+
+
+def plan_verify_start(
+    store: str,
+    ns: str | None = None,
+    backup_type: str | None = None,
+    backup_id: str | None = None,
+) -> Plan:
+    """Preview starting a PBS verification run.  PURE — no API call.
+
+    RISK_LOW: non-destructive integrity check — reads and verifies chunk checksums;
+    no data is modified. Heavy I/O; may impact backup/restore performance while running.
+    """
+    store = _check_store(store)
+    ns = _check_namespace(ns)
+    backup_type = _check_backup_type(backup_type)
+    backup_id = _check_backup_id(backup_id)
+
+    scope_parts = [f"datastore '{store}'"]
+    if ns is not None:
+        scope_parts.append(f"namespace '{ns}'")
+    if backup_type is not None:
+        scope_parts.append(f"type '{backup_type}'")
+    if backup_id is not None:
+        scope_parts.append(f"id '{backup_id}'")
+    scope_str = " / ".join(scope_parts)
+
+    return Plan(
+        action="pbs_verify_start",
+        target=f"datastore/{store}",
+        change=f"start integrity verification on {scope_str}",
+        current={},
+        blast_radius=[
+            f"reads and verifies chunk checksums for {scope_str}",
+            "NON-DESTRUCTIVE — no data is modified or deleted",
+            "I/O-heavy: may impact backup/restore throughput while running",
+        ],
+        risk=RISK_LOW,
+        risk_reasons=[
+            "read-only integrity check — no data modification",
+            "non-destructive; LOW means 'does not change state', not 'safe'",
+        ],
+        note=(
+            "Verify is async — returns a UPID; poll task status for completion. "
+            "I/O load may be significant on large datastores."
+        ),
+    )

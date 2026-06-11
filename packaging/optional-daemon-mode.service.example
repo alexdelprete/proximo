@@ -1,0 +1,35 @@
+# OPTIONAL — daemon mode. NOT installed by default.
+#
+# Proximo's default is on-demand (stdio, launched by the MCP client when needed) —
+# the sovereign, minimal-footprint choice: no always-on process, no held-open port.
+#
+# This unit is only for the minority who deliberately want an always-on, network-
+# reachable Proximo (which requires running it with a network transport). Copy to
+# /etc/systemd/system/proximo.service and enable it yourself if that's your setup.
+
+[Unit]
+Description=Proximo — the ethical Proxmox MCP (daemon mode)
+Documentation=https://github.com/john-broadway/proximo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/proximo/proximo.env
+ExecStart=/usr/bin/proximo
+Restart=on-failure
+RestartSec=5
+
+# Least-privilege: dedicated user (create it yourself), never root.
+User=proximo
+Group=proximo
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/proximo
+
+[Install]
+WantedBy=multi-user.target

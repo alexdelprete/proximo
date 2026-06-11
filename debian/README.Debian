@@ -1,0 +1,23 @@
+proximo for Debian
+==================
+
+This is a packaging *scaffold* — a clean start, not yet a one-command build.
+Two things must be resolved before `dpkg-buildpackage` produces a working .deb:
+
+1. Python runtime dependencies (mcp, httpx) are not in Debian.
+   DECIDED: self-contained (sovereign, no host clutter) — bundle a venv via
+   **dh-virtualenv** so Proximo carries its own deps and installs to its own prefix.
+   Implementing this is the remaining build step; until then debian/control's
+   Depends only covers stdlib + ssh.
+
+2. Transport. DECIDED: **on-demand, not a daemon.** Proximo speaks MCP over **stdio**,
+   launched by the MCP client only when needed — no always-on service, no held-open
+   port. That is the sovereign, minimal-footprint default. An OPTIONAL daemon-mode
+   unit (network transport) lives at packaging/optional-daemon-mode.service.example
+   for anyone who wants it; it is NOT installed by default.
+
+Deployment shapes (see the project README):
+  - On the PVE host: PROXIMO_SSH_TARGET=local (direct pct; isolate the venv).
+  - Off-host / dedicated LXC (recommended): PROXIMO_SSH_TARGET=pve (API + ssh).
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>

@@ -1,0 +1,25 @@
+Source: proximo
+Section: admin
+Priority: optional
+Maintainer: John Broadway <271895126+john-broadway@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               python3-all,
+               pybuild-plugin-pyproject,
+               python3-hatchling
+Standards-Version: 4.6.2
+Homepage: https://github.com/john-broadway/proximo
+Rules-Requires-Root: no
+
+Package: proximo
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         openssh-client
+Description: The ethical Proxmox MCP server
+ Proximo is a Model Context Protocol (MCP) server for Proxmox VE: REST API
+ management plus scoped in-container execution (ssh -> pct), behind clean
+ native tools. Least-privilege by default; every action audited.
+ .
+ NOTE: the Python runtime deps (mcp, httpx) are not yet packaged in Debian.
+ See debian/README.Debian for the dependency strategy before building.

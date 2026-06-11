@@ -1,0 +1,351 @@
+"""BACKUP & RESTORE pillar — vzdump-based backup operations + planning.
+
+Follows Proximo's exact idiom:
+- Op functions build requests and return results/UPIDs; they do NOT self-gate.
+  The server layer adds confirm-gating + audit before calling these.
+- Plan functions are pure (plan_restore does one safe read to detect existing vmid).
+- All path components are validated before going into URLs.
+- volid validation + URL-encoding is two-layered: format check AND traversal rejection.
+- RISK_LOW means "does not change state in the guest", NOT "safe".
+  RISK_HIGH on destructive ops (restore-overwrite, stop-mode backup, backup-delete).
+"""
+
+from __future__ import annotations
+
+import re
+from urllib.parse import quote
+
+from .backends import ProximoError, _check_kind, _check_node, _check_vmid
+from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
+
+# --- valid modes + compression for vzdump ---
+_VALID_MODES = frozenset({"snapshot", "suspend", "stop"})
+_VALID_COMPRESS = frozenset({"zstd", "gzip", "lzo", "0", "1"})
+
+# volid looks like:  local:backup/vzdump-lxc-102-2026_06_08.tar.zst
+# Allowed characters: alnum, ':', '/', '.', '_', '-'  (no other shell-special chars)
+# Must contain exactly one ':' separating storage-name from path, no '..' components.
+# Using \Z (not $) to prevent trailing-newline bypass (redteam lesson).
+_STORAGE_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
+_VOLID_RE = re.compile(r"^[A-Za-z0-9._:/-]+\Z")
+
+
+def _check_storage(storage: str) -> str:
+    s = str(storage)
+    if not _STORAGE_RE.match(s):
+        raise ProximoError(
+            f"invalid storage name: {storage!r} (letters/digits/. _/- only)"
+        )
+    return s
+
+
+def _check_volid(volid: str) -> str:
+    """Validate a Proxmox volume-id (e.g. local:backup/vzdump-lxc-102-2026_06_08.tar.zst).
+
+    Two layers:
+    1. Character-set + format validation (must contain exactly one ':', rejects shell-specials).
+    2. Explicit traversal rejection ('..').
+    Returns the raw volid (not URL-encoded); callers must quote() before inserting into a path.
+    """
+    v = str(volid)
+    if ".." in v:
+        raise ProximoError(f"invalid volid: {volid!r} (path traversal rejected)")
+    if not _VOLID_RE.match(v):
+        raise ProximoError(
+            f"invalid volid: {volid!r} (unexpected characters — expected alnum plus : / . _ -)"
+        )
+    if v.count(":") != 1:
+        raise ProximoError(
+            f"invalid volid: {volid!r} (expected exactly one ':' separating storage:path)"
+        )
+    storage_part, _, path_part = v.partition(":")
+    if not storage_part or not path_part:
+        raise ProximoError(f"invalid volid: {volid!r} (storage and path must both be non-empty)")
+    if any(seg == "" for seg in path_part.split("/")):
+        raise ProximoError(f"invalid volid: {volid!r} (empty path segment rejected)")
+    return v
+
+
+# ── OPERATIONS ─────────────────────────────────────────────────────────────────
+
+
+def vzdump_backup(
+    api,
+    vmid: str,
+    storage: str,
+    mode: str = "snapshot",
+    compress: str = "zstd",
+    node: str | None = None,
+) -> str:
+    """Trigger a vzdump backup of vmid to storage.  Returns a task UPID string.
+
+    POST /nodes/{node}/vzdump
+    Body: {vmid, storage, mode, compress}
+    """
+    vmid = _check_vmid(vmid)
+    storage = _check_storage(storage)
+    _check_node(node)
+    if mode not in _VALID_MODES:
+        raise ProximoError(f"invalid backup mode: {mode!r} (expected snapshot|suspend|stop)")
+    if compress not in _VALID_COMPRESS:
+        raise ProximoError(
+            f"invalid compress: {compress!r} (expected one of {sorted(_VALID_COMPRESS)})"
+        )
+    n = node or api.config.node
+    data = {"vmid": vmid, "storage": storage, "mode": mode, "compress": compress}
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/nodes/{n}/vzdump", data)
+
+
+def backup_list(api, storage: str, node: str | None = None) -> list[dict]:
+    """List backup archives on a storage.  Returns a list of volume dicts (volid, size, ctime, …).
+
+    GET /nodes/{node}/storage/{storage}/content?content=backup
+    """
+    storage = _check_storage(storage)
+    _check_node(node)
+    n = node or api.config.node
+    return api._get(f"/nodes/{n}/storage/{storage}/content?content=backup") or []
+
+
+def backup_delete(api, storage: str, volid: str, node: str | None = None):
+    """Delete a backup archive.  Returns a task UPID — or None for synchronous (dir-storage) deletes.
+
+    DELETE /nodes/{node}/storage/{storage}/content/{url-encoded-volid}
+
+    Endpoint-shape uncertainty: directory-backed storage may return None (synchronous delete)
+    rather than a UPID. Do NOT validate the return as a UPID; return raw. Confirm at live smoke.
+    """
+    storage = _check_storage(storage)
+    volid = _check_volid(volid)
+    _check_node(node)
+    n = node or api.config.node
+    quoted = quote(volid, safe="")
+    # DESTRUCTIVE — confirm-gated + audited at the server layer.
+    return api._delete(f"/nodes/{n}/storage/{storage}/content/{quoted}")
+
+
+def restore_guest(
+    api,
+    vmid: str,
+    archive: str,
+    storage: str,
+    kind: str = "lxc",
+    node: str | None = None,
+    force: bool = False,
+    pool: str | None = None,
+) -> str:
+    """Restore a guest from a backup archive.  Returns a task UPID.
+
+    LXC:  POST /nodes/{node}/lxc   body {vmid, ostemplate: archive, storage, restore: 1}
+    QEMU: POST /nodes/{node}/qemu  body {vmid, archive, force: 1 if force}
+
+    Note: QEMU restore does NOT send storage or restore:1 — these are LXC-only params.
+    Endpoint-shape uncertainty: confirm at live smoke whether QEMU needs additional params
+    (e.g. format, pool) for non-trivial configs.
+    """
+    vmid = _check_vmid(vmid)
+    kind = _check_kind(kind)
+    _check_node(node)
+    archive = _check_volid(archive)  # the backup source is a volid — validate like backup_delete
+    n = node or api.config.node
+    # DESTRUCTIVE — confirm-gated + audited at the server layer.
+    if kind == "lxc":
+        storage = _check_storage(storage)
+        data: dict = {"vmid": vmid, "ostemplate": archive, "storage": storage, "restore": 1}
+        if force:
+            data["force"] = 1
+        if pool is not None:
+            data["pool"] = pool
+        return api._post(f"/nodes/{n}/lxc", data)
+    else:  # qemu
+        data = {"vmid": vmid, "archive": archive}
+        if force:
+            data["force"] = 1
+        if pool is not None:
+            data["pool"] = pool
+        return api._post(f"/nodes/{n}/qemu", data)
+
+
+# ── PLAN FUNCTIONS ─────────────────────────────────────────────────────────────
+
+
+def plan_backup(
+    vmid: str,
+    storage: str,
+    mode: str = "snapshot",
+    kind: str = "lxc",
+) -> Plan:
+    """Preview a vzdump backup.  PURE — no API call needed.
+
+    Risk varies by mode:
+    - snapshot → RISK_LOW: online backup; guest stays live. Brief I/O/CPU spike.
+    - suspend  → RISK_MEDIUM: guest is briefly suspended (RAM quiesced); short pause.
+    - stop     → RISK_HIGH: guest is stopped for the backup; service downtime.
+    """
+    _check_vmid(vmid)
+    _check_kind(kind)
+    _check_storage(storage)
+
+    if mode == "snapshot":
+        risk = RISK_LOW
+        reasons = ["online backup (snapshot mode) — guest stays running"]
+        blast = [
+            f"backs up {kind}/{vmid} to storage '{storage}' without halting the guest",
+            "brief I/O and CPU spike during backup; guest stays online",
+        ]
+    elif mode == "suspend":
+        risk = RISK_MEDIUM
+        reasons = ["guest is briefly suspended (RAM quiesced) during backup — short service pause"]
+        blast = [
+            f"backs up {kind}/{vmid} to storage '{storage}'",
+            "guest is SUSPENDED briefly while memory is frozen; short-lived service interruption",
+        ]
+    elif mode == "stop":
+        risk = RISK_HIGH
+        reasons = ["stop mode HALTS the guest for the backup duration — downtime"]
+        blast = [
+            f"STOPS {kind}/{vmid} for the backup duration, then restarts it",
+            "guest is OFFLINE during the backup; any connected clients will be disconnected",
+        ]
+    else:
+        # Unrecognized mode: honest MEDIUM floor (not rejected here — the op-layer rejects it)
+        risk = RISK_MEDIUM
+        reasons = [f"unrecognized backup mode: {mode!r}"]
+        blast = [f"backup of {kind}/{vmid} in mode {mode!r} — effect unknown"]
+
+    return Plan(
+        action="pve_backup",
+        target=f"{kind}/{vmid}",
+        change=f"vzdump backup {kind} {vmid} to {storage} (mode={mode})",
+        current={},
+        blast_radius=blast,
+        risk=risk,
+        risk_reasons=reasons,
+    )
+
+
+def plan_restore(
+    api,
+    vmid: str,
+    archive: str,
+    kind: str = "lxc",
+    node: str | None = None,
+    force: bool = False,
+) -> Plan:
+    """Preview a guest restore.  Reads live state (one safe read) to detect existing vmid.
+
+    - vmid exists + force=True  → RISK_HIGH: overwrites and destroys the running guest.
+    - vmid exists + force=False → RISK_MEDIUM: restore will fail; documents why without contradiction.
+    - vmid not found            → RISK_MEDIUM: creates a new guest from the archive.
+    """
+    vmid = _check_vmid(vmid)
+    kind = _check_kind(kind)
+    _check_node(node)
+
+    # One safe read to detect if the vmid already exists. Three outcomes — and we must NOT collapse
+    # them: a transient failure is NOT evidence of absence. Claiming "creates new, no overwrite" when
+    # the guest might actually exist is exactly the false-safety this project forbids.
+    existing = None
+    check_failed = False
+    try:
+        existing = api.guest_status(vmid, kind, node)  # success → vmid exists
+    except Exception as e:
+        # Only a definitive 404 means "confirmed absent". Timeout / 5xx / permission = UNKNOWN.
+        resp = getattr(e, "response", None)
+        if resp is not None and getattr(resp, "status_code", None) == 404:
+            existing = None          # confirmed not found
+        else:
+            check_failed = True      # could not determine — assume nothing
+
+    if existing is not None:
+        name = existing.get("name") or vmid
+        current = {k: existing[k] for k in ("status", "name") if k in existing}
+        if force:
+            risk = RISK_HIGH
+            reasons = [
+                "force restore OVERWRITES and DESTROYS the existing guest — all data since last backup is lost"
+            ]
+            blast = [
+                f"OVERWRITES and DESTROYS existing {kind}/{vmid} (name={name!r}), "
+                f"replacing it with the backup archive '{archive}'",
+                "existing guest disks, config, and snapshots will be lost",
+            ]
+        else:
+            # Exists but force not set → the restore FAILS at PVE; no changes are made.
+            # No contradiction: state "will fail" clearly without claiming it also destroys.
+            risk = RISK_MEDIUM
+            reasons = [
+                f"{kind}/{vmid} already exists and force is not set — restore will be rejected by PVE"
+            ]
+            blast = [
+                f"restore will FAIL — {vmid} exists and force is not set; "
+                "no changes would be made to the existing guest",
+            ]
+    elif check_failed:
+        # Existence UNKNOWN. Never claim "creates new" (could be an overwrite). With force, the worst
+        # case is destroying an existing guest → rate HIGH; without force the worst case is a failed
+        # restore → MEDIUM. Either way, disclose the uncertainty rather than imply safety.
+        current = {}
+        if force:
+            risk = RISK_HIGH
+            reasons = [
+                "could not verify whether the target exists — with force, if it DOES exist this "
+                "OVERWRITES and DESTROYS it (absence of confirmation is not a safety signal)",
+            ]
+            blast = [
+                f"could NOT confirm whether {kind}/{vmid} exists; with force=True, if it exists this "
+                f"OVERWRITES and DESTROYS it with archive '{archive}'",
+            ]
+        else:
+            risk = RISK_MEDIUM
+            reasons = [
+                "could not verify whether the target exists — if it does not, this creates a new "
+                "guest; if it does, the restore is rejected (force not set). No overwrite without force.",
+            ]
+            blast = [
+                f"could NOT confirm whether {kind}/{vmid} exists; if absent this creates it from "
+                f"archive '{archive}', if present the restore is rejected (force not set)",
+            ]
+    else:
+        current = {}
+        risk = RISK_MEDIUM
+        reasons = [f"{kind}/{vmid} not found — restore will create a new guest from the archive"]
+        blast = [
+            f"creates {kind}/{vmid} from backup archive '{archive}'",
+            "new guest is created; no existing guest is overwritten",
+        ]
+
+    return Plan(
+        action="pve_restore",
+        target=f"{kind}/{vmid}",
+        change=f"restore {kind} {vmid} from archive '{archive}' (force={force})",
+        current=current,
+        blast_radius=blast,
+        risk=risk,
+        risk_reasons=reasons,
+    )
+
+
+def plan_backup_delete(storage: str, volid: str) -> Plan:
+    """Preview a backup archive deletion.  PURE — no API call needed.
+
+    RISK_HIGH: a backup is a disaster-recovery copy of last resort. Deleting it is unrecoverable —
+    you cannot restore from it afterward. (Same data-loss severity as a force-overwrite restore.)
+    """
+    _check_storage(storage)
+    _check_volid(volid)
+    return Plan(
+        action="pve_backup_delete",
+        target=f"{storage}:{volid}",
+        change=f"delete backup archive '{volid}' from storage '{storage}'",
+        current={},
+        blast_radius=[
+            f"PERMANENTLY removes backup archive '{volid}' — a recovery point is destroyed; "
+            "you cannot restore from it afterward",
+        ],
+        risk=RISK_HIGH,
+        risk_reasons=[
+            "deletes a disaster-recovery backup; the data it holds is permanently gone — unrecoverable",
+        ],
+    )

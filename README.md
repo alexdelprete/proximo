@@ -45,9 +45,9 @@ Two backends behind one tool surface:
 
 ## Install & run
 
-> 📦 **`0.1.1` "Spaniard" — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`)
-> and [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.1.1) (CI green). The GHCR Docker image
-> is the one remaining distribution path.
+> 📦 **`0.1.2` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.1.2) (CI green), and
+> [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -69,7 +69,7 @@ git clone https://github.com/john-broadway/proximo.git && cd proximo
 uv pip install -e .          # or: pip install -e .
 ```
 
-**Also planned:** a `docker run … ghcr.io/john-broadway/proximo:latest` image (stdio, on-demand, no daemon) — the remaining distribution path.
+**Docker (GHCR):** `docker run -i --rm … ghcr.io/john-broadway/proximo:latest` runs the stdio MCP server on demand — no daemon, no open port. Multi-arch (amd64 + arm64), shipped with an SBOM and a sigstore-signed build-provenance attestation (`gh attestation verify oci://ghcr.io/john-broadway/proximo --owner john-broadway`).
 
 > **Safe by default:** Proximo is **API-only** out of the box. The in-container exec edge is **opt-in** (`PROXIMO_ENABLE_EXEC=1`) and tells you plainly that it grants near-root on the host.
 >
@@ -92,7 +92,7 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 ## Status — the arena record
 
-🩸 **0.1.1 "Spaniard" — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`) and [GitHub](https://github.com/john-broadway/proximo) (2026-06-10).
+🩸 **0.1.2 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
 All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **117 MCP tools. 1964 tests,
 0 skipped, ruff clean** — CI runs the full suite on GitHub's own runners.
 
@@ -117,7 +117,7 @@ tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor is the s
 
 ### What's next
 - [x] **PyPI** — `proximo-proxmox` published 2026-06-10; `uvx proximo-proxmox` works
-- [ ] **GHCR** Docker image via a release Action
+- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.1.2` / `latest`) via a release Action, 2026-06-14
 - [ ] Live smoke of the remaining surface (firewall · PBS-mutate); HA fencing + online migration when the hardware exists
 - [ ] PBS certificate-fingerprint wire-enforcement
 - [ ] _(optional)_ Debian package for the Debian-native crowd

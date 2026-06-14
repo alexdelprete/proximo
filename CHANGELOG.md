@@ -8,6 +8,25 @@ _Nothing yet._
 
 ---
 
+## [0.1.2] — 2026-06-14
+
+Distribution + supply-chain hardening. No changes to the MCP/A2A surface or behavior.
+
+### Added
+- **GHCR container image** — a release workflow builds and publishes a multi-arch
+  (`linux/amd64` + `linux/arm64`) image to `ghcr.io/john-broadway/proximo` on each GitHub
+  Release. `docker run -i --rm … ghcr.io/john-broadway/proximo` runs the stdio MCP server on
+  demand — no daemon, no open port. Images ship with an SBOM and a sigstore-signed
+  build-provenance attestation (`gh attestation verify oci://… --owner john-broadway`).
+
+### Security
+- **CI / supply-chain hardening** (independent 3-lens review): workflows default to
+  `permissions: contents: read`; the publish and signing actions are pinned by commit SHA
+  with a Dependabot keeper; the Docker build uses an allow-list `COPY` so a local build
+  can't bake stray secrets into the image.
+
+---
+
 ## [0.1.1] — 2026-06-10 — "Spaniard"
 
 Hardening + release-readiness pass driven by an independent multi-team audit (3 cold reviewers,

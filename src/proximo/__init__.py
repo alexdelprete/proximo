@@ -4,4 +4,4 @@ Proxmox REST API management + scoped in-container exec, behind clean native tool
 Least-privilege by default; every action audited; secrets never read or logged.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"

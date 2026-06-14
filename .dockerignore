@@ -1,0 +1,48 @@
+# The Dockerfile does `COPY . /app`, so whatever isn't excluded here lands in the
+# published image. Keep the build context to what `pip install .` actually needs
+# (pyproject.toml, README.md, LICENSE, src/) — and nothing that could leak.
+
+# Version control + CI (never belongs in a runtime image)
+.git
+.gitignore
+.github
+.dockerignore
+Dockerfile
+
+# Virtualenvs, caches, build outputs
+.venv
+.venv*
+**/__pycache__
+**/*.py[cod]
+.ruff_cache
+.pytest_cache
+*.egg-info
+build/
+dist/
+uv.lock
+
+# Tests, dev smokes, local scratch — not needed at runtime
+tests/
+scripts/
+.scratch/
+
+# Stray local artifacts
+*.log
+*.tar
+*.tar.*
+
+# Secrets — belt-and-suspenders. The Dockerfile uses an allow-list COPY so these
+# never reach a layer, but keep them out of the build context the daemon receives.
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.crt
+id_*
+*.pub
+*.token
+*.secret
+.credentials/
+.secrets/
+.pypirc

@@ -1,0 +1,98 @@
+name: Release — GHCR image
+
+# Build the stdio MCP image and publish it to GHCR when a GitHub Release is
+# published (the release tag carries the version). Also runnable by hand.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  # ghcr.io/john-broadway/proximo — matches the pull path documented in the README.
+  IMAGE: ghcr.io/${{ github.repository }}
+
+# Default every job to read-only; the `image` job re-grants exactly what it needs.
+# Without this floor the test job would inherit the repo-default token scope.
+permissions:
+  contents: read
+
+jobs:
+  # Don't publish an image for a release whose code doesn't pass. This mirrors
+  # ci.yml on the image's Python. If you'd rather trust main's CI and publish
+  # faster, delete this job and the `needs: test` line below.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"   # the version baked into the image
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -q -ra
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read       # checkout
+      packages: write      # push to GHCR
+      id-token: write      # keyless (sigstore) signing of the provenance attestation
+      attestations: write  # attach the build-provenance attestation to the image
+    steps:
+      - uses: actions/checkout@v4
+
+      # Multi-arch: amd64 for Proxmox hosts/servers, arm64 for Apple-Silicon
+      # workstations (the image runs wherever the MCP client lives). Proximo's
+      # deps ship manylinux/musllinux wheels, so arm64 builds don't compile from source.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        # The next three actions are SHA-pinned (not floating tags): they hold the
+        # token, publish the image, and sign provenance — a re-pointed tag here would
+        # be a supply-chain hole. Dependabot bumps the SHA and the `# vN` comment.
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # built-in token; no PAT needed for same-owner push
+
+      - name: Derive tags + OCI labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}          # 0.1.1
+            type=semver,pattern={{major}}.{{minor}}  # 0.1
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=sha                                 # sha-<short>: always present (keeps manual runs valid)
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true            # ship an SPDX SBOM alongside the image
+          provenance: false     # provenance comes from the signed attestation below (avoid duplicating it)
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # PROVE, one layer down: a sigstore-signed build-provenance attestation that
+      # anyone can check with:  gh attestation verify oci://<image> --owner john-broadway
+      # On-thesis for Proximo. To ship a bare image instead, delete this step and the
+      # id-token/attestations permissions above.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

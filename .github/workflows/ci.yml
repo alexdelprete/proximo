@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Explicit read-only floor (fork PRs already get this, but be unambiguous).
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

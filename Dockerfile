@@ -9,7 +9,11 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY . /app
+# Allow-list copy: only what `pip install .` needs (hatchling builds the wheel from
+# src/). The working tree is never copied wholesale, so a local `docker build` can't
+# bake stray secrets (.env, keys, tokens) into the published image.
+COPY pyproject.toml README.md LICENSE ./
+COPY src/ ./src/
 RUN pip install --no-cache-dir .
 
 # MCP stdio server — no daemon, no open port. Launched on demand by the client.

@@ -23,6 +23,7 @@ from proximo.access_governance import (
     plan_role_create,
     plan_role_delete,
     plan_role_update,
+    plan_tfa_delete,
     realm_create,
     realm_delete,
     realm_get,
@@ -31,6 +32,8 @@ from proximo.access_governance import (
     role_create,
     role_delete,
     role_update,
+    tfa_delete,
+    tfa_get,
     tfa_list,
 )
 from proximo.backends import ProximoError
@@ -1042,20 +1045,106 @@ def test_plan_realm_delete_blast_mentions_irreversible():
 # TFA read-only guard — no mutation functions must exist in the module
 # ---------------------------------------------------------------------------
 
-def test_no_tfa_mutation_functions_exist():
-    """Guard the TFA-mutation deferral: no function name may combine 'tfa' with a mutation verb.
-
-    TFA mutations are explicitly deferred (too sensitive without live smoke).  This test
-    ensures no tfa_create / tfa_update / tfa_delete / tfa_revoke / tfa_remove accidentally
-    lands in the module.
+def test_tfa_scope_delete_only_no_enrollment():
+    """TFA scope (2026-06-14): tfa_delete is intentionally exposed; ENROLLMENT/create/update are
+    NOT — enrollment is an interactive TOTP/WebAuthn challenge-response, deliberately out of scope.
     """
     import proximo.access_governance as _mod
 
-    mutation_verbs = {"create", "update", "delete", "revoke", "remove"}
-    tfa_mutations = [
-        name for name in dir(_mod)
-        if "tfa" in name.lower() and any(verb in name.lower() for verb in mutation_verbs)
-    ]
-    assert tfa_mutations == [], (
-        f"TFA mutation functions found — deferral violated: {tfa_mutations}"
+    names = {n for n in dir(_mod) if "tfa" in n.lower()}
+    # delete IS in scope now
+    assert "tfa_delete" in names
+    # enrollment / create / update / revoke must NOT have landed
+    forbidden = {"create", "update", "revoke", "enroll"}
+    leaked = [n for n in names if any(v in n.lower() for v in forbidden)]
+    assert leaked == [], f"unexpected TFA mutation(s) — only delete is in scope: {leaked}"
+
+
+# ===========================================================================
+# TFA — tfa_get (read) / tfa_delete (mutation)
+# Grounded against live PVE 9.1.7 schema (2026-06-14):
+#   GET    /access/tfa/{userid}            list a user's TFA entries
+#   GET    /access/tfa/{userid}/{id}        fetch one entry
+#   DELETE /access/tfa/{userid}/{id}        {password?}   delete a TFA factor
+# Enrollment (POST) is intentionally OUT — it is an interactive TOTP/WebAuthn challenge.
+# Deleting a factor WEAKENS account security (RISK_HIGH). `password` is a SECRET — it flows to
+# the API but must NOT appear in plan/audit output.
+# ===========================================================================
+
+
+def test_tfa_get_lists_user_entries():
+    api = _api()
+    tfa_get(api, "root@pam")
+    assert api.seen["method"] == "GET"
+    assert api.seen["path"] == "/access/tfa/root@pam"
+
+
+def test_tfa_get_specific_entry():
+    api = _api()
+    tfa_get(api, "root@pam", "totp:LABEL")
+    assert api.seen["path"] == "/access/tfa/root@pam/totp:LABEL"
+
+
+def test_tfa_get_rejects_bad_userid():
+    api = _api()
+    with pytest.raises(ProximoError):
+        tfa_get(api, "bad userid!!")
+
+
+def test_tfa_get_rejects_bad_id():
+    api = _api()
+    with pytest.raises(ProximoError):
+        tfa_get(api, "root@pam", "../../x")
+
+
+def test_tfa_delete_path():
+    api = _api()
+    tfa_delete(api, "root@pam", "totp:LABEL")
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/access/tfa/root@pam/totp:LABEL"
+
+
+def test_tfa_delete_includes_password_when_given():
+    api = _api()
+    tfa_delete(api, "root@pam", "totp:LABEL", password="secret")
+    assert api.seen["params"]["password"] == "secret"
+
+
+def test_tfa_delete_omits_password_when_absent():
+    api = _api()
+    tfa_delete(api, "root@pam", "totp:LABEL")
+    assert "password" not in (api.seen["params"] or {})
+
+
+def test_tfa_delete_rejects_traversal_id():
+    api = _api()
+    with pytest.raises(ProximoError):
+        tfa_delete(api, "root@pam", "../../zones/x")
+
+
+def test_plan_tfa_delete_is_high_and_reads_current():
+    entries = [{"id": "totp:LABEL", "description": "phone"}, {"id": "recovery"}]
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=lambda p: entries)
+    plan = plan_tfa_delete(api, "root@pam", "totp:LABEL")
+    assert plan.risk == RISK_HIGH
+    assert any("factor" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_tfa_delete_does_not_leak_password():
+    # plan never takes a password; ensure no secret-shaped field appears
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=lambda p: [])
+    plan = plan_tfa_delete(api, "root@pam", "totp:LABEL")
+    blob = (plan.change + " " + " ".join(plan.blast_radius)).lower()
+    assert "password" not in blob
+
+
+def test_plan_tfa_delete_read_failure_discloses_uncertainty():
+    # module contract: read failure -> disclose uncertainty + maintain RISK_HIGH (sibling pattern)
+    api = SimpleNamespace(
+        config=SimpleNamespace(node="pve"),
+        _get=lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
     )
+    plan = plan_tfa_delete(api, "root@pam", "totp:LABEL")
+    assert plan.risk == RISK_HIGH
+    assert any("could not read" in b.lower() or "not a safety signal" in b.lower()
+               for b in plan.blast_radius)

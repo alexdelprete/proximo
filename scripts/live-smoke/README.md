@@ -13,6 +13,10 @@ They live here (not under `tests/`) precisely so that pytest does not auto-colle
 | `readonly-smoke.sh` | `pve_node_status`, `pve_storage_status`, `pve_storage_content`, `pve_backup_list` (on all discovered storages), `audit_verify` | None |
 | `phase1-smoke.sh` | Create / clone / backup / restore / delete QEMU VMs in a throwaway pool | Yes — self-cleaning; operates only on the throwaway VMIDs you specify |
 | `netplane-smoke.sh` | Firewall rule CRUD (cluster-level, firewall stays DISABLED), pool lifecycle, HA plan (dry-run) | Firewall rules + pool — self-cleaning; firewall never enabled |
+| `fwobjects-smoke.sh` | Firewall **objects**: alias CRUD, ip-set create/entry/delete, security-group CRUD, options read + `options_set` PLAN (dry-run, never executed) | Firewall config objects — self-cleaning; passive (no rule references them); firewall never enabled |
+| `harules-smoke.py` | **HA rules** full chain: create throwaway VM → HA-manage → `ha_rule` create/read/update/delete → teardown | VM + HA resource + HA rule — self-cleaning (reverse order); VM is empty + HA state=ignored (CRM never starts it). Run via `proximo-ha-liveprove.sh` (reuses the test-cluster token) |
+| `sdn-smoke.py` | **SDN** chain: `simple` zone → vnet → subnet create/read/update/delete | PENDING-ONLY — `sdn_apply` is NEVER called, so no live-network effect; self-cleaning (reverse order). Confirms pending objects stage + revert cleanly |
+| `tfa-smoke.py` | **TFA** bounded: `tfa_list`/`tfa_get` reads + `tfa_delete` API-reachability (non-existent entry) | No factor touched, no password sent. Live-verifies PVE forbids token-based TFA mutation (`403 need proper ticket`) — reads work, delete is shape-correct but ticket-gated by PVE |
 
 All mutating smokes clean up after themselves via `try/finally` and print a loud manual-cleanup fallback if cleanup fails.
 

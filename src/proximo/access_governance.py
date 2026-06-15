@@ -7,8 +7,9 @@ mutation fires.
 Key structural notes:
 - Roles:   /access/roles  — define privilege sets; ACL entries reference them.
 - Realms:  /access/domains — authentication sources (pam, pve, ldap, ad, openid).
-- TFA:     /access/tfa  — per-user second factor entries.  READ ONLY this round;
-           TFA mutations are deferred (too sensitive to exercise without live smoke).
+- TFA:     /access/tfa  — per-user second factor entries.  get (read) + delete (mutation,
+           RISK_HIGH — removes a second factor) exposed 2026-06-14; ENROLLMENT is NOT exposed
+           (interactive TOTP/WebAuthn challenge — deliberately out of scope).
 - All ops are SYNCHRONOUS — no UPID returned; outcome is the response or None.
 - Built-in role guard: `Administrator`, `NoAccess`, `PVEAdmin`, `PVEAuditor`,
   `PVEDatastoreAdmin`, `PVEDatastoreUser`, `PVEMappingAdmin`, `PVEMappingUser`,
@@ -37,7 +38,7 @@ import re
 # Smoke-confirm / follow-up: _check_roleid (in access.py) blocks '/' but permits '..';
 # worst-case path is /access/roles/.. (harmless), but asymmetry should be addressed in a
 # dedicated access.py hardening pass.
-from .access import _check_roleid, _is_administrator_role
+from .access import _check_roleid, _check_userid, _is_administrator_role
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_MEDIUM, Plan
 
@@ -760,4 +761,108 @@ def plan_realm_delete(api, realm: str) -> Plan:
         blast_radius=blast,
         risk=RISK_HIGH,
         risk_reasons=reasons,
+    )
+
+
+# ===========================================================================
+# TFA — per-user two-factor-authentication get (read) + delete (mutation)
+# ---------------------------------------------------------------------------
+# Grounded against live PVE 9.1.7 schema (2026-06-14):
+#   GET    /access/tfa/{userid}            list a user's TFA entries
+#   GET    /access/tfa/{userid}/{id}        fetch one entry
+#   DELETE /access/tfa/{userid}/{id}        {password?}   delete a TFA factor
+# Enrollment (POST) is intentionally NOT exposed — it is an interactive TOTP/WebAuthn
+# challenge-response, not a clean admin one-shot.
+#
+# Deleting a TFA factor WEAKENS the account's login security (one fewer second factor) and,
+# if it is the user's last factor on a TFA-required realm, can lock the user out → RISK_HIGH.
+# `password` (the acting user's current password) is a SECRET: it flows to the API but is
+# NEVER placed in the plan or the audit detail.
+# ===========================================================================
+
+_TFA_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]*\Z")
+
+
+def _check_tfa_id(tfa_id: str) -> str:
+    """Validate a TFA entry id — it flows into the URL path, so reject traversal/injection."""
+    v = str(tfa_id).strip()
+    if ".." in v or not _TFA_ID_RE.match(v):
+        raise ProximoError(
+            f"invalid TFA id: {tfa_id!r} (alphanumeric/:._- only, start with alnum; no path traversal)"
+        )
+    return v
+
+
+def tfa_get(api, userid: str, tfa_id: str | None = None) -> object:
+    """Read a user's TFA entries, or one entry. Audited at the server layer (read).
+
+    GET /access/tfa/{userid}            (tfa_id=None) -> list of entries
+    GET /access/tfa/{userid}/{tfa_id}                  -> a single entry
+    """
+    userid = _check_userid(userid)
+    if tfa_id is None:
+        return api._get(f"/access/tfa/{userid}") or []
+    tfa_id = _check_tfa_id(tfa_id)
+    return api._get(f"/access/tfa/{userid}/{tfa_id}") or {}
+
+
+def tfa_delete(api, userid: str, tfa_id: str, password: str | None = None) -> object:
+    """Delete a user's TFA factor. MUTATION — confirm-gated + audited at the server layer.
+
+    DELETE /access/tfa/{userid}/{tfa_id}  {password?}
+    `password` (the acting user's current password) may be required by PVE; it is passed through
+    but never logged. No UNDO: the factor must be re-enrolled. Security-WEAKENING (RISK_HIGH).
+
+    LIVE-VERIFIED CAVEAT (PVE 9.1.7, 2026-06-14): PVE forbids API *tokens* from modifying TFA —
+    it returns `403 ... not available with API token, need proper ticket`. TFA mutation requires
+    a ticket-based login session, which Proximo does not use (it is token-authed by design). So the
+    READ tools (tfa_get / tfa_list) work via token, but this DELETE will 403 under token auth. The
+    request is shape-correct (it reaches the API and PVE applies its own rule) and would execute
+    under ticket auth.
+    """
+    userid = _check_userid(userid)
+    tfa_id = _check_tfa_id(tfa_id)
+    params: dict = {}
+    if password is not None:
+        params["password"] = password
+    return api._delete(f"/access/tfa/{userid}/{tfa_id}", params)
+
+
+def plan_tfa_delete(api, userid: str, tfa_id: str) -> Plan:
+    """Preview deleting a TFA factor. Reads the user's TFA entries (one safe read) to show how many
+    factors remain. RISK_HIGH — removes a second factor; the last one on a TFA-required realm can
+    lock the user out. Never references the password."""
+    userid = _check_userid(userid)
+    tfa_id = _check_tfa_id(tfa_id)
+    current: dict = {}
+    total: int | None = None
+    read_error: str | None = None
+    try:
+        entries = api._get(f"/access/tfa/{userid}")
+        if isinstance(entries, list):
+            total = len(entries)
+            current = next((e for e in entries if e.get("id") == tfa_id or e.get("type") == tfa_id), {})
+    except Exception as exc:
+        read_error = type(exc).__name__
+    blast = [
+        f"removes TFA entry '{tfa_id}' from user '{userid}' — a SECOND FACTOR is deleted",
+        "WEAKENS the account's login security (one fewer 2FA factor)",
+        f"if this is '{userid}'s last factor and the realm REQUIRES TFA, the user may be UNABLE to log in",
+        "no UNDO: the factor must be re-enrolled (TOTP/WebAuthn) to restore it",
+    ]
+    if total is not None:
+        blast.insert(1, f"user currently has {total} TFA entry/entries")
+    elif read_error is not None:
+        # Module honesty contract (mirrors plan_role_delete / plan_realm_delete): read failure ->
+        # disclose uncertainty + maintain RISK_HIGH. Never present a missing count as safe.
+        blast.insert(1,
+            f"could NOT read current TFA entries ({read_error}) — cannot determine how many "
+            "factors remain; absence of a count is NOT a safety signal")
+    return Plan(
+        action="pve_tfa_delete", target=f"access/tfa/{userid}/{tfa_id}",
+        change=f"delete TFA entry '{tfa_id}' for user '{userid}'",
+        current=current, blast_radius=blast, risk=RISK_HIGH,
+        risk_reasons=[
+            "deleting a TFA factor weakens account security and can break login on TFA-required realms",
+        ],
     )

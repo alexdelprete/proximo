@@ -555,3 +555,321 @@ def plan_ha_resource_remove(vmid: str, kind: str = "lxc") -> Plan:
             "DELETE /cluster/ha/resources/vm:100 (or ct:100) is not URL-encoded."
         ),
     )
+
+
+# ===========================================================================
+# HA RULES — the PVE 9 replacement for HA groups (node-affinity / resource-affinity)
+# ---------------------------------------------------------------------------
+# Grounded against live PVE 9.1.7 schema (2026-06-14):
+#   POST   /cluster/ha/rules          {rule, type, resources, comment?, disable?}
+#     [type=node-affinity]      + {nodes: <node>[:<pri>],..., strict?}
+#     [type=resource-affinity]  + {affinity: positive|negative}
+#   PUT    /cluster/ha/rules/{rule}    {comment?, disable?, resources?, type?, nodes?, strict?,
+#                                       affinity?, delete?: csv, digest?}
+#   DELETE /cluster/ha/rules/{rule}    (no params)
+#
+# HA *groups* CRUD is intentionally NOT built: on PVE 9 the groups endpoints 500 at runtime
+# ("ha groups have been migrated to rules"), so group-CRUD tools would be dead on modern PVE
+# and un-live-provable. ha_groups_list already translates that 500 into a clear pointer here.
+#
+# Rules are config-file state (pmxcfs) — SYNCHRONOUS writes, no UPID, NO snapshot UNDO; revert
+# is the inverse op. A rule is inert until its `resources` are HA-managed; once they are, it
+# constrains CRM placement (RISK_MEDIUM — may trigger migration; strict node-affinity can strand
+# a guest if all its nodes are down).
+# ===========================================================================
+
+_VALID_RULE_TYPES = frozenset({"node-affinity", "resource-affinity"})
+_VALID_AFFINITY = frozenset({"positive", "negative"})
+_HA_RULE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,39}\Z")
+
+
+def _check_ha_rule(rule: str) -> str:
+    r = str(rule).strip()
+    if not _HA_RULE_RE.match(r):
+        raise ProximoError(
+            f"invalid HA rule name: {rule!r} (letters/digits/_/- only, start with alnum, <=40)"
+        )
+    return r
+
+
+def _check_rule_type(rule_type: str) -> str:
+    t = str(rule_type).strip()
+    if t not in _VALID_RULE_TYPES:
+        raise ProximoError(
+            f"invalid HA rule type: {rule_type!r} (expected one of {sorted(_VALID_RULE_TYPES)})"
+        )
+    return t
+
+
+def _check_ha_resources(resources: str) -> str:
+    """Validate the HA resources list 'vm:100,ct:101' — each token must be a valid HA SID.
+
+    Reject bad prefixes / non-numeric ids (these flow into the request body, and a malformed
+    list would be silently accepted-then-rejected by PVE; fail-closed here with a clear error)."""
+    raw = str(resources).strip()
+    tokens = [t.strip() for t in raw.split(",") if t.strip()]
+    if not tokens:
+        raise ProximoError("HA rule requires at least one resource (e.g. 'vm:100' or 'vm:100,ct:101')")
+    for t in tokens:
+        if not _HA_SID_RE.match(t):
+            raise ProximoError(
+                f"invalid HA resource id: {t!r} (expected 'vm:<vmid>' or 'ct:<vmid>')"
+            )
+    return ",".join(tokens)
+
+
+def ha_rule_create(
+    api,
+    rule: str,
+    rule_type: str,
+    resources: str,
+    comment: str | None = None,
+    disable: bool = False,
+    nodes: str | None = None,
+    strict: bool = False,
+    affinity: str | None = None,
+) -> object:
+    """Create an HA rule. MUTATION — confirm-gated + audited at the server layer.
+
+    POST /cluster/ha/rules
+    node-affinity     requires `nodes` ('node[:pri],...'); optional `strict`.
+    resource-affinity requires `affinity` ('positive' keep together | 'negative' keep apart).
+    Synchronous pmxcfs write (no UPID). No UNDO: delete the rule to revert.
+    """
+    rule = _check_ha_rule(rule)
+    rule_type = _check_rule_type(rule_type)
+    resources = _check_ha_resources(resources)
+    data: dict = {"rule": rule, "type": rule_type, "resources": resources}
+    if comment is not None:
+        data["comment"] = comment
+    if disable:
+        data["disable"] = 1
+    if rule_type == "node-affinity":
+        if not nodes:
+            raise ProximoError("node-affinity rule requires `nodes` (e.g. 'pve1:2,pve2')")
+        data["nodes"] = str(nodes)
+        if strict:
+            data["strict"] = 1
+    else:  # resource-affinity
+        if affinity is None:
+            raise ProximoError("resource-affinity rule requires `affinity` ('positive' or 'negative')")
+        if affinity not in _VALID_AFFINITY:
+            raise ProximoError(
+                f"invalid affinity: {affinity!r} (expected one of {sorted(_VALID_AFFINITY)})"
+            )
+        data["affinity"] = affinity
+    return api._post("/cluster/ha/rules", data)
+
+
+def ha_rule_update(
+    api,
+    rule: str,
+    comment: str | None = None,
+    disable: bool | None = None,
+    resources: str | None = None,
+    rule_type: str | None = None,
+    nodes: str | None = None,
+    strict: bool | None = None,
+    affinity: str | None = None,
+    delete: list | str | None = None,
+    digest: str | None = None,
+) -> object:
+    """Update an HA rule. MUTATION — confirm-gated + audited at the server layer.
+
+    PUT /cluster/ha/rules/{rule}. Requires at least one field to change. No UNDO.
+    `delete` unsets keys (list or csv). May trigger CRM migration of affected resources.
+    """
+    rule = _check_ha_rule(rule)
+    data: dict = {}
+    if comment is not None:
+        data["comment"] = comment
+    if disable is not None:
+        data["disable"] = 1 if disable else 0
+    if resources is not None:
+        data["resources"] = _check_ha_resources(resources)
+    if rule_type is not None:
+        data["type"] = _check_rule_type(rule_type)
+    if nodes is not None:
+        data["nodes"] = str(nodes)
+    if strict is not None:
+        data["strict"] = 1 if strict else 0
+    if affinity is not None:
+        if affinity not in _VALID_AFFINITY:
+            raise ProximoError(
+                f"invalid affinity: {affinity!r} (expected one of {sorted(_VALID_AFFINITY)})"
+            )
+        data["affinity"] = affinity
+    if delete:
+        keys = delete if isinstance(delete, list) else [k.strip() for k in str(delete).split(",")]
+        data["delete"] = ",".join(k for k in keys if k)
+    if not data:
+        raise ProximoError(
+            "ha_rule_update requires at least one field to change "
+            "(comment/disable/resources/type/nodes/strict/affinity/delete)"
+        )
+    # PVE's PUT requires the `type` discriminator to validate the conditional schema — a
+    # comment-only update without it returns '400 Parameter verification failed'. If the caller
+    # didn't supply `type`, fetch the rule's current type (mirrors firewall_rule_remove fetching
+    # the digest the API needs). Live-surfaced against PVE 9.2 (2026-06-14).
+    if "type" not in data:
+        current, _ = _find_ha_rule(api, rule)
+        if current.get("type"):
+            data["type"] = current["type"]
+    if digest is not None:
+        data["digest"] = digest
+    return api._put(f"/cluster/ha/rules/{rule}", data)
+
+
+def ha_rule_delete(api, rule: str) -> object:
+    """Delete an HA rule. MUTATION — confirm-gated + audited at the server layer.
+
+    DELETE /cluster/ha/rules/{rule}  (no params). Affected resources lose this placement
+    constraint — the CRM may migrate them. No UNDO: re-create the rule to revert.
+    """
+    rule = _check_ha_rule(rule)
+    return api._delete(f"/cluster/ha/rules/{rule}")
+
+
+def _find_ha_rule(api, rule: str) -> tuple[dict, bool]:
+    """One safe read of an HA rule's current config. Returns (rule_dict, read_failed).
+
+    read_failed distinguishes a genuinely-absent rule from an unreadable one, so the
+    update/delete plans never present a failed read as a confirmed empty/absent rule.
+    """
+    try:
+        rules = ha_rules_list(api) or []
+    except Exception:
+        return {}, True
+    found = next((r for r in rules if r.get("rule") == rule or r.get("id") == rule), None)
+    if not found:
+        return {}, False
+    return {k: found[k] for k in ("rule", "type", "resources", "nodes", "strict", "affinity",
+                                  "disable", "comment") if k in found}, False
+
+
+def plan_ha_rule_create(
+    rule: str,
+    rule_type: str,
+    resources: str,
+    nodes: str | None = None,
+    strict: bool = False,
+    affinity: str | None = None,
+    disable: bool = False,
+) -> Plan:
+    """Preview creating an HA rule. PURE. RISK_MEDIUM — constrains CRM placement of the
+    affected resources (inert until they are HA-managed)."""
+    rule = _check_ha_rule(rule)
+    rule_type = _check_rule_type(rule_type)
+    resources = _check_ha_resources(resources)
+    blast = [
+        f"creates HA {rule_type} rule '{rule}' over resources [{resources}]",
+        "affects CRM placement only once these resources are HA-managed (otherwise inert)",
+        "no UNDO: HA rules are pmxcfs config, not a guest snapshot; revert by deleting the rule",
+    ]
+    # Validate the conditional-required fields EXACTLY as ha_rule_create does, so a dry-run
+    # never previews a create that confirm would reject (plan/op parity).
+    if rule_type == "node-affinity":
+        if not nodes:
+            raise ProximoError("node-affinity rule requires `nodes` (e.g. 'pve1:2,pve2')")
+        blast.insert(1, f"node-affinity: prefers/binds the resource(s) to nodes [{nodes}]")
+        if strict:
+            blast.insert(2,
+                "strict: the resource(s) may run ONLY on those nodes — if all are down the "
+                "guest stays STOPPED (availability risk)")
+    else:  # resource-affinity (rule_type already validated to be one of the two)
+        if affinity is None:
+            raise ProximoError("resource-affinity rule requires `affinity` ('positive' or 'negative')")
+        if affinity not in _VALID_AFFINITY:
+            raise ProximoError(
+                f"invalid affinity: {affinity!r} (expected one of {sorted(_VALID_AFFINITY)})"
+            )
+        if affinity == "negative":
+            blast.insert(1, "negative resource-affinity: keeps the resources on SEPARATE nodes "
+                            "— may block start if too few eligible nodes")
+        else:
+            blast.insert(1, "positive resource-affinity: keeps the resources TOGETHER on one node")
+    if disable:
+        blast.append("rule is created DISABLED — no effect until enabled")
+    return Plan(
+        action="pve_ha_rule_create",
+        target=f"ha/rules/{rule}",
+        change=f"create HA {rule_type} rule '{rule}' over [{resources}]",
+        current={},
+        blast_radius=blast,
+        risk=RISK_MEDIUM,
+        risk_reasons=[
+            "HA rules constrain where the CRM may place resources — can trigger migration / block start",
+        ],
+        note="HA rule create is a synchronous pmxcfs config write (no UPID).",
+    )
+
+
+def plan_ha_rule_update(
+    api,
+    rule: str,
+    comment: str | None = None,
+    disable: bool | None = None,
+    resources: str | None = None,
+    rule_type: str | None = None,
+    nodes: str | None = None,
+    strict: bool | None = None,
+    affinity: str | None = None,
+    delete: list | str | None = None,
+) -> Plan:
+    """Preview updating an HA rule. Reads the current rule (one safe read). RISK_MEDIUM —
+    may trigger CRM migration of affected resources."""
+    rule = _check_ha_rule(rule)
+    current, read_failed = _find_ha_rule(api, rule)
+    changed = [k for k, v in (("comment", comment), ("disable", disable), ("resources", resources),
+                              ("type", rule_type), ("nodes", nodes), ("strict", strict),
+                              ("affinity", affinity)) if v is not None]
+    # `delete` UNSETS keys (e.g. strict/nodes/affinity) — a real placement change the dry-run
+    # must disclose, so surface it in the preview rather than hiding it (redteam fix).
+    delete_keys = (
+        list(delete) if isinstance(delete, list)
+        else [k.strip() for k in str(delete).split(",") if k.strip()]
+    ) if delete else []
+    if delete_keys:
+        changed.append(f"delete({','.join(delete_keys)})")
+    summary = ", ".join(changed) or "(no fields)"
+    blast = [
+        f"updates HA rule '{rule}': {summary}",
+        "affected resources may be migrated by the CRM to satisfy the new constraint",
+        "no UNDO: revert by updating the rule back to its previous values",
+    ]
+    if read_failed:
+        blast.insert(0, f"current rule state UNKNOWN (read failed) — cannot confirm what '{rule}' is today")
+    return Plan(
+        action="pve_ha_rule_update",
+        target=f"ha/rules/{rule}",
+        change=f"update HA rule '{rule}': {summary}",
+        current=current,
+        blast_radius=blast,
+        risk=RISK_MEDIUM,
+        risk_reasons=["changing an HA rule alters CRM placement — can trigger migration"],
+        note="HA rule update is a synchronous pmxcfs config write (no UPID).",
+    )
+
+
+def plan_ha_rule_delete(api, rule: str) -> Plan:
+    """Preview deleting an HA rule. Reads the current rule (one safe read). RISK_MEDIUM —
+    affected resources lose the placement constraint; the CRM may migrate them."""
+    rule = _check_ha_rule(rule)
+    current, read_failed = _find_ha_rule(api, rule)
+    blast = [
+        f"removes HA rule '{rule}' — its resources lose this placement constraint",
+        "the CRM may migrate the affected resources once the constraint is gone",
+        "no UNDO: re-create the rule to revert",
+    ]
+    if read_failed:
+        blast.insert(0, f"current rule state UNKNOWN (read failed) — cannot confirm what '{rule}' constrains")
+    return Plan(
+        action="pve_ha_rule_delete",
+        target=f"ha/rules/{rule}",
+        change=f"delete HA rule '{rule}'",
+        current=current,
+        blast_radius=blast,
+        risk=RISK_MEDIUM,
+        risk_reasons=["removing an HA rule lifts a placement constraint — can trigger migration"],
+        note="HA rule delete is a synchronous pmxcfs config write (no UPID).",
+    )

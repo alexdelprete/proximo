@@ -2,9 +2,33 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
-## [Unreleased]
+## [0.2.0] — 2026-06-15
 
-_Nothing yet._
+Complete the four **half-built planes** to total CRUD coverage. **26 new MCP tools**
+(surface now 144), each wearing the PLAN + PROVE trust substrate by construction, built
+test-first, adversarially redteamed, and — where the operation is a reversible config-object
+edit — **live-proven on a real PVE 9.2 node**.
+
+### Added
+- **Firewall objects plane (11 tools)** — aliases (`list`/`create`/`update`/`delete`),
+  IP-sets (`create`/`delete` + entry `add`/`remove`), security groups (`create`/`delete`),
+  and firewall `options_set`. Scope-aware (cluster/node/guest) via `_fw_base`.
+- **HA rules plane (3 tools)** — `ha_rule_create`/`update`/`delete`, the PVE 9 replacement
+  for the deprecated HA groups. Auto-detects the groups→rules migration and surfaces it
+  honestly rather than 500-ing.
+- **SDN plane (10 tools)** — zones (`create`/`update`/`delete`), VNets
+  (`create`/`update`/`delete`), subnets (`list`/`create`/`update`/`delete`). New objects stay
+  *pending* until `sdn_apply`, so create→delete reverts cleanly with no effect on the
+  production network. (`sdn_apply` is unchanged — not re-added here.)
+- **TFA admin (2 tools)** — `tfa_get`, `tfa_delete`. PVE gates TFA *mutation* behind a
+  ticket-based login session, not an API token: `tfa_delete` is shape-correct and reaches the
+  API but is ticket-gated (403 with a token); reads work via token. TFA enrollment remains out
+  of scope (interactive challenge→confirm).
+
+### Changed
+- `pyright` is scoped to `src/` (`[tool.pyright] include = ["src"]`) so the default run
+  reflects the shipped package; structural test-double type noise no longer pollutes the clean
+  signal. Tests stay inspectable on demand (`pyright tests/`).
 
 ---
 

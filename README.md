@@ -45,8 +45,8 @@ Two backends behind one tool surface:
 
 ## Install & run
 
-> 📦 **`0.1.2` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.1.2) (CI green), and
+> 📦 **`0.2.0` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.2.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
@@ -92,8 +92,8 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 ## Status — the arena record
 
-🩸 **0.1.2 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **117 MCP tools. 1964 tests,
+🩸 **0.2.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **144 MCP tools. 2126 tests,
 0 skipped, ruff clean** — CI runs the full suite on GitHub's own runners.
 
 **Proven against real Proxmox** (not mocks):
@@ -101,10 +101,14 @@ All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. 
 - The **governance/dangerous plane** — identity (roles/groups/users/ACLs), storage, SDN apply,
   network-interface apply, realm create (LDAP/AD/OpenID via an `options` dict) — full
   create→read→delete cycles against a real **PVE 9.2** API, PROVE ledger verified throughout.
+- The **0.2.0 object planes** — firewall objects (aliases/IP-sets/security-groups/options), HA
+  **rules** (the PVE 9 replacement for HA groups), and SDN zones/VNets/subnets (pending, pre-apply) —
+  create→read→delete live-proven against a real **PVE 9.2** node; TFA admin reads proven (TFA
+  mutation is ticket-gated by PVE, not token-accessible).
 - **Offline guest migration** (including local-disk) and the **HA-config** lifecycle on a 3-node PVE 9.2 test cluster.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
-**Not yet proven — said plainly:** most of the 117-tool surface still runs against mocks; real HA
+**Not yet proven — said plainly:** most of the 144-tool surface still runs against mocks; real HA
 *fencing* (needs a hardware watchdog), *online* live-migration (needs shared storage), and behavior at
 production scale. The full, unflattering field comparison lives in [`LANDSCAPE.md`](./LANDSCAPE.md).
 
@@ -117,8 +121,9 @@ tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor is the s
 
 ### What's next
 - [x] **PyPI** — `proximo-proxmox` published 2026-06-10; `uvx proximo-proxmox` works
-- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.1.2` / `latest`) via a release Action, 2026-06-14
-- [ ] Live smoke of the remaining surface (firewall · PBS-mutate); HA fencing + online migration when the hardware exists
+- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.2.0` / `latest`) via a release Action
+- [x] Firewall objects · HA rules · SDN object CRUD — live-proven on PVE 9.2 (0.2.0)
+- [ ] Live smoke of the remaining surface (PBS-mutate); HA fencing + online migration when the hardware exists
 - [ ] PBS certificate-fingerprint wire-enforcement
 - [ ] _(optional)_ Debian package for the Debian-native crowd
 

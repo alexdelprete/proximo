@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "proximo-proxmox"
-version = "0.1.2"
+version = "0.2.0"
 description = "The ethical Proxmox MCP — REST API management + scoped in-container exec, behind clean native tools, least-privilege and audited."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -48,8 +48,14 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP", "B", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S106"]  # `assert` is how tests assert; token_path placeholders aren't secrets
+"tests/**" = ["S101", "S105", "S106"]  # `assert` is how tests assert; placeholder passwords/token_path aren't secrets
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.pyright]
+# Type-check the shipped package only. Structural test doubles (_FakeApi, mock kwargs)
+# trip nominal-typing false positives that don't reflect runtime behavior; pytest is
+# what guards the tests. Scoping here keeps `pyright` honestly clean.
+include = ["src"]

@@ -27,20 +27,41 @@ import pytest
 
 from proximo.backends import ProximoError
 from proximo.firewall import (
+    alias_create,
+    alias_delete,
+    alias_list,
+    alias_update,
     firewall_options_get,
+    firewall_options_set,
     firewall_rule_add,
     firewall_rule_remove,
     firewall_rule_update,
     firewall_rules_list,
     firewall_set_enabled,
+    ipset_create,
+    ipset_delete,
+    ipset_entry_add,
+    ipset_entry_remove,
     ipset_list,
+    plan_alias_create,
+    plan_alias_delete,
+    plan_alias_update,
+    plan_firewall_options_set,
     plan_firewall_rule_add,
     plan_firewall_rule_remove,
     plan_firewall_rule_update,
     plan_firewall_set_enabled,
+    plan_ipset_create,
+    plan_ipset_delete,
+    plan_ipset_entry_add,
+    plan_ipset_entry_remove,
+    plan_security_group_create,
+    plan_security_group_delete,
+    security_group_create,
+    security_group_delete,
     security_groups_list,
 )
-from proximo.planning import RISK_HIGH, RISK_MEDIUM
+from proximo.planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM
 
 # ---------------------------------------------------------------------------
 # Test fakes
@@ -933,3 +954,520 @@ def test_rule_update_aborts_when_no_digest_available():
     api.seen["_get_return"] = [{"pos": 0, "action": "ACCEPT"}]  # no 'digest' key
     with pytest.raises(PE, match="digest"):
         firewall_rule_update(api, 0, action="DROP")
+
+
+# ===========================================================================
+# ALIASES — alias_list / alias_create / alias_update / alias_delete
+# Grounded against live PVE 9.2 schema (2026-06-14):
+#   POST   /cluster/firewall/aliases           {name, cidr, comment?}   (NO digest on create)
+#   PUT    /cluster/firewall/aliases/{name}     {cidr?, comment?, rename?, digest?}
+#   DELETE /cluster/firewall/aliases/{name}     {digest?}
+# Aliases are passive named CIDRs: they change traffic only when a rule references them.
+# ===========================================================================
+
+
+def test_alias_list_cluster_scope():
+    api = _api()
+    alias_list(api)
+    assert api.seen["method"] == "GET"
+    assert api.seen["path"] == "/cluster/firewall/aliases"
+
+
+def test_alias_list_node_scope():
+    api = _api(node="n1")
+    alias_list(api, scope="node")
+    assert api.seen["path"] == "/nodes/n1/firewall/aliases"
+
+
+def test_alias_list_guest_scope_lxc():
+    api = _api(node="n1")
+    alias_list(api, scope="guest", vmid="100", kind="lxc")
+    assert api.seen["path"] == "/nodes/n1/lxc/100/firewall/aliases"
+
+
+def test_alias_list_returns_empty_list_on_none():
+    api = _api()
+    api.seen["_get_return"] = None
+    assert alias_list(api) == []
+
+
+def test_alias_create_cluster_path_and_required_fields():
+    api = _api()
+    alias_create(api, name="web", cidr="10.0.0.0/24")
+    assert api.seen["method"] == "POST"
+    assert api.seen["path"] == "/cluster/firewall/aliases"
+    assert api.seen["data"]["name"] == "web"
+    assert api.seen["data"]["cidr"] == "10.0.0.0/24"
+
+
+def test_alias_create_includes_comment_when_given():
+    api = _api()
+    alias_create(api, name="web", cidr="10.0.0.0/24", comment="web servers")
+    assert api.seen["data"]["comment"] == "web servers"
+
+
+def test_alias_create_omits_comment_when_absent():
+    api = _api()
+    alias_create(api, name="web", cidr="10.0.0.0/24")
+    assert "comment" not in api.seen["data"]
+
+
+def test_alias_create_node_scope_path():
+    api = _api(node="n1")
+    alias_create(api, name="web", cidr="10.0.0.0/24", scope="node")
+    assert api.seen["path"] == "/nodes/n1/firewall/aliases"
+
+
+def test_alias_create_rejects_bad_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        alias_create(api, name="-bad name!", cidr="10.0.0.0/24")
+
+
+def test_alias_create_rejects_bad_scope():
+    api = _api()
+    with pytest.raises(ProximoError):
+        alias_create(api, name="web", cidr="10.0.0.0/24", scope="bogus")
+
+
+def test_alias_update_puts_correct_path_and_cidr():
+    api = _api()
+    alias_update(api, name="web", cidr="10.0.0.0/8")
+    assert api.seen["method"] == "PUT"
+    assert api.seen["path"] == "/cluster/firewall/aliases/web"
+    assert api.seen["data"]["cidr"] == "10.0.0.0/8"
+
+
+def test_alias_update_requires_at_least_one_field():
+    api = _api()
+    with pytest.raises(ProximoError):
+        alias_update(api, name="web")
+
+
+def test_alias_update_includes_digest_when_given():
+    api = _api()
+    alias_update(api, name="web", cidr="10.0.0.0/8", digest="abc123")
+    assert api.seen["data"]["digest"] == "abc123"
+
+
+def test_alias_update_includes_rename_and_comment():
+    api = _api()
+    alias_update(api, name="web", rename="webnew", comment="renamed")
+    assert api.seen["data"]["rename"] == "webnew"
+    assert api.seen["data"]["comment"] == "renamed"
+
+
+def test_alias_delete_deletes_correct_path():
+    api = _api()
+    alias_delete(api, name="web")
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/cluster/firewall/aliases/web"
+
+
+def test_alias_delete_includes_digest_when_given():
+    api = _api()
+    alias_delete(api, name="web", digest="abc123")
+    assert api.seen["params"]["digest"] == "abc123"
+
+
+def test_alias_delete_omits_digest_when_absent():
+    api = _api()
+    alias_delete(api, name="web")
+    assert "digest" not in (api.seen["params"] or {})
+
+
+# --- alias PLAN factories ---
+
+
+def test_plan_alias_create_is_low_risk_no_undo():
+    plan = plan_alias_create(name="web", cidr="10.0.0.0/24")
+    assert plan.risk == RISK_LOW
+    assert "web" in plan.change
+    assert "10.0.0.0/24" in plan.change
+    assert any("no undo" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_alias_update_reads_current_and_is_medium():
+    api = _api()
+    api.seen["_get_return"] = [{"name": "web", "cidr": "10.0.0.0/24", "comment": "old"}]
+    plan = plan_alias_update(api, name="web", cidr="10.0.0.0/8")
+    assert plan.risk == RISK_MEDIUM
+    # current state surfaced from the safe read
+    assert plan.current.get("cidr") == "10.0.0.0/24"
+    # a referencing-rule caveat is present
+    assert any("referenc" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_alias_delete_reads_current_and_warns_referencing():
+    api = _api()
+    api.seen["_get_return"] = [{"name": "web", "cidr": "10.0.0.0/24"}]
+    plan = plan_alias_delete(api, name="web")
+    assert plan.risk == RISK_MEDIUM
+    assert plan.current.get("cidr") == "10.0.0.0/24"
+    assert any("referenc" in b.lower() for b in plan.blast_radius)
+
+
+# ===========================================================================
+# IP-SETS — ipset_create / ipset_delete / ipset_entry_add / ipset_entry_remove
+# Grounded against live PVE 9.2 schema (2026-06-14):
+#   POST   {base}/ipset                  {name, comment?}          create empty set
+#   DELETE {base}/ipset/{name}            {force?}                  delete set (force wipes members)
+#   POST   {base}/ipset/{name}            {cidr, comment?, nomatch?} add entry
+#   DELETE {base}/ipset/{name}/{cidr}     {digest?}                 remove entry
+# An ipset is referenced from rules as '+name'. Empty set = passive (LOW); entry
+# changes alter every referencing rule's match set (MEDIUM). No UNDO.
+# ===========================================================================
+
+
+def test_ipset_create_cluster_path_and_name():
+    api = _api()
+    ipset_create(api, name="blocklist")
+    assert api.seen["method"] == "POST"
+    assert api.seen["path"] == "/cluster/firewall/ipset"
+    assert api.seen["data"]["name"] == "blocklist"
+
+
+def test_ipset_create_includes_comment():
+    api = _api()
+    ipset_create(api, name="blocklist", comment="bad actors")
+    assert api.seen["data"]["comment"] == "bad actors"
+
+
+def test_ipset_create_node_scope_path():
+    api = _api(node="n1")
+    ipset_create(api, name="blocklist", scope="node")
+    assert api.seen["path"] == "/nodes/n1/firewall/ipset"
+
+
+def test_ipset_create_rejects_bad_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ipset_create(api, name="bad/name")
+
+
+def test_ipset_delete_path_no_force_sends_empty_params():
+    api = _api()
+    ipset_delete(api, name="blocklist")
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/cluster/firewall/ipset/blocklist"
+    assert "force" not in (api.seen["params"] or {})
+
+
+def test_ipset_delete_with_force_sends_one():
+    api = _api()
+    ipset_delete(api, name="blocklist", force=True)
+    assert api.seen["params"]["force"] == 1
+
+
+def test_ipset_entry_add_path_and_cidr():
+    api = _api()
+    ipset_entry_add(api, name="blocklist", cidr="10.0.0.0/24")
+    assert api.seen["method"] == "POST"
+    assert api.seen["path"] == "/cluster/firewall/ipset/blocklist"
+    assert api.seen["data"]["cidr"] == "10.0.0.0/24"
+
+
+def test_ipset_entry_add_nomatch_true_sends_one_with_comment():
+    api = _api()
+    ipset_entry_add(api, name="blocklist", cidr="10.0.0.5", nomatch=True, comment="allow one")
+    assert api.seen["data"]["nomatch"] == 1
+    assert api.seen["data"]["comment"] == "allow one"
+
+
+def test_ipset_entry_add_nomatch_false_omitted():
+    api = _api()
+    ipset_entry_add(api, name="blocklist", cidr="10.0.0.0/24")
+    assert "nomatch" not in api.seen["data"]
+
+
+def test_ipset_entry_remove_path_includes_cidr():
+    api = _api()
+    ipset_entry_remove(api, name="blocklist", cidr="10.0.0.0/24")
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/cluster/firewall/ipset/blocklist/10.0.0.0/24"
+
+
+def test_ipset_entry_remove_includes_digest_when_given():
+    api = _api()
+    ipset_entry_remove(api, name="blocklist", cidr="10.0.0.0/24", digest="abc")
+    assert api.seen["params"]["digest"] == "abc"
+
+
+# --- ipset PLAN factories ---
+
+
+def test_plan_ipset_create_is_low_no_undo():
+    plan = plan_ipset_create(name="blocklist")
+    assert plan.risk == RISK_LOW
+    assert "blocklist" in plan.change
+    assert any("no undo" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_ipset_delete_is_medium_surfaces_force():
+    api = _api()
+    api.seen["_get_return"] = [{"cidr": "10.0.0.0/24"}, {"cidr": "10.0.0.5"}]
+    plan = plan_ipset_delete(api, name="blocklist", force=True)
+    assert plan.risk == RISK_MEDIUM
+    # the force/member-wipe semantics are surfaced
+    assert any("force" in b.lower() or "member" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_ipset_entry_add_is_medium():
+    plan = plan_ipset_entry_add(name="blocklist", cidr="10.0.0.0/24")
+    assert plan.risk == RISK_MEDIUM
+    assert "10.0.0.0/24" in plan.change
+
+
+def test_plan_ipset_entry_remove_is_medium():
+    plan = plan_ipset_entry_remove(name="blocklist", cidr="10.0.0.0/24")
+    assert plan.risk == RISK_MEDIUM
+    assert "10.0.0.0/24" in plan.change
+
+
+# ===========================================================================
+# SECURITY GROUPS — security_group_create / security_group_delete (cluster-only)
+# Grounded against live PVE 9.2 schema (2026-06-14):
+#   POST   /cluster/firewall/groups          {group, comment?}   create empty group
+#   DELETE /cluster/firewall/groups/{group}                       delete group (NO params; must be empty)
+# A group is referenced from a rule via type=group. Empty group = passive (LOW).
+# Deleting needs the group emptied of rules AND unreferenced (MEDIUM). No UNDO.
+# ===========================================================================
+
+
+def test_security_group_create_path_and_group():
+    api = _api()
+    security_group_create(api, group="web-dmz")
+    assert api.seen["method"] == "POST"
+    assert api.seen["path"] == "/cluster/firewall/groups"
+    assert api.seen["data"]["group"] == "web-dmz"
+
+
+def test_security_group_create_includes_comment():
+    api = _api()
+    security_group_create(api, group="web-dmz", comment="dmz hosts")
+    assert api.seen["data"]["comment"] == "dmz hosts"
+
+
+def test_security_group_create_rejects_bad_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        security_group_create(api, group="bad group!")
+
+
+def test_security_group_delete_path_no_params():
+    api = _api()
+    security_group_delete(api, group="web-dmz")
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/cluster/firewall/groups/web-dmz"
+    # PVE delete takes no params — we send an empty dict
+    assert api.seen["params"] == {}
+
+
+def test_security_group_delete_rejects_bad_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        security_group_delete(api, group="bad/name")
+
+
+def test_plan_security_group_create_is_low_no_undo():
+    plan = plan_security_group_create(group="web-dmz")
+    assert plan.risk == RISK_LOW
+    assert "web-dmz" in plan.change
+    assert any("no undo" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_security_group_delete_is_medium_reads_rules():
+    api = _api()
+    api.seen["_get_return"] = [{"pos": 0, "action": "ACCEPT"}, {"pos": 1, "action": "DROP"}]
+    plan = plan_security_group_delete(api, group="web-dmz")
+    assert plan.risk == RISK_MEDIUM
+    # surfaces that the group must be empty + unreferenced
+    assert any("empt" in b.lower() or "referenc" in b.lower() for b in plan.blast_radius)
+    assert plan.current.get("rules") == 2
+
+
+# ===========================================================================
+# OPTIONS SET — firewall_options_set (scope-aware)
+# Grounded against live PVE 9.2 schema (2026-06-14):
+#   PUT {base}/options  {<option>: <value>, ..., delete?: csv, digest?}
+# Options vary by scope (cluster: enable/policy_in/out/forward/ebtables/log_ratelimit;
+#   node/guest: enable/policy_in/out/log_level_in/out/...). PVE validates per scope.
+# RISK_HIGH when 'enable' or any 'policy*' key changes (lockout / default-policy);
+# else RISK_MEDIUM. No UNDO — config-file state.
+# ===========================================================================
+
+
+def test_options_set_cluster_path_and_field():
+    api = _api()
+    firewall_options_set(api, options={"policy_in": "DROP"})
+    assert api.seen["method"] == "PUT"
+    assert api.seen["path"] == "/cluster/firewall/options"
+    assert api.seen["data"]["policy_in"] == "DROP"
+
+
+def test_options_set_node_scope_path():
+    api = _api(node="n1")
+    firewall_options_set(api, scope="node", options={"log_level_in": "info"})
+    assert api.seen["path"] == "/nodes/n1/firewall/options"
+
+
+def test_options_set_guest_scope_path():
+    api = _api()
+    firewall_options_set(api, scope="guest", vmid="100", options={"dhcp": 1})
+    assert api.seen["path"] == "/nodes/pve/lxc/100/firewall/options"
+
+
+def test_options_set_delete_list_becomes_csv():
+    api = _api()
+    firewall_options_set(api, options={"policy_in": "ACCEPT"}, delete=["log_ratelimit", "ebtables"])
+    assert api.seen["data"]["delete"] == "log_ratelimit,ebtables"
+
+
+def test_options_set_includes_digest():
+    api = _api()
+    firewall_options_set(api, options={"ebtables": 1}, digest="abc")
+    assert api.seen["data"]["digest"] == "abc"
+
+
+def test_options_set_requires_options_or_delete():
+    api = _api()
+    with pytest.raises(ProximoError):
+        firewall_options_set(api)
+
+
+def test_options_set_digest_alone_is_not_a_change():
+    api = _api()
+    with pytest.raises(ProximoError):
+        firewall_options_set(api, digest="abc")
+
+
+# --- options-set PLAN factory ---
+
+
+def test_plan_options_set_enable_is_high():
+    api = _api()
+    api.seen["_get_return"] = {"enable": 0}
+    plan = plan_firewall_options_set(api, options={"enable": 1})
+    assert plan.risk == RISK_HIGH
+
+
+def test_plan_options_set_policy_is_high():
+    api = _api()
+    api.seen["_get_return"] = {"policy_in": "ACCEPT"}
+    plan = plan_firewall_options_set(api, options={"policy_in": "DROP"})
+    assert plan.risk == RISK_HIGH
+    assert any("lockout" in b.lower() or "lock you out" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_options_set_log_level_is_medium():
+    api = _api()
+    api.seen["_get_return"] = {}
+    plan = plan_firewall_options_set(api, scope="node", options={"log_level_in": "info"})
+    assert plan.risk == RISK_MEDIUM
+
+
+def test_plan_options_set_reads_current_and_has_no_undo():
+    api = _api()
+    api.seen["_get_return"] = {"policy_in": "ACCEPT", "enable": 1}
+    plan = plan_firewall_options_set(api, options={"policy_in": "DROP"})
+    assert plan.current.get("policy_in") == "ACCEPT"
+    assert any("no undo" in b.lower() for b in plan.blast_radius)
+
+
+# ===========================================================================
+# REDTEAM FIXES (2026-06-14) — hardening found by adversarial review
+# ===========================================================================
+
+
+# Fix 1: _check_fw_name must reject a trailing newline (regex '$' bypass).
+def test_alias_create_rejects_trailing_newline_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        alias_create(api, name="web\n", cidr="10.0.0.0/24")
+
+
+def test_security_group_create_rejects_trailing_newline_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        security_group_create(api, group="grp\n")
+
+
+def test_ipset_create_rejects_trailing_newline_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ipset_create(api, name="set\n")
+
+
+# Fix 2: cidr in ipset_entry_remove goes into the URL path — must be validated.
+def test_ipset_entry_remove_rejects_path_traversal_cidr():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ipset_entry_remove(api, name="blocklist", cidr="../../nodes/x")
+
+
+def test_ipset_entry_remove_accepts_valid_cidr_ip_and_ipv6():
+    api = _api()
+    ipset_entry_remove(api, name="blocklist", cidr="10.0.0.0/24")
+    assert api.seen["path"] == "/cluster/firewall/ipset/blocklist/10.0.0.0/24"
+    ipset_entry_remove(api, name="blocklist", cidr="10.0.0.5")
+    ipset_entry_remove(api, name="blocklist", cidr="2001:db8::/32")
+
+
+def test_ipset_entry_add_rejects_bad_cidr():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ipset_entry_add(api, name="blocklist", cidr="not a cidr!!")
+
+
+# Fix 3: options HIGH-risk classification must not be bypassable.
+def test_options_set_rejects_reserved_delete_key_in_options():
+    api = _api()
+    with pytest.raises(ProximoError):
+        firewall_options_set(api, options={"delete": "enable"})
+
+
+def test_options_set_rejects_reserved_digest_key_in_options():
+    api = _api()
+    with pytest.raises(ProximoError):
+        firewall_options_set(api, options={"digest": "x"})
+
+
+def test_plan_options_set_rejects_reserved_key_in_options():
+    api = _api()
+    api.seen["_get_return"] = {}
+    with pytest.raises(ProximoError):
+        plan_firewall_options_set(api, options={"delete": "enable"})
+
+
+def test_plan_options_set_delete_csv_string_with_policy_is_high():
+    api = _api()
+    api.seen["_get_return"] = {}
+    plan = plan_firewall_options_set(api, delete="ebtables,policy_in")
+    assert plan.risk == RISK_HIGH
+
+
+def test_plan_options_set_delete_list_with_enable_is_high():
+    api = _api()
+    api.seen["_get_return"] = {}
+    plan = plan_firewall_options_set(api, delete=["enable"])
+    assert plan.risk == RISK_HIGH
+
+
+# Fix 4: a failed members-read must NOT present as a confirmed zero-member wipe.
+def test_plan_ipset_delete_read_failure_surfaces_unknown():
+    bad = SimpleNamespace(
+        config=SimpleNamespace(node="pve"),
+        _get=lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    plan = plan_ipset_delete(bad, name="blocklist", force=True)
+    assert any("unknown" in b.lower() or "read failed" in b.lower() for b in plan.blast_radius)
+    assert not any("all 0 member" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_security_group_delete_read_failure_surfaces_unknown():
+    bad = SimpleNamespace(
+        config=SimpleNamespace(node="pve"),
+        _get=lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    plan = plan_security_group_delete(bad, group="web-dmz")
+    assert any("unknown" in b.lower() or "read failed" in b.lower() for b in plan.blast_radius)

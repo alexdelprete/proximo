@@ -40,11 +40,29 @@ from proximo.network import (
     plan_iface_update,
     plan_network_apply,
     plan_sdn_apply,
+    plan_sdn_subnet_create,
+    plan_sdn_subnet_delete,
+    plan_sdn_subnet_update,
+    plan_sdn_vnet_create,
+    plan_sdn_vnet_update,
+    plan_sdn_zone_create,
+    plan_sdn_zone_delete,
+    plan_sdn_zone_update,
     sdn_apply,
+    sdn_subnet_create,
+    sdn_subnet_delete,
+    sdn_subnet_list,
+    sdn_subnet_update,
+    sdn_vnet_create,
+    sdn_vnet_delete,
+    sdn_vnet_update,
     sdn_vnets_list,
+    sdn_zone_create,
+    sdn_zone_delete,
+    sdn_zone_update,
     sdn_zones_list,
 )
-from proximo.planning import RISK_HIGH, RISK_MEDIUM
+from proximo.planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -848,3 +866,236 @@ def test_check_iface_type_rejects_unknown():
 def test_check_iface_type_rejects_empty():
     with pytest.raises(ProximoError):
         _check_iface_type("")
+
+
+# ===========================================================================
+# SDN — zone / vnet / subnet CRUD
+# Grounded against live PVE 9.1.7 schema (2026-06-14):
+#   POST   /cluster/sdn/zones                       {type, zone, ...type-conditional}
+#   PUT    /cluster/sdn/zones/{zone}                 {<opts>, delete?:csv, digest?}
+#   DELETE /cluster/sdn/zones/{zone}
+#   POST   /cluster/sdn/vnets                        {type:vnet, vnet, zone, tag?, ...}
+#   PUT/DELETE /cluster/sdn/vnets/{vnet}
+#   GET/POST   /cluster/sdn/vnets/{vnet}/subnets     {type:subnet, subnet(=CIDR), gateway?, ...}
+#   PUT/DELETE /cluster/sdn/vnets/{vnet}/subnets/{subnet}
+# SDN objects are PENDING until pve_sdn_apply (NOT re-added here) — CRUD stages config with
+# NO live-network effect. lock-token is an optional PVE-9 global-SDN-lock param.
+# ===========================================================================
+
+
+def _rec(node: str = "pve"):
+    seen: dict = {}
+
+    def g(path):
+        seen["method"] = "GET"
+        seen["path"] = path
+        return seen.get("_get_return", [])
+
+    def p(path, data=None):
+        seen["method"] = "POST"
+        seen["path"] = path
+        seen["data"] = data
+        return None
+
+    def u(path, data=None):
+        seen["method"] = "PUT"
+        seen["path"] = path
+        seen["data"] = data
+        return None
+
+    def d(path, params=None):
+        seen["method"] = "DELETE"
+        seen["path"] = path
+        seen["params"] = params
+        return None
+
+    return SimpleNamespace(config=SimpleNamespace(node=node),
+                           _get=g, _post=p, _put=u, _delete=d, seen=seen)
+
+
+# --- zones ---
+
+def test_sdn_zone_create_posts_type_zone_options():
+    api = _rec()
+    sdn_zone_create(api, "myzone", "simple", options={"ipam": "pve"})
+    assert api.seen["method"] == "POST"
+    assert api.seen["path"] == "/cluster/sdn/zones"
+    assert api.seen["data"]["type"] == "simple"
+    assert api.seen["data"]["zone"] == "myzone"
+    assert api.seen["data"]["ipam"] == "pve"
+
+
+def test_sdn_zone_create_rejects_bad_type():
+    api = _rec()
+    with pytest.raises(ProximoError):
+        sdn_zone_create(api, "myzone", "bogus")
+
+
+def test_sdn_zone_create_rejects_bad_id():
+    api = _rec()
+    with pytest.raises(ProximoError):
+        sdn_zone_create(api, "bad/zone", "simple")
+
+
+def test_sdn_zone_create_rejects_reserved_option_key():
+    api = _rec()
+    with pytest.raises(ProximoError):
+        sdn_zone_create(api, "myzone", "simple", options={"zone": "x"})
+
+
+def test_sdn_zone_create_includes_lock_token():
+    api = _rec()
+    sdn_zone_create(api, "myzone", "simple", lock_token="tok")
+    assert api.seen["data"]["lock-token"] == "tok"
+
+
+def test_sdn_zone_update_puts_options_and_delete_csv():
+    api = _rec()
+    sdn_zone_update(api, "myzone", options={"mtu": "1450"}, delete=["dns", "dnszone"])
+    assert api.seen["method"] == "PUT"
+    assert api.seen["path"] == "/cluster/sdn/zones/myzone"
+    assert api.seen["data"]["mtu"] == "1450"
+    assert api.seen["data"]["delete"] == "dns,dnszone"
+
+
+def test_sdn_zone_update_requires_something():
+    api = _rec()
+    with pytest.raises(ProximoError):
+        sdn_zone_update(api, "myzone")
+
+
+def test_sdn_zone_update_includes_digest():
+    api = _rec()
+    sdn_zone_update(api, "myzone", options={"mtu": "1450"}, digest="abc")
+    assert api.seen["data"]["digest"] == "abc"
+
+
+def test_sdn_zone_delete_path():
+    api = _rec()
+    sdn_zone_delete(api, "myzone")
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/cluster/sdn/zones/myzone"
+
+
+def test_plan_sdn_zone_create_is_low_pending_no_apply():
+    plan = plan_sdn_zone_create("myzone", "simple")
+    assert plan.risk == RISK_LOW
+    assert any("pending" in b.lower() for b in plan.blast_radius)
+    assert any("apply" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_sdn_zone_delete_is_medium_pending():
+    api = _rec()
+    plan = plan_sdn_zone_delete(api, "myzone")
+    assert plan.risk == RISK_MEDIUM
+    assert any("pending" in b.lower() for b in plan.blast_radius)
+
+
+# --- vnets ---
+
+def test_sdn_vnet_create_posts_type_vnet_zone():
+    api = _rec()
+    sdn_vnet_create(api, "myvnet", "myzone", options={"tag": 100})
+    assert api.seen["path"] == "/cluster/sdn/vnets"
+    assert api.seen["data"]["type"] == "vnet"
+    assert api.seen["data"]["vnet"] == "myvnet"
+    assert api.seen["data"]["zone"] == "myzone"
+    assert api.seen["data"]["tag"] == 100
+
+
+def test_sdn_vnet_create_rejects_bad_id():
+    api = _rec()
+    with pytest.raises(ProximoError):
+        sdn_vnet_create(api, "bad/vnet", "myzone")
+
+
+def test_sdn_vnet_update_puts():
+    api = _rec()
+    sdn_vnet_update(api, "myvnet", options={"alias": "web"})
+    assert api.seen["method"] == "PUT"
+    assert api.seen["path"] == "/cluster/sdn/vnets/myvnet"
+    assert api.seen["data"]["alias"] == "web"
+
+
+def test_sdn_vnet_delete_path():
+    api = _rec()
+    sdn_vnet_delete(api, "myvnet")
+    assert api.seen["path"] == "/cluster/sdn/vnets/myvnet"
+
+
+def test_plan_sdn_vnet_create_is_low_pending():
+    plan = plan_sdn_vnet_create("myvnet", "myzone")
+    assert plan.risk == RISK_LOW
+    assert any("pending" in b.lower() for b in plan.blast_radius)
+
+
+# --- subnets ---
+
+def test_sdn_subnet_list_path():
+    api = _rec()
+    sdn_subnet_list(api, "myvnet")
+    assert api.seen["method"] == "GET"
+    assert api.seen["path"] == "/cluster/sdn/vnets/myvnet/subnets"
+
+
+def test_sdn_subnet_create_posts_type_subnet_cidr():
+    api = _rec()
+    sdn_subnet_create(api, "myvnet", "10.0.0.0/24", options={"gateway": "10.0.0.1"})
+    assert api.seen["path"] == "/cluster/sdn/vnets/myvnet/subnets"
+    assert api.seen["data"]["type"] == "subnet"
+    assert api.seen["data"]["subnet"] == "10.0.0.0/24"
+    assert api.seen["data"]["gateway"] == "10.0.0.1"
+
+
+def test_sdn_subnet_create_rejects_bad_cidr():
+    api = _rec()
+    with pytest.raises(ProximoError):
+        sdn_subnet_create(api, "myvnet", "not-a-cidr")
+
+
+def test_sdn_subnet_update_path():
+    api = _rec()
+    sdn_subnet_update(api, "myvnet", "myzone-10.0.0.0-24", options={"snat": 1})
+    assert api.seen["method"] == "PUT"
+    assert api.seen["path"] == "/cluster/sdn/vnets/myvnet/subnets/myzone-10.0.0.0-24"
+
+
+def test_sdn_subnet_delete_path():
+    api = _rec()
+    sdn_subnet_delete(api, "myvnet", "myzone-10.0.0.0-24")
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/cluster/sdn/vnets/myvnet/subnets/myzone-10.0.0.0-24"
+
+
+def test_sdn_subnet_delete_rejects_traversal():
+    api = _rec()
+    with pytest.raises(ProximoError):
+        sdn_subnet_delete(api, "myvnet", "../../zones/x")
+
+
+def test_plan_sdn_subnet_create_is_low_pending():
+    plan = plan_sdn_subnet_create("myvnet", "10.0.0.0/24")
+    assert plan.risk == RISK_LOW
+    assert any("pending" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_sdn_subnet_delete_is_medium():
+    plan = plan_sdn_subnet_delete("myvnet", "myzone-10.0.0.0-24")
+    assert plan.risk == RISK_MEDIUM
+
+
+# --- SDN REDTEAM fix (2026-06-14): plan/op no-op parity on update ---
+
+def test_plan_sdn_zone_update_requires_something():
+    with pytest.raises(ProximoError):
+        plan_sdn_zone_update("myzone")
+
+
+def test_plan_sdn_vnet_update_requires_something():
+    with pytest.raises(ProximoError):
+        plan_sdn_vnet_update("myvnet")
+
+
+def test_plan_sdn_subnet_update_requires_something():
+    with pytest.raises(ProximoError):
+        plan_sdn_subnet_update("myvnet", "myzone-10.0.0.0-24")

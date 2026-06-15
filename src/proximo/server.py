@@ -44,6 +44,7 @@ from .access_governance import (
     plan_role_create,
     plan_role_delete,
     plan_role_update,
+    plan_tfa_delete,
     realm_create,
     realm_delete,
     realm_get,
@@ -52,6 +53,8 @@ from .access_governance import (
     role_create,
     role_delete,
     role_update,
+    tfa_delete,
+    tfa_get,
     tfa_list,
 )
 from .access_users import (
@@ -98,9 +101,15 @@ from .cluster_ops import (
     ha_resource_add,
     ha_resource_remove,
     ha_resources_list,
+    ha_rule_create,
+    ha_rule_delete,
+    ha_rule_update,
     ha_rules_list,
     plan_ha_resource_add,
     plan_ha_resource_remove,
+    plan_ha_rule_create,
+    plan_ha_rule_delete,
+    plan_ha_rule_update,
     plan_migrate,
 )
 from .config import ProximoConfig
@@ -119,17 +128,38 @@ from .disk_ops import (
     plan_disk_resize,
 )
 from .firewall import (
+    alias_create,
+    alias_delete,
+    alias_list,
+    alias_update,
     firewall_options_get,
+    firewall_options_set,
     firewall_rule_add,
     firewall_rule_remove,
     firewall_rule_update,
     firewall_rules_list,
     firewall_set_enabled,
+    ipset_create,
+    ipset_delete,
+    ipset_entry_add,
+    ipset_entry_remove,
     ipset_list,
+    plan_alias_create,
+    plan_alias_delete,
+    plan_alias_update,
+    plan_firewall_options_set,
     plan_firewall_rule_add,
     plan_firewall_rule_remove,
     plan_firewall_rule_update,
     plan_firewall_set_enabled,
+    plan_ipset_create,
+    plan_ipset_delete,
+    plan_ipset_entry_add,
+    plan_ipset_entry_remove,
+    plan_security_group_create,
+    plan_security_group_delete,
+    security_group_create,
+    security_group_delete,
     security_groups_list,
 )
 from .network import (
@@ -141,8 +171,27 @@ from .network import (
     plan_iface_update,
     plan_network_apply,
     plan_sdn_apply,
+    plan_sdn_subnet_create,
+    plan_sdn_subnet_delete,
+    plan_sdn_subnet_update,
+    plan_sdn_vnet_create,
+    plan_sdn_vnet_delete,
+    plan_sdn_vnet_update,
+    plan_sdn_zone_create,
+    plan_sdn_zone_delete,
+    plan_sdn_zone_update,
     sdn_apply,
+    sdn_subnet_create,
+    sdn_subnet_delete,
+    sdn_subnet_list,
+    sdn_subnet_update,
+    sdn_vnet_create,
+    sdn_vnet_delete,
+    sdn_vnet_update,
     sdn_vnets_list,
+    sdn_zone_create,
+    sdn_zone_delete,
+    sdn_zone_update,
     sdn_zones_list,
 )
 from .observability import (
@@ -1238,6 +1287,214 @@ def pve_firewall_set_enabled(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
+@mcp.tool()
+def pve_firewall_alias_list(
+    scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None,
+) -> list[dict]:
+    """List firewall aliases (named CIDRs) for the given scope (read)."""
+    _, api, _, _ = _svc()
+    return _audited("pve_firewall_alias_list", f"firewall/{scope}/aliases",
+                    lambda: alias_list(api, scope, node, vmid, kind))
+
+
+@mcp.tool()
+def pve_firewall_alias_create(
+    name: str, cidr: str, scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None, comment: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: create a firewall alias (named CIDR). Dry-run by default — the PLAN shows the
+    name, CIDR, and scope. Re-call with confirm=True to execute. Passive until a rule references it.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/{scope}/aliases/{name}"
+    plan = _plan("pve_firewall_alias_create", tgt,
+                 lambda: plan_alias_create(name, cidr, scope, node, vmid, kind, comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_alias_create", tgt,
+                    lambda: alias_create(api, name, cidr, scope, node, vmid, kind, comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_alias_update(
+    name: str, scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None,
+    cidr: str | None = None, comment: str | None = None,
+    rename: str | None = None, digest: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: update a firewall alias. Dry-run by default — the PLAN shows the current alias and
+    the fields being changed. Changing the CIDR silently alters every referencing rule's match set.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/{scope}/aliases/{name}"
+    plan = _plan("pve_firewall_alias_update", tgt,
+                 lambda: plan_alias_update(api, name, scope, node, vmid, kind, cidr, comment, rename))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_alias_update", tgt,
+                    lambda: alias_update(api, name, scope, node, vmid, kind, cidr, comment, rename, digest),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_alias_delete(
+    name: str, scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None,
+    digest: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: delete a firewall alias. Dry-run by default — the PLAN shows the current alias.
+    PVE refuses while any rule still references the alias. No UNDO: re-create to revert.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/{scope}/aliases/{name}"
+    plan = _plan("pve_firewall_alias_delete", tgt,
+                 lambda: plan_alias_delete(api, name, scope, node, vmid, kind))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_alias_delete", tgt,
+                    lambda: alias_delete(api, name, scope, node, vmid, kind, digest),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_ipset_create(
+    name: str, scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None, comment: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: create an empty IP set. Dry-run by default — the PLAN shows the name and scope.
+    Passive until a rule references it as '+name' and entries are added.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/{scope}/ipset/{name}"
+    plan = _plan("pve_firewall_ipset_create", tgt,
+                 lambda: plan_ipset_create(name, scope, node, vmid, kind, comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_ipset_create", tgt,
+                    lambda: ipset_create(api, name, scope, node, vmid, kind, comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_ipset_delete(
+    name: str, scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None,
+    force: bool = False, confirm: bool = False,
+) -> dict:
+    """MUTATION: delete an IP set. Dry-run by default — the PLAN shows member count and the
+    force semantics. force=True WIPES all members; PVE refuses while a rule references the set.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/{scope}/ipset/{name}"
+    plan = _plan("pve_firewall_ipset_delete", tgt,
+                 lambda: plan_ipset_delete(api, name, scope, node, vmid, kind, force))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_ipset_delete", tgt,
+                    lambda: ipset_delete(api, name, scope, node, vmid, kind, force),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_ipset_entry_add(
+    name: str, cidr: str, scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None,
+    comment: str | None = None, nomatch: bool = False, confirm: bool = False,
+) -> dict:
+    """MUTATION: add an IP/Network entry to an IP set. Dry-run by default — the PLAN shows the
+    entry and warns it changes every referencing rule's match set. nomatch=True = exclusion.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/{scope}/ipset/{name}"
+    plan = _plan("pve_firewall_ipset_entry_add", tgt,
+                 lambda: plan_ipset_entry_add(name, cidr, scope, node, vmid, kind, comment, nomatch))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_ipset_entry_add", tgt,
+                    lambda: ipset_entry_add(api, name, cidr, scope, node, vmid, kind, comment, nomatch),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_ipset_entry_remove(
+    name: str, cidr: str, scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None,
+    digest: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: remove an IP/Network entry from an IP set. Dry-run by default — the PLAN shows the
+    entry and warns it changes every referencing rule's match set (may open or close access).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/{scope}/ipset/{name}"
+    plan = _plan("pve_firewall_ipset_entry_remove", tgt,
+                 lambda: plan_ipset_entry_remove(name, cidr, scope, node, vmid, kind))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_ipset_entry_remove", tgt,
+                    lambda: ipset_entry_remove(api, name, cidr, scope, node, vmid, kind, digest),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_security_group_create(
+    group: str, comment: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: create an empty cluster security group. Dry-run by default — the PLAN shows the
+    name. Passive until rules are added and a rule references it (type=group).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/cluster/groups/{group}"
+    plan = _plan("pve_firewall_security_group_create", tgt,
+                 lambda: plan_security_group_create(group, comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_security_group_create", tgt,
+                    lambda: security_group_create(api, group, comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_security_group_delete(group: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a cluster security group. Dry-run by default — the PLAN shows how many rules
+    the group holds. PVE refuses while the group is non-empty or still referenced by a rule.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/cluster/groups/{group}"
+    plan = _plan("pve_firewall_security_group_delete", tgt,
+                 lambda: plan_security_group_delete(api, group))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_security_group_delete", tgt,
+                    lambda: security_group_delete(api, group),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_firewall_options_set(
+    scope: str = "cluster", node: str | None = None,
+    vmid: str | None = None, kind: str | None = None,
+    options: dict | None = None, delete: list[str] | None = None,
+    digest: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: set firewall options for a scope (policy_in/out, log levels, ebtables, log_ratelimit,
+    ...). `options` is a key->value bag; `delete` unsets keys. Dry-run by default — the PLAN shows the
+    current values and flags lockout risk. RISK_HIGH when enabling the firewall or changing a policy.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"firewall/{scope}/options"
+    plan = _plan("pve_firewall_options_set", tgt,
+                 lambda: plan_firewall_options_set(api, scope, node, vmid, kind, options, delete))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_firewall_options_set", tgt,
+                    lambda: firewall_options_set(api, scope, node, vmid, kind, options, delete, digest),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
 # --- Network & SDN (REST API, read) ---
 
 @mcp.tool()
@@ -1263,6 +1520,168 @@ def pve_sdn_vnets_list() -> list[dict]:
 
 
 # --- Network & SDN (REST API, MUTATION — confirm-gated) ---
+
+@mcp.tool()
+def pve_sdn_subnet_list(vnet: str) -> list[dict]:
+    """List subnets in an SDN vnet (read)."""
+    _, api, _, _ = _svc()
+    return _audited("pve_sdn_subnet_list", f"sdn/vnets/{vnet}/subnets",
+                    lambda: sdn_subnet_list(api, vnet))
+
+
+@mcp.tool()
+def pve_sdn_zone_create(
+    zone: str, zone_type: str, options: dict | None = None,
+    lock_token: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: create an SDN zone (PENDING — inert until pve_sdn_apply, NOT applied here).
+    `zone_type` is simple/vlan/qinq/vxlan/evpn/faucet; `options` carries type-specific params.
+    Dry-run by default. RISK_LOW (staging, no live network effect).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"sdn/zones/{zone}"
+    plan = _plan("pve_sdn_zone_create", tgt, lambda: plan_sdn_zone_create(zone, zone_type, options))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_zone_create", tgt,
+                    lambda: sdn_zone_create(api, zone, zone_type, options, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_sdn_zone_update(
+    zone: str, options: dict | None = None, delete: list[str] | None = None,
+    digest: str | None = None, lock_token: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: update an SDN zone (PENDING). `options` sets fields; `delete` unsets keys.
+    Dry-run by default. RISK_LOW (staging; inert until pve_sdn_apply).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"sdn/zones/{zone}"
+    plan = _plan("pve_sdn_zone_update", tgt, lambda: plan_sdn_zone_update(zone, options, delete))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_zone_update", tgt,
+                    lambda: sdn_zone_update(api, zone, options, delete, digest, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_sdn_zone_delete(zone: str, lock_token: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: delete an SDN zone (PENDING). Dry-run by default — the PLAN shows the current zone.
+    PVE refuses if a vnet still references it. RISK_MEDIUM (staging a removal an apply would enact).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"sdn/zones/{zone}"
+    plan = _plan("pve_sdn_zone_delete", tgt, lambda: plan_sdn_zone_delete(api, zone))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_zone_delete", tgt,
+                    lambda: sdn_zone_delete(api, zone, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_sdn_vnet_create(
+    vnet: str, zone: str, options: dict | None = None,
+    lock_token: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: create an SDN vnet in a zone (PENDING). `options` carries tag/alias/vlanaware/etc.
+    Dry-run by default. RISK_LOW (staging; inert until pve_sdn_apply).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"sdn/vnets/{vnet}"
+    plan = _plan("pve_sdn_vnet_create", tgt, lambda: plan_sdn_vnet_create(vnet, zone, options))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_vnet_create", tgt,
+                    lambda: sdn_vnet_create(api, vnet, zone, options, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_sdn_vnet_update(
+    vnet: str, options: dict | None = None, delete: list[str] | None = None,
+    digest: str | None = None, lock_token: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: update an SDN vnet (PENDING). Dry-run by default. RISK_LOW (staging)."""
+    _, api, _, _ = _svc()
+    tgt = f"sdn/vnets/{vnet}"
+    plan = _plan("pve_sdn_vnet_update", tgt, lambda: plan_sdn_vnet_update(vnet, options, delete))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_vnet_update", tgt,
+                    lambda: sdn_vnet_update(api, vnet, options, delete, digest, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_sdn_vnet_delete(vnet: str, lock_token: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: delete an SDN vnet (PENDING). Dry-run by default — the PLAN shows the current vnet.
+    PVE refuses if a subnet still references it. RISK_MEDIUM.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"sdn/vnets/{vnet}"
+    plan = _plan("pve_sdn_vnet_delete", tgt, lambda: plan_sdn_vnet_delete(api, vnet))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_vnet_delete", tgt,
+                    lambda: sdn_vnet_delete(api, vnet, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_sdn_subnet_create(
+    vnet: str, subnet: str, options: dict | None = None,
+    lock_token: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: create an SDN subnet (PENDING). `subnet` is a CIDR (e.g. 10.0.0.0/24); `options`
+    carries gateway/snat/dhcp params. Dry-run by default. RISK_LOW (staging; inert until apply).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"sdn/vnets/{vnet}/subnets/{subnet}"
+    plan = _plan("pve_sdn_subnet_create", tgt, lambda: plan_sdn_subnet_create(vnet, subnet, options))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_subnet_create", tgt,
+                    lambda: sdn_subnet_create(api, vnet, subnet, options, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_sdn_subnet_update(
+    vnet: str, subnet: str, options: dict | None = None, delete: list[str] | None = None,
+    digest: str | None = None, lock_token: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: update an SDN subnet (PENDING). `subnet` is the id from pve_sdn_subnet_list.
+    Dry-run by default. RISK_LOW (staging).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"sdn/vnets/{vnet}/subnets/{subnet}"
+    plan = _plan("pve_sdn_subnet_update", tgt, lambda: plan_sdn_subnet_update(vnet, subnet, options, delete))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_subnet_update", tgt,
+                    lambda: sdn_subnet_update(api, vnet, subnet, options, delete, digest, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_sdn_subnet_delete(
+    vnet: str, subnet: str, lock_token: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: delete an SDN subnet (PENDING). `subnet` is the id from pve_sdn_subnet_list.
+    Dry-run by default. RISK_MEDIUM (staging a removal an apply would enact).
+    """
+    _, api, _, _ = _svc()
+    tgt = f"sdn/vnets/{vnet}/subnets/{subnet}"
+    plan = _plan("pve_sdn_subnet_delete", tgt, lambda: plan_sdn_subnet_delete(vnet, subnet))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_subnet_delete", tgt,
+                    lambda: sdn_subnet_delete(api, vnet, subnet, lock_token),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
 
 @mcp.tool()
 def pve_network_iface_create(
@@ -1437,6 +1856,69 @@ def pve_ha_resource_remove(vmid: str, kind: str = "lxc", confirm: bool = False) 
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_ha_resource_remove", tgt,
                     lambda: ha_resource_remove(api, vmid, kind),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_ha_rule_create(
+    rule: str, rule_type: str, resources: str, comment: str | None = None,
+    disable: bool = False, nodes: str | None = None, strict: bool = False,
+    affinity: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: create an HA rule (the PVE 9 replacement for HA groups). Dry-run by default — the
+    PLAN shows the rule type, resources, and placement effect. `rule_type` is 'node-affinity'
+    (needs `nodes`; optional `strict`) or 'resource-affinity' (needs `affinity` positive|negative).
+    confirm=True to execute. Synchronous (pmxcfs config write). RISK_MEDIUM — constrains CRM placement.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"ha/rules/{rule}"
+    plan = _plan("pve_ha_rule_create", tgt,
+                 lambda: plan_ha_rule_create(rule, rule_type, resources, nodes, strict, affinity, disable))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_ha_rule_create", tgt,
+                    lambda: ha_rule_create(api, rule, rule_type, resources, comment, disable,
+                                           nodes, strict, affinity),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_ha_rule_update(
+    rule: str, comment: str | None = None, disable: bool | None = None,
+    resources: str | None = None, rule_type: str | None = None, nodes: str | None = None,
+    strict: bool | None = None, affinity: str | None = None,
+    delete: list[str] | None = None, digest: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION: update an HA rule. Dry-run by default — the PLAN shows the current rule and the
+    fields being changed. `delete` unsets keys. confirm=True to execute. Synchronous.
+    RISK_MEDIUM — may trigger CRM migration of affected resources.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"ha/rules/{rule}"
+    plan = _plan("pve_ha_rule_update", tgt,
+                 lambda: plan_ha_rule_update(api, rule, comment, disable, resources, rule_type,
+                                             nodes, strict, affinity, delete))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_ha_rule_update", tgt,
+                    lambda: ha_rule_update(api, rule, comment, disable, resources, rule_type,
+                                           nodes, strict, affinity, delete, digest),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_ha_rule_delete(rule: str, confirm: bool = False) -> dict:
+    """MUTATION: delete an HA rule. Dry-run by default — the PLAN shows the current rule and that
+    its resources lose this placement constraint (CRM may migrate them). confirm=True to execute.
+    Synchronous. RISK_MEDIUM.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"ha/rules/{rule}"
+    plan = _plan("pve_ha_rule_delete", tgt, lambda: plan_ha_rule_delete(api, rule))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_ha_rule_delete", tgt,
+                    lambda: ha_rule_delete(api, rule),
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
@@ -1978,9 +2460,39 @@ def pve_realm_get(realm: str) -> dict:
 
 @mcp.tool()
 def pve_tfa_list() -> list[dict]:
-    """List per-user TFA (two-factor) entries (read; TFA mutations are intentionally not exposed)."""
+    """List per-user TFA (two-factor) entries across the cluster (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_tfa_list", "access/tfa", lambda: tfa_list(api))
+
+
+@mcp.tool()
+def pve_tfa_get(userid: str, tfa_id: str | None = None) -> object:
+    """Read a user's TFA entries, or one entry (read). GET /access/tfa/{userid}[/{tfa_id}]."""
+    _, api, _, _ = _svc()
+    return _audited("pve_tfa_get", f"access/tfa/{userid}", lambda: tfa_get(api, userid, tfa_id))
+
+
+@mcp.tool()
+def pve_tfa_delete(
+    userid: str, tfa_id: str, password: str | None = None, confirm: bool = False,
+) -> dict:
+    """MUTATION (HIGH RISK): delete a user's TFA factor. Dry-run by default — the PLAN shows how many
+    factors remain and warns this WEAKENS the account (and can lock the user out if it's the last
+    factor on a TFA-required realm). `password` (if PVE requires it) is passed through but never
+    logged. confirm=True to execute.
+
+    NOTE (live-verified PVE 9.1.7): PVE requires a ticket-based login session — NOT an API token —
+    to mutate TFA, returning `403 ... need proper ticket` under token auth. Proximo is token-authed,
+    so this delete will 403 on PVE; the read tools (pve_tfa_get/pve_tfa_list) work normally.
+    """
+    _, api, _, _ = _svc()
+    tgt = f"access/tfa/{userid}/{tfa_id}"
+    plan = _plan("pve_tfa_delete", tgt, lambda: plan_tfa_delete(api, userid, tfa_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_tfa_delete", tgt,
+                    lambda: tfa_delete(api, userid, tfa_id, password),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
 
 
 @mcp.tool()

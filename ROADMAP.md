@@ -90,20 +90,42 @@ online live-migration (shared storage), production scale.**
 - ☐ volume management · ☐ vzdump backup catalog. *(PLAN+PROVE; deletes are HIGH.)*
 
 ### E. Migration, cluster & HA (high-stakes → trust shines brightest)
-- ☐ live/offline **migrate** · ☐ cluster status/resources · ☐ HA groups & resources ·
+- ✅ offline **migrate** · ✅ cluster status/resources · ✅ HA resources (add/remove) ·
+  ✅ **HA rules CRUD** (create/update/delete — node-affinity + resource-affinity) ·
   ☐ replication jobs · ☐ cluster options. *(PLAN with real blast-radius; PROVE every move.)*
+  *(**HA rules LIVE-PROVEN** on PVE 9.2 (2026-06-14): full chain create-VM → HA-manage → rule
+  create/read/update/delete → teardown, all green, ledger verified, zero residue. HA *groups*
+  CRUD deliberately NOT built — groups 500 at runtime on PVE 9 (migrated to rules). Live-surfaced
+  fix: HA-rule PUT needs the `type` discriminator → `ha_rule_update` auto-fetches it. Smoke:
+  `scripts/live-smoke/harules-smoke.py`.)*
 
 ### F. Network & SDN (rarely covered by MCP servers)
-- ☐ bridges / bonds / VLANs (list, create, update, **apply**) · ☐ SDN zones / vnets / subnets ·
+- ◐ bridges / bonds / VLANs (list, create, update, **apply**) · ✅ **SDN zones / vnets / subnets CRUD** ·
   ☐ pending-vs-applied diff. *(Network changes are connectivity-lockout risk → PLAN is mandatory,
   apply is a guarded two-step. This is where "preview before you commit" saves a cluster.)*
+  *(**SDN zone/vnet/subnet CRUD LIVE-PROVEN** on PVE 9.2 (2026-06-14): full simple-zone → vnet →
+  subnet create→read→update→delete chain, ledger verified, zero residue, and **`sdn_apply` NEVER
+  called** — proving pending objects stage and revert with no live-network effect. The PVE-derived
+  subnet id (`zone-cidr`, e.g. `psmkz1-10.99.99.0-24`) confirmed live. Smoke:
+  `scripts/live-smoke/sdn-smoke.py`.)*
 
-### G. Firewall (cluster / node / guest)
-- ☐ rules CRUD · ☐ security groups · ☐ aliases · ☐ IP sets · ☐ options/enable.
+### G. Firewall (cluster / node / guest) — ✅ TOTAL CRUD, LIVE-PROVEN (2026-06-14)
+- ✅ rules CRUD · ✅ security groups (create/delete) · ✅ aliases (list/create/update/delete) ·
+  ✅ IP sets (create/delete + CIDR-entry add/remove) · ✅ options (set_enabled + general options_set).
   *(Every change PLANNED + PROVED — firewall edits are exactly where silent mistakes hurt.)*
+  *(Aliases/ipsets/security-groups/options-set added 2026-06-14: API-shape grounded against the live
+  PVE 9.2 schema before implementation, built test-first, redteam-hardened. UNDO honestly absent —
+  firewall config is config-file state, not a guest snapshot.)*
+  *(**LIVE-PROVEN** on a nested PVE 9.2 test node: create→read→delete of alias / ip-set
+  (+entry) / security-group objects all 200 OK, options read + options_set PLAN (risk=high), audit
+  ledger verified, zero residue. Smoke: `scripts/live-smoke/fwobjects-smoke.{sh,py}`.)*
 
 ### H. Access, ACLs & governance (Proximo eats its own dogfood)
-- ☐ users / groups / roles · ☐ **ACL grant/revoke** · ☐ API tokens (create/scope/revoke) · ☐ realms / TFA
+- ✅ users / groups / roles · ✅ **ACL grant/revoke** · ✅ API tokens (create/revoke) · ✅ realms · ✅ **TFA get/delete**
+  *(TFA get/delete added 2026-06-14. Reads LIVE-PROVEN on PVE 9.2. **Live-verified caveat:** PVE
+  forbids API *tokens* from mutating TFA — `tfa_delete` returns `403 need proper ticket` under token
+  auth (PVE requires a ticket-based session); the tool is shape-correct + reaches the API. Enrollment
+  is OUT (interactive challenge). Smoke: `scripts/live-smoke/tfa-smoke.py`.)*
 - **Design note:** Proxmox ACL inheritance has a sharp edge — a grant on a deeper path *replaces*
   inherited grants rather than adding to them, which can silently shadow a token's access. An access
   tool that **PLANs an ACL change — showing what it shadows, what it widens, who it affects — and
@@ -118,8 +140,14 @@ online live-migration (shared storage), production scale.**
 1. ✅ **Provisioning + Restore** — create/clone/delete (B) + backup/restore (C). LIVE-PROVEN.
 2. ✅ **Config mutation** — guest config edits + resize/move + cloud-init (B). LIVE-PROVEN.
 3. ◐ **Storage + ISO/templates** (D) — content/status/download/delete done; create/remove + upload TODO.
-4. ✅ **Migration + cluster + HA** (E) — built+redteamed (mocked).
-5. ✅ **Network + SDN + Firewall** (F, G) — built+redteamed (mocked).
+4. ✅ **Migration + cluster + HA** (E) — built+redteamed; **HA rules CRUD added 2026-06-14,
+   LIVE-PROVEN on PVE 9.2** (full create→delete chain, ledger verified). HA groups CRUD N/A
+   (runtime-500 on PVE 9). Replication jobs + cluster options remain future.
+5. ◐ **Network + SDN + Firewall** (F, G) — network-apply + firewall-rules built+redteamed (mocked);
+   **Firewall reached TOTAL CRUD 2026-06-14, LIVE-PROVEN on PVE 9.2** (aliases/ipsets/security-groups/
+   options-set, test-first + redteam-hardened, create→read→delete proven against the live node, ledger
+   verified). **SDN object CRUD (zones/vnets/subnets) added 2026-06-14, LIVE-PROVEN** (pending-only,
+   no apply). Bridge/bond/VLAN host-net + pending-vs-applied diff remain future.
 6. ◐ **Access / ACL / token governance** (H) — ACL/users/roles/tokens reads + acl/token mutate done;
    groups/role-CRUD/realms/TFA/user-CRUD TODO.
 7. ✅ **Observability + PBS deep + task control** (A, C-PBS, I) — built+redteamed 2026-06-08;

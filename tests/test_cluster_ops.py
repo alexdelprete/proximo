@@ -26,9 +26,15 @@ from proximo.cluster_ops import (
     ha_resource_add,
     ha_resource_remove,
     ha_resources_list,
+    ha_rule_create,
+    ha_rule_delete,
+    ha_rule_update,
     ha_rules_list,
     plan_ha_resource_add,
     plan_ha_resource_remove,
+    plan_ha_rule_create,
+    plan_ha_rule_delete,
+    plan_ha_rule_update,
     plan_migrate,
 )
 from proximo.planning import RISK_HIGH, RISK_MEDIUM
@@ -44,13 +50,19 @@ def _api(node: str = "pve") -> SimpleNamespace:
     def fake_get(path):
         seen["method"] = "GET"
         seen["path"] = path
-        return []
+        return seen.get("_get_return", [])  # default [] preserves existing behavior
 
     def fake_post(path, data=None):
         seen["method"] = "POST"
         seen["path"] = path
         seen["data"] = data or {}
         return "UPID:pve:00001:0:0:0:qmigrate:100:root@pam:"
+
+    def fake_put(path, data=None):
+        seen["method"] = "PUT"
+        seen["path"] = path
+        seen["data"] = data or {}
+        return None
 
     def fake_delete(path, params=None):
         seen["method"] = "DELETE"
@@ -62,6 +74,7 @@ def _api(node: str = "pve") -> SimpleNamespace:
         config=SimpleNamespace(node=node),
         _get=fake_get,
         _post=fake_post,
+        _put=fake_put,
         _delete=fake_delete,
         seen=seen,
     )
@@ -738,3 +751,220 @@ def test_ha_resource_add_rejects_list_max_restart():
     api = _api()
     with pytest.raises(ProximoError, match="max_restart"):
         ha_resource_add(api, "100", kind="qemu", max_restart=[1, 2])
+
+
+# ===========================================================================
+# HA RULES — ha_rule_create / update / delete  (PVE 9 replacement for HA groups)
+# Grounded against live PVE 9.1.7 schema (2026-06-14):
+#   POST   /cluster/ha/rules          {rule, type, resources, comment?, disable?}
+#     [type=node-affinity]      + {nodes, strict?}
+#     [type=resource-affinity]  + {affinity: positive|negative}
+#   PUT    /cluster/ha/rules/{rule}    {comment?, disable?, resources?, type?, nodes?, strict?,
+#                                       affinity?, delete?: csv, digest?}
+#   DELETE /cluster/ha/rules/{rule}    (no params)
+# HA groups CRUD is intentionally NOT built — groups 500 at runtime on PVE 9 (migrated to rules).
+# Rules are config-file state: no UNDO; revert = inverse op. RISK_MEDIUM (HA placement constraints).
+# ===========================================================================
+
+
+def test_ha_rule_create_node_affinity_posts_correct():
+    api = _api()
+    ha_rule_create(api, "pin-web", "node-affinity", "vm:100", nodes="pve1:2,pve2:1")
+    assert api.seen["method"] == "POST"
+    assert api.seen["path"] == "/cluster/ha/rules"
+    assert api.seen["data"]["rule"] == "pin-web"
+    assert api.seen["data"]["type"] == "node-affinity"
+    assert api.seen["data"]["resources"] == "vm:100"
+    assert api.seen["data"]["nodes"] == "pve1:2,pve2:1"
+
+
+def test_ha_rule_create_node_affinity_strict_sends_one():
+    api = _api()
+    ha_rule_create(api, "pin-web", "node-affinity", "vm:100", nodes="pve1", strict=True)
+    assert api.seen["data"]["strict"] == 1
+
+
+def test_ha_rule_create_node_affinity_requires_nodes():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_create(api, "pin-web", "node-affinity", "vm:100")
+
+
+def test_ha_rule_create_resource_affinity_posts_affinity():
+    api = _api()
+    ha_rule_create(api, "keep-apart", "resource-affinity", "vm:100,ct:101", affinity="negative")
+    assert api.seen["data"]["type"] == "resource-affinity"
+    assert api.seen["data"]["affinity"] == "negative"
+    assert api.seen["data"]["resources"] == "vm:100,ct:101"
+
+
+def test_ha_rule_create_resource_affinity_requires_affinity():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_create(api, "keep-apart", "resource-affinity", "vm:100,ct:101")
+
+
+def test_ha_rule_create_rejects_bad_affinity_value():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_create(api, "x", "resource-affinity", "vm:100", affinity="sideways")
+
+
+def test_ha_rule_create_rejects_bad_type():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_create(api, "x", "magnet-affinity", "vm:100", nodes="pve1")
+
+
+def test_ha_rule_create_rejects_bad_rule_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_create(api, "bad rule!", "node-affinity", "vm:100", nodes="pve1")
+
+
+def test_ha_rule_create_rejects_bad_resources():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_create(api, "x", "node-affinity", "foo:100", nodes="pve1")  # bad prefix
+    with pytest.raises(ProximoError):
+        ha_rule_create(api, "x", "node-affinity", "vm:abc", nodes="pve1")   # non-numeric
+
+
+def test_ha_rule_create_disable_sends_one():
+    api = _api()
+    ha_rule_create(api, "x", "node-affinity", "vm:100", nodes="pve1", disable=True)
+    assert api.seen["data"]["disable"] == 1
+
+
+def test_ha_rule_update_puts_correct_path_and_fields():
+    api = _api()
+    ha_rule_update(api, "pin-web", comment="updated", disable=True)
+    assert api.seen["method"] == "PUT"
+    assert api.seen["path"] == "/cluster/ha/rules/pin-web"
+    assert api.seen["data"]["comment"] == "updated"
+    assert api.seen["data"]["disable"] == 1
+
+
+def test_ha_rule_update_requires_a_field():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_update(api, "pin-web")
+
+
+def test_ha_rule_update_includes_digest():
+    api = _api()
+    ha_rule_update(api, "pin-web", comment="x", digest="abc")
+    assert api.seen["data"]["digest"] == "abc"
+
+
+def test_ha_rule_update_delete_list_becomes_csv():
+    api = _api()
+    ha_rule_update(api, "pin-web", delete=["strict", "comment"])
+    assert api.seen["data"]["delete"] == "strict,comment"
+
+
+def test_ha_rule_update_disable_false_sends_zero():
+    api = _api()
+    ha_rule_update(api, "pin-web", disable=False)
+    assert api.seen["data"]["disable"] == 0
+
+
+def test_ha_rule_delete_path_no_params():
+    api = _api()
+    ha_rule_delete(api, "pin-web")
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/cluster/ha/rules/pin-web"
+
+
+def test_ha_rule_delete_rejects_bad_name():
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_delete(api, "bad/name")
+
+
+# --- HA rule PLAN factories ---
+
+
+def test_plan_ha_rule_create_node_affinity_is_medium_no_undo():
+    plan = plan_ha_rule_create("pin-web", "node-affinity", "vm:100", nodes="pve1")
+    assert plan.risk == RISK_MEDIUM
+    assert "pin-web" in plan.change
+    assert any("no undo" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_ha_rule_create_strict_node_affinity_warns_strand():
+    plan = plan_ha_rule_create("pin-web", "node-affinity", "vm:100", nodes="pve1", strict=True)
+    assert any("strict" in b.lower() or "only" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_ha_rule_create_resource_affinity_is_medium():
+    plan = plan_ha_rule_create("keep-apart", "resource-affinity", "vm:100,ct:101", affinity="negative")
+    assert plan.risk == RISK_MEDIUM
+
+
+def test_plan_ha_rule_update_reads_current_and_is_medium():
+    api = _api()
+    api.seen["_get_return"] = [{"rule": "pin-web", "type": "node-affinity", "nodes": "pve1"}]
+    plan = plan_ha_rule_update(api, "pin-web", comment="x")
+    assert plan.risk == RISK_MEDIUM
+    assert plan.current.get("type") == "node-affinity"
+
+
+def test_plan_ha_rule_delete_reads_current_and_is_medium():
+    api = _api()
+    api.seen["_get_return"] = [{"rule": "pin-web", "type": "node-affinity"}]
+    plan = plan_ha_rule_delete(api, "pin-web")
+    assert plan.risk == RISK_MEDIUM
+    assert plan.current.get("rule") == "pin-web"
+
+
+def test_plan_ha_rule_delete_read_failure_surfaces_unknown():
+    bad = SimpleNamespace(
+        config=SimpleNamespace(node="pve"),
+        _get=lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    plan = plan_ha_rule_delete(bad, "pin-web")
+    assert any("unknown" in b.lower() or "read failed" in b.lower() for b in plan.blast_radius)
+
+
+# --- HA rule REDTEAM fixes (2026-06-14): plan/op parity + delete surfacing ---
+
+
+def test_plan_ha_rule_create_node_affinity_requires_nodes_parity():
+    # the plan must reject what the op rejects, so a dry-run never previews an invalid create
+    with pytest.raises(ProximoError):
+        plan_ha_rule_create("pin-web", "node-affinity", "vm:100")
+
+
+def test_plan_ha_rule_create_resource_affinity_requires_affinity_parity():
+    with pytest.raises(ProximoError):
+        plan_ha_rule_create("keep-apart", "resource-affinity", "vm:100,ct:101")
+
+
+def test_plan_ha_rule_create_rejects_bad_affinity_parity():
+    with pytest.raises(ProximoError):
+        plan_ha_rule_create("x", "resource-affinity", "vm:100", affinity="sideways")
+
+
+def test_plan_ha_rule_update_surfaces_delete():
+    api = _api()
+    api.seen["_get_return"] = [{"rule": "pin-web", "type": "node-affinity"}]
+    plan = plan_ha_rule_update(api, "pin-web", delete=["strict"])
+    blob = (plan.change + " " + " ".join(plan.blast_radius)).lower()
+    assert "strict" in blob or "delete" in blob
+
+
+def test_ha_rule_update_auto_includes_type_when_omitted():
+    # PVE's PUT needs the `type` discriminator; auto-fetch it from the current rule so a
+    # partial update (e.g. comment-only) "just works" instead of 400-ing (live-surfaced 2026-06-14).
+    api = _api()
+    api.seen["_get_return"] = [{"rule": "pin-web", "type": "node-affinity"}]
+    ha_rule_update(api, "pin-web", comment="x")
+    assert api.seen["data"]["type"] == "node-affinity"
+
+
+def test_ha_rule_update_caller_type_not_overridden_by_autofetch():
+    api = _api()
+    api.seen["_get_return"] = [{"rule": "pin-web", "type": "node-affinity"}]
+    ha_rule_update(api, "pin-web", rule_type="resource-affinity", affinity="positive")
+    assert api.seen["data"]["type"] == "resource-affinity"  # caller wins

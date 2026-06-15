@@ -17,10 +17,11 @@ Endpoint-shape notes (flagged for live-smoke confirmation):
 
 from __future__ import annotations
 
+import ipaddress
 import re
 
 from .backends import ProximoError, _check_node
-from .planning import RISK_HIGH, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
 # ---------------------------------------------------------------------------
 # Validators (module-local)
@@ -579,4 +580,384 @@ def plan_sdn_apply(api) -> Plan:
             "has no automatic recovery path. Shape risk: SDN pending/state field names are "
             "uncertain until live smoke (fields checked: 'pending', 'state')."
         ),
+    )
+
+
+# ===========================================================================
+# SDN — zone / vnet / subnet CRUD (cluster-scoped)
+# ---------------------------------------------------------------------------
+# Grounded against live PVE 9.1.7 schema (2026-06-14):
+#   POST   /cluster/sdn/zones                       {type, zone, ...type-conditional}
+#   PUT    /cluster/sdn/zones/{zone}                 {<opts>, delete?:csv, digest?}
+#   DELETE /cluster/sdn/zones/{zone}
+#   POST   /cluster/sdn/vnets                        {type:vnet, vnet, zone, tag?, ...}
+#   PUT/DELETE /cluster/sdn/vnets/{vnet}
+#   GET/POST   /cluster/sdn/vnets/{vnet}/subnets     {type:subnet, subnet(=CIDR), gateway?, ...}
+#   PUT/DELETE /cluster/sdn/vnets/{vnet}/subnets/{subnet}
+#
+# SDN objects are STAGED (pending) — they have NO live network effect until pve_sdn_apply
+# (PUT /cluster/sdn), which is a SEPARATE, RISK_HIGH tool NOT re-added here. So zone/vnet/subnet
+# create/update/delete is reversible config staging: RISK_LOW for create/update, RISK_MEDIUM for
+# delete (staging a removal that an apply would enact on possibly-live networking). No config UNDO
+# — revert by deleting the pending object (before apply). `lock-token` is the optional PVE-9
+# global-SDN-lock param (only needed when the SDN config is locked).
+#
+# Zone create has a large, type-conditional param set; vnet/subnet likewise. Rather than enumerate
+# every per-type field, these tools take a generic `options` dict (PVE validates per type) plus the
+# structural params (type/zone/vnet/subnet) as explicit args. Reserved structural keys are rejected
+# from `options` so they can't be smuggled.
+# ===========================================================================
+
+_VALID_ZONE_TYPES = frozenset({"evpn", "faucet", "qinq", "simple", "vlan", "vxlan"})
+# Path-safe id (PVE additionally enforces its own length/charset, e.g. 8-char zones); we only
+# guarantee no path-traversal / injection here and surface PVE's stricter error otherwise.
+_SDN_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\Z")
+_SUBNET_PATH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}\Z")
+_SDN_RESERVED = frozenset({"type", "zone", "vnet", "subnet", "delete", "digest",
+                           "lock-token", "lock_token"})
+
+
+def _check_sdn_id(value: str, label: str) -> str:
+    v = str(value).strip()
+    if not _SDN_ID_RE.match(v):
+        raise ProximoError(
+            f"invalid SDN {label} id: {value!r} (alphanumeric/_/-, start with alnum; "
+            "PVE enforces additional length/charset limits)"
+        )
+    return v
+
+
+def _check_zone_type(zone_type: str) -> str:
+    t = str(zone_type).strip()
+    if t not in _VALID_ZONE_TYPES:
+        raise ProximoError(
+            f"invalid SDN zone type: {zone_type!r} (expected one of {sorted(_VALID_ZONE_TYPES)})"
+        )
+    return t
+
+
+def _check_sdn_options(options: dict | None) -> None:
+    """Reject structural/reserved keys inside the generic options bag (they have dedicated args)."""
+    bad = _SDN_RESERVED & set(options or {})
+    if bad:
+        raise ProximoError(
+            f"reserved key(s) {sorted(bad)} cannot be passed inside options — use the dedicated "
+            "type/zone/vnet/subnet/delete/digest/lock_token parameters instead"
+        )
+
+
+def _check_subnet_cidr(cidr: str) -> str:
+    """The subnet CREATE identifier is a CIDR (e.g. 10.0.0.0/24). Validate with ipaddress."""
+    v = str(cidr).strip()
+    try:
+        ipaddress.ip_network(v, strict=False)
+    except ValueError as exc:
+        raise ProximoError(f"invalid subnet cidr: {cidr!r} (expected a CIDR network)") from exc
+    return v
+
+
+def _check_subnet_path_id(value: str) -> str:
+    """The subnet identifier for update/delete flows into a URL path (it may be a CIDR or the
+    PVE-derived 'zone-cidr' id). Allow CIDR/id chars but reject path-traversal."""
+    v = str(value).strip()
+    if ".." in v or not _SUBNET_PATH_RE.match(v):
+        raise ProximoError(
+            f"invalid subnet id: {value!r} (expected a CIDR or PVE subnet id; no path traversal)"
+        )
+    return v
+
+
+def _sdn_csv(delete) -> str:
+    return ",".join(delete) if isinstance(delete, list) else str(delete)
+
+
+def _sdn_pending_blast(lead: str) -> list[str]:
+    return [
+        lead,
+        "INERT until pve_sdn_apply (a separate RISK_HIGH step) — no live network effect yet",
+        "no UNDO at config level: revert by deleting the pending object before apply",
+    ]
+
+
+# --- zones ------------------------------------------------------------------
+
+def sdn_zone_create(api, zone: str, zone_type: str, options: dict | None = None,
+                    lock_token: str | None = None) -> object:
+    """Create an SDN zone (PENDING). MUTATION — confirm-gated + audited at the server layer.
+    POST /cluster/sdn/zones {type, zone, ...}. Inert until pve_sdn_apply. No config UNDO."""
+    zone = _check_sdn_id(zone, "zone")
+    zone_type = _check_zone_type(zone_type)
+    _check_sdn_options(options)
+    data: dict = {"type": zone_type, "zone": zone, **(options or {})}
+    if lock_token is not None:
+        data["lock-token"] = lock_token
+    return api._post("/cluster/sdn/zones", data)
+
+
+def sdn_zone_update(api, zone: str, options: dict | None = None, delete: list | str | None = None,
+                    digest: str | None = None, lock_token: str | None = None) -> object:
+    """Update an SDN zone (PENDING). PUT /cluster/sdn/zones/{zone}. Requires >=1 set/unset."""
+    zone = _check_sdn_id(zone, "zone")
+    _check_sdn_options(options)
+    if not options and not delete:
+        raise ProximoError("sdn_zone_update requires at least one option to set or delete")
+    data: dict = dict(options or {})
+    if delete:
+        data["delete"] = _sdn_csv(delete)
+    if digest is not None:
+        data["digest"] = digest
+    if lock_token is not None:
+        data["lock-token"] = lock_token
+    return api._put(f"/cluster/sdn/zones/{zone}", data)
+
+
+def sdn_zone_delete(api, zone: str, lock_token: str | None = None) -> object:
+    """Delete an SDN zone (PENDING). DELETE /cluster/sdn/zones/{zone}. PVE refuses if a vnet
+    still references the zone. Inert until pve_sdn_apply."""
+    zone = _check_sdn_id(zone, "zone")
+    params: dict = {}
+    if lock_token is not None:
+        params["lock-token"] = lock_token
+    return api._delete(f"/cluster/sdn/zones/{zone}", params)
+
+
+# --- vnets ------------------------------------------------------------------
+
+def sdn_vnet_create(api, vnet: str, zone: str, options: dict | None = None,
+                    lock_token: str | None = None) -> object:
+    """Create an SDN vnet in a zone (PENDING). POST /cluster/sdn/vnets {type:vnet, vnet, zone, ...}."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    zone = _check_sdn_id(zone, "zone")
+    _check_sdn_options(options)
+    data: dict = {"type": "vnet", "vnet": vnet, "zone": zone, **(options or {})}
+    if lock_token is not None:
+        data["lock-token"] = lock_token
+    return api._post("/cluster/sdn/vnets", data)
+
+
+def sdn_vnet_update(api, vnet: str, options: dict | None = None, delete: list | str | None = None,
+                    digest: str | None = None, lock_token: str | None = None) -> object:
+    """Update an SDN vnet (PENDING). PUT /cluster/sdn/vnets/{vnet}. Requires >=1 set/unset."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    _check_sdn_options(options)
+    if not options and not delete:
+        raise ProximoError("sdn_vnet_update requires at least one option to set or delete")
+    data: dict = dict(options or {})
+    if delete:
+        data["delete"] = _sdn_csv(delete)
+    if digest is not None:
+        data["digest"] = digest
+    if lock_token is not None:
+        data["lock-token"] = lock_token
+    return api._put(f"/cluster/sdn/vnets/{vnet}", data)
+
+
+def sdn_vnet_delete(api, vnet: str, lock_token: str | None = None) -> object:
+    """Delete an SDN vnet (PENDING). DELETE /cluster/sdn/vnets/{vnet}. PVE refuses if a subnet
+    still references the vnet. Inert until pve_sdn_apply."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    params: dict = {}
+    if lock_token is not None:
+        params["lock-token"] = lock_token
+    return api._delete(f"/cluster/sdn/vnets/{vnet}", params)
+
+
+# --- subnets ----------------------------------------------------------------
+
+def sdn_subnet_list(api, vnet: str) -> list[dict]:
+    """List subnets in a vnet (read). GET /cluster/sdn/vnets/{vnet}/subnets."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    return api._get(f"/cluster/sdn/vnets/{vnet}/subnets") or []
+
+
+def sdn_subnet_create(api, vnet: str, subnet: str, options: dict | None = None,
+                      lock_token: str | None = None) -> object:
+    """Create an SDN subnet (PENDING). POST /cluster/sdn/vnets/{vnet}/subnets {type:subnet, subnet=CIDR, ...}.
+    `subnet` is the CIDR (e.g. 10.0.0.0/24). Inert until pve_sdn_apply."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    subnet = _check_subnet_cidr(subnet)
+    _check_sdn_options(options)
+    data: dict = {"type": "subnet", "subnet": subnet, **(options or {})}
+    if lock_token is not None:
+        data["lock-token"] = lock_token
+    return api._post(f"/cluster/sdn/vnets/{vnet}/subnets", data)
+
+
+def sdn_subnet_update(api, vnet: str, subnet: str, options: dict | None = None,
+                      delete: list | str | None = None, digest: str | None = None,
+                      lock_token: str | None = None) -> object:
+    """Update an SDN subnet (PENDING). PUT /cluster/sdn/vnets/{vnet}/subnets/{subnet}.
+    `subnet` is the identifier from sdn_subnet_list. Requires >=1 set/unset."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    subnet = _check_subnet_path_id(subnet)
+    _check_sdn_options(options)
+    if not options and not delete:
+        raise ProximoError("sdn_subnet_update requires at least one option to set or delete")
+    data: dict = dict(options or {})
+    if delete:
+        data["delete"] = _sdn_csv(delete)
+    if digest is not None:
+        data["digest"] = digest
+    if lock_token is not None:
+        data["lock-token"] = lock_token
+    return api._put(f"/cluster/sdn/vnets/{vnet}/subnets/{subnet}", data)
+
+
+def sdn_subnet_delete(api, vnet: str, subnet: str, lock_token: str | None = None) -> object:
+    """Delete an SDN subnet (PENDING). DELETE /cluster/sdn/vnets/{vnet}/subnets/{subnet}.
+    `subnet` is the identifier from sdn_subnet_list. Inert until pve_sdn_apply."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    subnet = _check_subnet_path_id(subnet)
+    params: dict = {}
+    if lock_token is not None:
+        params["lock-token"] = lock_token
+    return api._delete(f"/cluster/sdn/vnets/{vnet}/subnets/{subnet}", params)
+
+
+# --- SDN plan factories -----------------------------------------------------
+
+def plan_sdn_zone_create(zone: str, zone_type: str, options: dict | None = None) -> Plan:
+    """Preview creating an SDN zone. PURE. RISK_LOW — pending, inert until apply."""
+    zone = _check_sdn_id(zone, "zone")
+    zone_type = _check_zone_type(zone_type)
+    _check_sdn_options(options)
+    return Plan(
+        action="pve_sdn_zone_create", target=f"sdn/zones/{zone}",
+        change=f"create SDN {zone_type} zone '{zone}' (pending)", current={},
+        blast_radius=_sdn_pending_blast(f"stages a PENDING SDN zone '{zone}' (type={zone_type})"),
+        risk=RISK_LOW, risk_reasons=["SDN object create is a pending config change — inert until apply"],
+    )
+
+
+def plan_sdn_zone_update(zone: str, options: dict | None = None, delete: list | str | None = None) -> Plan:
+    """Preview updating an SDN zone. PURE. RISK_LOW — pending, inert until apply."""
+    zone = _check_sdn_id(zone, "zone")
+    _check_sdn_options(options)
+    if not options and not delete:
+        raise ProximoError("sdn_zone_update requires at least one option to set or delete")
+    keys = sorted(set(options or {})) + ([f"-{k}" for k in (delete if isinstance(delete, list) else
+                  ([delete] if delete else []))])
+    return Plan(
+        action="pve_sdn_zone_update", target=f"sdn/zones/{zone}",
+        change=f"update SDN zone '{zone}' (pending): {', '.join(keys) or '(none)'}", current={},
+        blast_radius=_sdn_pending_blast(f"stages a PENDING update to SDN zone '{zone}'"),
+        risk=RISK_LOW, risk_reasons=["SDN object update is a pending config change — inert until apply"],
+    )
+
+
+def plan_sdn_zone_delete(api, zone: str) -> Plan:
+    """Preview deleting an SDN zone. Reads current zones (one safe read). RISK_MEDIUM — staging a
+    removal that an apply would enact; PVE refuses if a vnet still references the zone."""
+    zone = _check_sdn_id(zone, "zone")
+    current: dict = {}
+    try:
+        current = next((z for z in (sdn_zones_list(api) or []) if z.get("zone") == zone), {})
+    except Exception:
+        current = {}
+    return Plan(
+        action="pve_sdn_zone_delete", target=f"sdn/zones/{zone}",
+        change=f"delete SDN zone '{zone}' (pending)", current=current,
+        blast_radius=[
+            f"stages REMOVAL of SDN zone '{zone}' (pending)",
+            "takes effect on pve_sdn_apply; if the zone is live-applied, applying removes its networking",
+            "PVE refuses to delete a zone still referenced by a vnet",
+            "no UNDO at config level: re-create the zone to revert",
+        ],
+        risk=RISK_MEDIUM,
+        risk_reasons=["staging removal of an SDN zone — an apply would disrupt its networking"],
+    )
+
+
+def plan_sdn_vnet_create(vnet: str, zone: str, options: dict | None = None) -> Plan:
+    """Preview creating an SDN vnet. PURE. RISK_LOW — pending, inert until apply."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    zone = _check_sdn_id(zone, "zone")
+    _check_sdn_options(options)
+    return Plan(
+        action="pve_sdn_vnet_create", target=f"sdn/vnets/{vnet}",
+        change=f"create SDN vnet '{vnet}' in zone '{zone}' (pending)", current={},
+        blast_radius=_sdn_pending_blast(f"stages a PENDING SDN vnet '{vnet}' in zone '{zone}'"),
+        risk=RISK_LOW, risk_reasons=["SDN object create is a pending config change — inert until apply"],
+    )
+
+
+def plan_sdn_vnet_update(vnet: str, options: dict | None = None, delete: list | str | None = None) -> Plan:
+    """Preview updating an SDN vnet. PURE. RISK_LOW — pending, inert until apply."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    _check_sdn_options(options)
+    if not options and not delete:
+        raise ProximoError("sdn_vnet_update requires at least one option to set or delete")
+    return Plan(
+        action="pve_sdn_vnet_update", target=f"sdn/vnets/{vnet}",
+        change=f"update SDN vnet '{vnet}' (pending)", current={},
+        blast_radius=_sdn_pending_blast(f"stages a PENDING update to SDN vnet '{vnet}'"),
+        risk=RISK_LOW, risk_reasons=["SDN object update is a pending config change — inert until apply"],
+    )
+
+
+def plan_sdn_vnet_delete(api, vnet: str) -> Plan:
+    """Preview deleting an SDN vnet. Reads current vnets (one safe read). RISK_MEDIUM."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    current: dict = {}
+    try:
+        current = next((v for v in (sdn_vnets_list(api) or []) if v.get("vnet") == vnet), {})
+    except Exception:
+        current = {}
+    return Plan(
+        action="pve_sdn_vnet_delete", target=f"sdn/vnets/{vnet}",
+        change=f"delete SDN vnet '{vnet}' (pending)", current=current,
+        blast_radius=[
+            f"stages REMOVAL of SDN vnet '{vnet}' (pending)",
+            "takes effect on pve_sdn_apply; if applied, removes the vnet's virtual network",
+            "PVE refuses to delete a vnet still referenced by a subnet",
+            "no UNDO at config level: re-create the vnet to revert",
+        ],
+        risk=RISK_MEDIUM,
+        risk_reasons=["staging removal of an SDN vnet — an apply would disrupt its networking"],
+    )
+
+
+def plan_sdn_subnet_create(vnet: str, subnet: str, options: dict | None = None) -> Plan:
+    """Preview creating an SDN subnet. PURE. RISK_LOW — pending, inert until apply."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    subnet = _check_subnet_cidr(subnet)
+    _check_sdn_options(options)
+    return Plan(
+        action="pve_sdn_subnet_create", target=f"sdn/vnets/{vnet}/subnets/{subnet}",
+        change=f"create SDN subnet {subnet} in vnet '{vnet}' (pending)", current={},
+        blast_radius=_sdn_pending_blast(f"stages a PENDING SDN subnet {subnet} in vnet '{vnet}'"),
+        risk=RISK_LOW, risk_reasons=["SDN object create is a pending config change — inert until apply"],
+    )
+
+
+def plan_sdn_subnet_update(vnet: str, subnet: str, options: dict | None = None,
+                           delete: list | str | None = None) -> Plan:
+    """Preview updating an SDN subnet. PURE. RISK_LOW — pending, inert until apply."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    subnet = _check_subnet_path_id(subnet)
+    _check_sdn_options(options)
+    if not options and not delete:
+        raise ProximoError("sdn_subnet_update requires at least one option to set or delete")
+    return Plan(
+        action="pve_sdn_subnet_update", target=f"sdn/vnets/{vnet}/subnets/{subnet}",
+        change=f"update SDN subnet {subnet} in vnet '{vnet}' (pending)", current={},
+        blast_radius=_sdn_pending_blast(f"stages a PENDING update to SDN subnet {subnet}"),
+        risk=RISK_LOW, risk_reasons=["SDN object update is a pending config change — inert until apply"],
+    )
+
+
+def plan_sdn_subnet_delete(vnet: str, subnet: str) -> Plan:
+    """Preview deleting an SDN subnet. PURE. RISK_MEDIUM — staging a removal."""
+    vnet = _check_sdn_id(vnet, "vnet")
+    subnet = _check_subnet_path_id(subnet)
+    return Plan(
+        action="pve_sdn_subnet_delete", target=f"sdn/vnets/{vnet}/subnets/{subnet}",
+        change=f"delete SDN subnet {subnet} from vnet '{vnet}' (pending)", current={},
+        blast_radius=[
+            f"stages REMOVAL of SDN subnet {subnet} from vnet '{vnet}' (pending)",
+            "takes effect on pve_sdn_apply; if applied, removes the subnet's addressing/gateway",
+            "no UNDO at config level: re-create the subnet to revert",
+        ],
+        risk=RISK_MEDIUM,
+        risk_reasons=["staging removal of an SDN subnet — an apply would disrupt its addressing"],
     )

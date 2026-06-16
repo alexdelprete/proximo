@@ -10,6 +10,10 @@ A fourth computed blast-radius op-class — **guest-destroy** — on `pve_delete
 backward-compatible; tool surface stays **144** (it enriches the existing dry-run preview, adds no
 tool). Built test-first, adversarially redteamed, and live read-only-smoked against a real cluster.
 
+**Released 2026-06-16** — published on PyPI (`proximo-proxmox`), GitHub (Release `v0.4.0`), and GHCR
+(signed multi-arch image, attestation verified). First public release since 0.2.0; rolls up the 0.3.0
+blast classes + `pve_doctor` in the same version.
+
 ### Added
 - **Blast-radius op-class #4 — guest-destroy.** `pve_delete_guest` dry-run now computes, at PLAN
   time, what destroying a guest actually does, conditional on the call's `purge`/`force`:

@@ -695,6 +695,51 @@ def test_plan_network_apply_high_even_no_pending_detected():
     assert p.risk == RISK_HIGH
 
 
+class _MgmtNetworkApplyApi:
+    """Fake api for plan_network_apply lockout naming: carries an api_base_url with the mgmt IP."""
+
+    def __init__(self, ifaces, mgmt_url="https://10.0.0.10:8006/api2/json"):
+        self.config = SimpleNamespace(node="pve", api_base_url=mgmt_url)
+        self._ifaces = ifaces
+
+    def _get(self, path):
+        return self._ifaces
+
+
+def test_plan_network_apply_names_mgmt_iface_when_pending(monkeypatch):
+    # vmbr0 (pending) holds the mgmt IP from api_base_url => names it loudly, HIGH stays.
+    api = _MgmtNetworkApplyApi(ifaces=[
+        {"iface": "vmbr0", "address": "10.0.0.10", "pending": 1},
+        {"iface": "vmbr1", "address": "10.0.0.20"},
+    ])
+    p = plan_network_apply(api)
+    assert p.risk == RISK_HIGH
+    assert any(a.get("iface") == "vmbr0" for a in p.affected)
+    blast = " ".join(p.blast_radius)
+    assert "vmbr0" in blast and "10.0.0.10" in blast
+    assert "lockout" in blast.lower()
+
+
+def test_plan_network_apply_hostname_mgmt_high_stands(monkeypatch):
+    # mgmt_host is a hostname (no iface address match) => could-not-identify, HIGH stays, never safe.
+    api = _MgmtNetworkApplyApi(
+        ifaces=[{"iface": "vmbr0", "address": "10.0.0.10", "pending": 1}],
+        mgmt_url="https://pve.example.lan:8006/api2/json",
+    )
+    p = plan_network_apply(api)
+    assert p.risk == RISK_HIGH
+    assert any("could not identify" in line.lower() for line in p.blast_radius)
+    assert not any(a.get("severity") == "low" for a in p.affected)
+
+
+def test_plan_network_apply_no_base_url_attr_is_high_and_unidentified():
+    # the plain _NetworkApplyApi has no api_base_url attr => must NOT crash; HIGH stands.
+    api = _NetworkApplyApi(ifaces=[{"iface": "vmbr0", "pending": 1}])
+    p = plan_network_apply(api)
+    assert p.risk == RISK_HIGH
+    assert any("could not identify" in line.lower() for line in p.blast_radius)
+
+
 # ---------------------------------------------------------------------------
 # 11. plan_sdn_apply — HIGH unconditional + pending zones/vnets
 # ---------------------------------------------------------------------------
@@ -747,6 +792,15 @@ def test_plan_sdn_apply_blast_mentions_connectivity():
     p = plan_sdn_apply(api)
     text = " ".join(p.blast_radius).lower()
     assert "connectivity" in text or "networking" in text or "disrupt" in text
+
+
+def test_plan_sdn_apply_notes_mgmt_rarely_on_vnet():
+    # light touch (Part B): SDN apply rarely carries the mgmt path; note it, no deep modeling.
+    api = _SdnApplyApi()
+    p = plan_sdn_apply(api)
+    text = " ".join(p.blast_radius).lower()
+    assert "management" in text and "vmbr" in text
+    assert p.risk == RISK_HIGH
 
 
 def test_plan_sdn_apply_reasons_mention_no_undo():

@@ -526,46 +526,46 @@ def test_plan_storage_create_rejects_invalid_storage_type():
 # ---------------------------------------------------------------------------
 
 def test_plan_storage_update_is_medium_risk():
-    p = plan_storage_update("local", content="iso,backup")
+    p = plan_storage_update(_api(), "local", content="iso,backup")
     assert p.risk == RISK_MEDIUM
 
 
 def test_plan_storage_update_disable_true_is_still_medium_risk():
     """disable=True is still RISK_MEDIUM — not escalated to HIGH."""
-    p = plan_storage_update("local", disable=True)
+    p = plan_storage_update(_api(), "local", disable=True)
     assert p.risk == RISK_MEDIUM
 
 
 def test_plan_storage_update_action_string():
-    p = plan_storage_update("local", content="iso")
+    p = plan_storage_update(_api(), "local", content="iso")
     assert p.action == "pve_storage_update"
 
 
 def test_plan_storage_update_target_includes_storage():
-    p = plan_storage_update("mystore")
+    p = plan_storage_update(_api(), "mystore")
     assert "mystore" in p.target
 
 
 def test_plan_storage_update_change_includes_storage():
-    p = plan_storage_update("mystore", content="backup")
+    p = plan_storage_update(_api(), "mystore", content="backup")
     assert "mystore" in p.change
 
 
 def test_plan_storage_update_blast_mentions_cluster_wide():
-    p = plan_storage_update("local", content="iso")
+    p = plan_storage_update(_api(), "local", content="iso")
     text = " ".join(p.blast_radius).lower()
     assert "cluster" in text or "storage.cfg" in text or "storage definition" in text
 
 
 def test_plan_storage_update_disable_true_blast_mentions_guest_access_loss():
     """When disable=True, blast MUST warn that guests lose disk access."""
-    p = plan_storage_update("local", disable=True)
+    p = plan_storage_update(_api(), "local", disable=True)
     text = " ".join(p.blast_radius).lower()
     assert "access" in text or "lose" in text or "crash" in text or "disk" in text
 
 
 def test_plan_storage_update_disable_true_blast_mentions_running_guests():
-    p = plan_storage_update("local", disable=True)
+    p = plan_storage_update(_api(), "local", disable=True)
     text = " ".join(p.blast_radius)
     # Must explicitly call out guest/VM/container impact
     assert any(
@@ -576,32 +576,32 @@ def test_plan_storage_update_disable_true_blast_mentions_running_guests():
 
 def test_plan_storage_update_nodes_change_blast_mentions_access_loss():
     """Changing nodes list also needs to call out excluded-node access loss."""
-    p = plan_storage_update("local", nodes="pve1")
+    p = plan_storage_update(_api(), "local", nodes="pve1")
     text = " ".join(p.blast_radius).lower()
     assert "access" in text or "lose" in text or "excluded" in text
 
 
 def test_plan_storage_update_blast_mentions_undo_path():
-    p = plan_storage_update("local", content="iso")
+    p = plan_storage_update(_api(), "local", content="iso")
     text = " ".join(p.blast_radius).lower()
     assert "undo" in text or "inverse" in text or "restore" in text
 
 
 def test_plan_storage_update_no_fields_still_builds_plan():
     """All-None args is allowed — the plan just says no fields provided."""
-    p = plan_storage_update("local")
+    p = plan_storage_update(_api(), "local")
     assert isinstance(p, object)
     assert p.risk == RISK_MEDIUM
 
 
 def test_plan_storage_update_has_smoke_confirm_note():
-    p = plan_storage_update("local", delete="nodes")
+    p = plan_storage_update(_api(), "local", delete="nodes")
     assert "smoke-confirm" in p.note.lower() or "confirm" in p.note.lower()
 
 
 def test_plan_storage_update_rejects_invalid_storage_name():
     with pytest.raises(ProximoError):
-        plan_storage_update("bad name!")
+        plan_storage_update(_api(), "bad name!")
 
 
 # ---------------------------------------------------------------------------
@@ -609,41 +609,41 @@ def test_plan_storage_update_rejects_invalid_storage_name():
 # ---------------------------------------------------------------------------
 
 def test_plan_storage_delete_is_high_risk():
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     assert p.risk == RISK_HIGH
 
 
 def test_plan_storage_delete_action_string():
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     assert p.action == "pve_storage_delete"
 
 
 def test_plan_storage_delete_target_includes_storage():
-    p = plan_storage_delete("mystore")
+    p = plan_storage_delete(_api(), "mystore")
     assert "mystore" in p.target
 
 
 def test_plan_storage_delete_change_includes_storage():
-    p = plan_storage_delete("mystore")
+    p = plan_storage_delete(_api(), "mystore")
     assert "mystore" in p.change
 
 
 def test_plan_storage_delete_blast_says_cluster_wide():
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     text = " ".join(p.blast_radius).lower()
     assert "cluster" in text or "cluster-wide" in text or "all nodes" in text
 
 
 def test_plan_storage_delete_blast_says_guest_disks_inaccessible():
     """Blast MUST warn that guest disks become inaccessible to PVE."""
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     text = " ".join(p.blast_radius).lower()
     assert "inaccessible" in text or "lose access" in text or "cannot access" in text
 
 
 def test_plan_storage_delete_blast_says_backups_not_listable_or_restorable():
     """Blast MUST mention backup listability/restorability impact."""
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     text = " ".join(p.blast_radius).lower()
     assert "backup" in text
     assert "restor" in text or "listable" in text or "list" in text
@@ -651,7 +651,7 @@ def test_plan_storage_delete_blast_says_backups_not_listable_or_restorable():
 
 def test_plan_storage_delete_blast_says_data_not_erased():
     """Blast MUST clarify that on-disk data is NOT erased — PVE loses the handle."""
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     text = " ".join(p.blast_radius).lower()
     # Must have a NOT erase / does not erase / data remains style sentence
     assert "not erase" in text or "does not erase" in text or "data remains" in text or "not deleted" in text
@@ -659,36 +659,36 @@ def test_plan_storage_delete_blast_says_data_not_erased():
 
 def test_plan_storage_delete_blast_says_no_auto_undo():
     """Blast MUST say there is no automatic undo."""
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     text = " ".join(p.blast_radius).lower()
     assert "no" in text and ("undo" in text or "automatic" in text or "recovery" in text)
 
 
 def test_plan_storage_delete_blast_says_re_add_to_recover():
     """Blast MUST mention re-adding the definition as the recovery path."""
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     text = " ".join(p.blast_radius).lower()
     assert "re-add" in text or "re add" in text or "add the definition" in text or "add the storage" in text
 
 
 def test_plan_storage_delete_blast_includes_storage_name():
-    p = plan_storage_delete("mystore")
+    p = plan_storage_delete(_api(), "mystore")
     assert any("mystore" in b for b in p.blast_radius)
 
 
 def test_plan_storage_delete_has_smoke_confirm_note():
-    p = plan_storage_delete("local")
+    p = plan_storage_delete(_api(), "local")
     assert "smoke-confirm" in p.note.lower() or "confirm" in p.note.lower()
 
 
 def test_plan_storage_delete_rejects_invalid_storage_name():
     with pytest.raises(ProximoError):
-        plan_storage_delete("bad name!")
+        plan_storage_delete(_api(), "bad name!")
 
 
 def test_plan_storage_delete_rejects_storage_with_space():
     with pytest.raises(ProximoError):
-        plan_storage_delete("local store")
+        plan_storage_delete(_api(), "local store")
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +743,7 @@ def test_plan_storage_create_padded_type_previews_stripped():
 # Item 2 — fake "risk table" overclaim removed from plan_storage_update risk_reasons
 def test_plan_storage_update_risk_reasons_no_risk_table_overclaim():
     """risk_reasons must NOT claim a 'pre-classified risk table' — that table doesn't exist."""
-    p = plan_storage_update("local", disable=True)
+    p = plan_storage_update(_api(), "local", disable=True)
     combined = " ".join(p.risk_reasons).lower()
     assert "risk table" not in combined
     assert "pre-classified risk table" not in combined
@@ -751,7 +751,7 @@ def test_plan_storage_update_risk_reasons_no_risk_table_overclaim():
 
 def test_plan_storage_update_risk_reasons_honest_phrasing():
     """risk_reasons must contain honest phrasing about blast radius / reversibility."""
-    p = plan_storage_update("local", disable=True)
+    p = plan_storage_update(_api(), "local", disable=True)
     combined = " ".join(p.risk_reasons).lower()
     assert "blast radius" in combined or "not automatically reversible" in combined or "reversible" in combined
 
@@ -760,7 +760,7 @@ def test_plan_storage_update_risk_reasons_honest_phrasing():
 def test_plan_storage_update_disable_true_blast_honesty_on_undo():
     """disable=True blast must say guests that lost their disk may need a restart,
     and that config reversal does not equal guest recovery."""
-    p = plan_storage_update("local", disable=True)
+    p = plan_storage_update(_api(), "local", disable=True)
     text = " ".join(p.blast_radius).lower()
     # Must contain the recovery-honesty qualifier — restart or config reversal phrasing
     assert "restart" in text or "config reversal" in text
@@ -780,5 +780,48 @@ def test_plan_storage_create_note_mentions_operator_trusted():
 
 def test_plan_storage_update_note_mentions_operator_trusted():
     """plan_storage_update note must say content/nodes/delete are operator-trusted strings."""
-    p = plan_storage_update("local", content="iso,backup", nodes="pve1")
+    p = plan_storage_update(_api(), "local", content="iso,backup", nodes="pve1")
     assert "operator-trusted" in p.note.lower()
+
+
+# ---------------------------------------------------------------------------
+# Blast-radius enrichment (plans read the cluster to NAME affected guests)
+# ---------------------------------------------------------------------------
+
+def _blast_api(rows, configs=None):
+    """Path-aware fake for blast enumeration: /cluster/resources -> rows; /config -> configs[vmid]."""
+    configs = configs or {}
+
+    def _get(path):
+        if path == "/cluster/resources":
+            return rows
+        if path.endswith("/config"):
+            return configs[path.strip("/").split("/")[3]]
+        return None
+
+    return SimpleNamespace(_get=_get, config=SimpleNamespace(node="pve"))
+
+
+def test_plan_storage_delete_names_affected_guests_and_keeps_high():
+    rows = [{"vmid": "101", "type": "qemu", "node": "pve1", "name": "web", "status": "running"}]
+    configs = {"101": {"scsi0": "nas:101/d.qcow2,size=8G", "bootdisk": "scsi0"}}
+    plan = plan_storage_delete(_blast_api(rows, configs), "nas")
+    assert plan.risk == RISK_HIGH                              # floor maintained
+    assert any("qemu/101" in line for line in plan.blast_radius)
+    assert plan.affected and plan.affected[0]["resource"] == "qemu/101"
+    # generic floor still present (engine PREPENDS, never replaces)
+    assert any("does NOT erase on-disk data" in line for line in plan.blast_radius)
+
+
+def test_plan_storage_update_disable_escalates_to_high_when_only_copy_running():
+    rows = [{"vmid": "101", "type": "qemu", "node": "pve1", "name": "db", "status": "running"}]
+    configs = {"101": {"scsi0": "nas:101/d.qcow2,size=8G", "bootdisk": "scsi0"}}
+    plan = plan_storage_update(_blast_api(rows, configs), "nas", disable=True)
+    assert plan.risk == RISK_HIGH                              # escalated from MEDIUM
+    assert plan.affected and plan.affected[0]["resource"] == "qemu/101"
+
+
+def test_plan_storage_update_non_disable_does_not_enumerate():
+    plan = plan_storage_update(_blast_api([]), "nas", content="images,iso")
+    assert plan.risk == RISK_MEDIUM and plan.affected == []
+    assert any("updates storage definition 'nas'" in line for line in plan.blast_radius)

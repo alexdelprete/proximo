@@ -18,7 +18,7 @@ import math
 import os
 import re
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 # --- risk levels (plain strings, matching the codebase style) ---
@@ -54,6 +54,8 @@ class Plan:
     risk_reasons: list[str]
     to_proceed: str = "re-call with confirm=true"
     note: str = ""            # honesty disclaimer for heuristic classifications
+    affected: list[dict] = field(default_factory=list)  # computed downstream impact (blast engine)
+    complete: bool = True     # False => the blast computation was incomplete (a read failed) — honesty signal
 
     def as_dict(self) -> dict:
         return {
@@ -66,6 +68,8 @@ class Plan:
             "risk_reasons": self.risk_reasons,
             "to_proceed": self.to_proceed,
             "note": self.note,
+            "affected": self.affected,
+            "complete": self.complete,
         }
 
 

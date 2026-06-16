@@ -127,6 +127,7 @@ from .disk_ops import (
     plan_disk_move,
     plan_disk_resize,
 )
+from .doctor import doctor_check
 from .firewall import (
     alias_create,
     alias_delete,
@@ -378,7 +379,8 @@ def _record_plan(plan: Plan) -> None:
     audit.record(
         plan.action, target=plan.target, mutation=True, outcome="planned",
         detail={"change": plan.change, "risk": plan.risk, "risk_reasons": plan.risk_reasons,
-                "blast_radius": plan.blast_radius, "current": plan.current},
+                "blast_radius": plan.blast_radius, "current": plan.current,
+                "affected": plan.affected, "complete": plan.complete},
     )
 
 
@@ -709,6 +711,15 @@ def pve_diagnose(node: str | None = None) -> dict:
 
 
 @mcp.tool()
+def pve_doctor() -> dict:
+    """READ-ONLY preflight: check API connectivity + the calling token's effective permissions, and
+    report what this token CAN and CANNOT do — with the privilege + role to grant for each gap. Run
+    this FIRST after install to verify your config/token before wiring Proximo into an MCP client."""
+    _, api, _, _ = _svc()
+    return _audited("pve_doctor", "preflight", lambda: doctor_check(api), mutation=False)
+
+
+@mcp.tool()
 def audit_verify() -> dict:
     """Verify the tamper-evident audit ledger's hash chain — PROVE the log is intact."""
     _, _, _, audit = _svc()
@@ -833,7 +844,7 @@ def pve_delete_guest(vmid: str, kind: str = "lxc", node: str | None = None, purg
     default — the PLAN names exactly what will be destroyed. confirm=True to execute. Async — UPID."""
     _, api, _, _ = _svc()
     target = f"{kind}/{vmid}"
-    plan = _plan("pve_delete_guest", target, lambda: plan_delete(api, vmid, kind, node, purge))
+    plan = _plan("pve_delete_guest", target, lambda: plan_delete(api, vmid, kind, node, purge, force))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_delete_guest", target,
@@ -1195,7 +1206,7 @@ def pve_firewall_rule_add(
     tgt = f"firewall/{scope}/rules"
     plan = _plan("pve_firewall_rule_add", tgt,
                  lambda: plan_firewall_rule_add(action, direction, scope, node, vmid, kind,
-                                                source, dest, dport))
+                                                source, dest, dport, proto))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_firewall_rule_add", tgt,
@@ -2302,7 +2313,7 @@ def pve_storage_update(storage: str, content: str | None = None, nodes: str | No
     _, api, _, _ = _svc()
     tgt = f"storage/{storage}"
     plan = _plan("pve_storage_update", tgt,
-                 lambda: plan_storage_update(storage, content, nodes, disable, shared, delete))
+                 lambda: plan_storage_update(api, storage, content, nodes, disable, shared, delete))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_storage_update", tgt,
@@ -2316,7 +2327,7 @@ def pve_storage_delete(storage: str, confirm: bool = False) -> dict:
     warns guest disks/backups living only there become inaccessible (data not erased). confirm=True."""
     _, api, _, _ = _svc()
     tgt = f"storage/{storage}"
-    plan = _plan("pve_storage_delete", tgt, lambda: plan_storage_delete(storage))
+    plan = _plan("pve_storage_delete", tgt, lambda: plan_storage_delete(api, storage))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_storage_delete", tgt,

@@ -17,6 +17,7 @@ They live here (not under `tests/`) precisely so that pytest does not auto-colle
 | `harules-smoke.py` | **HA rules** full chain: create throwaway VM → HA-manage → `ha_rule` create/read/update/delete → teardown | VM + HA resource + HA rule — self-cleaning (reverse order); VM is empty + HA state=ignored (CRM never starts it). Run via `proximo-ha-liveprove.sh` (reuses the test-cluster token) |
 | `sdn-smoke.py` | **SDN** chain: `simple` zone → vnet → subnet create/read/update/delete | PENDING-ONLY — `sdn_apply` is NEVER called, so no live-network effect; self-cleaning (reverse order). Confirms pending objects stage + revert cleanly |
 | `tfa-smoke.py` | **TFA** bounded: `tfa_list`/`tfa_get` reads + `tfa_delete` API-reachability (non-existent entry) | No factor touched, no password sent. Live-verifies PVE forbids token-based TFA mutation (`403 need proper ticket`) — reads work, delete is shape-correct but ticket-gated by PVE |
+| `fw-reach-smoke.py` | **Firewall/network reach** (blast-radius): PLAN a firewall rule add → prints the per-rule REACH + `affected`; if `PROXIMO_NODE` is set, also PLANs a network apply → prints best-effort mgmt-interface lockout naming | None — pure PLAN for the rule reach; one safe `network_list` read for the apply naming; `confirm` is never passed, nothing is applied |
 
 All mutating smokes clean up after themselves via `try/finally` and print a loud manual-cleanup fallback if cleanup fails.
 

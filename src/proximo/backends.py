@@ -150,6 +150,17 @@ class ApiBackend:
         r.raise_for_status()
         return r.json().get("data")
 
+    def version(self) -> dict:
+        """GET /version — Proxmox version/release. A successful call also proves the token can
+        reach + authenticate to the API (used by the DOCTOR preflight)."""
+        return self._get("/version") or {}
+
+    def access_permissions(self, path: str | None = None) -> dict:
+        """GET /access/permissions — the CALLING token's effective privileges, as {path: {priv: 1}}.
+        No `path` => the full map across every path, so scoped (e.g. pool-only) grants stay visible."""
+        q = f"?path={path}" if path else ""
+        return self._get(f"/access/permissions{q}") or {}
+
     def node_status(self, node: str | None = None) -> dict:
         _check_node(node)
         return self._get(f"/nodes/{node or self.config.node}/status")

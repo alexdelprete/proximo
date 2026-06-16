@@ -14,6 +14,7 @@ Hard rules mirrored from the codebase:
 from __future__ import annotations
 
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
+from .blast import guest_destroy_blast
 from .planning import RISK_HIGH, RISK_MEDIUM, Plan
 
 # ---------------------------------------------------------------------------
@@ -280,16 +281,23 @@ def plan_delete(
     kind: str = "lxc",
     node: str | None = None,
     purge: bool = False,
+    force: bool = False,
 ) -> Plan:
     """Preview permanently deleting a guest.
 
     Reads guest_status (a safe read) to show what's being destroyed (name, status).
+    Then gathers the full blast-radius cascade (what PVE will refuse, what references
+    are left dangling vs cleaned up, what is intrinsically removed).
     RISK_HIGH regardless of outcome — destruction is irreversible if it proceeds;
     not-found means the op would fail, not that it's safe.
     """
     vmid = _check_vmid(vmid)
     kind = _check_kind(kind)
     _check_node(node)
+
+    # defaults for check_failed / not_found branches — no cascade on a guest that may not exist
+    cascade_affected: list[dict] = []
+    cascade_complete: bool = True
 
     current: dict = {}
     found = True
@@ -312,6 +320,9 @@ def plan_delete(
 
     if check_failed:
         # Existence UNKNOWN — if the guest exists, this destroys it. RISK_HIGH; no false safety.
+        # The structured honesty flag must reflect that the cascade could not be enumerated:
+        # existence itself is an unreadable edge, so complete=False (not just an honest blast string).
+        cascade_complete = False
         blast = [
             f"could NOT verify whether {kind}/{vmid} exists; if it does, this PERMANENTLY destroys "
             "it and its disk(s) — irreversible"
@@ -346,6 +357,13 @@ def plan_delete(
                 "purge also removes the guest from backup, HA, and replication config where configured"
             )
 
+        # --- cascade: what destroying this guest actually does (purge/force-conditional) ---
+        gdb = guest_destroy_blast(api, vmid, kind, node, purge, force)
+        blast.extend(gdb.summary_lines)
+        reasons.extend(gdb.risk_reasons)
+        cascade_affected = gdb.affected
+        cascade_complete = gdb.complete
+
     return Plan(
         action="pve_delete",
         target=f"{kind}/{vmid}",
@@ -354,4 +372,6 @@ def plan_delete(
         blast_radius=blast,
         risk=RISK_HIGH,
         risk_reasons=reasons,
+        affected=cascade_affected,
+        complete=cascade_complete,
     )

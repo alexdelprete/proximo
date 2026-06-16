@@ -2,6 +2,89 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
+## [Unreleased]
+
+## [0.4.0] — 2026-06-16
+
+A fourth computed blast-radius op-class — **guest-destroy** — on `pve_delete_guest`. Additive and
+backward-compatible; tool surface stays **144** (it enriches the existing dry-run preview, adds no
+tool). Built test-first, adversarially redteamed, and live read-only-smoked against a real cluster.
+
+### Added
+- **Blast-radius op-class #4 — guest-destroy.** `pve_delete_guest` dry-run now computes, at PLAN
+  time, what destroying a guest actually does, conditional on the call's `purge`/`force`:
+  - **What PVE will REFUSE** (`force` does not override the first two): `protection=1`, a template
+    with linked clones (names the clones; detection is config-based — LVM-thin/ZFS/RBD — and carries
+    an explicit caveat that directory/qcow2 backing chains are not visible in config), and a running
+    guest without `force`. An indeterminate run-state with `force=false` is reported as incomplete,
+    never as a clean "go."
+  - **References, conditional on `purge`:** HA resource, replication jobs, and explicit backup-job
+    vmid lists — phrased as "left dangling" when `purge=false` and "removed by purge" when `purge=true`
+    (never the opposite). Pool membership is resolved live via `pool_get`.
+  - **Intrinsic removals:** disks + their storages, real snapshots (PVE's synthetic `current`
+    live-state row is excluded), and pool membership.
+  - **Honesty contract:** every edge is read fail-closed; a failed read flags `complete=False` and
+    is never reported as "nothing found"; backup coverage is resolved per mode — `all=1` (covered
+    unless excluded), `pool=X` (covered iff target is in that pool, incomplete only if pool data
+    unreadable), explicit `vmid` list (direct); only a truly unrecognizable selection stays
+    incomplete. The common real-cluster `all=1, exclude=…` config no longer cries "incomplete" on
+    every destroy plan. (`compute_guest_destroy_blast` / `gather_guest_dependents`.)
+
+## [0.3.0] — 2026-06-16
+
+The blast-radius engine across all op-classes (storage · access/ACL · firewall/network) + a new
+onboarding preflight (`pve_doctor`). All additive and backward-compatible; tool surface 143 → **144**.
+
+### Added
+- **Computed blast-radius (storage/disk class).** `pve_storage_delete` and `pve_storage_update`
+  (disable) now read the cluster at PLAN time and **name the actual guests** that lose disks —
+  cluster-wide — distinguishing *"will not boot"* (boot disk / only copy on the storage) from
+  *"degraded"* (a non-boot disk lost). Surfaced as `blast_radius` strings **and** a new structured
+  `affected: list[dict]` field (additive, non-breaking), and recorded to the PROVE ledger.
+  Fail-closed: an incomplete enumeration renders a loud `⚠ INCOMPLETE` marker, never lowers risk,
+  and is never read as "nothing affected = safe". New pure engine `proximo.blast` (the graph
+  reasoning is unit-tested with zero API). First op-class of the broader blast-radius thesis —
+  access/ACL and firewall/network follow the same seam.
+  (Spec: `docs/specs/2026-06-15-blast-radius-engine.md`.)
+- **Computed blast-radius (access/ACL class).** `pve_acl_modify` now extracts its shadow/widen
+  reasoning into the pure `proximo.blast.compute_acl_blast`, populates the structured `affected`
+  field, **completes** the target's shadow by resolving their own group-inherited grants (#1), and
+  lists who-else-can-reach the path as explicit **UNCHANGED** context (#2). Honest per-principal
+  model: only the target gains/loses; group members are never reported as gaining/losing. privsep=1
+  tokens do not fold owner groups. Fail-closed throughout (caveat retained when a read fails; risk
+  never lowered). (Spec: `docs/specs/2026-06-15-acl-blast-radius.md`.)
+- **Computed blast-radius (firewall reach — Part A).** `pve_firewall_rule_add` / `rule_remove` /
+  `rule_update` now classify the **per-rule REACH** — *"this rule permits SSH (22/tcp) from
+  0.0.0.0/0"* — via the new pure `proximo.blast.compute_firewall_reach`, surfaced as `blast_radius`
+  lines **and** the structured `affected` field, recorded to the PROVE ledger. Honest framing:
+  reach is a property of **the rule** (what it permits/blocks *if* it is the deciding match in an
+  enforced, default-DROP firewall), never an assertion that *"the cluster is exposed"* as fact.
+  Missing field → **maximal, never benign**: empty `dport` → ALL ports, empty `source` → anywhere,
+  an ipset/alias reference (`+name`/`dc/name`) → unknown-conservative (never "low"). `enable=0` →
+  *"staged, not active"*. Removing an ACCEPT names what it **closes**; removing a DROP/REJECT names
+  what it **re-permits**; an update classifies the **post-update** rule. Risk is only ever raised,
+  never below the MEDIUM floor. (Spec: `docs/specs/2026-06-15-firewall-network-blast-radius.md`.)
+- **Computed blast-radius (network-apply lockout — Part B).** `pve_network_apply` now best-effort
+  **names the management interface** a network apply would touch: it parses the management host from
+  the configured API base URL and, via the pure `proximo.blast.compute_apply_lockout`, names the
+  pending interface that carries it (*"this apply changes `vmbr0`, which holds the management host —
+  you will lose SSH/API"*), surfaced as `blast_radius` lines + the structured `affected` field.
+  This sits on top of the **unconditional `RISK_HIGH`** that network apply already carries — naming
+  the interface can only add specificity, never lower risk. Honest by construction: a hostname
+  management host, an addressless interface read, a non-pending match, or a read failure all yield
+  *"could not identify the management interface — HIGH stands; assume lockout risk"*, **never** "no
+  lockout". `pve_sdn_apply` gains a light note that the management path is normally on a plain
+  bridge, not an SDN vnet. (Spec: `docs/specs/2026-06-15-firewall-network-blast-radius.md`.)
+- **`pve_doctor` — onboarding preflight (read-only).** Checks API reachability + reads the calling
+  token's *effective* permissions, then reports what the token CAN / CANNOT do — with the privilege
+  + role to grant for each gap. Turns raw `403`s into an actionable checklist; run it first after
+  install to verify config/token before wiring Proximo into an MCP client. Routed through the PROVE
+  ledger as a read; same advisory posture as DIAGNOSE. Per-capability match-mode prevents overclaim
+  (rollback is its own capability — `VM.Snapshot` without `VM.Snapshot.Rollback` is reported as
+  create-only, never "UNDO works"). Adds `ApiBackend.version()` + `access_permissions()`. Brings the
+  tool surface to **144** — the prior 0.2.0 docs' "144" was an off-by-one (the shipped artifact
+  served 143); with `pve_doctor` the documented count is now accurate.
+
 ## [0.2.0] — 2026-06-15
 
 Complete the four **half-built planes** to total CRUD coverage. **26 new MCP tools**

@@ -813,28 +813,25 @@ def test_plan_acl_modify_revoke_does_not_widen_when_other_direct_remains():
 # plan_acl_modify — FIX 5: group-based inheritance uncertainty warning
 # ---------------------------------------------------------------------------
 
-def test_plan_acl_modify_group_entry_at_path_triggers_uncertainty_warning():
-    """When a group-type ACL entry exists at the same path, a disclosure warning must appear."""
+def test_plan_acl_modify_group_entry_at_path_resolved_no_incomplete_caveat():
+    """A group-type ACL entry at the path no longer yields the generic 'incomplete' caveat once the
+    target's group memberships are resolved (here _acl_api resolves them to empty)."""
     entries = [
-        # A group ACL entry at the same path.
         {"path": "/vms/100", "ugid": "admins", "roleid": "PVEVMAdmin", "type": "group", "propagate": True},
     ]
     api = _acl_api(entries)
     p = plan_acl_modify(api, "/vms/100", "PVEVMUser", "user@pam")
-    text = " ".join(p.blast_radius + p.risk_reasons).lower()
-    assert "group" in text or "uncertainty" in text or "incomplete" in text
+    assert not any("may be INCOMPLETE" in line for line in p.blast_radius)
 
 
-def test_plan_acl_modify_group_entry_at_ancestor_triggers_uncertainty_warning():
-    """When a group-type ACL entry propagates DOWN to our path, the warning must appear."""
+def test_plan_acl_modify_group_entry_at_ancestor_resolved_no_incomplete_caveat():
+    """A group entry propagating down from an ancestor: same — caveat gone once groups resolve."""
     entries = [
-        # A group entry at root that propagates to /vms/100.
         {"path": "/", "ugid": "admins", "roleid": "Administrator", "type": "group", "propagate": True},
     ]
     api = _acl_api(entries)
     p = plan_acl_modify(api, "/vms/100", "PVEVMUser", "user@pam")
-    text = " ".join(p.blast_radius + p.risk_reasons).lower()
-    assert "group" in text or "uncertainty" in text or "incomplete" in text
+    assert not any("may be INCOMPLETE" in line for line in p.blast_radius)
 
 
 def test_plan_acl_modify_no_group_entries_no_group_warning():
@@ -847,3 +844,51 @@ def test_plan_acl_modify_no_group_entries_no_group_warning():
     text = " ".join(p.blast_radius).lower()
     # shadow warning appears (Administrator at / bleeds down), but no group warning
     assert "group" not in text
+
+
+def _acl_api_full(acl_entries, *, groups=None, members=None, tokens=None):
+    """Path-aware fake: /access/acl, /access/users/{id}, /access/groups/{id}, /access/users/{id}/token."""
+    def fake_get(path):
+        if path == "/access/acl":
+            return list(acl_entries)
+        if path.endswith("/token"):
+            return list(tokens or [])
+        if path.startswith("/access/users/"):
+            return {"groups": list(groups or [])}
+        if path.startswith("/access/groups/"):
+            grp = path.rsplit("/", 1)[1]
+            return {"members": list((members or {}).get(grp, []))}
+        return []
+    return SimpleNamespace(config=SimpleNamespace(node="pve"), _get=fake_get)
+
+
+def test_plan_acl_modify_privsep1_token_does_not_fold_owner_groups():
+    acl = [{"path": "/", "ugid": "ops", "roleid": "PVEVMAdmin", "type": "group", "propagate": True}]
+    api = _acl_api_full(acl, tokens=[{"tokenid": "ci", "privsep": 1}])
+    plan = plan_acl_modify(api, "/vms/100", "PVEVMUser", "svc@pam!ci", kind="token")
+    assert any("may be INCOMPLETE" in line for line in plan.blast_radius)  # not folded -> honest
+
+
+def test_plan_acl_modify_privsep0_token_folds_owner_groups():
+    # privsep=0 token DOES inherit owner groups -> owner's group-inherited role is folded + shadowed.
+    acl = [{"path": "/", "ugid": "ops", "roleid": "PVEVMAdmin", "type": "group", "propagate": True}]
+    api = _acl_api_full(acl, groups=["ops"], tokens=[{"tokenid": "ci", "privsep": 0}])
+    plan = plan_acl_modify(api, "/vms/100", "PVEVMUser", "svc@pam!ci", kind="token")
+    assert not any("may be INCOMPLETE" in line for line in plan.blast_radius)  # resolved -> complete
+    assert any(a["change"] == "loses" and "PVEVMAdmin" in a["roles"] for a in plan.affected)
+
+
+def test_plan_acl_modify_privsep0_token_folds_owner_direct_grant():
+    # privsep=0 token inherits the owner's DIRECT propagated grant (Administrator at /) -> shadowed.
+    acl = [{"path": "/", "ugid": "svc@pam", "roleid": "Administrator", "type": "user", "propagate": True}]
+    api = _acl_api_full(acl, groups=[], tokens=[{"tokenid": "ci", "privsep": 0}])
+    plan = plan_acl_modify(api, "/vms/100", "PVEVMUser", "svc@pam!ci", kind="token")
+    assert any(a["change"] == "loses" and "Administrator" in a["roles"] for a in plan.affected)
+    assert plan.risk == "high"
+
+
+def test_plan_acl_modify_read_failure_sets_complete_false():
+    # acl_list read fails -> result.complete False -> propagated onto the Plan (machine-checkable).
+    api = _acl_api([], raise_on_get=True)
+    plan = plan_acl_modify(api, "/vms/100", "PVEVMUser", "user@pam")
+    assert plan.complete is False and plan.risk == RISK_HIGH

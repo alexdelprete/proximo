@@ -93,8 +93,10 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 ## Status — the arena record
 
 🩸 **0.2.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **144 MCP tools. 2126 tests,
-0 skipped, ruff clean** — CI runs the full suite on GitHub's own runners.
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **144 MCP tools. 2227 tests,
+0 skipped, ruff + pyright clean** — CI runs the full suite on GitHub's own runners. (This branch adds
+`pve_doctor` — an onboarding preflight — and the firewall-reach blast-radius class; the shipped 0.2.0 was
+143 tools, so its docs' "144" was an off-by-one that `pve_doctor` now makes genuinely accurate.)
 
 **Proven against real Proxmox** (not mocks):
 - The trust spine end-to-end, the core provisioning/config mutate cycle, and PBS read shapes.

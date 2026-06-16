@@ -366,3 +366,23 @@ def test_plan_snapshot_delete_is_medium():
     p = plan_snapshot_delete("105", "before_x")
     assert p.risk == RISK_MEDIUM
     assert p.action == "pve_snapshot_delete"
+
+
+def test_plan_affected_defaults_empty_and_serializes():
+    p = Plan(action="x", target="t", change="c", current={}, blast_radius=[],
+             risk="high", risk_reasons=[])
+    assert p.affected == []
+    assert p.as_dict()["affected"] == []
+
+
+def test_plan_affected_roundtrips_in_as_dict():
+    entry = {"resource": "qemu/101", "severity": "high"}
+    p = Plan(action="x", target="t", change="c", current={}, blast_radius=[],
+             risk="high", risk_reasons=[], affected=[entry])
+    assert p.as_dict()["affected"] == [entry]
+
+
+def test_plan_complete_defaults_true_and_serializes():
+    p = Plan(action="x", target="t", change="c", current={}, blast_radius=[],
+             risk="high", risk_reasons=[])
+    assert p.complete is True and p.as_dict()["complete"] is True

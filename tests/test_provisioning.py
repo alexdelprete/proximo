@@ -522,27 +522,47 @@ def test_plan_clone_rejects_bad_kind():
 # plan_delete
 # ---------------------------------------------------------------------------
 
-def test_plan_delete_is_high_risk():
+def _stub_clean_cascade(monkeypatch):
+    """Make plan_delete's cascade a no-op clean result, so these tests isolate provisioning logic.
+    (The cascade engine is covered by tests/test_blast_guest_destroy.py + test_server_plan.py.)"""
+    import proximo.provisioning as P
+    from proximo.blast import GuestDestroyBlastResult
+
+    monkeypatch.setattr(
+        P,
+        "guest_destroy_blast",
+        lambda api, vmid, kind, node, purge, force: GuestDestroyBlastResult(
+            summary_lines=[], affected=[], risk=RISK_HIGH, risk_reasons=[], complete=True
+        ),
+    )
+
+
+def test_plan_delete_is_high_risk(monkeypatch):
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "running", "name": "mybox"})
     p = plan_delete(api, "200")
     assert p.risk == RISK_HIGH
 
 
-def test_plan_delete_action_string():
+def test_plan_delete_action_string(monkeypatch):
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "running", "name": "mybox"})
     p = plan_delete(api, "200")
     assert p.action == "pve_delete"
 
 
-def test_plan_delete_blast_names_guest_permanently_destroyed():
+def test_plan_delete_blast_names_guest_permanently_destroyed(monkeypatch):
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "running", "name": "mybox"})
     p = plan_delete(api, "200")
     text = " ".join(p.blast_radius).lower()
     assert "permanently destroys" in text
     assert "irreversible" in text
+    assert not any("could not" in b.lower() for b in p.blast_radius)
 
 
-def test_plan_delete_blast_includes_name_and_status():
+def test_plan_delete_blast_includes_name_and_status(monkeypatch):
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "stopped", "name": "oldbox"})
     p = plan_delete(api, "200")
     text = " ".join(p.blast_radius)
@@ -550,19 +570,29 @@ def test_plan_delete_blast_includes_name_and_status():
     assert "stopped" in text
 
 
-def test_plan_delete_purge_false_no_purge_in_blast():
+def test_plan_delete_purge_false_no_purge_action_in_blast(monkeypatch):
+    # purge=False: the blast must NOT claim that purge actions will fire (removing from HA/backup).
+    # The cascade disclaimer may mention "purge" as a parameter name — that is informational and OK.
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "running", "name": "mybox"})
     p = plan_delete(api, "200", purge=False)
-    assert not any("purge" in b.lower() for b in p.blast_radius)
+    # The dedicated "purge" action line only appears when purge=True
+    assert not any(
+        ("backup jobs" in b.lower() or "ha" in b.lower() or "replication" in b.lower())
+        and "purge=true" in b.lower()
+        for b in p.blast_radius
+    )
 
 
-def test_plan_delete_purge_true_adds_purge_to_blast():
+def test_plan_delete_purge_true_adds_purge_to_blast(monkeypatch):
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "running", "name": "mybox"})
     p = plan_delete(api, "200", purge=True)
-    assert any("purge" in b.lower() or "backup" in b.lower() for b in p.blast_radius)
+    assert any("(purge=true)" in b.lower() for b in p.blast_radius)
 
 
-def test_plan_delete_purge_in_change_string():
+def test_plan_delete_purge_in_change_string(monkeypatch):
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "running", "name": "mybox"})
     p = plan_delete(api, "200", purge=True)
     assert "purge" in p.change.lower()
@@ -599,14 +629,26 @@ def test_plan_delete_transient_error_is_high_and_discloses_uncertainty():
     assert not any("nothing would be destroyed" in b.lower() for b in p.blast_radius)
 
 
-def test_plan_delete_reads_live_status_for_current():
+def test_plan_delete_check_failed_is_incomplete():
+    # A non-404 error (check_failed path): existence is UNKNOWN → complete must be False.
+    # The blast-radius enumeration cannot be complete when we don't know if the guest exists.
+    api = _StatusApi(None, raise_on_status=True)
+    p = plan_delete(api, "200")
+    assert p.complete is False
+    assert p.risk == RISK_HIGH
+    assert not p.affected
+
+
+def test_plan_delete_reads_live_status_for_current(monkeypatch):
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "running", "name": "live-box"})
     p = plan_delete(api, "200")
     assert p.current.get("status") == "running"
     assert p.current.get("name") == "live-box"
 
 
-def test_plan_delete_populates_target():
+def test_plan_delete_populates_target(monkeypatch):
+    _stub_clean_cascade(monkeypatch)
     api = _StatusApi({"status": "stopped", "name": "x"})
     p = plan_delete(api, "200", kind="qemu")
     assert p.target == "qemu/200"

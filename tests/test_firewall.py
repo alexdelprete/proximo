@@ -512,9 +512,34 @@ def test_set_enabled_rejects_bad_scope():
 # ---------------------------------------------------------------------------
 
 
-def test_plan_rule_add_is_medium_risk():
+def test_plan_rule_add_bare_accept_is_maximal_high():
+    # ACCEPT/in with no source + no dport => permits ALL ports from anywhere => MAXIMAL HIGH
+    # (raised, never lowered — the per-rule reach engine never reads an empty field as benign).
     p = plan_firewall_rule_add("ACCEPT", scope="cluster")
+    assert p.risk == RISK_HIGH
+
+
+def test_plan_rule_add_single_host_nonsensitive_keeps_medium_floor():
+    # A narrow, non-mgmt open stays at the MEDIUM floor — never below it.
+    p = plan_firewall_rule_add("ACCEPT", source="203.0.113.5", dport="8080")
     assert p.risk == RISK_MEDIUM
+
+
+def test_plan_firewall_rule_add_names_reach():
+    p = plan_firewall_rule_add("ACCEPT", "in", "cluster", source="0.0.0.0/0", dport="22")
+    assert p.affected and p.affected[0]["effect"] == "permits"
+    assert p.affected[0]["severity"] == "high"
+    assert p.risk == RISK_HIGH
+    assert any("PERMITS inbound" in line for line in p.blast_radius)
+    # per-rule-reach framing present; never asserts "cluster exposed" as fact
+    assert any("per-rule" in line.lower() for line in p.blast_radius)
+
+
+def test_plan_firewall_rule_add_reflects_proto_not_hardcoded_tcp():
+    # a udp rule preview must NOT be narrated as '/tcp' (same false-content class as egress/_port_label)
+    p = plan_firewall_rule_add("ACCEPT", "in", "cluster", source="0.0.0.0/0", dport="53", proto="udp")
+    assert p.affected and "/tcp" not in p.affected[0]["service"]
+    assert "udp" in p.affected[0]["service"]
 
 
 def test_plan_rule_add_action_string():
@@ -570,10 +595,38 @@ def test_plan_rule_add_action_case_insensitive():
 # ---------------------------------------------------------------------------
 
 
-def test_plan_rule_remove_is_medium_risk():
+def test_plan_rule_remove_bare_drop_in_is_lockout_high():
+    # DROP/in with no source+dport => blocks ALL ports from anywhere => removing it RE-PERMITS
+    # everything; the removed rule's reach is lockout-class => HIGH (raised, never lowered).
     api = _RulesApi([{"pos": 0, "action": "DROP", "type": "in"}])
     p = plan_firewall_rule_remove(api, 0)
+    assert p.risk == RISK_HIGH
+
+
+def test_plan_rule_remove_narrow_accept_keeps_medium_floor():
+    api = _RulesApi([{"pos": 0, "action": "ACCEPT", "type": "in",
+                      "source": "203.0.113.5", "dport": "8080"}])
+    p = plan_firewall_rule_remove(api, 0)
     assert p.risk == RISK_MEDIUM
+
+
+def test_plan_rule_remove_names_what_closes():
+    # removing an ACCEPT names what it CLOSES + carries the removed rule's reach
+    api = _RulesApi([{"pos": 0, "action": "ACCEPT", "type": "in",
+                      "source": "0.0.0.0/0", "dport": "22"}])
+    p = plan_firewall_rule_remove(api, 0)
+    text = " ".join(p.blast_radius).lower()
+    assert "clos" in text or "no longer permit" in text
+    assert p.affected and p.affected[0]["effect"] == "permits"
+
+
+def test_plan_rule_remove_drop_names_what_re_permits():
+    api = _RulesApi([{"pos": 0, "action": "DROP", "type": "in",
+                      "source": "0.0.0.0/0", "dport": "8006"}])
+    p = plan_firewall_rule_remove(api, 0)
+    text = " ".join(p.blast_radius).lower()
+    assert "re-permit" in text or "re-open" in text or "reopen" in text
+    assert p.affected and p.affected[0]["effect"] == "blocks"
 
 
 def test_plan_rule_remove_action_string():
@@ -640,10 +693,39 @@ def test_plan_rule_remove_pos_in_target():
 # ---------------------------------------------------------------------------
 
 
-def test_plan_rule_update_is_medium_risk():
+def test_plan_rule_update_to_drop_all_from_anywhere_is_lockout_high():
+    # ACCEPT/in -> DROP/in with no source/dport => post-update blocks ALL ports from anywhere
+    # => lockout-class HIGH (raised, never lowered).
     api = _RulesApi([{"pos": 1, "action": "ACCEPT", "type": "in"}])
     p = plan_firewall_rule_update(api, 1, action="DROP")
+    assert p.risk == RISK_HIGH
+    assert p.affected and p.affected[0]["effect"] == "blocks"
+
+
+def test_plan_rule_update_narrow_change_keeps_medium_floor():
+    api = _RulesApi([{"pos": 1, "action": "ACCEPT", "type": "in",
+                      "source": "203.0.113.5", "dport": "8080"}])
+    p = plan_firewall_rule_update(api, 1, comment="note")
     assert p.risk == RISK_MEDIUM
+
+
+def test_plan_rule_update_merges_new_direction_over_stored_type():
+    # KEY-MISMATCH TRAP: stored direction is under 'type', new_fields carries it as 'direction'.
+    # Changing an inbound ACCEPT to OUTBOUND must classify the post-update rule as egress (lower),
+    # proving new direction merges over the stored 'type'.
+    api = _RulesApi([{"pos": 0, "action": "ACCEPT", "type": "in",
+                      "source": "0.0.0.0/0", "dport": "22"}])
+    p = plan_firewall_rule_update(api, 0, direction="out")
+    assert p.affected and p.affected[0]["direction"] == "out"
+
+
+def test_plan_rule_update_post_update_widens_source_to_anywhere_high():
+    # narrowing/widening: stored narrow ACCEPT, update widens source to anywhere => HIGH
+    api = _RulesApi([{"pos": 0, "action": "ACCEPT", "type": "in",
+                      "source": "10.0.0.0/8", "dport": "22"}])
+    p = plan_firewall_rule_update(api, 0, source="0.0.0.0/0")
+    assert p.risk == RISK_HIGH
+    assert any("PERMITS inbound" in line for line in p.blast_radius)
 
 
 def test_plan_rule_update_action_string():

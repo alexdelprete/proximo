@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 
+from . import blast
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_MEDIUM, Plan
 
@@ -392,205 +393,81 @@ def plan_acl_modify(
         _check_userid(user_part)
         _check_tokenid(token_part)
 
-    new_roles = {r.strip() for r in roles.split(",")}
-    action_word = "revoke" if delete else "grant"
-
-    # ------------------------------------------------------------------
-    # ONE SAFE READ: current ACL state.
-    # Three outcomes: success, failure (disclose, don't swallow).
-    # ------------------------------------------------------------------
-    acl_entries: list[dict] = []
-    check_error: str | None = None
+    # ONE SAFE READ: current ACL state (fail-closed — None signals the read failed).
+    acl_entries: list[dict] | None
+    acl_error: str | None = None
     try:
         acl_entries = access_acl_list(api) or []
     except Exception as e:
-        check_error = type(e).__name__
+        acl_entries = None
+        acl_error = type(e).__name__
 
-    # ------------------------------------------------------------------
-    # Analyse what the target currently sees at `path` (inherited + direct).
-    # An ACL entry at an ancestor path with propagate=True bleeds down.
-    # An existing direct entry at `path` for this target is what we'd replace.
-    # ------------------------------------------------------------------
-    current_direct_entries: list[dict] = []  # ALL direct entries for target at path
-    inherited_entries: list[dict] = []        # ancestor propagated entries for target
+    # #1: resolve the target's OWN group memberships so the shadow analysis is complete.
+    # Local import — access_users imports access (._check_userid), so a top-level import would cycle.
+    from .access_users import group_get, user_get
+    target_groups: list[str] | None = None
+    extra_inherited: dict[str, str] | None = None
+    if acl_entries is not None:
+        if kind == "user":
+            try:
+                target_groups = list(user_get(api, target).get("groups") or [])
+            except Exception:
+                target_groups = None
+        else:  # token "owner@realm!tokenid" inherits owner groups ONLY if privsep == 0
+            owner = target.split("!", 1)[0]
+            try:
+                tid = target.split("!", 1)[1]
+                tok = next((t for t in access_tokens_list(api, owner) if t.get("tokenid") == tid), None)
+                privsep = tok.get("privsep", 1) if tok else 1   # default privsep=1 (least inheritance)
+                if str(privsep) in ("0", "False"):
+                    target_groups = list(user_get(api, owner).get("groups") or [])
+                    # privsep=0 token IS the owner: also fold owner's DIRECT propagated user grants
+                    # from ancestor paths (group grants are covered by target_groups above).
+                    extra_inherited = {
+                        e.get("roleid", ""): f"token owner {owner} (direct)"
+                        for e in acl_entries
+                        if e.get("type") == "user" and e.get("ugid") == owner
+                        and path.startswith(e.get("path", "").rstrip("/") + "/")
+                        and e.get("propagate", True)
+                    }
+                else:
+                    target_groups = None  # privsep token: no owner-group inheritance -> stay honest
+            except Exception:
+                target_groups = None
 
-    if check_error is None:
-        for entry in acl_entries:
-            ugid = entry.get("ugid", "")
-            entry_path = entry.get("path", "")
-            entry_propagate = entry.get("propagate", True)
-            # Match this entry to our target (user or token kind check is implicit via ugid).
-            if ugid != target:
-                continue
-            if entry_path == path:
-                current_direct_entries.append(entry)
-            elif path.startswith(entry_path.rstrip("/") + "/") and entry_propagate:
-                # This ancestor entry propagates into our path.
-                inherited_entries.append(entry)
-
-    # Inherited roles (those bleeding into our path from ancestors).
-    inherited_roles: set[str] = set()
-    for e in inherited_entries:
-        inherited_roles.add(e.get("roleid", ""))
-
-    # Direct roles at this path (before our change) — accumulate ALL, not just the last.
-    current_direct_roles: set[str] = {e.get("roleid", "") for e in current_direct_entries}
-    has_direct = bool(current_direct_entries)
-
-    # Effective roles at path BEFORE the change:
-    # If there's any direct entry, it ALREADY shadows inherited ones — inherited don't apply.
-    # If there's no direct entry, inherited roles apply.
-    effective_before: set[str] = (
-        current_direct_roles if has_direct else inherited_roles
-    )
-
-    # Effective roles AFTER the change:
-    if not delete:
-        # Grant: PUT /access/acl adds the specified role(s) at path.
-        # PVE tracks one entry per (user, path, role) — adding a role does NOT remove OTHER
-        # existing same-path roles; each role is a separate ACL record. However, adding a new
-        # specific entry at this path DOES shadow any inherited (ancestor) grants that were
-        # previously bleeding down (because a direct entry takes precedence over inheritance).
-        # Therefore: effective_after = (existing direct roles) ∪ (new roles), minus the
-        # inherited roles that are now shadowed by having any direct entry at all.
-        # Simplification: we can only accurately predict shadow for the case where there was
-        # NO prior direct entry (inherited-only case) — that is the PVE gotcha.
-        # If there's already a direct entry, the target already had a direct entry shadowing
-        # inherited grants, so adding more roles there doesn't change the shadow status.
-        effective_after = new_roles
-    else:
-        # Revoke: remove the specified role(s) from the direct entries.
-        # If OTHER direct roles for this target remain at this path, those roles STILL shadow
-        # the inherited grants — inherited access does NOT come back in that case.
-        # Only when NO direct roles remain does the target fall back to inherited roles.
-        remaining_direct = current_direct_roles - new_roles
-        effective_after = remaining_direct if remaining_direct else inherited_roles
-
-    # SHADOW: inherited roles that DISAPPEAR because a new direct entry shadows them.
-    # ONLY meaningful when transitioning from inherited-only (no prior direct entry) to a
-    # specific-path entry. If there was already a direct entry, inherited were already shadowed.
-    shadowed_inherited = inherited_roles - new_roles if not has_direct and not delete else set()
-    # SHADOW from same-path replacement is NOT computed — PVE unions same-path roles, not replaces.
-
-    # WIDEN: roles that APPEAR in the effective set at path (newly gained).
-    widened = effective_after - effective_before
-
-    # ------------------------------------------------------------------
-    # Build blast radius and risk.
-    # ------------------------------------------------------------------
-    blast: list[str] = []
-    reasons: list[str] = []
-    risk = RISK_MEDIUM
-
-    if check_error is not None:
-        blast.append(
-            f"could NOT read current ACL ({check_error}) — cannot determine what privileges "
-            "would be shadowed or widened; absence of a shadow/widen warning is NOT a safety signal"
-        )
-        reasons.append(
-            "ACL read failed — shadow/widen analysis unavailable; absence of a warning is not a safety signal"
-        )
-        risk = RISK_HIGH  # uncertainty on an access-governance op is inherently high-risk
-    else:
-        # Check for group-type ACL entries at or above path — group membership creates
-        # shadow/widen effects this analysis cannot enumerate (group members are not in the
-        # ACL list; only the group entry itself is). Emit a disclosure without escalating risk.
-        group_entries_present = any(
-            e.get("type") == "group" and (
+    # #2: members of group-type ACL entries at/above the path (who-else-can-reach context).
+    group_members: dict[str, list | None] = {}
+    if acl_entries is not None:
+        in_scope_groups = {
+            e.get("ugid", "") for e in acl_entries
+            if e.get("type") == "group" and (
                 e.get("path") == path or path.startswith(e.get("path", "").rstrip("/") + "/")
             )
-            for e in acl_entries
-        )
-        if group_entries_present:
-            blast.append(
-                "UNCERTAINTY: group-type ACL entries exist at or above this path — "
-                "group membership grants are NOT visible in the per-user ACL list; "
-                "shadow/widen analysis may be INCOMPLETE for users who are group members"
-            )
-            reasons.append(
-                "group-based ACL grants exist at this scope; shadow analysis may miss group-inherited privileges"
-            )
-        if not delete:
-            # Grant path.
-            if shadowed_inherited:
-                sr = ", ".join(sorted(shadowed_inherited))
-                blast.append(
-                    f"SHADOW WARNING: granting {roles!r} at {path!r} will REPLACE {target!r}'s "
-                    f"INHERITED grants — the following inherited roles will NO LONGER apply at "
-                    f"{path!r}: {sr}. (The specific-path entry takes precedence over ancestor "
-                    "propagated grants.)"
-                )
-                reasons.append(
-                    "granting a specific-path ACL replaces ancestor inherited (propagated) grants — "
-                    f"inherited roles {{{sr}}} are shadowed (lost) at {path!r}"
-                )
-                risk = RISK_HIGH
-            if widened:
-                wr = ", ".join(sorted(widened))
-                blast.append(
-                    f"NEW privileges at {path!r}: {target!r} gains {wr}"
-                )
-                reasons.append(f"target gains new roles: {wr}")
-            if not shadowed_inherited and not widened:
-                blast.append(
-                    f"grants {roles!r} to {target!r} at {path!r} (propagate={propagate}) — "
-                    "no inherited grants detected to shadow; no new privileges detected"
-                )
-                reasons.append("no inherited grants to shadow; grant is additive at this path")
-        else:
-            # Revoke path.
-            if widened:
-                wr = ", ".join(sorted(widened))
-                blast.append(
-                    f"WIDEN WARNING: revoking the specific entry at {path!r} for {target!r} "
-                    f"RESTORES inherited grants — {target!r} will gain back: {wr}"
-                )
-                reasons.append(
-                    "revoking a specific-path ACL restores inherited grants — "
-                    f"the following roles become effective again at {path!r}: {wr}"
-                )
-                risk = RISK_HIGH
-            if not widened:
-                blast.append(
-                    f"revokes {roles!r} from {target!r} at {path!r} — no inherited grants detected "
-                    "that would widen access after revoke"
-                )
-                reasons.append("no inherited grants detected; revoke is straightforward")
+        }
+        for grp in sorted(g for g in in_scope_groups if g):
+            try:
+                group_members[grp] = list(group_get(api, grp).get("members") or [])
+            except Exception:
+                group_members[grp] = None
 
-    # Additional escalations independent of shadow/widen analysis.
-    if _is_administrator_role(roles):
-        blast.append(
-            "Administrator role grants ALL Proxmox privileges — this is the widest possible role"
-        )
-        reasons.append("Administrator = super-role with full cluster privileges")
-        risk = RISK_HIGH
-    if _is_root_or_broad(path):
-        blast.append(
-            f"ACL at {path!r} affects ALL resources at that scope on the cluster"
-        )
-        reasons.append(f"path {path!r} is a high-blast scope (root or storage-wide)")
-        risk = RISK_HIGH
-
-    if not current_direct_entries:
-        current: dict = {}
-    else:
-        # Show the first direct entry for the current dict (representative when multiple exist).
-        first = current_direct_entries[0]
-        current = {k: first[k] for k in ("path", "roleid", "ugid", "propagate") if k in first}
+    result = blast.compute_acl_blast(path, roles, target, kind, delete, acl_entries, acl_error,
+                                     target_groups=target_groups, group_members=group_members or None,
+                                     extra_inherited=extra_inherited)
 
     return Plan(
         action="pve_acl_modify",
         target=f"acl:{path}:{target}",
         change=(
-            f"{action_word} role(s) {roles!r} {'to' if not delete else 'from'} "
+            f"{'revoke' if delete else 'grant'} role(s) {roles!r} {'from' if delete else 'to'} "
             f"{target!r} at path {path!r} (propagate={propagate})"
         ),
-        current=current,
-        blast_radius=blast,
-        risk=risk,
-        risk_reasons=reasons,
+        current=result.current,
+        blast_radius=result.summary_lines,
+        affected=result.affected,
+        risk=result.risk,
+        risk_reasons=result.risk_reasons,
+        complete=result.complete,
     )
-
 
 def plan_token_create(userid: str, tokenid: str, privsep: bool = True) -> Plan:
     """Preview creating an API token.

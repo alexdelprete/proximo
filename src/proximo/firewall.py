@@ -41,8 +41,9 @@ from __future__ import annotations
 import ipaddress
 import re
 
+from . import blast as blast_engine
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
-from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan, _max_risk
 
 # ---------------------------------------------------------------------------
 # Module-level validators
@@ -424,6 +425,59 @@ def _scope_label(scope: str, node: str | None, vmid: str | None, kind: str | Non
     return f"{kind or 'lxc'}/{vmid}"
 
 
+def _enable_flag(raw) -> bool:
+    """Normalize a PVE rule 'enable' field (1/0, '1'/'0', True/False, or absent->1) to bool.
+    Default ON: a rule with no explicit enable is active in PVE. An unparseable value is treated
+    as ENABLED (active) — over-flag, never read a present-but-odd value as the inert 'staged' path."""
+    if raw is None:
+        return True
+    if isinstance(raw, bool):
+        return raw
+    s = str(raw).strip()
+    return s != "0"
+
+
+def _removal_reach_lines(found: dict, reach) -> list[str]:
+    """Frame a rule's REACH as the effect of REMOVING it: removing an ACCEPT CLOSES the access it
+    permitted; removing a DROP/REJECT RE-PERMITS the traffic it blocked. A disabled (staged) rule
+    has no live effect, so removing it changes nothing live."""
+    action = str(found.get("action", "")).upper()
+    enabled = _enable_flag(found.get("enable", 1))
+    service = blast_engine._port_label(found.get("dport"), found.get("proto"))
+    _, from_label = blast_engine._source_breadth(found.get("source"))
+    if not enabled:
+        return [
+            f"this rule is currently DISABLED (staged) — removing it changes nothing live "
+            f"(it was not permitting/blocking {service} from {from_label})",
+        ]
+    if action == "ACCEPT":
+        return [
+            f"removing this ACCEPT CLOSES inbound {service} from {from_label} — that access will "
+            "no longer be permitted by this rule",
+        ]
+    # DROP / REJECT
+    return [
+        f"removing this {action} RE-PERMITS {service} from {from_label} — traffic this rule was "
+        "blocking is no longer blocked by it (other rules / the default policy still apply)",
+    ]
+
+
+def _merged_post_update(found: dict, new_fields: dict) -> dict:
+    """Resolve the POST-UPDATE rule fields for reach classification: new_fields layered over the
+    stored rule. The stored DIRECTION lives under 'type'; new_fields carries it as 'direction' —
+    so 'direction' wins when present, otherwise the stored 'type'. Other fields (action/source/
+    dport/proto) use new-when-the-key-is-present, else the stored value. 'enable' is normalized."""
+    return {
+        "action": new_fields.get("action") or found.get("action", ""),
+        "direction": new_fields.get("direction") or found.get("type", "in"),
+        "source": new_fields["source"] if "source" in new_fields else found.get("source"),
+        "dport": new_fields["dport"] if "dport" in new_fields else found.get("dport"),
+        "proto": new_fields["proto"] if "proto" in new_fields else found.get("proto"),
+        "enable": (_enable_flag(new_fields["enable"]) if "enable" in new_fields
+                   else _enable_flag(found.get("enable", 1))),
+    }
+
+
 def plan_firewall_rule_add(
     action: str,
     direction: str = "in",
@@ -434,6 +488,7 @@ def plan_firewall_rule_add(
     source: str | None = None,
     dest: str | None = None,
     dport: str | None = None,
+    proto: str | None = None,
 ) -> Plan:
     """Preview adding a firewall rule. PURE — no API call needed.
 
@@ -457,22 +512,31 @@ def plan_firewall_rule_add(
     if dport:
         rule_summary += f", dport={dport}"
 
+    # Per-rule REACH — what this rule permits/blocks if it is the deciding match in an enforced,
+    # default-DROP firewall. NOT "the cluster is exposed". rule_add has no enable param, so
+    # enable=True (a staged add is over-flagged as active — the conservative direction, and the
+    # loaded-gun warning still fires). `proto` is reflected in the service label (a udp rule is not
+    # narrated as /tcp). The factory stays PURE — the reach engine reads no API.
+    reach = blast_engine.compute_firewall_reach(action, direction, source, dport, proto, scope_label)
+
     return Plan(
         action="pve_firewall_rule_add",
         target=f"firewall/{scope}",
         change=f"add firewall rule on {scope_label}: {rule_summary}",
         current={},
-        blast_radius=[
+        blast_radius=reach.summary_lines + [
             f"adds a firewall rule to {scope_label}: {rule_summary}",
             "rule is appended — positions of existing rules are not shifted",
             "a misplaced DROP/REJECT can interrupt connectivity; a misplaced ACCEPT can open access",
             "no UNDO: firewall config is not in guest snapshots; revert by removing this rule",
         ],
-        risk=RISK_MEDIUM,
-        risk_reasons=[
+        affected=reach.affected,
+        risk=_max_risk(RISK_MEDIUM, reach.risk),
+        risk_reasons=reach.risk_reasons + [
             "firewall rule changes affect network connectivity — silent-mistake-prone",
             "absence of HIGH is NOT a safety signal (heuristic only)",
         ],
+        complete=reach.complete,
     )
 
 
@@ -502,6 +566,7 @@ def plan_firewall_rule_remove(
     current: dict = {}
     rule_desc = f"rule at position {pos}"
     check_error: str | None = None
+    found: dict | None = None
 
     try:
         rules = firewall_rules_list(api, scope, node, vmid, kind) or []
@@ -524,10 +589,17 @@ def plan_firewall_rule_remove(
     except Exception as e:
         check_error = type(e).__name__
 
+    affected: list[dict] = []
+    complete = True
+    risk = RISK_MEDIUM
+
     if check_error is not None:
+        # A failed read => we can't compute the removed rule's reach. Incomplete, not benign.
+        complete = False
         blast = [
             f"rule lookup failed ({check_error}) — could not confirm what rule is at position {pos}; "
             "removal may affect the wrong rule or fail",
+            "could not compute the removed rule's reach — absence of a reach warning is NOT a safety signal",
             "positions SHIFT after inserts/deletes — re-list rules before confirming",
             "no UNDO: firewall config is not in guest snapshots",
         ]
@@ -536,7 +608,21 @@ def plan_firewall_rule_remove(
             "absence of HIGH is NOT a safety signal",
         ]
     else:
+        # Compute the REACH of the rule being removed, then frame the REMOVAL effect:
+        # removing an ACCEPT CLOSES that access; removing a DROP/REJECT RE-PERMITS it.
+        reach_lines: list[str] = []
+        if found:
+            reach = blast_engine.compute_firewall_reach(
+                found.get("action", ""), found.get("type", "in"), found.get("source"),
+                found.get("dport"), found.get("proto"), scope_label,
+                enable=_enable_flag(found.get("enable", 1)),
+            )
+            affected = reach.affected
+            complete = reach.complete
+            risk = _max_risk(risk, reach.risk)
+            reach_lines = _removal_reach_lines(found, reach)
         blast = [
+            *reach_lines,
             f"removes {rule_desc} from {scope_label}",
             "positions SHIFT after this removal — re-list rules if doing further edits",
             "removing an ACCEPT rule for SSH (22) or PVE UI (8006) can cause a lockout",
@@ -553,8 +639,10 @@ def plan_firewall_rule_remove(
         change=f"remove {rule_desc} from {scope_label}",
         current=current,
         blast_radius=blast,
-        risk=RISK_MEDIUM,
+        affected=affected,
+        risk=risk,
         risk_reasons=reasons,
+        complete=complete,
     )
 
 
@@ -587,6 +675,7 @@ def plan_firewall_rule_update(
     current: dict = {}
     rule_desc = f"rule at position {pos}"
     check_error: str | None = None
+    found: dict | None = None
 
     try:
         rules = firewall_rules_list(api, scope, node, vmid, kind) or []
@@ -604,10 +693,16 @@ def plan_firewall_rule_update(
 
     changed_fields = ", ".join(f"{k}={v!r}" for k, v in new_fields.items()) if new_fields else "(no fields)"
 
+    affected: list[dict] = []
+    complete = True
+    risk = RISK_MEDIUM
+
     if check_error is not None:
+        complete = False
         blast = [
             f"rule lookup failed ({check_error}) — could not read current state of {rule_desc}; "
             "update may affect the wrong rule or fail",
+            "could not compute the post-update reach — absence of a reach warning is NOT a safety signal",
             "positions SHIFT after inserts/deletes — re-list rules before confirming",
             "no UNDO: firewall config is not in guest snapshots",
         ]
@@ -616,7 +711,23 @@ def plan_firewall_rule_update(
             "absence of HIGH is NOT a safety signal",
         ]
     else:
+        # Compute the REACH of the POST-UPDATE rule (new_fields merged over the current rule).
+        # KEY-MISMATCH TRAP: the stored direction lives under 'type'; new_fields carries it as
+        # 'direction'. Layer the new value over the stored one for each reachable field.
+        reach_lines: list[str] = []
+        base = found or {}
+        merged = _merged_post_update(base, new_fields)
+        reach = blast_engine.compute_firewall_reach(
+            merged["action"], merged["direction"], merged["source"],
+            merged["dport"], merged["proto"], scope_label, enable=merged["enable"],
+        )
+        affected = reach.affected
+        complete = reach.complete
+        risk = _max_risk(risk, reach.risk)
+        reach_lines = [f"after this update, {line}" if line.lower().startswith("this rule")
+                       else line for line in reach.summary_lines]
         blast = [
+            *reach_lines,
             f"updates {rule_desc} on {scope_label}: changes → {changed_fields}",
             "positions SHIFT after inserts/deletes; verify position before updating",
             "a changed DROP/REJECT can affect connectivity; a changed ACCEPT can open access",
@@ -633,8 +744,10 @@ def plan_firewall_rule_update(
         change=f"update {rule_desc} on {scope_label}: {changed_fields}",
         current=current,
         blast_radius=blast,
-        risk=RISK_MEDIUM,
+        affected=affected,
+        risk=risk,
         risk_reasons=reasons,
+        complete=complete,
     )
 
 

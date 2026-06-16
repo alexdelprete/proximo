@@ -20,8 +20,9 @@ relying on them in production.
 
 from __future__ import annotations
 
+from . import blast
 from .backends import ProximoError
-from .planning import RISK_HIGH, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_MEDIUM, Plan, _max_risk
 from .storage import _check_storage  # reuse: same regex/rule, no duplication
 
 # Smoke-confirm: _check_storage (from storage.py) uses ^[A-Za-z0-9._-]+\Z — permits dot-only
@@ -318,6 +319,7 @@ def plan_storage_create(
 
 
 def plan_storage_update(
+    api,
     storage: str,
     content: str | None = None,
     nodes: str | None = None,
@@ -355,13 +357,13 @@ def plan_storage_update(
 
     change_summary = "; ".join(changes) if changes else "no fields provided"
 
-    blast = [
+    base_blast = [
         f"updates storage definition '{storage}' in storage.cfg cluster-wide",
         f"changes: {change_summary}",
     ]
 
     if disable is True:
-        blast.append(
+        base_blast.append(
             "WARNING: disable=True — ALL guests with volumes on this storage WILL LOSE ACCESS "
             "to their disks; running VMs/containers may crash or corrupt state; "
             "re-enabling restores access to the storage, but guests that lost their disk "
@@ -369,22 +371,39 @@ def plan_storage_update(
         )
 
     if nodes is not None:
-        blast.append(
+        base_blast.append(
             f"changing 'nodes' to [{nodes}] — guests on excluded nodes lose access to "
             "their disks on this storage"
         )
 
-    blast.append(
+    base_blast.append(
         "to undo: apply the inverse update (restore previous content/nodes/disable/shared values)"
     )
+
+    # Enrich the DISABLE case with the cluster-wide affected set (same primitive as delete):
+    # disabling cuts EVERY guest with a volume on this storage off from its disk. Compute the
+    # named impact and ESCALATE risk on uncertainty/only-copy — never lower it.
+    summary_lines: list[str] = []
+    affected: list[dict] = []
+    risk = RISK_MEDIUM
+    complete = True
+    if disable is True:
+        result = blast.storage_blast(api, storage)
+        summary_lines = result.summary_lines
+        affected = result.affected_dicts()
+        complete = result.complete
+        if result.max_severity == "high":
+            risk = _max_risk(RISK_MEDIUM, RISK_HIGH)
 
     return Plan(
         action="pve_storage_update",
         target=f"storage/{storage}",
         change=f"update storage '{storage}': {change_summary}",
         current={},
-        blast_radius=blast,
-        risk=RISK_MEDIUM,
+        blast_radius=summary_lines + base_blast,
+        affected=affected,
+        risk=risk,
+        complete=complete,
         risk_reasons=[
             "changing nodes or disabling storage can cut running guests off from their disks",
             "disabling storage / changing nodes can cut running guests off from their disks "
@@ -400,26 +419,30 @@ def plan_storage_update(
     )
 
 
-def plan_storage_delete(storage: str) -> Plan:
-    """Preview deleting a storage definition.  PURE — no API call.
+def plan_storage_delete(api, storage: str) -> Plan:
+    """Preview deleting a storage definition.  Reads the cluster to NAME affected guests.
 
-    RISK_HIGH: removes the storage DEFINITION cluster-wide. Any guest disk or backup
-    living ONLY on this storage becomes inaccessible to PVE. Backups stored there are
-    no longer listable or restorable through PVE.
+    RISK_HIGH (floor, never lowered): removes the storage DEFINITION cluster-wide. Any guest
+    disk or backup living ONLY on this storage becomes inaccessible to PVE. Backups stored
+    there are no longer listable or restorable through PVE.
 
     IMPORTANT: this does NOT erase on-disk data, but PVE loses the handle to the storage.
     To recover access, re-add the definition with the same configuration.
 
     There is no automatic undo. Re-adding the definition is the recovery path.
+
+    The blast engine PREPENDS the computed, cluster-wide affected set (which guests lose which
+    disks) ahead of the generic floor below; the floor is never replaced.
     """
     _check_storage(storage)
+    result = blast.storage_blast(api, storage)
 
     return Plan(
         action="pve_storage_delete",
         target=f"storage/{storage}",
         change=f"remove storage definition '{storage}' from storage.cfg cluster-wide",
         current={},
-        blast_radius=[
+        blast_radius=result.summary_lines + [
             f"removes storage definition '{storage}' from storage.cfg cluster-wide — "
             "PVE immediately loses the handle to this storage on ALL nodes",
             "any guest disk (VM image, container rootfs) living ONLY on this storage "
@@ -430,6 +453,8 @@ def plan_storage_delete(storage: str) -> Plan:
             "NO automatic undo — to recover access, re-add the storage definition "
             "with the same type and configuration",
         ],
+        affected=result.affected_dicts(),
+        complete=result.complete,
         risk=RISK_HIGH,
         risk_reasons=[
             "removes the storage definition cluster-wide — all nodes lose access simultaneously",

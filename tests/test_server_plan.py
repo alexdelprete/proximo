@@ -500,6 +500,35 @@ def test_pve_delete_guest_confirm_records_plan_before_executing(tmp_path, monkey
     assert {"planned", "submitted"} <= outcomes  # no plan, no mutation — even on one-shot confirm
 
 
+def test_pve_delete_guest_plan_surfaces_cascade(tmp_path, monkeypatch):
+    """Dry-run pve_delete_guest for a found, running, force=False guest surfaces wont_proceed/running
+    in resp['affected'] and carries 'complete'. Tests the full server → plan_delete → gather → compute
+    seam without any live PVE connection.
+    """
+    import proximo.blast as B
+
+    # Patch the four module-level readers that gather_guest_dependents calls
+    monkeypatch.setattr(B, "cluster_resources", lambda api: [])
+    monkeypatch.setattr(B, "guest_config_get", lambda api, vmid, kind, node=None: {})
+    monkeypatch.setattr(B, "ha_resources_list", lambda api: [])
+    monkeypatch.setattr(B, "pools_list", lambda api: [])
+
+    # _wire injects a _FakeApi as the api; status=running so the running wont_proceed fires
+    _wire(tmp_path, monkeypatch, status={"status": "running", "name": "test-vm"})
+
+    resp = server.pve_delete_guest("9000", kind="qemu", confirm=False, force=False)
+    assert resp["status"] == "plan"
+    assert resp["risk"] == "high"
+    # cascade fields must be present in the serialised plan dict
+    assert "affected" in resp and isinstance(resp["affected"], list)
+    assert "complete" in resp
+    # a running guest without force must produce a wont_proceed/running entry
+    assert any(
+        a["category"] == "wont_proceed" and a["kind"] == "running"
+        for a in resp["affected"]
+    )
+
+
 def test_pve_restore_overwrite_with_force_is_high_and_dry_runs(tmp_path, monkeypatch):
     _, api, _, _, _ = _wire(tmp_path, monkeypatch, status={"status": "stopped", "name": "victim"})
     out = server.pve_restore("102", "local:backup/vzdump-lxc-102.tar.zst", "local",

@@ -19,9 +19,25 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from urllib.parse import urlsplit
 
+from . import blast as blast_engine
 from .backends import ProximoError, _check_node
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
+
+
+def _mgmt_host_from_api(api) -> str | None:
+    """Best-effort: the host Proximo talks to, parsed from cfg.api_base_url (config, not a network
+    read). Often a HOSTNAME (won't match an iface address) — the lockout naming is best-effort and
+    HIGH stands regardless. Returns None if no base URL / unparseable (caller keeps HIGH)."""
+    base = getattr(getattr(api, "config", None), "api_base_url", None)
+    if not base:
+        return None
+    try:
+        host = urlsplit(base).hostname
+    except ValueError:
+        return None
+    return host or None
 
 # ---------------------------------------------------------------------------
 # Validators (module-local)
@@ -423,8 +439,11 @@ def plan_network_apply(api, node: str | None = None) -> Plan:
     """
     _check_node(node)
     n = node or api.config.node
+    mgmt_host = _mgmt_host_from_api(api)
 
+    ifaces: list[dict] = []
     pending_info: list[str] = []
+    pending_names: list[str] = []
     read_failed = False
     try:
         ifaces = network_list(api, node) or []
@@ -437,8 +456,16 @@ def plan_network_apply(api, node: str | None = None) -> Plan:
                 pending_info.append(
                     f"  {name}: pending={i.get('pending')!r} changes={i.get('changes')!r}"
                 )
+                pending_names.append(name)
     except Exception:
         read_failed = True
+
+    # Best-effort mgmt-interface naming on top of the UNCONDITIONAL HIGH. compute_apply_lockout
+    # NEVER lowers risk and NEVER says "no lockout" — non-identification => HIGH stands. On a read
+    # failure we have no ifaces to match, so it correctly reports "could not identify" + complete=False.
+    lockout = blast_engine.compute_apply_lockout(pending_names, mgmt_host, ifaces)
+    affected = lockout.affected
+    complete = not read_failed
 
     if read_failed:
         pending_summary = (
@@ -446,18 +473,21 @@ def plan_network_apply(api, node: str | None = None) -> Plan:
             "review manually before confirming"
         )
         blast = [
+            *lockout.summary_lines,
             f"APPLIES all pending network changes on {n} to live network stack",
             pending_summary,
             "CONNECTIVITY-LOCKOUT RISK: a misconfigured interface can lose SSH/API access — "
             "console or physical access required to recover",
         ]
         reasons = [
+            *lockout.risk_reasons,
             "network apply is irreversible in the connectivity sense — no automatic rollback",
             "pending-state read failed; applying unknown changes; RISK_HIGH maintained",
             "connectivity lockout requires console/physical access to recover",
         ]
     elif pending_info:
         blast = [
+            *lockout.summary_lines,
             f"APPLIES all pending network changes on {n} to live network stack",
             f"Detected {len(pending_info)} pending interface(s):",
             *pending_info,
@@ -465,18 +495,21 @@ def plan_network_apply(api, node: str | None = None) -> Plan:
             "console or physical access required to recover",
         ]
         reasons = [
+            *lockout.risk_reasons,
             "network apply makes staged config live — if an interface is misconfigured, "
             "SSH/API connectivity is lost immediately",
             "no automatic undo: recovery requires console or physical access",
         ]
     else:
         blast = [
+            *lockout.summary_lines,
             f"APPLIES pending network configuration on {n} (no pending changes detected, "
             "but apply proceeds regardless)",
             "CONNECTIVITY-LOCKOUT RISK: applies staged config; if misconfigured, SSH/API "
             "access may be lost — console or physical access required to recover",
         ]
         reasons = [
+            *lockout.risk_reasons,
             "network apply makes staged config live — even 'no changes detected' does not "
             "guarantee safety (read may have missed pending entries)",
             "RISK_HIGH maintained: absent confirmation of no-op, apply always carries lockout risk",
@@ -487,14 +520,19 @@ def plan_network_apply(api, node: str | None = None) -> Plan:
         action="pve_network_apply",
         target=f"nodes/{n}/network",
         change=f"apply pending network configuration on {n}",
-        current={"pending_ifaces": pending_info, "read_failed": read_failed},
+        current={"pending_ifaces": pending_info, "read_failed": read_failed,
+                 "mgmt_host": mgmt_host},
         blast_radius=blast,
+        affected=affected,
         risk=RISK_HIGH,
         risk_reasons=reasons,
+        complete=complete,
         note=(
             "RISK_HIGH is unconditional for network apply — connectivity lockout has no "
-            "automatic recovery path. Shape risk: how PVE marks pending changes is "
-            "uncertain until live smoke (fields checked: 'pending', 'changes')."
+            "automatic recovery path. Mgmt-interface naming is best-effort (the mgmt host may be a "
+            "hostname or live on a bond/VLAN under the bridge); non-identification => HIGH stands, "
+            "never 'no lockout'. Shape risk: how PVE marks pending changes is uncertain until live "
+            "smoke (fields checked: 'pending', 'changes')."
         ),
     )
 
@@ -566,6 +604,14 @@ def plan_sdn_apply(api) -> Plan:
             "(shape of pending state is uncertain until live smoke)",
             "no automatic undo: recovery requires manual SDN revert + re-apply",
         ]
+
+    # Light touch (mgmt-lockout class): the management path is almost always on a plain bridge
+    # (vmbr*) — NOT an SDN vnet — so SDN apply rarely cuts the admin's own access. Stated, not
+    # deep-modeled; if your mgmt IP DOES live on an SDN vnet, this apply could lock you out.
+    blast.append(
+        "note: the management host is normally on a plain bridge (vmbr*), not an SDN vnet, so this "
+        "apply rarely cuts your own SSH/API access — verify if your management IP is on an SDN vnet"
+    )
 
     return Plan(
         action="pve_sdn_apply",

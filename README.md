@@ -45,8 +45,8 @@ Two backends behind one tool surface:
 
 ## Install & run
 
-> 📦 **`0.2.0` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.2.0) (CI green), and
+> 📦 **`0.4.0` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.4.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
@@ -92,11 +92,11 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 ## Status — the arena record
 
-🩸 **0.2.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **144 MCP tools. 2227 tests,
-0 skipped, ruff + pyright clean** — CI runs the full suite on GitHub's own runners. (This branch adds
-`pve_doctor` — an onboarding preflight — and the firewall-reach blast-radius class; the shipped 0.2.0 was
-143 tools, so its docs' "144" was an off-by-one that `pve_doctor` now makes genuinely accurate.)
+🩸 **0.4.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **144 MCP tools. 2276 tests,
+0 skipped, ruff + pyright clean** — CI runs the full suite on GitHub's own runners. (0.4.0 rolls up everything
+since public 0.2.0: the full **computed blast-radius engine** — storage · access/ACL · firewall · guest-destroy
+— plus the `pve_doctor` onboarding preflight.)
 
 **Proven against real Proxmox** (not mocks):
 - The trust spine end-to-end, the core provisioning/config mutate cycle, and PBS read shapes.
@@ -123,7 +123,7 @@ tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor is the s
 
 ### What's next
 - [x] **PyPI** — `proximo-proxmox` published 2026-06-10; `uvx proximo-proxmox` works
-- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.2.0` / `latest`) via a release Action
+- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.4.0` / `latest`) via a release Action
 - [x] Firewall objects · HA rules · SDN object CRUD — live-proven on PVE 9.2 (0.2.0)
 - [ ] Live smoke of the remaining surface (PBS-mutate); HA fencing + online migration when the hardware exists
 - [ ] PBS certificate-fingerprint wire-enforcement

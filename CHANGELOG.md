@@ -303,8 +303,10 @@ spine + core lifecycle are live-proven, the governance plane is built/redteamed 
 ### Honesty note (2026-06-09)
 - The PBS cert fingerprint is stored but **not yet wire-enforced**.
 
-### Notes
-- Not yet released; **pre-alpha.** Apache-2.0 LICENSE: ✅ added. Pending: broad live smoke of the
-  mocked surface (needs a properly-scoped token), publish (PyPI/GHCR + CI) so the install commands work.
+### Notes (as of 0.1.0 — historical; since superseded)
+- At 0.1.0 this was **pre-alpha and not yet released**; Apache-2.0 LICENSE added. Then-pending: broad
+  live smoke of the mocked surface (needs a properly-scoped token) and publish (PyPI/GHCR + CI) so the
+  install commands work — **all since done.** Proximo is publicly released; see `[0.4.0]` above
+  (published on PyPI · GitHub · GHCR).
 
 _Strength and honor._

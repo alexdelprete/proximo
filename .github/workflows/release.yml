@@ -66,11 +66,15 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
+          # semver {{version}} (e.g. 0.1.1) + {{major}}.{{minor}} (0.1); 'latest' only on a real
+          # Release; and a sha-<short> always present so manual workflow_dispatch runs stay valid.
+          # (Inline comments must stay OUT of the tags block — metadata-action v6 parses them as
+          # part of the value, unlike v5.)
           tags: |
-            type=semver,pattern={{version}}          # 0.1.1
-            type=semver,pattern={{major}}.{{minor}}  # 0.1
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-            type=sha                                 # sha-<short>: always present (keeps manual runs valid)
+            type=sha
 
       - name: Build and push
         id: build

@@ -22,7 +22,7 @@ import re
 from urllib.parse import quote
 
 from .backends import ProximoError, _check_node
-from .planning import RISK_HIGH, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_MEDIUM, Plan, _max_risk
 
 # ---------------------------------------------------------------------------
 # Validators (module-local)
@@ -203,13 +203,14 @@ def plan_storage_download(storage: str, content: str, url: str, filename: str) -
     )
 
 
-def plan_content_delete(storage: str, volid: str) -> Plan:
+def plan_content_delete(api, storage: str, volid: str) -> Plan:
     """Preview deletion of a storage volume.
 
     RISK_MEDIUM by default (ISO / template / disk image removes a boot/deploy resource).
-    Escalates to RISK_HIGH if the volid looks like a backup archive (path component contains
-    a 'backup' directory segment, or the filename matches the 'vzdump-' prefix pattern) —
-    backups cannot be restored after deletion.
+    Escalates to RISK_HIGH if the volid looks like a backup archive (backup/ directory or vzdump-
+    filename — backups cannot be restored after deletion), AND — the blast-radius coverage — if the
+    volid is an ACTIVE guest disk (scans guest configs cluster-wide): deleting an in-use disk destroys
+    that guest's data. Incomplete enumeration is forced HIGH and never read as 'not in use'.
     """
     _, _, vol_path = volid.partition(":")
     path_segments = vol_path.split("/")
@@ -225,12 +226,28 @@ def plan_content_delete(storage: str, volid: str) -> Plan:
         risk_reasons = [
             "removes a storage volume (ISO / template / image) — it cannot be used after deletion",
         ]
+
+    blast = [f"permanently removes {volid} from {storage}"]
+    from .blast import content_delete_blast
+    eng = content_delete_blast(api, volid)
+    blast.extend(eng.summary_lines)
+    if eng.max_severity == "high":
+        risk = _max_risk(risk, RISK_HIGH)
+        if eng.affected:
+            risk_reasons.append(
+                f"{volid} is an ACTIVE disk of {len(eng.affected)} guest(s) — deletion destroys data"
+            )
+        elif not eng.complete:
+            risk_reasons.append("could not confirm the volume is not an in-use disk (incomplete enumeration)")
+
     return Plan(
         action="pve_content_delete",
         target=f"storage/{storage}",
         change=f"delete volume {volid} from {storage}",
         current={},
-        blast_radius=[f"permanently removes {volid} from {storage}"],
+        blast_radius=blast,
         risk=risk,
         risk_reasons=risk_reasons,
+        affected=eng.affected,
+        complete=eng.complete,
     )

@@ -765,7 +765,7 @@ def pve_backup_delete(storage: str, volid: str, node: str | None = None,
     """MUTATION: delete a backup archive (removes a recovery point). Dry-run by default; confirm=True.
     Async — may return a task UPID or null depending on storage."""
     _, api, _, _ = _svc()
-    plan = _plan("pve_backup_delete", volid, lambda: plan_backup_delete(storage, volid))
+    plan = _plan("pve_backup_delete", volid, lambda: plan_backup_delete(api, storage, volid))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_backup_delete", volid,
@@ -896,7 +896,7 @@ def pve_storage_content_delete(storage: str, volid: str, node: str | None = None
     """MUTATION: delete a content volume (ISO / template / backup) from storage. Dry-run by default
     (HIGH risk for a backup volume); confirm=True. Async — UPID or null."""
     _, api, _, _ = _svc()
-    plan = _plan("pve_storage_content_delete", volid, lambda: plan_content_delete(storage, volid))
+    plan = _plan("pve_storage_content_delete", volid, lambda: plan_content_delete(api, storage, volid))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_storage_content_delete", volid,
@@ -2135,7 +2135,7 @@ def pve_pool_delete(poolid: str, confirm: bool = False) -> dict:
     execute. Synchronous."""
     _, api, _, _ = _svc()
     tgt = f"pool/{poolid}"
-    plan = _plan("pve_pool_delete", tgt, lambda: plan_pool_delete(poolid))
+    plan = _plan("pve_pool_delete", tgt, lambda: plan_pool_delete(api, poolid))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_pool_delete", tgt,

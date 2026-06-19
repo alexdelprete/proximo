@@ -18,6 +18,16 @@ They live here (not under `tests/`) precisely so that pytest does not auto-colle
 | `sdn-smoke.py` | **SDN** chain: `simple` zone → vnet → subnet create/read/update/delete | PENDING-ONLY — `sdn_apply` is NEVER called, so no live-network effect; self-cleaning (reverse order). Confirms pending objects stage + revert cleanly |
 | `tfa-smoke.py` | **TFA** bounded: `tfa_list`/`tfa_get` reads + `tfa_delete` API-reachability (non-existent entry) | No factor touched, no password sent. Live-verifies PVE forbids token-based TFA mutation (`403 need proper ticket`) — reads work, delete is shape-correct but ticket-gated by PVE |
 | `fw-reach-smoke.py` | **Firewall/network reach** (blast-radius): PLAN a firewall rule add → prints the per-rule REACH + `affected`; if `PROXIMO_NODE` is set, also PLANs a network apply → prints best-effort mgmt-interface lockout naming | None — pure PLAN for the rule reach; one safe `network_list` read for the apply naming; `confirm` is never passed, nothing is applied |
+| `content-delete-smoke.py` | **Content-delete in-use detection** (blast-radius): allocate a scratch disk on `SMOKE_STORE` attached to throwaway `SMOKE_VMID` → PLAN `content_delete` (asserts it detects the in-use guest disk + names the VM) → detach → PLAN again (still flagged via the `unused` slot) → delete the volume via `content_delete` → verify the boot disk is intact | Yes — one scratch disk on the VMID/storage you specify; self-cleaning (removes the dangling `unused` slot + the volume). Bound the token to that VM + storage |
+
+### `content-delete-smoke.py` additional variables
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `SMOKE_VMID` | **Yes** | — | A throwaway QEMU VMID that has a SCSI controller (`scsihw`) and a free `SMOKE_SLOT` |
+| `SMOKE_STORE` | **Yes** | — | A test storage that supports `images` — isolate it from production; grant the token `Datastore.AllocateSpace` there and nowhere else |
+| `SMOKE_SLOT` | No | `scsi1` | Disk slot to allocate (must be free on the VM) |
+| `SMOKE_SIZE` | No | `1` | Scratch disk size in GiB |
 
 All mutating smokes clean up after themselves via `try/finally` and print a loud manual-cleanup fallback if cleanup fails.
 

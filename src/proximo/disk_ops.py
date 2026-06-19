@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
-from .planning import RISK_HIGH, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_MEDIUM, RISK_NONE, Plan, _max_risk
 
 # ---------------------------------------------------------------------------
 # Local validators
@@ -129,22 +129,22 @@ def _probe_disk_size(api, node: str, kind: str, vmid: str, disk: str) -> str | N
 def _parse_size_bytes(s: str) -> int | None:
     """Parse a size string like '10G', '512M', '100' into bytes.
 
-    Returns None if unparseable (caller treats as unknown).
+    Returns None if unparseable OR non-positive. Fail-closed by design: a wrong-small or
+    negative int slipping through to a capacity/shrink comparison would UNDER-flag, so anything
+    that isn't a clean positive size is reported as unknown (the caller forces caution on None).
     """
     if not s:
         return None
     s = s.strip()
+    if not s:                                    # whitespace-only — guard before s[-1]
+        return None
     multipliers = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
     upper = s[-1].upper()
-    if upper in multipliers:
-        try:
-            return int(s[:-1]) * multipliers[upper]
-        except ValueError:
-            return None
     try:
-        return int(s)
+        val = int(s[:-1]) * multipliers[upper] if upper in multipliers else int(s)
     except ValueError:
         return None
+    return val if val > 0 else None              # 0 / negative → unknown, never a wrong small int
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +502,19 @@ def plan_disk_move(
         )
         reasons.append("config read failed — source storage unknown (uncertainty is not a safety signal)")
 
+    # TARGET-side blast radius: moving onto the target storage consumes its capacity, putting every
+    # co-tenant (a guest with a disk on the target) at risk if it fills or the move won't fit. The
+    # engine ESCALATES risk (never lowers it) and populates the structured affected/complete signals.
+    from .blast import disk_move_blast
+    engine = disk_move_blast(api, vmid, disk, target_storage, kind, node)
+    engine_risk = (RISK_HIGH if engine.max_severity == "high"
+                   else RISK_MEDIUM if engine.max_severity == "medium" else RISK_NONE)
+    risk = _max_risk(risk, engine_risk)
+    blast.extend(engine.summary_lines)
+    if engine_risk == RISK_HIGH:
+        reasons.append(f"target '{target_storage}' capacity/fit check escalated risk to HIGH "
+                       "(won't-fit, capacity-unknown, or incomplete enumeration)")
+
     return Plan(
         action="pve_disk_move",
         target=f"{kind}/{vmid}:{disk}",
@@ -511,4 +524,6 @@ def plan_disk_move(
         blast_radius=blast,
         risk=risk,
         risk_reasons=reasons,
+        affected=engine.affected_dicts(),
+        complete=engine.complete,
     )

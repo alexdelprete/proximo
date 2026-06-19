@@ -427,6 +427,39 @@ def plan_role_update(api, roleid: str, privs: str | None = None, append: bool | 
             f"{privs!r} will be removed"
         )
 
+    # Blast radius: read the ACL and NAME the grants this re-privileges (every ACL entry using this
+    # role immediately carries the new privilege set). Mirrors plan_role_delete's read-failure honesty.
+    affected: list[dict] = []
+    complete = True
+    try:
+        acl_entries = api._get("/access/acl") or []
+        matched = [e for e in acl_entries if e.get("roleid") == roleid]
+        for e in matched:
+            affected.append({
+                "principal": str(e.get("ugid", "")), "path": str(e.get("path", "")),
+                "roleid": roleid, "change": "re-privileged",
+                "severity": "high" if is_builtin else "medium",
+            })
+        if matched:
+            named = ", ".join(sorted(f"{e.get('ugid', '')}@{e.get('path', '')}" for e in matched))
+            blast.append(
+                f"{len(matched)} ACL grant(s) use role {roleid!r} and immediately carry the new "
+                f"privileges: {named}"
+            )
+        else:
+            blast.append(
+                f"0 ACL grants currently reference role {roleid!r} — no principal is re-privileged now"
+            )
+    except Exception as exc:
+        complete = False
+        check_error = "404" if getattr(getattr(exc, "response", None), "status_code", None) == 404 \
+            else type(exc).__name__
+        blast.append(
+            f"could NOT read the ACL ({check_error}) — cannot name which grants this re-privileges; "
+            "absence of a list is NOT a safety signal"
+        )
+        reasons.append(f"ACL read failed ({check_error}) — affected-grants list unknown")
+
     return Plan(
         action="pve_role_update",
         target=f"role:{roleid}",
@@ -435,6 +468,8 @@ def plan_role_update(api, roleid: str, privs: str | None = None, append: bool | 
         blast_radius=blast,
         risk=risk,
         risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
         note=(
             "Smoke-confirm: append=1 semantics — verify whether omitting 'append' means replace "
             "(not union) and whether append=0 forces replace explicitly."
@@ -647,6 +682,35 @@ def plan_realm_update(api, realm: str, comment: str | None = None,
             "realm update; comment and any type-specific `options` fields are applied",
         ]
 
+    # Blast radius: read the user DB and NAME the users whose login this could break (a realm
+    # misconfig can lock out every user@realm). Mirrors plan_realm_delete's read-failure honesty.
+    affected: list[dict] = []
+    complete = True
+    realm_suffix = f"@{realm}"
+    try:
+        user_entries = api._get("/access/users") or []
+        matched = [u for u in user_entries if str(u.get("userid", "")).endswith(realm_suffix)]
+        for u in matched:
+            affected.append({"userid": str(u.get("userid", "")), "change": "login may break",
+                             "severity": "high" if is_builtin else "medium"})
+        if matched:
+            named = ", ".join(sorted(str(u.get("userid", "")) for u in matched))
+            blast.append(
+                f"{len(matched)} user(s) authenticate via realm {realm!r} — a misconfig can break their "
+                f"login: {named}"
+            )
+        else:
+            blast.append(f"0 users currently authenticate via realm {realm!r}")
+    except Exception as exc:
+        complete = False
+        check_error = "404" if getattr(getattr(exc, "response", None), "status_code", None) == 404 \
+            else type(exc).__name__
+        blast.append(
+            f"could NOT read the user DB ({check_error}) — cannot name which logins this could break; "
+            "absence of a list is NOT a safety signal"
+        )
+        reasons.append(f"user read failed ({check_error}) — affected-users list unknown")
+
     return Plan(
         action="pve_realm_update",
         target=f"realm:{realm}",
@@ -655,6 +719,8 @@ def plan_realm_update(api, realm: str, comment: str | None = None,
         blast_radius=blast,
         risk=risk,
         risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
         note=(
             "Type-specific fields travel in `options` (verbatim to PVE); PVE validates them. "
             "A core-only update may send just 'comment'."

@@ -1153,3 +1153,52 @@ def test_plan_sdn_vnet_update_requires_something():
 def test_plan_sdn_subnet_update_requires_something():
     with pytest.raises(ProximoError):
         plan_sdn_subnet_update("myvnet", "myzone-10.0.0.0-24")
+
+
+# ---------------------------------------------------------------------------
+# plan_iface_update — attachment blast wiring (rank 4): names guests on the bridge
+# ---------------------------------------------------------------------------
+
+
+class _IfaceGuestApi:
+    """Path-aware fake: network list + cluster guests + guest configs for the attachment blast."""
+
+    def __init__(self, *, ifaces, rows, configs):
+        self.config = SimpleNamespace(node="pve")
+        self._ifaces = ifaces
+        self._rows = rows
+        self._configs = configs
+
+    def _get(self, path):
+        if path.endswith("/network"):
+            return self._ifaces
+        if path == "/cluster/resources":
+            return self._rows
+        if path.endswith("/config"):
+            return self._configs.get(path.strip("/").split("/")[3], {})
+        return {}
+
+
+def test_plan_iface_update_names_attached_guests():
+    api = _IfaceGuestApi(
+        ifaces=[{"iface": "vmbr1", "type": "bridge", "method": "static", "address": "10.0.0.1"}],
+        rows=[{"vmid": "101", "type": "qemu", "node": "pve", "name": "web"},
+              {"vmid": "102", "type": "qemu", "node": "pve", "name": "other"}],
+        configs={"101": {"net0": "virtio=AA:BB,bridge=vmbr1"},
+                 "102": {"net0": "virtio=CC:DD,bridge=vmbr0"}},
+    )
+    p = plan_iface_update(api, "vmbr1")
+    assert any(a["vmid"] == "101" for a in p.affected)
+    assert all(a["vmid"] != "102" for a in p.affected)   # 102 is on vmbr0
+    assert p.risk == RISK_MEDIUM
+    assert p.complete is True
+
+
+def test_plan_iface_update_no_attached_guests_clean():
+    api = _IfaceGuestApi(
+        ifaces=[{"iface": "vmbr9", "type": "bridge"}],
+        rows=[{"vmid": "101", "type": "qemu", "node": "pve", "name": "web"}],
+        configs={"101": {"net0": "virtio=AA:BB,bridge=vmbr0"}},
+    )
+    p = plan_iface_update(api, "vmbr9")
+    assert p.affected == []

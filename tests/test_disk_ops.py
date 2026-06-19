@@ -529,6 +529,13 @@ class _PlanMoveApi:
     def _get(self, path):
         if self._config_raises:
             raise RuntimeError("api down")
+        # Model the target-blast reads so a NORMAL move sees a readable, fitting target with no
+        # co-tenants (the scenario these source-side tests intend). Capacity-unknown→HIGH and
+        # co-tenant naming are covered by test_blast_disk_move.py + the wiring tests below.
+        if path == "/cluster/resources":
+            return []
+        if path.endswith("/status") and "/storage/" in path:
+            return {"avail": 500 * (1024 ** 3), "total": 1024 * (1024 ** 3), "enabled": 1}
         if "/config" in path:
             if self._disk_value is not None:
                 return {self._disk_key: self._disk_value}
@@ -537,7 +544,8 @@ class _PlanMoveApi:
 
 
 def test_plan_move_delete_source_false_is_medium_risk():
-    api = _PlanMoveApi(disk_key="scsi0", disk_value="local-lvm:vm-100-disk-0")
+    # sized disk + a fitting target (modeled by _PlanMoveApi) → the move fits → base MEDIUM preserved
+    api = _PlanMoveApi(disk_key="scsi0", disk_value="local-lvm:vm-100-disk-0,size=10G")
     p = plan_disk_move(api, "100", "scsi0", "ceph-pool", kind="qemu", delete_source=False)
     assert p.risk == RISK_MEDIUM
 
@@ -676,3 +684,90 @@ def test_invalid_sizes_rejected(size):
     from proximo.disk_ops import _check_size
     with pytest.raises(ProximoError):
         _check_size(size)
+
+
+# ---------------------------------------------------------------------------
+# plan_disk_move — TARGET blast-radius wiring (capacity + co-tenants)
+# Spec: docs/specs/2026-06-19-disk-move-blast-radius.md
+# ---------------------------------------------------------------------------
+
+_GiB = 1024 ** 3
+
+
+def _move_blast_api(node="pve", *, source_disk="fast:vm-100-disk-0,size=50G",
+                    target="slow", target_avail=10 * _GiB, target_total=500 * _GiB,
+                    rows=None, configs=None, resources_raises=False):
+    """Path-aware fake for plan_disk_move blast wiring: serves the moved guest's config,
+    target storage status, cluster resources, and each co-tenant's config."""
+    rows = rows if rows is not None else [
+        {"vmid": "100", "type": "qemu", "node": node, "name": "self", "status": "running"},
+        {"vmid": "200", "type": "qemu", "node": node, "name": "db", "status": "running"},
+    ]
+    configs = configs if configs is not None else {
+        "100": {"scsi0": source_disk, "bootdisk": "scsi0"},
+        "200": {"scsi0": f"{target}:vm-200-disk-0,size=8G", "bootdisk": "scsi0"},
+    }
+
+    def fake_get(path):
+        if path == "/cluster/resources":
+            if resources_raises:
+                raise RuntimeError("cluster unreachable")
+            return rows
+        if path.endswith("/status") and f"/storage/{target}/" in path:
+            return {"avail": target_avail, "total": target_total, "enabled": 1}
+        if path.endswith("/config"):
+            vmid = path.strip("/").split("/")[3]   # /nodes/<node>/<kind>/<vmid>/config
+            return configs.get(vmid, {})
+        raise AssertionError(f"unexpected GET {path}")
+
+    return SimpleNamespace(config=SimpleNamespace(node=node), _get=fake_get)
+
+
+def test_plan_disk_move_wont_fit_escalates_and_names_cotenant():
+    """A retain-move (base MEDIUM) onto a target it won't fit → escalated to HIGH + co-tenant named."""
+    api = _move_blast_api(target_avail=10 * _GiB)  # 50G disk, 10G free → won't fit
+    plan = plan_disk_move(api, "100", "scsi0", "slow", kind="qemu", delete_source=False)
+    assert plan.risk == RISK_HIGH                       # escalated from MEDIUM by the won't-fit verdict
+    assert any(e["vmid"] == "200" for e in plan.affected)
+    assert all(e["vmid"] != "100" for e in plan.affected)  # never the guest being moved
+    assert plan.complete is True
+
+
+def test_plan_disk_move_fits_keeps_base_risk_no_crywolf():
+    """Ample headroom → no escalation, no co-tenants flagged."""
+    api = _move_blast_api(target_avail=400 * _GiB)  # 50G disk, 400G free → fits
+    plan = plan_disk_move(api, "100", "scsi0", "slow", kind="qemu", delete_source=False)
+    assert plan.risk == RISK_MEDIUM                     # base risk preserved
+    assert plan.affected == []
+    assert plan.complete is True
+
+
+def test_plan_disk_move_incomplete_enum_is_high_and_marked():
+    """Cluster enumeration fails → complete=False + escalated HIGH (uncertainty is not safe)."""
+    api = _move_blast_api(target_avail=400 * _GiB, resources_raises=True)
+    plan = plan_disk_move(api, "100", "scsi0", "slow", kind="qemu", delete_source=False)
+    assert plan.complete is False
+    assert plan.risk == RISK_HIGH
+
+
+# ---------------------------------------------------------------------------
+# _parse_size_bytes — defensive hardening (fail-closed: never a wrong small int)
+# Redteam (2026-06-19): negative → negative bytes (theoretical under-flag); whitespace → IndexError.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("bad", ["-5G", "0", "0G", "0M", "   ", ""])
+def test_parse_size_bytes_nonpositive_or_blank_is_none(bad):
+    from proximo.disk_ops import _parse_size_bytes
+    assert _parse_size_bytes(bad) is None
+
+
+@pytest.mark.parametrize("good,expected", [
+    ("10G", 10 * 1024 ** 3),
+    ("512M", 512 * 1024 ** 2),
+    ("1T", 1024 ** 4),
+    ("1024", 1024),
+    ("1g", 1024 ** 3),   # lowercase unit
+])
+def test_parse_size_bytes_valid(good, expected):
+    from proximo.disk_ops import _parse_size_bytes
+    assert _parse_size_bytes(good) == expected

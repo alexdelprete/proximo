@@ -327,25 +327,82 @@ def plan_restore(
     )
 
 
-def plan_backup_delete(storage: str, volid: str) -> Plan:
-    """Preview a backup archive deletion.  PURE — no API call needed.
+_BACKUP_VMID_RE = re.compile(r"vzdump-(?:lxc|qemu|openvz)-(\d+)-")
 
-    RISK_HIGH: a backup is a disaster-recovery copy of last resort. Deleting it is unrecoverable —
-    you cannot restore from it afterward. (Same data-loss severity as a force-overwrite restore.)
+
+def _vmid_from_backup_volid(volid: str) -> str | None:
+    """The guest vmid embedded in a vzdump backup volid (e.g. '…/vzdump-lxc-102-…' → '102')."""
+    m = _BACKUP_VMID_RE.search(volid)
+    return m.group(1) if m else None
+
+
+def plan_backup_delete(api, storage: str, volid: str) -> Plan:
+    """Preview a backup archive deletion.
+
+    RISK_HIGH: a backup is a disaster-recovery copy of last resort; deleting it is unrecoverable.
+    Blast-radius coverage: reads the storage's backup list and reports whether OTHER recovery points
+    of the same guest remain — deleting the LAST backup leaves no recovery point. A read failure or an
+    unparseable guest id is disclosed (complete=False), never read as 'other copies exist'.
     """
     _check_storage(storage)
     _check_volid(volid)
+
+    blast = [
+        f"PERMANENTLY removes backup archive '{volid}' — a recovery point is destroyed; "
+        "you cannot restore from it afterward",
+    ]
+    reasons = [
+        "deletes a disaster-recovery backup; the data it holds is permanently gone — unrecoverable",
+    ]
+    affected: list[dict] = []
+    complete = True
+
+    vmid = _vmid_from_backup_volid(volid)
+    try:
+        from .storage import storage_content
+        backups = storage_content(api, storage, content="backup") or []
+        if vmid is None:
+            match = next((b for b in backups if b.get("volid") == volid), None)
+            if match is not None and match.get("vmid") not in (None, ""):
+                vmid = str(match.get("vmid"))
+        if vmid is not None:
+            siblings = [b for b in backups
+                        if str(b.get("vmid", "")) == str(vmid) and b.get("volid") != volid]
+            remaining = len(siblings)
+            affected.append({"vmid": str(vmid), "remaining": remaining,
+                             "severity": "high",
+                             "effect": ("LAST recovery point — NO other backup of this guest remains"
+                                        if remaining == 0
+                                        else f"{remaining} other backup(s) of this guest remain")})
+            if remaining == 0:
+                blast.append(
+                    f"this is the LAST backup of guest {vmid} — deleting it leaves NO other recovery point"
+                )
+                reasons.append(f"last remaining backup of guest {vmid} — no other recovery point")
+            else:
+                blast.append(f"{remaining} other backup(s) of guest {vmid} remain after this deletion")
+        else:
+            complete = False
+            blast.append(
+                "could not determine which guest this backup belongs to — cannot count remaining "
+                "recovery points (absence of a count is NOT a safety signal)"
+            )
+    except Exception as exc:
+        complete = False
+        blast.append(
+            f"could NOT read the backup list ({type(exc).__name__}) — cannot confirm whether other "
+            "recovery points of this guest remain; absence of a count is NOT a safety signal"
+        )
+        reasons.append("backup list read failed — remaining-copy count unknown")
+
     return Plan(
         action="pve_backup_delete",
         target=f"{storage}:{volid}",
         change=f"delete backup archive '{volid}' from storage '{storage}'",
         current={},
-        blast_radius=[
-            f"PERMANENTLY removes backup archive '{volid}' — a recovery point is destroyed; "
-            "you cannot restore from it afterward",
-        ],
+        blast_radius=blast,
         risk=RISK_HIGH,
-        risk_reasons=[
-            "deletes a disaster-recovery backup; the data it holds is permanently gone — unrecoverable",
-        ],
+        risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
     )

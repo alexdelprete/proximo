@@ -4,6 +4,77 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-06-19
+
+**Blast-radius coverage push.** Extends the computed blast-radius engine across the destructive tool
+surface so no dangerous operation falls back to a bare confirm: ten op-classes (#6–15) now read live
+cluster state at plan time and NAME the specific cross-resource consequences (the guests an action
+strands, the nodes a firewall change locks out, the principals an ACL deletion orphans, the disk a
+volume delete destroys). Each was built test-first and adversarially redteamed — every redteam pass
+caught a real under-flag, all fixed. No new tools (still 145); **+86 tests (2308 → 2394)**, ruff +
+pyright clean. Backward-compatible (additive). Verified against a real Proxmox: PLAN-checks on live
+cluster data, plus a bounded allocate→delete→verify on an isolated test sandbox.
+
+### Added
+- **In-use-disk blast for `pve_storage_content_delete` (op-class #14, rank 9).** Deleting a storage volume
+  now scans guest configs cluster-wide and, if the volid is an ACTIVE guest disk, names the owning guest
+  and escalates to HIGH (won't-boot if it's the boot disk / only copy / EFI-TPM). Exact volid match (so
+  `vm-101-disk-0` is not confused with `vm-101-disk-00`); a mounted-ISO (`media=cdrom`) reference is not
+  mislabeled as a data disk. Incomplete enumeration is forced HIGH, never read as "not in use".
+- **Last-copy blast for `pve_backup_delete` (op-class #15, rank 8).** Deleting a backup archive now reads
+  the storage's backup list and reports whether OTHER recovery points of the same guest remain — deleting
+  the LAST backup leaves no recovery point (named in `Plan.affected`). Read failure or unparseable guest id
+  is disclosed (`complete=False`), never read as "other copies exist". Risk stays HIGH throughout.
+- **Attachment blast for `pve_network_iface_update` (op-class #13, rank 4).** Editing a bridge now reads
+  the cluster guests and NAMES every guest with a NIC on that bridge — they have their networking
+  disrupted when the staged change is applied (token-level bridge match, so editing `vmbr1` does not
+  false-match a guest on `vmbr10`). Risk stays MEDIUM (the edit is staged/reversible; `network_apply`
+  carries the HIGH mgmt-lockout via the existing apply-lockout engine); the value is naming the
+  affected guests in `Plan.affected`. Incomplete guest enumeration is disclosed, never read as safe.
+- **Access-plane blast-radius coverage (op-classes #9–12, ranks 5–7).** Four mutating access tools that
+  silently orphaned permissions now read the ACL / user DB and NAME exactly who loses access:
+  `pve_pool_delete` (was pure/no-reads — now names the principals whose grants on `/pool/<id>` orphan;
+  escalates MEDIUM→HIGH when real grants break or a read fails), `pve_group_delete` (now names the
+  group-level ACL grants its members lose, not just the member list), `pve_role_update` (names every ACL
+  grant the new privilege set re-privileges), and `pve_realm_update` (names every user whose login the
+  change could break). Each populates `Plan.affected`/`complete` and follows the read-failure honesty
+  contract (a failed read → disclosed + never read as safe). Mirrors the already-covered delete siblings.
+- **Disk-residency blast for `pve_guest_migrate` (op-class #8).** `plan_migrate` warned generically
+  "requires shared storage"; it now reads the guest's disks + cluster storage.cfg and names exactly which
+  disks block a clean migration to the target: a disk on LOCAL/non-shared storage (must be copied with
+  `with-local-disks`, or the migrate fails — and a live migration is impossible), a disk on storage that
+  is `nodes`-restricted off the target (cannot place at all), a RAW/passthrough device (cannot follow the
+  guest to another node), or storage whose config is unreadable (assessed conservatively, never assumed
+  migratable). Escalates a live-qemu MEDIUM migrate to HIGH when a disk makes it impossible; risk is never
+  lowered. Clean only when every disk is provably shared and available on the target. Closes rank 3.
+- **Computed blast-radius for the firewall lockout pair (op-class #7).** `pve_firewall_set_enabled`
+  (enable) and `pve_firewall_options_set` (`policy_in=DROP`, `enable`, or unset-`policy_in`) now read the
+  firewall ruleset at plan time and **name the nodes that would lose management access** under the
+  resulting default-DROP policy: a node is flagged LOCKOUT if its (datacenter ∪ node) ruleset has no
+  ENABLED inbound ACCEPT for SSH(22)/PVE(8006), CONDITIONAL if the only such ACCEPT is source-restricted
+  to a specific host/range/set (locks out any admin outside it), and disclosed-but-not-flagged if it is
+  open or internal/private-restricted. A disabled / outbound / udp / wrong-port rule is never counted as
+  protection (no under-flagged lockout); unreadable rules or unenumerable nodes force HIGH and are never
+  read as safe. Cluster/node scope only (a guest firewall is self-scoped). The op stays RISK_HIGH
+  throughout — the engine names the at-risk nodes, it never lowers risk. Closes rank 2 of the coverage audit.
+- **Computed blast-radius for `pve_disk_move` (op-class #6).** Moving a disk onto a target storage now
+  reads the target at plan time and names the cross-resource impact: a fit check using the disk's
+  PROVISIONED size (worst case) flags a move that **won't fit / fills the target** (HIGH), an
+  absolute-free floor plus a percent-of-total threshold flags a **TIGHT** target (MEDIUM), and either
+  case names the **co-tenant guests** that share the target and would face allocation pressure. Capacity
+  that cannot be read (size or free space unreadable, or incomplete cluster enumeration) is forced HIGH
+  and never reported as safe; when the disk fits comfortably, co-tenants are **not** flagged (no
+  cry-wolf). The engine only escalates a plan's risk, never lowers it. Hardened `_parse_size_bytes` to
+  fail-closed on non-positive/blank input (no wrong-small int can slip past a capacity check). Closes the
+  highest-severity gap from the 2026-06-19 blast-radius coverage audit.
+
+### Known gaps (logged, not silently dropped)
+- `pbs_prune` and `pbs_namespace_delete` (PBS-server side) are already RISK_HIGH with honest "destroys
+  ALL recovery points / no undo" warnings — they do not fall back to a bare confirm. The remaining
+  enhancement is *itemizing* which snapshots/groups would be removed (PBS prune `--dry-run` /
+  per-namespace group enumeration), which needs the PBS datastore API surface; deferred as a quality
+  (not safety) improvement.
+
 ## [0.5.0] — 2026-06-19
 
 Three additive features — A2A **signed agent cards** (SIGNET), a native **async-task wait** tool, and a

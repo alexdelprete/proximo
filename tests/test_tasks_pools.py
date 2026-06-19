@@ -810,56 +810,70 @@ def test_plan_pool_update_rejects_invalid_poolid():
 # plan_pool_delete — RISK_MEDIUM, ACL orphan, empty-first requirement
 # ---------------------------------------------------------------------------
 
+def _pool_api():
+    """Fake api for plan_pool_delete: empty ACL + empty pool → base RISK_MEDIUM, blast text intact."""
+    from types import SimpleNamespace
+
+    def _get(path):
+        if path == "/access/acl":
+            return []
+        if path.startswith("/pools/"):
+            return {"members": []}
+        return {}
+
+    return SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+
+
 def test_plan_pool_delete_is_risk_medium():
-    p = plan_pool_delete("mypool")
+    p = plan_pool_delete(_pool_api(), "mypool")
     assert p.risk == RISK_MEDIUM
 
 
 def test_plan_pool_delete_action_string():
-    p = plan_pool_delete("mypool")
+    p = plan_pool_delete(_pool_api(), "mypool")
     assert p.action == "pve_pool_delete"
 
 
 def test_plan_pool_delete_target_is_poolid():
-    p = plan_pool_delete("mypool")
+    p = plan_pool_delete(_pool_api(), "mypool")
     assert p.target == "mypool"
 
 
 def test_plan_pool_delete_blast_mentions_acl_orphan():
     """ACL grants on /pool/{poolid} are orphaned — must be explicit."""
-    p = plan_pool_delete("mypool")
+    p = plan_pool_delete(_pool_api(), "mypool")
     text = " ".join(p.blast_radius).lower()
     assert "acl" in text or "orphan" in text or "permission" in text
 
 
 def test_plan_pool_delete_blast_says_not_deletes_guests():
     """pool_delete does NOT delete member guests/storage — must not claim it does."""
-    p = plan_pool_delete("mypool")
+    p = plan_pool_delete(_pool_api(), "mypool")
     text = " ".join(p.blast_radius).lower()
     assert "not delete" in text or "not deleted" in text or "does not delete" in text
 
 
 def test_plan_pool_delete_blast_mentions_empty_prerequisite():
     """PVE requires pool to be empty first — must be noted."""
-    p = plan_pool_delete("mypool")
+    p = plan_pool_delete(_pool_api(), "mypool")
     text = " ".join(p.blast_radius).lower()
     assert "empty" in text or "prerequisite" in text or "remove" in text
 
 
 def test_plan_pool_delete_poolid_appears_in_blast():
-    p = plan_pool_delete("mypool")
+    p = plan_pool_delete(_pool_api(), "mypool")
     text = " ".join(p.blast_radius)
     assert "mypool" in text
 
 
 def test_plan_pool_delete_rejects_invalid_poolid():
     with pytest.raises(ProximoError):
-        plan_pool_delete("bad:pool")
+        plan_pool_delete(None, "bad:pool")
 
 
 def test_plan_pool_delete_rejects_empty_poolid():
     with pytest.raises(ProximoError):
-        plan_pool_delete("")
+        plan_pool_delete(None, "")
 
 
 # ---------------------------------------------------------------------------
@@ -903,3 +917,88 @@ def test_task_log_accepts_zero_start():
     api = _api()
     task_log(api, FAKE_UPID, start=0)
     assert "start=0" in api.seen["path"]
+
+
+# ---------------------------------------------------------------------------
+# Blast-radius coverage (rank 5): pool_delete reads the ACL and names the
+# principals that lose access when /pool/<id> grants orphan. (Was PURE, zero reads.)
+# ---------------------------------------------------------------------------
+
+def test_plan_pool_delete_names_orphaned_acl_grants():
+    from types import SimpleNamespace
+
+    from proximo.planning import RISK_HIGH
+    from proximo.tasks_pools import plan_pool_delete
+
+    def _get(path):
+        if path == "/access/acl":
+            return [{"ugid": "alice@pve", "path": "/pool/web", "roleid": "PVEVMUser"},
+                    {"ugid": "bob@pve", "path": "/", "roleid": "X"}]
+        if path == "/pools/web":
+            return {"members": []}
+        return {}
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+    p = plan_pool_delete(api, "web")
+    assert any(a["principal"] == "alice@pve" and a["path"] == "/pool/web" for a in p.affected)
+    assert all(a["path"].startswith("/pool/web") for a in p.affected)   # only pool-path grants
+    assert p.risk == RISK_HIGH                                          # real access break → escalated
+    assert p.complete is True
+
+
+def test_plan_pool_delete_empty_no_grants_is_medium():
+    from types import SimpleNamespace
+
+    from proximo.planning import RISK_MEDIUM
+    from proximo.tasks_pools import plan_pool_delete
+
+    def _get(path):
+        if path == "/access/acl":
+            return []
+        if path == "/pools/web":
+            return {"members": []}
+        return {}
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+    p = plan_pool_delete(api, "web")
+    assert p.affected == []
+    assert p.risk == RISK_MEDIUM
+
+
+def test_plan_pool_delete_acl_read_failure_is_high_and_incomplete():
+    from types import SimpleNamespace
+
+    from proximo.planning import RISK_HIGH
+    from proximo.tasks_pools import plan_pool_delete
+
+    def _get(path):
+        if path == "/access/acl":
+            raise RuntimeError("acl unavailable")
+        if path == "/pools/web":
+            return {"members": []}
+        return {}
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+    p = plan_pool_delete(api, "web")
+    assert p.complete is False
+    assert p.risk == RISK_HIGH
+
+
+def test_plan_pool_delete_member_read_failure_is_high_and_incomplete():
+    """The SEPARATE member read failing (ACL read OK) must still escalate to HIGH + incomplete."""
+    from types import SimpleNamespace
+
+    from proximo.planning import RISK_HIGH
+    from proximo.tasks_pools import plan_pool_delete
+
+    def _get(path):
+        if path == "/access/acl":
+            return []                       # ACL read succeeds, empty
+        if path == "/pools/web":
+            raise RuntimeError("pools unavailable")
+        return {}
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+    p = plan_pool_delete(api, "web")
+    assert p.complete is False
+    assert p.risk == RISK_HIGH

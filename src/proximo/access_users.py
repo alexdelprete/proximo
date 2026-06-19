@@ -776,6 +776,34 @@ def plan_group_delete(api, groupid: str) -> Plan:
             )
             reasons.append("group appears empty — no members found")
 
+    # Blast radius: read the ACL and NAME the group-level grants that orphan (the access members lose).
+    affected: list[dict] = []
+    complete = True
+    try:
+        acl_entries = api._get("/access/acl") or []
+        grants = [e for e in acl_entries if e.get("type") == "group" and e.get("ugid") == groupid]
+        for e in grants:
+            affected.append({"principal": f"group {groupid}", "path": str(e.get("path", "")),
+                             "roleid": str(e.get("roleid", "")), "change": "orphaned", "severity": "high"})
+        if grants:
+            named = ", ".join(sorted(f"{e.get('roleid', '')}@{e.get('path', '')}" for e in grants))
+            blast.append(
+                f"{len(grants)} ACL grant(s) to group {groupid!r} ORPHAN on deletion — members lose: {named}"
+            )
+        else:
+            blast.append(
+                f"0 ACL grants currently target group {groupid!r} — members lose no group-derived access"
+            )
+    except Exception as exc:
+        complete = False
+        check_error = "404" if getattr(getattr(exc, "response", None), "status_code", None) == 404 \
+            else type(exc).__name__
+        blast.append(
+            f"could NOT read the ACL ({check_error}) — cannot name the group grants that orphan; "
+            "absence of a list is NOT a safety signal"
+        )
+        reasons.append(f"ACL read failed ({check_error}) — orphaned-grants list unknown")
+
     # Static analysis — always true regardless of read result
     blast.append(
         f"ACL entries granted ON /access/groups/{groupid} or TO this group will be ORPHANED — "
@@ -802,6 +830,8 @@ def plan_group_delete(api, groupid: str) -> Plan:
         blast_radius=blast,
         risk=risk,
         risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
         note=(
             "Smoke-confirm: group_get response shape ('members' field name and whether "
             "it is present for empty groups); "

@@ -149,7 +149,15 @@ class _OptionsApi:
     def _get(self, path):
         if self._raise:
             raise RuntimeError("api unavailable")
-        return self._options or {}
+        # Path-aware: the lockout blast now also reads firewall rules + node enumeration. Serve the
+        # options for /options and empty lists for the new reads (these fixtures have no rules/nodes).
+        if path.endswith("/options"):
+            return self._options or {}
+        if path.endswith("/rules"):
+            return []
+        if "/cluster/resources" in path:
+            return []
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -1553,3 +1561,77 @@ def test_plan_security_group_delete_read_failure_surfaces_unknown():
     )
     plan = plan_security_group_delete(bad, group="web-dmz")
     assert any("unknown" in b.lower() or "read failed" in b.lower() for b in plan.blast_radius)
+
+
+# ---------------------------------------------------------------------------
+# PLAN: firewall-lockout blast-radius wiring (set_enabled / options_set)
+# Spec: docs/specs/2026-06-19-firewall-lockout-blast-radius.md
+# ---------------------------------------------------------------------------
+
+
+class _LockoutApi:
+    """Path-aware fake: serves firewall options, cluster+node firewall rules, and node enumeration
+    so plan_firewall_set_enabled / plan_firewall_options_set can compute the lockout blast."""
+
+    def __init__(self, *, node="pve", options=None, dc_rules=None,
+                 node_names=("pve1",), node_rules=None):
+        self.config = SimpleNamespace(node=node)
+        self._options = options or {}
+        self._dc = [] if dc_rules is None else dc_rules
+        self._node_names = list(node_names)
+        self._node_rules = node_rules or {}
+
+    def _get(self, path):
+        if path.endswith("/options"):
+            return self._options
+        if "/cluster/resources" in path:
+            return [{"type": "node", "node": n} for n in self._node_names]
+        if path == "/cluster/firewall/rules":
+            return self._dc
+        if path.endswith("/firewall/rules"):
+            return self._node_rules.get(path.split("/")[2], [])
+        return {}
+
+
+def _accept_ssh(source=None):
+    return {"action": "ACCEPT", "type": "in", "enable": 1, "proto": "tcp", "dport": "22",
+            "source": source, "pos": 0}
+
+
+def test_plan_set_enabled_cluster_names_lockout_node():
+    api = _LockoutApi(options={"enable": 0}, node_names=("pve1", "pve2"),
+                      node_rules={"pve1": [], "pve2": [_accept_ssh()]})  # pve1 bare, pve2 open SSH
+    p = plan_firewall_set_enabled(api, True, scope="cluster")
+    assert p.risk == RISK_HIGH
+    locked = {a["node"] for a in p.affected if a["state"] == "lockout"}
+    assert "pve1" in locked
+    assert "pve2" not in {a["node"] for a in p.affected}
+    assert p.complete is True
+
+
+def test_plan_set_enabled_disable_does_not_run_lockout_engine():
+    """Disabling strips protection (a different graph) — the lockout engine must NOT name nodes."""
+    api = _LockoutApi(options={"enable": 1}, node_names=("pve1",), node_rules={"pve1": []})
+    p = plan_firewall_set_enabled(api, False, scope="cluster")
+    assert p.affected == []
+    assert p.risk == RISK_HIGH
+
+
+def test_plan_options_set_policy_drop_names_lockout_node():
+    api = _LockoutApi(node_names=("pve1",), node_rules={"pve1": []})
+    p = plan_firewall_options_set(api, scope="cluster", options={"policy_in": "DROP"})
+    assert p.risk == RISK_HIGH
+    assert any(a["node"] == "pve1" and a["state"] == "lockout" for a in p.affected)
+
+
+def test_plan_options_set_policy_accept_is_not_a_lockout_trigger():
+    """policy_in=ACCEPT is a WIDENING — not a lockout trigger; the engine must not run."""
+    api = _LockoutApi(node_names=("pve1",), node_rules={"pve1": []})
+    p = plan_firewall_options_set(api, scope="cluster", options={"policy_in": "ACCEPT"})
+    assert p.affected == []
+
+
+def test_plan_options_set_enable_true_triggers_lockout_engine():
+    api = _LockoutApi(node_names=("pve1",), node_rules={"pve1": []})
+    p = plan_firewall_options_set(api, scope="cluster", options={"enable": 1})
+    assert any(a["node"] == "pve1" and a["state"] == "lockout" for a in p.affected)

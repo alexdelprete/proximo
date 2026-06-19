@@ -326,28 +326,40 @@ def test_plan_storage_download_target_includes_storage():
 # plan_content_delete
 # ---------------------------------------------------------------------------
 
+def _content_api():
+    """Empty-cluster fake: the in-use-disk scan finds no guest → base risk preserved."""
+    from types import SimpleNamespace
+
+    def _get(path):
+        if path == "/cluster/resources":
+            return []
+        return {}
+
+    return SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+
+
 def test_plan_content_delete_iso_is_medium():
-    p = plan_content_delete("local", "local:iso/debian-12.iso")
+    p = plan_content_delete(_content_api(), "local", "local:iso/debian-12.iso")
     assert p.risk == RISK_MEDIUM
 
 
 def test_plan_content_delete_vztmpl_is_medium():
-    p = plan_content_delete("local", "local:vztmpl/ubuntu-22.04-standard.tar.zst")
+    p = plan_content_delete(_content_api(), "local", "local:vztmpl/ubuntu-22.04-standard.tar.zst")
     assert p.risk == RISK_MEDIUM
 
 
 def test_plan_content_delete_vzdump_volid_escalates_to_high():
-    p = plan_content_delete("local", "local:backup/vzdump-lxc-105-2026_06_08.tar.zst")
+    p = plan_content_delete(_content_api(), "local", "local:backup/vzdump-lxc-105-2026_06_08.tar.zst")
     assert p.risk == RISK_HIGH
 
 
 def test_plan_content_delete_backup_path_segment_escalates_to_high():
-    p = plan_content_delete("cifs", "cifs:backup/somearchive.vma.lzo")
+    p = plan_content_delete(_content_api(), "cifs", "cifs:backup/somearchive.vma.lzo")
     assert p.risk == RISK_HIGH
 
 
 def test_plan_content_delete_high_reason_names_backup_irreversibility():
-    p = plan_content_delete("local", "local:backup/vzdump-lxc-105-2026_06_08.tar.zst")
+    p = plan_content_delete(_content_api(), "local", "local:backup/vzdump-lxc-105-2026_06_08.tar.zst")
     combined = " ".join(p.risk_reasons).lower()
     assert "backup" in combined
     assert "restore" in combined or "cannot" in combined
@@ -355,23 +367,23 @@ def test_plan_content_delete_high_reason_names_backup_irreversibility():
 
 def test_plan_content_delete_blast_radius_names_volid():
     volid = "local:iso/myos.iso"
-    p = plan_content_delete("local", volid)
+    p = plan_content_delete(_content_api(), "local", volid)
     blast = " ".join(p.blast_radius)
     assert volid in blast
 
 
 def test_plan_content_delete_action():
-    p = plan_content_delete("local", "local:iso/f.iso")
+    p = plan_content_delete(_content_api(), "local", "local:iso/f.iso")
     assert p.action == "pve_content_delete"
 
 
 def test_plan_content_delete_current_is_empty():
-    p = plan_content_delete("local", "local:iso/f.iso")
+    p = plan_content_delete(_content_api(), "local", "local:iso/f.iso")
     assert p.current == {}
 
 
 def test_plan_content_delete_target_includes_storage():
-    p = plan_content_delete("mystore", "mystore:iso/f.iso")
+    p = plan_content_delete(_content_api(), "mystore", "mystore:iso/f.iso")
     assert "mystore" in p.target
 
 
@@ -388,3 +400,20 @@ def test_storage_check_volid_rejects_empty_segment():
     from proximo.storage import _check_volid
     with pytest.raises(ProximoError):
         _check_volid("local:iso//x.iso")
+
+
+def test_plan_content_delete_in_use_disk_escalates_and_names_guest():
+    """Deleting a volume that is an ACTIVE guest disk → escalated to HIGH + the guest named."""
+    from types import SimpleNamespace
+
+    def _get(path):
+        if path == "/cluster/resources":
+            return [{"vmid": "101", "type": "qemu", "node": "pve", "name": "web"}]
+        if path.endswith("/config"):
+            return {"scsi0": "local-lvm:vm-101-disk-0,size=8G", "bootdisk": "scsi0"}
+        return {}
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+    p = plan_content_delete(api, "local-lvm", "local-lvm:vm-101-disk-0")
+    assert p.risk == RISK_HIGH
+    assert any(a["vmid"] == "101" for a in p.affected)

@@ -1148,3 +1148,45 @@ def test_plan_tfa_delete_read_failure_discloses_uncertainty():
     assert plan.risk == RISK_HIGH
     assert any("could not read" in b.lower() or "not a safety signal" in b.lower()
                for b in plan.blast_radius)
+
+
+# ---------------------------------------------------------------------------
+# Blast-radius coverage (rank 7): role_update / realm_update name the principals
+# they re-privilege / lock out — mirroring their delete siblings.
+# Spec: docs/specs/2026-06-19-disk-move-blast-radius.md (coverage push)
+# ---------------------------------------------------------------------------
+
+def test_plan_role_update_names_affected_acl_grants():
+    from proximo.access_governance import plan_role_update
+    api = _acl_api([
+        {"ugid": "alice@pve", "path": "/vms/100", "roleid": "CustomRole"},
+        {"ugid": "bob@pve", "path": "/", "roleid": "OtherRole"},
+    ])
+    p = plan_role_update(api, "CustomRole", privs="VM.Console")
+    assert any(a["principal"] == "alice@pve" and a["path"] == "/vms/100" for a in p.affected)
+    assert all(a.get("roleid") == "CustomRole" for a in p.affected)   # only the matching role
+    assert p.complete is True
+
+
+def test_plan_role_update_acl_read_failure_is_incomplete():
+    from proximo.access_governance import plan_role_update
+    api = _acl_api([], raise_on_get=True)
+    p = plan_role_update(api, "CustomRole", privs="VM.Console")
+    assert p.complete is False
+    assert any("could not" in line.lower() for line in p.blast_radius)
+
+
+def test_plan_realm_update_names_affected_users():
+    from proximo.access_governance import plan_realm_update
+    api = _users_api([{"userid": "alice@corp"}, {"userid": "bob@pve"}])
+    p = plan_realm_update(api, "corp", comment="x")
+    assert any(a["userid"] == "alice@corp" for a in p.affected)
+    assert all(a["userid"].endswith("@corp") for a in p.affected)
+    assert p.complete is True
+
+
+def test_plan_realm_update_users_read_failure_is_incomplete():
+    from proximo.access_governance import plan_realm_update
+    api = _users_api([], raise_on_get=True)
+    p = plan_realm_update(api, "corp", comment="x")
+    assert p.complete is False

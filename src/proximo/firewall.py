@@ -821,6 +821,17 @@ def plan_firewall_set_enabled(
             "disabling the firewall removes all protection from the scope — all traffic passes through",
         ]
 
+    # Lockout blast: ENABLING under default-DROP can cut management on any node lacking an inbound
+    # SSH/8006 ACCEPT. Cluster/node scope only (a guest firewall is self-scoped). Names the at-risk
+    # nodes on top of the unconditional HIGH; never lowers risk. DISABLE is a different (exposure) graph.
+    affected: list[dict] = []
+    complete = True
+    if enabled and scope in ("cluster", "node"):
+        lock = blast_engine.firewall_lockout_blast(api, scope, node)
+        blast.extend(lock.summary_lines)
+        affected = lock.affected
+        complete = lock.complete
+
     return Plan(
         action="pve_firewall_set_enabled",
         target=f"firewall/{scope}/options",
@@ -829,6 +840,8 @@ def plan_firewall_set_enabled(
         blast_radius=blast,
         risk=RISK_HIGH,
         risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
     )
 
 
@@ -1498,6 +1511,18 @@ def _options_set_is_high(option_keys, delete_keys) -> bool:
     )
 
 
+def _is_lockout_trigger(options: dict, delete_keys: list) -> bool:
+    """True if this options change moves toward default-DROP and can lock out management:
+    enabling the firewall, setting policy_in=DROP, or UNSETTING policy_in (reverts to PVE's
+    default DROP). policy_in=ACCEPT is a WIDENING — not a trigger."""
+    enable = options.get("enable")
+    if str(enable).strip().lower() in ("1", "true"):
+        return True
+    if str(options.get("policy_in", "")).strip().upper() == "DROP":
+        return True
+    return "policy_in" in delete_keys
+
+
 def firewall_options_set(
     api,
     scope: str = "cluster",
@@ -1573,6 +1598,16 @@ def plan_firewall_options_set(
             blast.insert(2, "cluster scope changes the default policy for ALL nodes and guests")
         reasons.append("changes the enable flag or default policy — lockout / cluster-wide impact")
 
+    # Lockout blast: if this change moves toward default-DROP (enable / policy_in=DROP / unset
+    # policy_in) at cluster/node scope, name the nodes that would lose management access.
+    affected: list[dict] = []
+    complete = True
+    if scope in ("cluster", "node") and _is_lockout_trigger(options, delete_keys):
+        lock = blast_engine.firewall_lockout_blast(api, scope, node)
+        blast.extend(lock.summary_lines)
+        affected = lock.affected
+        complete = lock.complete
+
     return Plan(
         action="pve_firewall_options_set",
         target=f"firewall/{scope}/options",
@@ -1581,4 +1616,6 @@ def plan_firewall_options_set(
         blast_radius=blast,
         risk=RISK_HIGH if high else RISK_MEDIUM,
         risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
     )

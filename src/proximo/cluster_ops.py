@@ -25,7 +25,7 @@ import re
 import httpx
 
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
-from .planning import RISK_HIGH, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_MEDIUM, RISK_NONE, Plan, _max_risk
 
 # ---------------------------------------------------------------------------
 # Local validators
@@ -439,6 +439,20 @@ def plan_migrate(
         ]
         risk = RISK_HIGH
 
+    # Disk-residency blast: only when the guest is confirmed to exist (the check_failed / not-found
+    # paths above already say "state unknown" / "will FAIL"). Names the disks whose storage is local
+    # or not available on the target — the migration would copy them (with-local-disks) or fail.
+    # Lazy import: cluster_ops is imported BY blast, so a top-level import would be circular.
+    affected: list[dict] = []
+    complete = True
+    if current:
+        from .blast import migrate_blast
+        mb = migrate_blast(api, vmid, kind, node, target, online)
+        blast.extend(mb.summary_lines)
+        affected = mb.affected
+        complete = mb.complete
+        risk = _max_risk(risk, RISK_HIGH if mb.max_severity == "high" else RISK_NONE)
+
     return Plan(
         action="pve_guest_migrate",
         target=f"{kind}/{vmid}->{target}",
@@ -447,6 +461,8 @@ def plan_migrate(
         blast_radius=blast,
         risk=risk,
         risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
         note=(
             "Migration is async — outcome='submitted'; poll task_status for completion. "
             "UNDO is NOT available for migration — no disk snapshot applies across nodes."

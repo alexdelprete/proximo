@@ -104,6 +104,16 @@ class _StatusApi:
             raise err
         return self._status
 
+    def _get(self, path):
+        # The migrate disk-residency blast reads the guest config + cluster storage.cfg. Model a
+        # CLEAN shared-storage guest so these source-side tests keep their base risk (the local-disk
+        # escalation + naming are covered by test_blast_migrate.py and the wiring tests below).
+        if path.endswith("/config"):
+            return {"scsi0": "shared-store:vm-1-disk-0,size=8G"}
+        if path == "/storage":
+            return [{"storage": "shared-store", "shared": 1}]
+        return {}
+
 
 # ---------------------------------------------------------------------------
 # cluster_status
@@ -968,3 +978,57 @@ def test_ha_rule_update_caller_type_not_overridden_by_autofetch():
     api.seen["_get_return"] = [{"rule": "pin-web", "type": "node-affinity"}]
     ha_rule_update(api, "pin-web", rule_type="resource-affinity", affinity="positive")
     assert api.seen["data"]["type"] == "resource-affinity"  # caller wins
+
+
+# ---------------------------------------------------------------------------
+# plan_migrate — disk-residency blast wiring
+# Spec: docs/specs/2026-06-19-migrate-disk-residency-blast.md
+# ---------------------------------------------------------------------------
+
+
+class _MigrateApi:
+    """Path-aware fake for plan_migrate disk-residency wiring: guest_status + guest config + storage.cfg."""
+
+    def __init__(self, *, status, node="pveA", disk="local-lvm:vm-1-disk-0,size=8G", storages=None):
+        self.config = SimpleNamespace(node=node)
+        self._status = status
+        self._disk = disk
+        self._storages = storages if storages is not None else [{"storage": "local-lvm", "shared": 0}]
+
+    def guest_status(self, vmid, kind="lxc", node=None):
+        if self._status is None:
+            err = RuntimeError("not found")
+            err.response = SimpleNamespace(status_code=404)
+            raise err
+        return self._status
+
+    def _get(self, path):
+        if path.endswith("/config"):
+            return {"scsi0": self._disk} if self._disk else {}
+        if path == "/storage":
+            return self._storages
+        return {}
+
+
+def test_plan_migrate_local_disk_escalates_and_names_it():
+    """A LIVE (online qemu) migrate is MEDIUM by default, but a local disk makes it impossible → HIGH."""
+    api = _MigrateApi(status={"status": "running", "name": "vm"},
+                      disk="local-lvm:vm-1-disk-0,size=8G", storages=[{"storage": "local-lvm", "shared": 0}])
+    p = plan_migrate(api, "100", "pveB", kind="qemu", online=True)
+    assert p.risk == RISK_HIGH
+    assert any(a["state"] == "local" and a["storage"] == "local-lvm" for a in p.affected)
+
+
+def test_plan_migrate_shared_disk_keeps_base_risk():
+    api = _MigrateApi(status={"status": "running", "name": "vm"},
+                      disk="ceph:vm-1-disk-0,size=8G", storages=[{"storage": "ceph", "shared": 1}])
+    p = plan_migrate(api, "100", "pveB", kind="qemu", online=True)
+    assert p.risk == RISK_MEDIUM
+    assert p.affected == []
+
+
+def test_plan_migrate_not_found_does_not_run_engine():
+    api = _MigrateApi(status=None)  # 404
+    p = plan_migrate(api, "100", "pveB", kind="qemu", online=True)
+    assert p.affected == []
+    assert p.risk == RISK_HIGH

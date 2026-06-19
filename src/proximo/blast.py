@@ -35,6 +35,18 @@ def _is_disk_key(key: str) -> bool:
     return bool(_DISK_KEY_RE.match(key))
 
 
+def _fmt_bytes(n: int | None) -> str:
+    """Human-readable bytes (binary units). 'unknown' for None."""
+    if n is None:
+        return "unknown"
+    val = float(n)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if abs(val) < 1024.0 or unit == "TiB":
+            return f"{val:.0f} {unit}" if unit == "B" else f"{val:.1f} {unit}"
+        val /= 1024.0
+    return f"{val:.1f} TiB"
+
+
 def _storage_of_volid(volval: str) -> str | None:
     """Storage name from a disk config value, or None if it names no storage volume.
 
@@ -66,6 +78,25 @@ def _disk_slots(config: dict) -> dict[str, str]:
         if storage is not None:
             out[key] = storage
     return out
+
+
+def _disk_slots_split(config: dict) -> tuple[dict[str, str], list[str]]:
+    """({slot: storage} for storage-backed data disks, [slot] for RAW/passthrough disks that name no
+    PVE storage). cdrom media + non-disk keys are excluded from both. Used by the migrate class, where
+    a raw `/dev/...` disk is the most un-migratable thing and must NOT be silently dropped."""
+    backed: dict[str, str] = {}
+    raw: list[str] = []
+    for key, val in config.items():
+        if not isinstance(val, str) or not _is_disk_key(key):
+            continue
+        if "media=cdrom" in val:
+            continue
+        storage = _storage_of_volid(val)
+        if storage is not None:
+            backed[key] = storage
+        else:
+            raw.append(key)
+    return backed, sorted(raw)
 
 
 def _boot_slot(config: dict, kind: str) -> str | None:
@@ -332,6 +363,304 @@ def compute_storage_nodes_blast(storage: str, new_nodes: set[str], guests: list[
         )]
     return BlastResult(affected=affected, summary_lines=lines, complete=complete,
                        max_severity=max_severity)
+
+
+# ===========================================================================
+# Disk-move class — moving a disk ONTO a target storage consumes that storage's
+# capacity, putting every co-tenant (a guest with a disk on the target) at risk if
+# the target fills or the move won't fit. Unlike storage-delete (the storage GOES
+# AWAY → name everyone), co-tenants are only AT RISK when capacity is threatened, so
+# we name them only then (cry-wolf control). Soundness: the fit check uses the
+# PROVISIONED disk size (worst case) → "won't fit / fills T" can only over-flag,
+# never under-flag; capacity we cannot read is never read as "safe".
+# ===========================================================================
+
+_DISK_MOVE_TIGHT_FRACTION = 0.10   # post-move free < this fraction of total → "tight"
+# Absolute safe-free floor: leaving less than this free is "tight" REGARDLESS of total — so a move
+# stays sound even when total capacity is unreadable (no under-flag of tightness on a partial read).
+_DISK_MOVE_MIN_FREE_BYTES = 10 * 1024 ** 3   # 10 GiB
+
+_SEV_ORDER = {"high": 0, "medium": 1, "unknown": 2, "none": 3}
+
+
+def _cotenants_on(target_storage: str, moved_resource: str, guests: list[dict],
+                  configs: dict) -> list[BlastEntry]:
+    """Guests (minus the one being moved) that hold a data disk on `target_storage`.
+    Severity/effect are set by the caller per the capacity verdict; here we only enumerate."""
+    out: list[BlastEntry] = []
+    for guest in guests:
+        config = configs.get(str(guest.get("vmid", "")))
+        if not isinstance(config, dict):
+            continue                                        # unread guest — reflected via `complete`
+        vmid = str(guest.get("vmid", ""))
+        kind = guest.get("type", "qemu")
+        if f"{kind}/{vmid}" == moved_resource:
+            continue                                        # the guest being moved is not its own co-tenant
+        slots = _disk_slots(config)
+        on_t = sorted(slot for slot, st in slots.items() if st == target_storage)
+        if not on_t:
+            continue
+        out.append(BlastEntry(
+            resource=f"{kind}/{vmid}", vmid=vmid, name=str(guest.get("name", "") or ""),
+            node=str(guest.get("node", "")), via=on_t, effect="",
+            only_copy=len(on_t) == len(slots), running=guest.get("status") == "running",
+            severity="medium",
+        ))
+    return out
+
+
+def compute_disk_move_blast(target_storage: str, disk_size_bytes: int | None,
+                            target_avail: int | None, target_total: int | None,
+                            moved_resource: str, guests: list[dict], configs: dict,
+                            complete: bool) -> BlastResult:
+    """PURE. Moving a disk of `disk_size_bytes` (PROVISIONED — worst case) onto `target_storage`
+    (which has `target_avail`/`target_total` free/total bytes) consumes capacity shared by every
+    co-tenant guest with a disk on the target.
+
+    Verdict ladder (the engine ESCALATES risk via max_severity; it never lowers the base plan risk):
+    - size or avail unknown → cannot assess fit → max_severity='high', loud line, NEVER 'safe'.
+    - size >= avail → WON'T FIT (move fails / fills the storage) → 'high'; co-tenants named.
+    - post-move free < 10% of total → TIGHT → 'medium'; co-tenants named.
+    - fits comfortably → 'none'; co-tenants NOT flagged (cry-wolf control), headroom stated plainly.
+    `complete=False` (guest enumeration incomplete) → loud ⚠ INCOMPLETE, force 'high', append sentinel.
+    """
+    cotenants = _cotenants_on(target_storage, moved_resource, guests, configs)
+    n_co = len(cotenants)
+
+    if disk_size_bytes is None or target_avail is None:
+        cap, cap_sev, co_sev = "unknown", "high", "unknown"
+    elif disk_size_bytes >= target_avail:
+        cap, cap_sev, co_sev = "wont_fit", "high", "high"
+    else:
+        post = target_avail - disk_size_bytes
+        tight_by_abs = post < _DISK_MOVE_MIN_FREE_BYTES                          # sound w/o total
+        tight_by_pct = bool(target_total) and post < _DISK_MOVE_TIGHT_FRACTION * target_total
+        if tight_by_abs or tight_by_pct:
+            cap, cap_sev, co_sev = "tight", "medium", "medium"
+        elif not target_total:
+            # Won't-fit is ruled out, but without total we cannot assess post-move fullness —
+            # disclose the unknown rather than reassure (capacity handled symmetrically: a missing
+            # `avail` forced HIGH above, a missing `total` must not produce a clean all-clear).
+            cap, cap_sev, co_sev = "fits_total_unknown", "none", "none"
+        else:
+            cap, cap_sev, co_sev = "fits", "none", "none"
+
+    affected: list[BlastEntry] = []
+    if cap in ("wont_fit", "tight", "unknown"):
+        for e in cotenants:
+            e.severity = co_sev
+            e.effect = (f"shares target storage '{target_storage}' (disk slot(s) {', '.join(e.via)})"
+                        " — at risk if the move "
+                        + ("exhausts it" if cap != "unknown" else "fills it (capacity unknown)"))
+            if e.running:
+                e.effect += " — RUNNING: allocation/write failure can crash or corrupt it"
+        affected = list(cotenants)
+    affected.sort(key=lambda e: (_SEV_ORDER.get(e.severity, 9), e.vmid))
+
+    lines: list[str] = []
+    if not complete:
+        total = len(guests)
+        failed = sum(1 for g in guests if not isinstance(configs.get(str(g.get("vmid", ""))), dict))
+        miss = str(failed) if failed else "some"
+        lines.append(
+            f"⚠ INCOMPLETE: could not enumerate {miss} of {total} guests cluster-wide — "
+            "do NOT treat this co-tenant list as exhaustive; absence here is not proof of safety"
+        )
+    if cap == "unknown":
+        lines.append(
+            f"could not assess target '{target_storage}' capacity (disk size or free space "
+            "unreadable) — cannot confirm the move fits; uncertainty is NOT a safety signal"
+        )
+        if n_co:
+            lines.append(f"  {n_co} guest(s) share target '{target_storage}' — impact cannot be ruled out")
+    elif cap == "wont_fit":
+        lines.append(
+            f"WILL NOT FIT: disk ({_fmt_bytes(disk_size_bytes)}) ≥ free space on target "
+            f"'{target_storage}' ({_fmt_bytes(target_avail)}) — the move fails or fills the storage"
+        )
+        if n_co:
+            lines.append(f"{n_co} co-tenant guest(s) share target '{target_storage}':")
+    elif cap == "tight":
+        post = target_avail - disk_size_bytes        # type: ignore[operator]
+        if target_total:
+            why = f"< {int(_DISK_MOVE_TIGHT_FRACTION * 100)}% of {_fmt_bytes(target_total)} total"
+        else:
+            why = "below the safe-free floor; total capacity unreadable"
+        lines.append(
+            f"TIGHT: the move leaves only {_fmt_bytes(post)} free on target '{target_storage}' "
+            f"({why}) — co-tenants risk allocation failure"
+        )
+        if n_co:
+            lines.append(f"{n_co} co-tenant guest(s) share target '{target_storage}':")
+    elif cap == "fits_total_unknown":
+        post = target_avail - disk_size_bytes        # type: ignore[operator]
+        msg = (f"fits available space: target '{target_storage}' has {_fmt_bytes(target_avail)} free; "
+               f"disk is {_fmt_bytes(disk_size_bytes)}; leaves {_fmt_bytes(post)} — but total capacity "
+               "is unreadable, so whether this leaves the target near-full cannot be assessed")
+        if n_co:
+            msg += (f". {n_co} guest(s) share this target — if it is near capacity they risk "
+                    "allocation pressure")
+        lines.append(msg)
+    else:  # fits
+        post = target_avail - disk_size_bytes        # type: ignore[operator]
+        msg = (f"fits: target '{target_storage}' has {_fmt_bytes(target_avail)} free; disk is "
+               f"{_fmt_bytes(disk_size_bytes)}; leaves {_fmt_bytes(post)} free")
+        if n_co and complete:
+            msg += f". {n_co} other guest(s) share this target, with headroom remaining"
+        elif n_co:
+            # complete=False → the count is a FLOOR, not exhaustive — never reassure on it.
+            msg += (f". at least {n_co} co-tenant(s) share this target — co-tenant list INCOMPLETE, "
+                    "not proof of safety")
+        lines.append(msg)
+    for e in affected:
+        if e.severity == "unknown" and e.resource == "?":
+            continue
+        label = e.resource + (f" ({e.name})" if e.name else "")
+        lines.append(f"  {label} on {e.node}: {e.effect}")
+
+    max_severity = "high" if not complete else cap_sev
+    if not complete:
+        affected = affected + [BlastEntry(
+            resource="?", vmid="", name="", node="", via=[],
+            effect="enumeration incomplete — one or more guests could not be read",
+            only_copy=False, running=False, severity="unknown",
+        )]
+    return BlastResult(affected=affected, summary_lines=lines, complete=complete,
+                       max_severity=max_severity)
+
+
+def gather_disk_move_dependents(api, target_storage: str, vmid: str, disk: str, kind: str,
+                                node: str | None) -> tuple[int | None, int | None, int | None,
+                                                           list[dict], dict, bool]:
+    """I/O, fail-closed (never raises). Returns
+    (disk_size_bytes, target_avail, target_total, guests, configs, complete):
+    - the PROVISIONED size of `disk` on the moved guest (None if unreadable/unparseable),
+    - target storage free/total bytes (None on read failure),
+    - the cluster guest list + configs (reused storage gather) and its completeness flag.
+    """
+    from .disk_ops import _parse_size_bytes
+    from .storage import storage_status
+
+    disk_size_bytes: int | None = None
+    try:
+        n = node or api.config.node
+        cfg = api._get(f"/nodes/{n}/{kind}/{vmid}/config")
+        if isinstance(cfg, dict):
+            entry = cfg.get(disk)
+            if isinstance(entry, str):
+                for part in entry.split(","):
+                    part = part.strip()
+                    if part.startswith("size="):
+                        disk_size_bytes = _parse_size_bytes(part[5:])
+                        break
+    except Exception:
+        disk_size_bytes = None
+
+    target_avail: int | None = None
+    target_total: int | None = None
+    try:
+        st = storage_status(api, target_storage, node)
+        if isinstance(st, dict):
+            av, tot = st.get("avail"), st.get("total")
+            target_avail = int(av) if isinstance(av, (int, float)) else None
+            target_total = int(tot) if isinstance(tot, (int, float)) else None
+    except Exception:
+        target_avail = target_total = None
+
+    guests, configs, complete = gather_storage_dependents(api, target_storage)
+    return disk_size_bytes, target_avail, target_total, guests, configs, complete
+
+
+def disk_move_blast(api, vmid: str, disk: str, target_storage: str, kind: str,
+                    node: str | None) -> BlastResult:
+    """Convenience: gather live state then compute the pure disk-move blast result."""
+    size, avail, total, guests, configs, complete = gather_disk_move_dependents(
+        api, target_storage, vmid, disk, kind, node)
+    return compute_disk_move_blast(target_storage, size, avail, total,
+                                   f"{kind}/{vmid}", guests, configs, complete)
+
+
+# ===========================================================================
+# Storage content-delete class — deleting a volume that is an ACTIVE guest disk
+# destroys that disk's data. Scans guest configs for the EXACT volid; names the
+# owning guest (won't-boot if it's the boot disk / only copy / EFI-TPM). Uncertainty
+# (incomplete enumeration) forces HIGH — never read as "not in use".
+# ===========================================================================
+
+def _guest_disks_matching_volid(config: dict, volid: str) -> list[str]:
+    """Disk slots whose value references EXACTLY `volid` (head before the comma). Exact match so
+    deleting 'vm-101-disk-0' does not match 'vm-101-disk-00'."""
+    out: list[str] = []
+    for key, val in config.items():
+        if not isinstance(val, str) or not _is_disk_key(key):
+            continue
+        if "media=cdrom" in val:           # a mounted ISO is not the guest's data disk
+            continue
+        if val.split(",", 1)[0].strip() == volid:
+            out.append(key)
+    return sorted(out)
+
+
+@dataclass
+class ContentDeleteBlastResult:
+    summary_lines: list[str]
+    affected: list[dict]
+    complete: bool
+    max_severity: str          # "high" (in use / uncertain) | "none" — escalates, never lowers
+
+
+def compute_content_delete_blast(volid: str, guests: list[dict], configs: dict,
+                                 complete: bool) -> ContentDeleteBlastResult:
+    """PURE. Names guests whose ACTIVE disk is `volid` — deleting it destroys their data.
+    `complete=False` (some guest configs unread) → forced HIGH, never read as 'not in use'."""
+    affected: list[dict] = []
+    for g in guests:
+        cfg = configs.get(str(g.get("vmid", "")))
+        if not isinstance(cfg, dict):
+            continue
+        slots = _guest_disks_matching_volid(cfg, volid)
+        if not slots:
+            continue
+        kind = g.get("type", "qemu")
+        vmid = str(g.get("vmid", ""))
+        boot = _boot_slot(cfg, kind)
+        all_data = _disk_slots(cfg)
+        wont_boot = (boot in slots) or bool(_BOOT_CRITICAL.intersection(slots)) \
+            or (set(slots) == set(all_data))
+        effect = (f"volume is an ACTIVE disk ({', '.join(slots)}) of this guest — deleting it DESTROYS "
+                  "that disk's data")
+        if wont_boot:
+            effect += " — the guest will NOT boot"
+        affected.append({"resource": f"{kind}/{vmid}", "vmid": vmid, "name": str(g.get("name", "") or ""),
+                         "node": str(g.get("node", "")), "via": slots, "effect": effect, "severity": "high"})
+    affected.sort(key=lambda a: a["vmid"])
+
+    lines: list[str] = []
+    if not complete:
+        lines.append(
+            f"⚠ INCOMPLETE: could not enumerate all guests — cannot confirm whether {volid!r} is an "
+            "in-use disk (absence here is NOT proof it is unused)"
+        )
+    if affected:
+        lines.append(
+            f"{volid!r} is an ACTIVE disk of {len(affected)} guest(s) — deleting it destroys their data:"
+        )
+        for a in affected:
+            label = a["resource"] + (f" ({a['name']})" if a["name"] else "")
+            lines.append(f"  {label} on {a['node']}: {a['effect']}")
+    elif complete:
+        lines.append(
+            f"no guest config references {volid!r} as a disk — not an in-use guest disk (an "
+            "ISO/template/backup/orphan; absence here is not proof for any guest not enumerated)"
+        )
+    return ContentDeleteBlastResult(lines, affected, complete=complete,
+                                    max_severity="high" if (affected or not complete) else "none")
+
+
+def content_delete_blast(api, volid: str) -> ContentDeleteBlastResult:
+    """Convenience: enumerate cluster guests then check whether `volid` is an in-use disk."""
+    guests, configs, complete = gather_storage_dependents(api, "")
+    return compute_content_delete_blast(volid, guests, configs, complete)
 
 
 # ===========================================================================
@@ -905,6 +1234,423 @@ def compute_apply_lockout(pending_ifaces: list[str], mgmt_host: str | None,
         )
     return ApplyLockoutResult(summary_lines=lines, affected=affected, risk=RISK_HIGH,
                               risk_reasons=reasons)
+
+
+# ===========================================================================
+# Firewall-lockout class — enabling the firewall / setting policy_in=DROP under
+# default-DROP locks out management on every node whose (datacenter ∪ node) ruleset
+# lacks an inbound ACCEPT for SSH(22)/PVE(8006). Names the at-risk nodes on top of an
+# UNCONDITIONAL HIGH (mirrors compute_apply_lockout): a rule counts as protective ONLY
+# if ENABLED + inbound + ACCEPT + tcp-ish + covers 22/8006 — a disabled/udp/outbound/
+# narrow-source rule is NEVER counted as blanket protection (no under-flag of a lockout).
+# ===========================================================================
+
+_MGMT_PORTS = (22, 8006)   # SSH, PVE API — the host-management surface a lockout kills
+_BREADTH_RANK = {"anywhere": 3, "internal": 2, "host": 1, "range": 1, "named": 1}
+
+_FW_LOCKOUT_DISCLAIMER = (
+    "FIREWALL LOCKOUT: enabling the firewall / setting policy_in=DROP applies a default-DROP policy; "
+    "a node keeps management access only if an ENABLED inbound ACCEPT for SSH(22)/PVE(8006) exists in "
+    "its (datacenter + node) ruleset. This names nodes whose rules do NOT clearly grant that — rule "
+    "order and your actual admin source still decide the outcome, so the change is RISK_HIGH regardless."
+)
+
+
+def _fw_covers_mgmt_port(dport: str | None) -> bool:
+    """True if `dport` reaches SSH(22) or PVE(8006). Empty => ALL ports => True. Scans single port,
+    comma-list, and 'a:b' ranges; the 'ssh' service name maps to 22. OVER-flag, never under-flag."""
+    d = (dport or "").strip()
+    if not d:
+        return True
+    for member in d.split(","):
+        member = member.strip()
+        if not member:
+            continue
+        if member.isdigit():
+            if int(member) in _MGMT_PORTS:
+                return True
+            continue
+        if ":" in member:
+            lo, _, hi = member.partition(":")
+            lo, hi = lo.strip(), hi.strip()
+            if lo.isdigit() and hi.isdigit():
+                a, b = int(lo), int(hi)
+                if a <= b and any(a <= p <= b for p in _MGMT_PORTS):
+                    return True
+            continue
+        if member.lower() == "ssh":
+            return True
+    return False
+
+
+def _fw_proto_is_tcp_ish(proto: str | None) -> bool:
+    """SSH/8006 are tcp. A rule protects them only if its proto is tcp / unspecified / any / all."""
+    return (proto or "").strip().lower() in ("", "tcp", "any", "all")
+
+
+def _fw_rule_protects_mgmt(rule: dict) -> bool:
+    """A rule grants inbound management access iff: enabled (enable != 0) AND type=='in' AND
+    action=='ACCEPT' AND proto is tcp-ish AND dport covers 22/8006. Conservative — anything that
+    fails a clause is NOT counted as protection (so a lockout is never under-flagged)."""
+    if str(rule.get("enable", 1)).strip().lower() in ("0", "false", "no"):
+        return False
+    if str(rule.get("type", "")).strip().lower() != "in":
+        return False
+    if str(rule.get("action", "")).strip().upper() != "ACCEPT":
+        return False
+    if not _fw_proto_is_tcp_ish(rule.get("proto")):
+        return False
+    return _fw_covers_mgmt_port(rule.get("dport"))
+
+
+@dataclass
+class FirewallLockoutResult:
+    """Lockout naming on top of an unconditional RISK_HIGH. `affected` = the AT-RISK nodes
+    (lockout / conditional / incomplete); open/internal-protected nodes appear only in summary_lines."""
+
+    summary_lines: list[str]
+    affected: list[dict]
+    risk: str
+    risk_reasons: list[str]
+    complete: bool = True
+
+
+def compute_firewall_lockout_blast(scope: str, nodes: list[str] | None,
+                                   datacenter_rules: list[dict] | None,
+                                   node_rules: dict) -> FirewallLockoutResult:
+    """PURE. Names nodes that would lose management access when the firewall is enabled / policy_in
+    goes DROP. Risk is RISK_HIGH unconditional; the engine only NAMES the at-risk nodes (it never
+    lowers risk). `nodes`/`datacenter_rules`/a node's rules being None means that read FAILED →
+    INCOMPLETE for the affected node(s), never read as 'safe'."""
+    lines: list[str] = [_FW_LOCKOUT_DISCLAIMER]
+    reasons = ["enabling default-DROP can instantly cut SSH/API; absence of a named node is not safety"]
+    affected: list[dict] = []
+
+    # `not nodes` covers both None (read failed) AND [] (degraded enumeration — a real cluster always
+    # has ≥1 node, so an empty list is never legitimate). Both fail closed; never read as "nothing at risk".
+    if not nodes:
+        lines.append(
+            "could not ENUMERATE the nodes in scope — enabling default-DROP can lock out management "
+            "cluster-wide; RISK_HIGH stands (absence of a named node is NOT a safety signal)"
+        )
+        return FirewallLockoutResult(lines, affected, RISK_HIGH, reasons, complete=False)
+
+    complete = True
+    for node in nodes:
+        node_specific = node_rules.get(node)
+        if datacenter_rules is None or node_specific is None:
+            complete = False
+            affected.append({
+                "node": node, "state": "incomplete", "severity": "unknown",
+                "effect": "firewall rules unreadable — cannot confirm a management ACCEPT exists; "
+                          "assume lockout risk",
+            })
+            lines.append(
+                f"⚠ INCOMPLETE: could not read firewall rules for {node!r} — a lockout for this node "
+                "cannot be ruled out (not a safety signal)"
+            )
+            continue
+
+        protective = [r for r in (list(datacenter_rules) + list(node_specific))
+                      if _fw_rule_protects_mgmt(r)]
+        if not protective:
+            affected.append({
+                "node": node, "state": "lockout", "severity": "high",
+                "effect": "no enabled inbound ACCEPT for SSH(22)/PVE(8006) — default-DROP blocks management",
+            })
+            lines.append(
+                f"LOCKOUT: {node} has no enabled inbound management ACCEPT (SSH 22 / PVE 8006) — "
+                "enabling default-DROP blocks SSH/API to it"
+            )
+            continue
+
+        breadths = [_source_breadth(r.get("source"))[0] for r in protective]
+        widest = max(breadths, key=lambda k: _BREADTH_RANK.get(k, 1))
+        if widest == "anywhere":
+            lines.append(
+                f"{node}: an OPEN inbound management ACCEPT exists — HIGH still stands (rule order / "
+                "default policy decide the outcome), but the clearest lockout cause is absent"
+            )
+        elif widest == "internal":
+            lines.append(
+                f"{node}: inbound management ACCEPT restricted to INTERNAL/private sources — protective "
+                "only if you manage from inside the private network"
+            )
+        else:
+            srcs = sorted({_source_breadth(r.get("source"))[1] for r in protective
+                           if _source_breadth(r.get("source"))[0] not in ("anywhere", "internal")})
+            affected.append({
+                "node": node, "state": "conditional", "severity": "high",
+                "effect": f"management ACCEPT exists but SOURCE-RESTRICTED ({'; '.join(srcs)}) — if your "
+                          "admin source is outside it, default-DROP locks you out",
+            })
+            lines.append(
+                f"CONDITIONAL LOCKOUT: {node}'s only management ACCEPT is source-restricted — it locks "
+                "out any admin source outside that set"
+            )
+
+    return FirewallLockoutResult(lines, affected, RISK_HIGH, reasons, complete=complete)
+
+
+def gather_firewall_lockout_dependents(api, scope: str,
+                                       node: str | None) -> tuple[list[str] | None,
+                                                                  list[dict] | None, dict]:
+    """I/O, fail-closed (never raises). Returns (nodes, datacenter_rules, node_rules):
+    - datacenter_rules: cluster firewall rules (None on read failure);
+    - nodes: cluster scope → every node name (None if enumeration fails); node scope → [node];
+    - node_rules: {node: that node's rules (None on read failure)}.
+    """
+    from .firewall import firewall_rules_list
+
+    try:
+        datacenter_rules: list[dict] | None = firewall_rules_list(api, "cluster")
+    except Exception:
+        datacenter_rules = None
+
+    nodes: list[str] | None
+    if scope == "node" and node:
+        nodes = [node]
+    else:
+        try:
+            rows = cluster_resources(api, "node") or []
+            nodes = [str(r.get("node")) for r in rows if r.get("node")]
+        except Exception:
+            nodes = None
+
+    node_rules: dict = {}
+    for n in (nodes or []):
+        try:
+            node_rules[n] = firewall_rules_list(api, "node", node=n)
+        except Exception:
+            node_rules[n] = None
+    return nodes, datacenter_rules, node_rules
+
+
+def firewall_lockout_blast(api, scope: str, node: str | None) -> FirewallLockoutResult:
+    """Convenience: gather live firewall state then compute the pure lockout result."""
+    nodes, dc_rules, node_rules = gather_firewall_lockout_dependents(api, scope, node)
+    return compute_firewall_lockout_blast(scope, nodes, dc_rules, node_rules)
+
+
+# ===========================================================================
+# Network-iface attachment class — editing a bridge disrupts every guest with a NIC
+# on it when the staged change is applied. Names the attached guests. The change is
+# staged (reversible until network_apply, where compute_apply_lockout carries the HIGH
+# mgmt-lockout) so risk is not escalated here; the value is naming the affected guests.
+# ===========================================================================
+
+_NET_KEY_RE = re.compile(r"^net\d+$")
+
+
+def _guest_nics_on_bridge(config: dict, iface: str) -> list[str]:
+    """netN slots whose `bridge=` token equals `iface` EXACTLY (token match, so 'vmbr1' does not
+    match a guest on 'vmbr10')."""
+    out: list[str] = []
+    needle = f"bridge={iface}"
+    for key, val in config.items():
+        if _NET_KEY_RE.match(key) and isinstance(val, str):
+            if any(tok.strip() == needle for tok in val.split(",")):
+                out.append(key)
+    return sorted(out)
+
+
+@dataclass
+class IfaceBlastResult:
+    summary_lines: list[str]
+    affected: list[dict]
+    complete: bool
+    max_severity: str          # "medium" (guests attached) | "none" — never escalates a staged edit
+
+
+def compute_iface_blast(iface: str, guests: list[dict], configs: dict,
+                        complete: bool) -> IfaceBlastResult:
+    """PURE. Names guests with a NIC on bridge `iface` — disrupted when a staged iface change applies.
+    `complete=False` (some guest configs unread) → loud INCOMPLETE; the attached list may be partial."""
+    affected: list[dict] = []
+    for g in guests:
+        cfg = configs.get(str(g.get("vmid", "")))
+        if not isinstance(cfg, dict):
+            continue
+        nics = _guest_nics_on_bridge(cfg, iface)
+        if nics:
+            affected.append({
+                "resource": f"{g.get('type', 'qemu')}/{g.get('vmid', '')}",
+                "vmid": str(g.get("vmid", "")), "name": str(g.get("name", "") or ""),
+                "node": str(g.get("node", "")), "nics": nics,
+                "effect": f"attached to bridge {iface!r} via {', '.join(nics)} — networking disrupted "
+                          "when this staged change is applied",
+                "severity": "medium",
+            })
+    affected.sort(key=lambda a: a["vmid"])
+
+    lines: list[str] = []
+    if not complete:
+        lines.append(
+            f"⚠ INCOMPLETE: could not enumerate all guests — the list attached to bridge {iface!r} may "
+            "be partial (absence here is not proof a guest is unaffected)"
+        )
+    if affected:
+        lines.append(
+            f"{len(affected)} guest(s) are attached to bridge {iface!r} and have their networking "
+            "disrupted when this staged change is applied:"
+        )
+        for a in affected:
+            label = a["resource"] + (f" ({a['name']})" if a["name"] else "")
+            lines.append(f"  {label} on {a['node']}: via {', '.join(a['nics'])}")
+    elif complete:
+        lines.append(
+            f"no guest has a NIC on bridge {iface!r} — no guest networking is disrupted (absence here "
+            "is not proof for any guest not enumerated)"
+        )
+    return IfaceBlastResult(lines, affected, complete=complete,
+                            max_severity="medium" if affected else "none")
+
+
+def iface_attachment_blast(api, iface: str) -> IfaceBlastResult:
+    """Convenience: enumerate cluster guests (storage gather is guest-list-agnostic) then compute."""
+    guests, configs, complete = gather_storage_dependents(api, "")
+    return compute_iface_blast(iface, guests, configs, complete)
+
+
+# ===========================================================================
+# Guest-migrate disk-residency class — a guest's disks migrate cleanly ONLY if each
+# sits on SHARED storage available on the target node. Local (shared=0) storage forces
+# a copy (or fails); a nodes-restricted storage absent from the target can't place the
+# disk. Names the BLOCKING disks. Honest framing: this is migration FEASIBILITY (the
+# harm is mostly to the guest itself), not cross-resource naming. Risk only escalates.
+# ===========================================================================
+
+@dataclass
+class MigrateBlastResult:
+    summary_lines: list[str]
+    affected: list[dict]
+    complete: bool
+    max_severity: str          # "high" | "none" — escalates the plan's base risk, never lowers it
+
+
+def compute_migrate_blast(target: str, disk_slots: dict, storage_meta: dict,
+                          config_complete: bool, online: bool, kind: str,
+                          raw_slots: list[str] | None = None) -> MigrateBlastResult:
+    """PURE. Given the guest's {slot: storage} disks and per-storage metadata
+    ({storage: {"shared": bool, "nodes": set|None}}; a storage ABSENT from the map = metadata
+    unreadable), decide whether each disk can migrate to `target`. A disk is OK (unflagged) ONLY when
+    its storage is provably shared AND available on the target; local / unavailable / unknown all flag.
+    `raw_slots` are passthrough/raw disks that name no PVE storage — they cannot follow the guest to
+    another node, so each is flagged (never dropped). `config_complete=False` → loud INCOMPLETE, HIGH."""
+    lines: list[str] = []
+    affected: list[dict] = []
+
+    if not config_complete:
+        lines.append(
+            "⚠ INCOMPLETE: could not read the guest config — cannot enumerate its disks; whether they "
+            "can migrate to the target is UNKNOWN (not a safety signal)"
+        )
+        affected.append({"slot": "", "storage": "", "state": "incomplete", "severity": "unknown",
+                         "effect": "guest config unreadable — disks could not be enumerated"})
+        return MigrateBlastResult(lines, affected, complete=False, max_severity="high")
+
+    complete = True
+    for slot in sorted(disk_slots):
+        storage = disk_slots[slot]
+        meta = storage_meta.get(storage)
+        if meta is None:
+            complete = False
+            affected.append({"slot": slot, "storage": storage, "state": "unknown", "severity": "unknown",
+                             "effect": f"storage {storage!r} config unreadable — cannot confirm it is "
+                                       "shared and available on the target; the disk may not migrate"})
+            lines.append(
+                f"⚠ INCOMPLETE: storage {storage!r} (disk {slot}) metadata unreadable — migration "
+                "feasibility for this disk is UNKNOWN (not a safety signal)"
+            )
+            continue
+        nodes = meta.get("nodes")
+        if nodes is not None and target not in nodes:
+            affected.append({"slot": slot, "storage": storage, "state": "unavailable", "severity": "high",
+                             "effect": f"storage {storage!r} is restricted to {sorted(nodes)} and is NOT "
+                                       f"available on target {target!r} — cannot place disk {slot}"})
+            lines.append(
+                f"FAILS: disk {slot} is on {storage!r}, not available on target {target!r} "
+                f"(restricted to {sorted(nodes)}) — the migration cannot place it"
+            )
+            continue
+        if not meta.get("shared"):
+            live = online and kind == "qemu"
+            extra = " a LIVE migration is NOT possible with a local disk" if live else ""
+            affected.append({"slot": slot, "storage": storage, "state": "local", "severity": "high",
+                             "effect": f"disk {slot} is on LOCAL/non-shared storage {storage!r} — migration "
+                                       f"must COPY it to the target (needs with-local-disks); a plain "
+                                       f"migrate FAILS.{extra}"})
+            lines.append(
+                f"LOCAL DISK: {slot} is on non-shared {storage!r} — migrating copies it (with-local-disks) "
+                f"or FAILS;{extra}"
+            )
+            continue
+        # shared AND available on the target → clean migrate, not flagged (no cry-wolf)
+
+    for slot in sorted(raw_slots or []):
+        affected.append({"slot": slot, "storage": "", "state": "raw", "severity": "high",
+                         "effect": f"disk {slot} is a RAW/passthrough device (no PVE storage volume) — "
+                                   "it cannot follow the guest to another node; migration cannot move it"})
+        lines.append(
+            f"RAW DISK: {slot} is a passthrough device (no PVE storage) — it cannot migrate to another node"
+        )
+
+    if affected:
+        return MigrateBlastResult(lines, affected, complete=complete, max_severity="high")
+    if disk_slots:
+        lines.append(
+            f"all {len(disk_slots)} disk(s) are on shared storage available on target {target!r} — "
+            "no disk copy required for the migration"
+        )
+    else:
+        lines.append("guest has no data disks to migrate")
+    return MigrateBlastResult(lines, affected, complete=True, max_severity="none")
+
+
+def gather_migrate_dependents(api, vmid: str, kind: str, node: str | None,
+                              target: str) -> tuple[dict, list[str], dict, bool]:
+    """I/O, fail-closed. Returns (disk_slots, raw_slots, storage_meta, config_complete):
+    - disk_slots {slot: storage} + raw_slots [slot] (passthrough/no-storage) from the guest config
+      (config_complete=False if unreadable/empty);
+    - storage_meta {storage: {"shared": bool, "nodes": set[str]|None}} from the cluster storage.cfg
+      (a storage absent from the map / a failed read = metadata unknown for that storage).
+    """
+    from .storage_admin import storage_config_list
+
+    disk_slots: dict = {}
+    raw_slots: list[str] = []
+    config_complete = True
+    try:
+        cfg = guest_config_get(api, vmid, kind, node)
+        if isinstance(cfg, dict) and cfg:
+            disk_slots, raw_slots = _disk_slots_split(cfg)
+        else:
+            config_complete = False
+    except Exception:
+        config_complete = False
+
+    storage_meta: dict = {}
+    try:
+        for s in (storage_config_list(api) or []):
+            name = s.get("storage")
+            if not name:
+                continue
+            nodes_raw = s.get("nodes")
+            nodes = {n.strip() for n in str(nodes_raw).split(",") if n.strip()} if nodes_raw else None
+            shared = str(s.get("shared", 0)).strip().lower() in ("1", "true", "yes")
+            storage_meta[str(name)] = {"shared": shared, "nodes": nodes or None}
+    except Exception:
+        storage_meta = {}
+    return disk_slots, raw_slots, storage_meta, config_complete
+
+
+def migrate_blast(api, vmid: str, kind: str, node: str | None, target: str,
+                  online: bool) -> MigrateBlastResult:
+    """Convenience: gather live state then compute the pure migrate disk-residency result."""
+    disk_slots, raw_slots, storage_meta, config_complete = gather_migrate_dependents(
+        api, vmid, kind, node, target)
+    return compute_migrate_blast(target, disk_slots, storage_meta, config_complete, online, kind,
+                                 raw_slots=raw_slots)
 
 
 # ===========================================================================

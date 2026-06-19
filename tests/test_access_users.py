@@ -1228,3 +1228,46 @@ def test_plan_user_delete_counts_dict_shaped_tokens():
     blast = " ".join(plan.blast_radius)
     assert "2 API token(s)" in blast          # both tokens counted, not 0
     assert plan.risk == RISK_HIGH
+
+
+# ---------------------------------------------------------------------------
+# Blast-radius coverage (rank 6): group_delete names the group-level ACL grants
+# its members lose (not just the member list).
+# ---------------------------------------------------------------------------
+
+def test_plan_group_delete_names_orphaned_acl_grants():
+    from types import SimpleNamespace
+
+    from proximo.access_users import plan_group_delete
+
+    def _get(path):
+        if path == "/access/groups/devs":
+            return {"members": ["alice@pve", "bob@pve"], "comment": "x"}
+        if path == "/access/acl":
+            return [{"type": "group", "ugid": "devs", "path": "/vms/100", "roleid": "PVEVMUser"},
+                    {"type": "user", "ugid": "carol@pve", "path": "/", "roleid": "X"}]
+        return {}
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+    p = plan_group_delete(api, "devs")
+    assert any(a["path"] == "/vms/100" and a["roleid"] == "PVEVMUser" for a in p.affected)
+    # discriminating guard: only group-principal grants appear (a leaked user grant has a different principal)
+    assert all(a["principal"] == "group devs" for a in p.affected)
+    assert p.complete is True
+
+
+def test_plan_group_delete_acl_read_failure_is_incomplete():
+    from types import SimpleNamespace
+
+    from proximo.access_users import plan_group_delete
+
+    def _get(path):
+        if path == "/access/groups/devs":
+            return {"members": ["alice@pve"]}
+        if path == "/access/acl":
+            raise RuntimeError("acl unavailable")
+        return {}
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+    p = plan_group_delete(api, "devs")
+    assert p.complete is False

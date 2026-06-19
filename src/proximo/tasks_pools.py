@@ -498,40 +498,82 @@ def plan_pool_update(
     )
 
 
-def plan_pool_delete(poolid: str) -> Plan:
-    """Preview deleting a resource pool.  PURE — no API call.
+def plan_pool_delete(api, poolid: str) -> Plan:
+    """Preview deleting a resource pool.
 
-    RISK_MEDIUM: deletes the pool grouping; does NOT delete member guests or storage.
-
-    IMPORTANT: PVE requires the pool to be empty before deletion. If the pool has members,
-    the DELETE will be refused by PVE — remove all members via pool_update first.
-
-    ACL BLAST: any ACL granted on /pool/{poolid} is orphaned/lost when the pool is deleted.
-    Users or tokens whose only access to certain guests was via a pool ACL will lose that
-    access. This is a silent, permanent permission change — audit pool ACLs before deleting.
+    Reads the ACL (and the pool's members) to NAME the principals that lose access when grants on
+    /pool/{poolid} orphan, and to surface that PVE refuses a non-empty pool. Risk: MEDIUM by default,
+    escalated to HIGH when real ACL grants would break (a silent permission loss) or a read fails.
     """
     poolid = _check_poolid(poolid)
+    pool_path = f"/pool/{poolid}"
 
+    blast = [
+        f"deletes pool {poolid!r} — the pool grouping is permanently removed",
+        "PREREQUISITE: PVE requires the pool to be empty first — remove all members via "
+        "pool_update before calling pool_delete, or PVE will refuse the deletion",
+        "does NOT delete member guests or storage — only the pool grouping is removed",
+    ]
+    reasons = [
+        "deletes the pool grouping and permanently orphans all ACLs granted on it",
+        "PVE refuses deletion of a non-empty pool — must empty it first",
+    ]
+    affected: list[dict] = []
+    complete = True
+
+    # Blast radius: read the ACL → principals whose access is granted on the pool path.
+    try:
+        acl_entries = api._get("/access/acl") or []
+        grants = [e for e in acl_entries
+                  if e.get("path") == pool_path or str(e.get("path", "")).startswith(pool_path + "/")]
+        for e in grants:
+            affected.append({"principal": str(e.get("ugid", "")), "path": str(e.get("path", "")),
+                             "roleid": str(e.get("roleid", "")), "change": "orphaned", "severity": "high"})
+        if grants:
+            named = ", ".join(sorted(f"{e.get('ugid', '')} ({e.get('roleid', '')})" for e in grants))
+            blast.append(
+                f"ACL ORPHAN: {len(grants)} grant(s) on {pool_path} break silently — these principals "
+                f"lose pool-derived access: {named}"
+            )
+            reasons.append(f"{len(grants)} ACL grant(s) on {pool_path} break — silent permission loss")
+        else:
+            blast.append(f"no ACL grants currently target {pool_path} — no principal loses pool access")
+    except Exception as exc:
+        complete = False
+        check_error = "404" if getattr(getattr(exc, "response", None), "status_code", None) == 404 \
+            else type(exc).__name__
+        blast.append(
+            f"could NOT read the ACL ({check_error}) — cannot name which grants on {pool_path} orphan; "
+            "absence of a list is NOT a safety signal"
+        )
+        reasons.append(f"ACL read failed ({check_error}) — orphaned-grants list unknown")
+
+    # Members: PVE refuses a non-empty pool — surface that the delete would be rejected.
+    try:
+        members = (pool_get(api, poolid) or {}).get("members") or []
+        if isinstance(members, list) and members:
+            blast.append(
+                f"pool currently has {len(members)} member(s) — PVE will REFUSE the delete until they "
+                "are removed (pool_update)"
+            )
+            reasons.append(f"{len(members)} member(s) present — delete refused until emptied")
+    except Exception:
+        complete = False
+        blast.append("could NOT read pool members — cannot confirm the pool is empty (delete may be refused)")
+
+    blast.append("to undo: recreate the pool via pool_create and re-add members, then re-grant lost ACLs")
+
+    risk = RISK_HIGH if (affected or not complete) else RISK_MEDIUM
     return Plan(
         action="pve_pool_delete",
         target=poolid,
         change=f"delete resource pool {poolid!r}",
         current={},
-        blast_radius=[
-            f"deletes pool {poolid!r} — the pool grouping is permanently removed",
-            "PREREQUISITE: PVE requires the pool to be empty first — remove all members via "
-            "pool_update before calling pool_delete, or PVE will refuse the deletion",
-            "does NOT delete member guests or storage — only the pool grouping is removed",
-            f"ACL ORPHAN: any ACL granted on /pool/{poolid!r} is orphaned/lost — "
-            "permissions that depended on this pool break silently and permanently",
-            "to undo: recreate the pool via pool_create and re-add members, then re-grant any lost ACLs",
-        ],
-        risk=RISK_MEDIUM,
-        risk_reasons=[
-            "deletes the pool grouping and permanently orphans all ACLs granted on it",
-            "PVE refuses deletion of a non-empty pool — must empty it first",
-            "ACL grants on /pool/{poolid} are permanently lost (no automatic cleanup)",
-        ],
+        blast_radius=blast,
+        risk=risk,
+        risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
         note=(
             "Smoke-confirm: verify DELETE /pools/{poolid} returns null on success; "
             "verify PVE error (4xx/5xx) when deleting a non-empty pool (does NOT cascade). "

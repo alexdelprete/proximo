@@ -385,6 +385,8 @@ def plan_iface_update(
         _ = e  # acknowledged
 
     n = node or api.config.node
+    affected: list[dict] = []
+    complete = True
 
     if check_failed:
         blast = [
@@ -406,6 +408,12 @@ def plan_iface_update(
             f"staged modification of existing {iface} interface on {n}",
             "reversible before apply: revert the staged iface before applying",
         ]
+        # Attachment blast: name the guests with a NIC on this bridge — they are disrupted when the
+        # staged change is applied. Risk stays MEDIUM (staged/reversible); the apply step carries HIGH.
+        att = blast_engine.iface_attachment_blast(api, iface)
+        blast.extend(att.summary_lines)
+        affected = att.affected
+        complete = att.complete
 
     return Plan(
         action="pve_network_iface_update",
@@ -415,6 +423,8 @@ def plan_iface_update(
         blast_radius=blast,
         risk=RISK_MEDIUM,
         risk_reasons=reasons,
+        affected=affected,
+        complete=complete,
         note=(
             "Staged change (interfaces.new) — does NOT affect live connectivity until "
             "network_apply is called. Apply carries RISK_HIGH (connectivity-lockout)."

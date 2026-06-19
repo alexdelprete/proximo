@@ -441,46 +441,46 @@ def test_plan_restore_existing_current_has_live_facts():
 
 def test_plan_backup_delete_is_high():
     # A backup is a last-resort recovery copy; deleting it is unrecoverable -> HIGH (not MEDIUM).
-    p = plan_backup_delete("local", _VALID_VOLID)
+    p = plan_backup_delete(_bk_api([]), "local", _VALID_VOLID)
     assert p.risk == RISK_HIGH
 
 
 def test_plan_backup_delete_action_name():
-    p = plan_backup_delete("local", _VALID_VOLID)
+    p = plan_backup_delete(_bk_api([]), "local", _VALID_VOLID)
     assert p.action == "pve_backup_delete"
 
 
 def test_plan_backup_delete_blast_names_volid():
-    p = plan_backup_delete("local", _VALID_VOLID)
+    p = plan_backup_delete(_bk_api([]), "local", _VALID_VOLID)
     blast = " ".join(p.blast_radius)
     assert _VALID_VOLID in blast
 
 
 def test_plan_backup_delete_blast_says_cannot_restore():
-    p = plan_backup_delete("local", _VALID_VOLID)
+    p = plan_backup_delete(_bk_api([]), "local", _VALID_VOLID)
     blast = " ".join(p.blast_radius).lower()
     assert "cannot restore" in blast or "restore" in blast
 
 
 def test_plan_backup_delete_honest_permanent_loss():
-    p = plan_backup_delete("local", _VALID_VOLID)
+    p = plan_backup_delete(_bk_api([]), "local", _VALID_VOLID)
     reasons = " ".join(p.risk_reasons).lower()
     assert "permanent" in reasons or "gone" in reasons or "lost" in reasons
 
 
 def test_plan_backup_delete_rejects_bad_volid():
     with pytest.raises(ProximoError):
-        plan_backup_delete("local", "no-colon-here")
+        plan_backup_delete(None, "local", "no-colon-here")
 
 
 def test_plan_backup_delete_rejects_traversal():
     with pytest.raises(ProximoError, match="traversal"):
-        plan_backup_delete("local", "local:backup/../../etc/passwd")
+        plan_backup_delete(None, "local", "local:backup/../../etc/passwd")
 
 
 def test_plan_backup_delete_rejects_bad_storage():
     with pytest.raises(ProximoError):
-        plan_backup_delete("storage with spaces!", _VALID_VOLID)
+        plan_backup_delete(None, "storage with spaces!", _VALID_VOLID)
 
 
 # ── VALIDATOR: _check_volid ───────────────────────────────────────────────────
@@ -598,3 +598,55 @@ def test_plan_restore_exists_with_force_is_high_overwrite():
     p = plan_restore(_RestoreApi(exists=True), "102", _VALID_VOLID, force=True)
     assert p.risk == RISK_HIGH
     assert any("overwrites" in b.lower() and "destroys" in b.lower() for b in p.blast_radius)
+
+
+# ── plan_backup_delete: last-copy blast (rank 8) ─────────────────────────────
+
+def _bk_api(backups):
+    from types import SimpleNamespace
+
+    def _get(path):
+        if "/content" in path:
+            return backups
+        return []
+
+    return SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+
+
+def test_plan_backup_delete_last_copy_is_named():
+    """Deleting the ONLY backup of a guest must be named as the last recovery point."""
+    api = _bk_api([{"volid": _VALID_VOLID, "vmid": 102}])
+    p = plan_backup_delete(api, "local", _VALID_VOLID)
+    assert p.risk == RISK_HIGH
+    assert any(a["vmid"] == "102" and a["remaining"] == 0 for a in p.affected)
+    assert any("last" in line.lower() for line in p.blast_radius)
+
+
+def test_plan_backup_delete_siblings_remain_counted():
+    api = _bk_api([
+        {"volid": _VALID_VOLID, "vmid": 102},
+        {"volid": "local:backup/vzdump-lxc-102-2026_06_09.tar.zst", "vmid": 102},
+    ])
+    p = plan_backup_delete(api, "local", _VALID_VOLID)
+    assert any(a["vmid"] == "102" and a["remaining"] == 1 for a in p.affected)
+
+
+def test_plan_backup_delete_other_guests_backups_dont_count():
+    api = _bk_api([
+        {"volid": _VALID_VOLID, "vmid": 102},
+        {"volid": "local:backup/vzdump-lxc-999-2026_06_09.tar.zst", "vmid": 999},
+    ])
+    p = plan_backup_delete(api, "local", _VALID_VOLID)
+    assert any(a["vmid"] == "102" and a["remaining"] == 0 for a in p.affected)  # 999 is a different guest
+
+
+def test_plan_backup_delete_list_read_failure_is_incomplete():
+    from types import SimpleNamespace
+
+    def _get(path):
+        raise RuntimeError("content read failed")
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_get)
+    p = plan_backup_delete(api, "local", _VALID_VOLID)
+    assert p.complete is False
+    assert p.risk == RISK_HIGH

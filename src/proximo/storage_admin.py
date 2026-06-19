@@ -327,9 +327,11 @@ def plan_storage_update(
     shared: bool | None = None,
     delete: str | None = None,
 ) -> Plan:
-    """Preview updating an existing storage definition.  PURE — no API call.
+    """Preview updating an existing storage definition.
 
-    RISK_MEDIUM: changing nodes/disable can cut guests off from their disks.
+    Reads the cluster to NAME affected guests: `disable=True` cuts EVERY guest with a volume on this
+    storage (cluster-wide); restricting `nodes` strands only the guests on the EXCLUDED nodes.
+    RISK_MEDIUM floor: changing nodes/disable can cut guests off from their disks.
 
     Specifically: if disable=True is set, guests currently using volumes on this storage
     WILL LOSE ACCESS to their disks immediately — this includes running VMs and containers
@@ -370,19 +372,14 @@ def plan_storage_update(
             "may have crashed and need a restart — config reversal does not equal guest recovery"
         )
 
-    if nodes is not None:
-        base_blast.append(
-            f"changing 'nodes' to [{nodes}] — guests on excluded nodes lose access to "
-            "their disks on this storage"
-        )
-
     base_blast.append(
         "to undo: apply the inverse update (restore previous content/nodes/disable/shared values)"
     )
 
-    # Enrich the DISABLE case with the cluster-wide affected set (same primitive as delete):
-    # disabling cuts EVERY guest with a volume on this storage off from its disk. Compute the
-    # named impact and ESCALATE risk on uncertainty/only-copy — never lower it.
+    # NAME the affected guests, ESCALATE risk on uncertainty/only-copy (never lower it):
+    #   disable=True -> cluster-wide (every guest with a volume on this storage), same as delete.
+    #   nodes=...     -> only guests on the EXCLUDED nodes (those whose node leaves the allowed set).
+    # disable dominates when both are set (it cuts everyone regardless of nodes).
     summary_lines: list[str] = []
     affected: list[dict] = []
     risk = RISK_MEDIUM
@@ -394,6 +391,25 @@ def plan_storage_update(
         complete = result.complete
         if result.max_severity == "high":
             risk = _max_risk(RISK_MEDIUM, RISK_HIGH)
+    elif nodes is not None:
+        # new_nodes parse is string-only — it never reads guest data, so it cannot under-flag.
+        new_nodes = {n.strip() for n in str(nodes).split(",") if n.strip()}
+        if not new_nodes:
+            # PVE: an empty/omitted `nodes` value CLEARS the restriction → available on ALL nodes.
+            # That is a WIDENING (strands nobody) — do NOT read empty as "available nowhere" and cry
+            # wolf with maximal stranding. (Smoke-confirm nodes='' clears vs empties on your PVE.)
+            summary_lines = [
+                f"clears the node restriction on '{storage}' — PVE treats an empty/omitted 'nodes' "
+                "value as available on ALL nodes; this WIDENS availability and strands no guests"
+            ]
+        else:
+            guests, configs, gathered = blast.gather_storage_dependents(api, storage)
+            result = blast.compute_storage_nodes_blast(storage, new_nodes, guests, configs, gathered)
+            summary_lines = result.summary_lines
+            affected = result.affected_dicts()
+            complete = result.complete
+            if result.max_severity == "high":
+                risk = _max_risk(RISK_MEDIUM, RISK_HIGH)
 
     return Plan(
         action="pve_storage_update",

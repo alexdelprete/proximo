@@ -263,6 +263,77 @@ def storage_blast(api, storage: str) -> BlastResult:
     return compute_storage_blast(storage, guests, configs, complete)
 
 
+def compute_storage_nodes_blast(storage: str, new_nodes: set[str], guests: list[dict],
+                                configs: dict, complete: bool) -> BlastResult:
+    """PURE. Restricting storage `storage` to be available only on `new_nodes` STRANDS any guest that
+    has a data volume on `storage` AND sits on a node NOT in `new_nodes` (its node loses the storage).
+
+    Invariant: a guest on a node in `new_nodes` keeps access — so the only error direction is OVER-flag
+    (a guest already stranded by a prior misconfig), NEVER under-flag. Reuses `_classify_guest` (same
+    won't-boot/degraded/running classification as the delete class), adding only the node filter.
+    `complete=False` (partial enumeration) renders a loud INCOMPLETE marker, forces max_severity='high',
+    and appends an 'unknown' sentinel — uncertainty is never read as "nothing stranded = safe".
+
+    Scope: this is a PLAN-TIME residency check — it flags guests *currently* on an excluded node. It
+    does NOT model future placement (e.g. an HA guest that later fails over onto a now-excluded node);
+    that is a future-relocation effect, not immediate stranding. NOTE: an empty `new_nodes` here means
+    "available on NO node → strand everyone" (the literal math); mapping the PVE string ``nodes=""`` to
+    its real "clear restriction → all nodes" meaning is the caller's job (see `plan_storage_update`).
+    """
+    affected: list[BlastEntry] = []
+    for guest in guests:
+        config = configs.get(str(guest.get("vmid", "")))
+        if not isinstance(config, dict):
+            continue                                        # unread guest — reflected via `complete`
+        entry = _classify_guest(storage, guest, config)
+        if entry is not None and entry.node not in new_nodes:   # disk on S AND node excluded → stranded
+            affected.append(entry)
+    affected.sort(key=lambda e: (0 if e.severity == "high" else 1, e.vmid))
+
+    nodes_label = ", ".join(sorted(new_nodes)) if new_nodes else "(none)"
+    lines: list[str] = []
+    if not complete:
+        total = len(guests)
+        failed = sum(1 for g in guests if not isinstance(configs.get(str(g.get("vmid", ""))), dict))
+        miss = str(failed) if failed else "some"
+        lines.append(
+            f"⚠ INCOMPLETE: could not enumerate {miss} of {total} guests cluster-wide — "
+            "do NOT treat this list as exhaustive; absence of a guest here is not proof it is safe"
+        )
+    if affected:
+        lines.append(
+            f"restricting storage '{storage}' to nodes [{nodes_label}] STRANDS "
+            f"{len(affected)} guest(s) on excluded nodes from their disk(s):"
+        )
+        for e in affected:
+            label = e.resource + (f" ({e.name})" if e.name else "")
+            lines.append(f"  {label} on {e.node}: {e.effect}")
+    elif complete:
+        lines.append(
+            f"restricting storage '{storage}' to nodes [{nodes_label}] strands no guests — no "
+            "enumerated guest with a disk on this storage sits on an excluded node (absence here is "
+            "not proof of safety for orphaned/unreferenced volumes)"
+        )
+
+    if not complete:
+        max_severity = "high"                               # uncertainty is HIGH, never lowered
+    elif any(e.severity == "high" for e in affected):
+        max_severity = "high"
+    elif affected:
+        max_severity = "medium"
+    else:
+        max_severity = "none"
+
+    if not complete:
+        affected = affected + [BlastEntry(
+            resource="?", vmid="", name="", node="", via=[],
+            effect="enumeration incomplete — one or more guests could not be read",
+            only_copy=False, running=False, severity="unknown",
+        )]
+    return BlastResult(affected=affected, summary_lines=lines, complete=complete,
+                       max_severity=max_severity)
+
+
 # ===========================================================================
 # Access / ACL class — shadow/widen reasoning for an ACL grant/revoke.
 # ===========================================================================

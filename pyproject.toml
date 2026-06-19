@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "proximo-proxmox"
-version = "0.4.0"
+version = "0.5.0"
 description = "The ethical Proxmox MCP — REST API management + scoped in-container exec, behind clean native tools, least-privilege and audited."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -24,10 +24,12 @@ dependencies = [
 [project.optional-dependencies]
 # The A2A (Agent2Agent) face is OPTIONAL — the MCP core keeps zero extra deps.
 # Install with: pip install 'proximo[a2a]'  (adds the official a2a-sdk + an ASGI server).
-a2a = ["a2a-sdk>=1.1", "uvicorn>=0.30", "starlette>=0.37"]
+# a2a-sdk[signing] pulls PyJWT for the SIGNET card-signing helpers; cryptography is used directly
+# by proximo.a2a.signing — declared explicitly rather than relied on transitively.
+a2a = ["a2a-sdk[signing]>=1.1", "uvicorn>=0.30", "starlette>=0.37", "cryptography>=42"]
 dev = [
   "pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6", "pyright>=1.1",
-  "a2a-sdk>=1.1", "uvicorn>=0.30", "starlette>=0.37",  # so the A2A slice's tests run
+  "a2a-sdk[signing]>=1.1", "uvicorn>=0.30", "starlette>=0.37", "cryptography>=42",  # A2A slice + SIGNET tests
 ]
 
 [project.scripts]

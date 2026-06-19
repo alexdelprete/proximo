@@ -28,6 +28,8 @@ Endpoint-shape risks flagged throughout with "Smoke-confirm:" comments.
 from __future__ import annotations
 
 import re
+import time
+from collections.abc import Callable
 from urllib.parse import urlencode
 
 from .backends import ProximoError, _check_node, _check_upid
@@ -157,6 +159,54 @@ def task_log(
     qs = urlencode(params)
     # Raw UPID in path — colons are pchar-valid; do NOT url-encode.
     return api._get(f"/nodes/{n}/tasks/{upid}/log?{qs}") or []
+
+
+def wait_for_task(
+    fetch_status: Callable[[], dict],
+    *,
+    timeout: int = 120,
+    interval: int = 2,
+    sleep: Callable[[float], object] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> dict:
+    """Poll ``fetch_status()`` until the task is terminal (PVE ``status == "stopped"``) or ``timeout``
+    seconds elapse. Returns a structured result and NEVER raises on the task's own outcome — a failed
+    or timed-out task is a *result*, not an exception. (A genuine API error from ``fetch_status`` still
+    propagates.)
+
+    ``succeeded`` is fail-closed: a stopped task whose ``exitstatus`` is missing or != ``"OK"`` is NOT
+    a success — mirrors the internal ``_wait_task`` contract that guards the auto-undo path.
+    ``sleep``/``monotonic`` are injected so callers (and tests) control timing deterministically.
+    Bounding ``timeout``/``interval`` is the caller's responsibility — this primitive does not validate
+    them; the ``pve_task_wait`` tool clamps to [1, 600]s / [1, 60]s.
+
+    Returns ``{finished, succeeded, status, exitstatus, timed_out, polls}``.
+    """
+    deadline = monotonic() + timeout
+    polls = 0
+    while True:
+        st = fetch_status() or {}
+        polls += 1
+        if st.get("status") == "stopped":
+            exit_ = st.get("exitstatus")
+            return {
+                "finished": True,
+                "succeeded": exit_ == "OK",
+                "status": "stopped",
+                "exitstatus": exit_,
+                "timed_out": False,
+                "polls": polls,
+            }
+        if monotonic() >= deadline:
+            return {
+                "finished": False,
+                "succeeded": False,
+                "status": st.get("status"),
+                "exitstatus": st.get("exitstatus"),
+                "timed_out": True,
+                "polls": polls,
+            }
+        sleep(interval)
 
 
 def pools_list(api) -> list[dict]:

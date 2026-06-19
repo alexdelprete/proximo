@@ -31,3 +31,6 @@ audit.log
 
 # Lockfile (library — consumers resolve their own deps)
 uv.lock
+
+# Throwaway verification/smoke scratch (may hold local paths; never commit)
+.scratch/

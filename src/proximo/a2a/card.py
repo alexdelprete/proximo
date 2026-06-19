@@ -28,10 +28,18 @@ from a2a.utils.constants import PROTOCOL_VERSION_CURRENT, TransportProtocol
 
 from proximo import __version__ as _FALLBACK_VERSION
 
+from .signing import OperatorKey, sign_card
 from .skills import SKILLS
 
 
-def build_agent_card(rpc_url: str, version: str | None = None, *, secured: bool = False) -> AgentCard:
+def build_agent_card(
+    rpc_url: str,
+    version: str | None = None,
+    *,
+    secured: bool = False,
+    signing_key: OperatorKey | None = None,
+    jwks_url: str | None = None,
+) -> AgentCard:
     """Build the Proximo AgentCard for a given JSON-RPC endpoint URL.
 
     Args:
@@ -88,5 +96,9 @@ def build_agent_card(rpc_url: str, version: str | None = None, *, secured: bool 
         req = SecurityRequirement()
         _ = req.schemes["bearerAuth"]  # auto-creates an empty StringList (no scopes)
         card.security_requirements.append(req)
+
+    if signing_key is not None:
+        # SIGNET: press the operator's ES256 seal onto the card (jku → the served JWKS).
+        sign_card(card, signing_key, jku=jwks_url)
 
     return card

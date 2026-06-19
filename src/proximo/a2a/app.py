@@ -30,14 +30,18 @@ from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from .card import build_agent_card
 from .executor import ProximoAgentExecutor
+from .signing import OperatorKey, jwks, load_operator_key
 
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 41241
 _LOCALHOST_ADDRS = frozenset({"127.0.0.1", "localhost", "::1"})
 _TOKEN_FILE_ENV = "PROXIMO_A2A_TOKEN_FILE"  # noqa: S105 -- env var NAME, not a secret value
+_SIGNING_KEY_ENV = "PROXIMO_A2A_SIGNING_KEY_FILE"  # noqa: S105 -- env var NAME, not a secret value
+_JWKS_PATH = "/.well-known/jwks.json"
 
 
 def _is_public(host: str | None) -> bool:
@@ -70,6 +74,28 @@ def _load_a2a_token() -> str | None:
     if not token:
         raise RuntimeError(f"{_TOKEN_FILE_ENV}={path!r} is empty — refusing to serve with a blank token.")
     return token
+
+
+def _load_signing_key() -> OperatorKey | None:
+    """Load the operator's A2A signing key from ``PROXIMO_A2A_SIGNING_KEY_FILE`` (by path).
+
+    Returns None when the env var is unset (the card is served unsigned — opt-in). Fails LOUD
+    (RuntimeError) if the var is set but the key is missing/unreadable or not an EC P-256 key —
+    never silently serve unsigned when signing was intended.
+    """
+    path = os.environ.get(_SIGNING_KEY_ENV)
+    if not path:
+        return None
+    try:
+        return load_operator_key(path)
+    except (OSError, ValueError) as e:
+        raise RuntimeError(f"{_SIGNING_KEY_ENV}={path!r} could not be loaded: {e}") from e
+
+
+def _jwks_url(rpc_url: str) -> str:
+    """Absolute URL of the JWKS endpoint (root ``/.well-known/jwks.json``) for the signature's jku."""
+    p = urlparse(rpc_url)
+    return f"{p.scheme}://{p.netloc}{_JWKS_PATH}"
 
 
 def _require_auth_for_public(host: str | None, token: str | None, *, where: str) -> None:
@@ -113,7 +139,8 @@ class _BearerAuthMiddleware(BaseHTTPMiddleware):
 
 
 def build_app(rpc_url: str | None = None, *, token: str | None = None,
-              allowed_hosts: list[str] | None = None) -> Starlette:
+              allowed_hosts: list[str] | None = None,
+              signing_key: OperatorKey | None = None) -> Starlette:
     """Build the Proximo A2A ASGI application.
 
     Args:
@@ -134,7 +161,8 @@ def build_app(rpc_url: str | None = None, *, token: str | None = None,
     _require_auth_for_public(urlparse(rpc_url).hostname, token, where="advertised URL")
 
     rpc_path = urlparse(rpc_url).path or "/"
-    card = build_agent_card(rpc_url, secured=bool(token))
+    jwks_url = _jwks_url(rpc_url) if signing_key is not None else None
+    card = build_agent_card(rpc_url, secured=bool(token), signing_key=signing_key, jwks_url=jwks_url)
 
     handler = DefaultRequestHandler(
         agent_executor=ProximoAgentExecutor(),
@@ -145,6 +173,13 @@ def build_app(rpc_url: str | None = None, *, token: str | None = None,
         create_jsonrpc_routes(request_handler=handler, rpc_url=rpc_path)
         + create_agent_card_routes(agent_card=card)
     )
+    if signing_key is not None:
+        # Publish the operator's public key so A2A clients can verify the seal (jku target).
+        # Stays OUTSIDE the bearer guard — like the card, discovery must be readable pre-auth.
+        async def _serve_jwks(_request):
+            return JSONResponse(jwks(signing_key))
+
+        routes = [*routes, Route(_JWKS_PATH, _serve_jwks, methods=["GET"])]
 
     # When auth is on (i.e. an exposed deployment), harden the perimeter: validate the Host header
     # (DNS-rebind defense, OUTERMOST so a bad host is refused before anything) then require the bearer.
@@ -179,5 +214,10 @@ def main() -> None:
     allowed = os.environ.get("PROXIMO_A2A_ALLOWED_HOSTS", "")
     allowed_hosts = [h.strip() for h in allowed.split(",") if h.strip()] or None
 
-    app = build_app(f"http://{host}:{port}/", token=token, allowed_hosts=allowed_hosts)
+    app = build_app(
+        f"http://{host}:{port}/",
+        token=token,
+        allowed_hosts=allowed_hosts,
+        signing_key=_load_signing_key(),
+    )
     uvicorn.run(app, host=host, port=port)

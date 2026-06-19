@@ -312,6 +312,7 @@ from .tasks_pools import (
     task_log,
     task_stop,
     tasks_list,
+    wait_for_task,
 )
 
 BANNER = (
@@ -2039,6 +2040,31 @@ def pve_task_log(upid: str, node: str | None = None, start: int = 0,
     """Retrieve the log lines for a task (read)."""
     cfg, api, _, _ = _svc()
     return _audited("pve_task_log", upid, lambda: task_log(api, upid, node, start, limit))
+
+
+@mcp.tool()
+def pve_task_wait(upid: str, node: str | None = None, timeout: int = 120,
+                  interval: int = 2) -> dict:
+    """Block until an async Proxmox task reaches a terminal state — or the timeout — then report the
+    outcome (read). The ergonomic complement to the submit-an-async-op tools (migrate / backup /
+    restore / clone / rollback / snapshot + guest create) that return a UPID: wait for completion
+    without hand-rolling a pve_task_status poll loop.
+
+    Returns {upid, finished, succeeded, status, exitstatus, timed_out, polls}. `succeeded` is
+    fail-closed (finished AND exitstatus == "OK"); a failed or timed-out task is reported, not raised.
+    timeout is clamped 1..600s, interval 1..60s. Use pve_task_log for the full log.
+
+    (Proximo's native UPID model — NOT the MCP Tasks protocol, which was removed from the spec.)"""
+    _, api, _, _ = _svc()
+    t = max(1, min(int(timeout), 600))
+    iv = max(1, min(int(interval), 60))
+
+    def _do() -> dict:
+        r = wait_for_task(lambda: api.task_status(upid, node), timeout=t, interval=iv)
+        r["upid"] = upid
+        return r
+
+    return _audited("pve_task_wait", upid, _do)
 
 
 @mcp.tool()

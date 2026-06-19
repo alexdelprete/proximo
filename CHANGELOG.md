@@ -4,6 +4,34 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-06-19
+
+Three additive features — A2A **signed agent cards** (SIGNET), a native **async-task wait** tool, and a
+fifth computed blast-radius op-class (**storage nodes-restrict**). Backward-compatible. Tool surface
+**144 → 145** (one new read tool); each built test-first and adversarially redteamed.
+
+### Added
+- **Signed A2A agent cards (SIGNET).** Opt-in ES256/JWS signatures over the A2A AgentCard (via the
+  a2a-sdk signing helpers, RFC 8785 canonicalization), with the operator public key published as a JWKS
+  at `GET /.well-known/jwks.json` (`kid` = RFC 7638 thumbprint; `jku` set). `alg` is pinned to ES256 on
+  both signer and verifier — the HS256 algorithm-confusion class is structurally refused. Enable with
+  `PROXIMO_A2A_SIGNING_KEY_FILE` (EC P-256 PEM); absent → unsigned card (backward-compatible). Ships
+  `verifier_for_jwk`, the client-side pinned verifier — it binds to an out-of-band-pinned key and
+  ignores card-supplied `kid`/`jku`, so a MITM cannot substitute their own key. Adds `a2a-sdk[signing]`
+  + `cryptography` to the `[a2a]` extra.
+- **`pve_task_wait`** — block until an async Proxmox task (migrate / backup / restore / clone /
+  rollback / snapshot + guest create) reaches a terminal state or a timeout, returning a structured
+  `{upid, finished, succeeded, status, exitstatus, timed_out, polls}` (read-only; `succeeded` is fail-closed
+  = stopped AND `exitstatus == "OK"`; timeout clamped 1–600 s, interval 1–60 s). Saves clients
+  hand-rolling a `pve_task_status` poll loop. (Proximo's native UPID model — NOT the MCP Tasks protocol,
+  which was removed from the spec.)
+- **Blast-radius op-class #5 — storage nodes-restrict.** `pve_storage_update` with a restricted `nodes`
+  list now NAMES the guests it would strand (those on an excluded node with a disk on the storage —
+  won't-boot / degraded / live-crash), mirroring the storage-delete class and reusing its honesty
+  contract (incomplete enumeration → loud, HIGH, never "safe"). `nodes=""` is correctly read as PVE's
+  "clear restriction → all nodes" widening (strands nobody), not maximal stranding. Enriches the
+  existing dry-run preview; adds no tool.
+
 ## [0.4.0] — 2026-06-16
 
 A fourth computed blast-radius op-class — **guest-destroy** — on `pve_delete_guest`. Additive and

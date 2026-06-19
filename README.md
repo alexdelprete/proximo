@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](./pyproject.toml)
 
-> **The ethical Proxmox MCP.** API management *and* scoped in-container execution — behind clean, native tools, least-privilege by default, every action audited.
+> **The ethical Proxmox MCP.** API management *and* scoped in-container execution — behind clean, native tools: exec off by default, bounded by the token you scope, every action audited.
 
 *Named for Proximo, the lanista in* Gladiator *who equips the fighter and gives him his shot at freedom — Proximo hands the operator the means to act on the machine, no more than needed, accountable for every move.*
 
@@ -38,7 +38,7 @@ Two backends behind one tool surface:
 
 ## Principles (the mantra, baked in — not bolted on)
 
-- **Ethical** — least-privilege by default, every action audited, mutations confirm-gated, secrets never read or logged.
+- **Ethical** — least-privilege posture (exec off by default; bounded by the token you scope), every action audited, mutations confirm-gated, the PVE token never read or logged.
 - **Solid** — real tests (unit + a live smoke against a throwaway CTID), typed, documented, no silent failures.
 - **Strong** — does the hard thing (container exec) cleanly and least-privileged (fail-closed CTID allowlist, opt-in). *(Container exec isn't unique — the field leader has it too; the differentiator is the trust layer below, not the exec.)*
 - **Passion + craft** — redteamed and linted before it's called done; shipped proud — docs, license, community-ready.
@@ -94,15 +94,17 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 🩸 **0.4.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
 All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **144 MCP tools. 2276 tests,
-0 skipped, ruff + pyright clean** — CI runs the full suite on GitHub's own runners. (0.4.0 rolls up everything
+0 skipped, ruff + pyright clean** — these are **mock/in-process** (4.5s, no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (0.4.0 rolls up everything
 since public 0.2.0: the full **computed blast-radius engine** — storage · access/ACL · firewall · guest-destroy
 — plus the `pve_doctor` onboarding preflight.)
 
 **Proven against real Proxmox** (not mocks):
 - The trust spine end-to-end, the core provisioning/config mutate cycle, and PBS read shapes.
-- The **governance/dangerous plane** — identity (roles/groups/users/ACLs), storage, SDN apply,
-  network-interface apply, realm create (LDAP/AD/OpenID via an `options` dict) — full
-  create→read→delete cycles against a real **PVE 9.2** API, PROVE ledger verified throughout.
+- The **governance/dangerous plane** — identity (roles/groups/users/ACLs), storage, **SDN pending
+  objects** (zone/vnet/subnet create→read→delete), realm create (LDAP/AD/OpenID via an `options`
+  dict) — full create→read→delete cycles against a real **PVE 9.2** API, PROVE ledger verified
+  throughout. **(SDN/network *apply* — the host-network reload — is deliberately never fired live;
+  it carries unrecoverable risk.)**
 - The **0.2.0 object planes** — firewall objects (aliases/IP-sets/security-groups/options), HA
   **rules** (the PVE 9 replacement for HA groups), and SDN zones/VNets/subnets (pending, pre-apply) —
   create→read→delete live-proven against a real **PVE 9.2** node; TFA admin reads proven (TFA

@@ -10,6 +10,9 @@ Three additive features — A2A **signed agent cards** (SIGNET), a native **asyn
 fifth computed blast-radius op-class (**storage nodes-restrict**). Backward-compatible. Tool surface
 **144 → 145** (one new read tool); each built test-first and adversarially redteamed.
 
+**Released 2026-06-19** — published on PyPI (`proximo-proxmox`), GitHub (Release `v0.5.0`), and GHCR
+(signed multi-arch image).
+
 ### Added
 - **Signed A2A agent cards (SIGNET).** Opt-in ES256/JWS signatures over the A2A AgentCard (via the
   a2a-sdk signing helpers, RFC 8785 canonicalization), with the operator public key published as a JWKS

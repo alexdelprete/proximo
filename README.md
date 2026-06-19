@@ -45,8 +45,8 @@ Two backends behind one tool surface:
 
 ## Install & run
 
-> 📦 **`0.4.0` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.4.0) (CI green), and
+> 📦 **`0.5.0` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.5.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
@@ -92,11 +92,10 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 ## Status — the arena record
 
-🩸 **0.4.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **144 MCP tools. 2276 tests,
-0 skipped, ruff + pyright clean** — these are **mock/in-process** (4.5s, no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (0.4.0 rolls up everything
-since public 0.2.0: the full **computed blast-radius engine** — storage · access/ACL · firewall · guest-destroy
-— plus the `pve_doctor` onboarding preflight.)
+🩸 **0.5.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2308 tests,
+0 skipped, ruff + pyright clean** — these are **mock/in-process** (4.5s, no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (0.5.0 adds **signed A2A agent cards**, a native **async-task wait**, and a 5th blast-radius op-class —
+storage **nodes-restrict** — atop the 0.4.0 computed blast-radius engine + `pve_doctor` onboarding preflight.)
 
 **Proven against real Proxmox** (not mocks):
 - The trust spine end-to-end, the core provisioning/config mutate cycle, and PBS read shapes.
@@ -112,7 +111,7 @@ since public 0.2.0: the full **computed blast-radius engine** — storage · acc
 - **Offline guest migration** (including local-disk) and the **HA-config** lifecycle on a 3-node PVE 9.2 test cluster.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
-**Not yet proven — said plainly:** most of the 144-tool surface still runs against mocks; real HA
+**Not yet proven — said plainly:** most of the 145-tool surface still runs against mocks; real HA
 *fencing* (needs a hardware watchdog), *online* live-migration (needs shared storage), and behavior at
 production scale. The full, unflattering field comparison lives in [`LANDSCAPE.md`](./LANDSCAPE.md).
 
@@ -125,7 +124,7 @@ tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor is the s
 
 ### What's next
 - [x] **PyPI** — `proximo-proxmox` published 2026-06-10; `uvx proximo-proxmox` works
-- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.4.0` / `latest`) via a release Action
+- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.5.0` / `latest`) via a release Action
 - [x] Firewall objects · HA rules · SDN object CRUD — live-proven on PVE 9.2 (0.2.0)
 - [ ] Live smoke of the remaining surface (PBS-mutate); HA fencing + online migration when the hardware exists
 - [ ] PBS certificate-fingerprint wire-enforcement

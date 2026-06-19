@@ -10,7 +10,7 @@
 
 ## Where Proximo honestly stands
 
-Proximo is a **late entrant** in a contested lane — v0.4.0, public on GitHub since 2026-06-10,
+Proximo is a **late entrant** in a contested lane — v0.5.0, public on GitHub since 2026-06-10,
 on PyPI as `proximo-proxmox` and on GHCR (signed multi-arch image), zero adoption so far. The trust spine (PLAN/UNDO/PROVE) and the core VM/snapshot/backup lifecycle have been
 live-proven against real Proxmox hosts (a single node plus a nested 3-node test cluster — not production scale). The broad *governance* plane has now been **live-proven to execute**
 against a real PVE 9.2 API, including on a nested 3-node test cluster: identity (role/group/user/ACL),
@@ -19,7 +19,7 @@ cycle with PROVE ledger verified throughout; plus offline guest migration (inclu
 HA-config (resource add/list/remove) on the test cluster.
 
 Still plainly unproven: real HA **fencing** (hardware watchdog), **online** live-migration (shared
-storage), and production scale. A significant portion of the remaining ~144 MCP tools — the non-governance
+storage), and production scale. A significant portion of the remaining ~145 MCP tools — the non-governance
 lifecycle surface — continues to run against mocks only. The proof is materially farther along; it is not
 complete.
 
@@ -68,7 +68,7 @@ week RekklesNA ships a flag. The durable thesis is the part that **cannot be ret
    *Honesty:* the identity/storage/SDN/network/realm surface and offline migration + HA-config have been
    **live-proven to execute** against a real PVE 9.2 API (including a nested 3-node test cluster), with PROVE
    verified throughout. Still unproven at live scale: real HA fencing (hardware watchdog), online
-   live-migration (shared storage), and production load. A portion of the broader ~144-tool surface still
+   live-migration (shared storage), and production load. A portion of the broader ~145-tool surface still
    runs against mocks. The thesis is sound and the execution is confirmed on the differentiating plane; the
    remaining proof is lifecycle breadth and production scale (see Honest risks).
 3. **Auto-UNDO.** Fail-closed snapshot-before-mutate (waited-on) + one-call revert. proxxx *previews* a
@@ -149,7 +149,7 @@ bearer auth on the control endpoint, and `PROXIMO_A2A_ALLOWED_HOSTS` Host/DNS-re
   before any public statement.
 - **Bolt-on risk.** A shallow trust feature from the leader is plausible; the defense is depth + coverage +
   by-construction (the moat above), never feature-novelty.
-- **Still v0.4.0, brand-new public, zero adoption.** On GitHub + PyPI (`proximo-proxmox`) + GHCR (signed image) — all three live. No
+- **Still v0.5.0, brand-new public, zero adoption.** On GitHub + PyPI (`proximo-proxmox`) + GHCR (signed image) — all three live. No
   "the only one" / "the best" claims until they are true *and* live.
 
 ## The one-liner

@@ -21,7 +21,7 @@
 1. **MCP (AI-native) — contested; Proximo is not first.** Two ~250★ leaders (**canvrno** ~261★, read-only
    "safe inspector" with ~6 tools; **RekklesNA/ProxmoxMCP-Plus** ~241★, the active governance leader), a
    long <50★ tail, and one real *trust* peer (**proxxx**). **Raw tool-count is not a moat:**
-   `chajus1/proxmox-mcp-enhanced` already claims **115 tools** — now fewer than Proximo's 144, though a
+   `chajus1/proxmox-mcp-enhanced` already claims **115 tools** — now fewer than Proximo's 145, though a
    raw count says nothing about whether the tools are proven (a significant portion of Proximo's lifecycle
    surface still runs against mocks — see *Where Proximo stands*).
 2. **A2A (agent-to-agent) — greenfield for Proxmox.** No dedicated open A2A agent-card/server for Proxmox
@@ -139,7 +139,7 @@ coverage of the governance plane — not "has an audit log."
 
 ## Where Proximo honestly stands (no spin, no shrink)
 
-- **Popularity:** zero (just-published — v0.4.0 on PyPI/GitHub/GHCR, zero public stars). MCP leaders
+- **Popularity:** zero (just-published — v0.5.0 on PyPI/GitHub/GHCR, zero public stars). MCP leaders
   ~250★; IaC leaders ~2–3k★.
 - **"First":** no. **"Most tools":** no (chajus1 ≈115). **"Only one with trust":** no (proxxx: risk-gate +
   keyed audit chain + HITL; RekklesNA: command_policy + approval-token).
@@ -157,7 +157,7 @@ coverage of the governance plane — not "has an audit log."
 - **A2A face perimeter-parity closed:** fail-closed public bind, bearer auth on the control endpoint,
   `PROXIMO_A2A_ALLOWED_HOSTS` Host/DNS-rebind allowlist — previously warn-only. Matches the leader's
   perimeter posture.
-- **Maturity, stated straight:** v0.4.0, just-published (PyPI/GitHub/GHCR); a significant portion of the broader ~144-tool
+- **Maturity, stated straight:** v0.5.0, just-published (PyPI/GitHub/GHCR); a significant portion of the broader ~145-tool
   lifecycle surface still runs against mocks; MCP face is local stdio (no network bind); perimeter
   hardening for MCP becomes required the day a remote transport is added. The differentiation above is now
   execution-confirmed on the governance plane; lifecycle breadth and production scale remain to prove.

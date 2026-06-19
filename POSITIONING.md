@@ -4,7 +4,12 @@
 > [`LANDSCAPE.md`](./LANDSCAPE.md); the earlier "uncontested / 3-0 / only one with trust" framing was
 > wrong and has been removed, not annotated). **Refreshed 2026-06-10** (governance/dangerous plane
 > live-proven to execute; A2A perimeter parity closed; competitor numbers re-verified).
-> Competitive claims are **as of 2026-06-10**, source-read from the repos (not READMEs alone). The MCP
+> **Refreshed 2026-06-19** (field re-verified at source: OWASP **MCP08 "Lack of Audit and Telemetry"** +
+> the MCP security-guidance "blast radius" / "irrecoverable data loss on the host" phrasing re-confirmed
+> verbatim; **proxxx corrected** — it now ships a *lifecycle-only* 25-tool MCP surface (`src/mcp/tools.rs`),
+> its governance/state plane and audit-verify staying in the CLI/TUI, off the agent surface. Competitor
+> **star counts are left at the 2026-06-10 survey** — a deliberate number-refresh is a separate pass).
+> Competitive claims re-verified **as of 2026-06-19** (prior full survey 2026-06-10), source-read from the repos (not READMEs alone). The MCP
 > leaders ship ~weekly — **re-verify every competitive claim before any public Proximo claim.**
 > No manufactured foils: where Proximo loses, is unproven, or is merely late, this says so.
 
@@ -35,7 +40,7 @@ The Proxmox-MCP lane is contested, with four distinct archetypes plus two cross-
 |---|---|---|
 | **Safe inspector** (most-starred) | canvrno/ProxmoxMCP (~261★, ~6 tools) | Read-mostly "safe inspector." Popular *because* it doesn't hold the knives — the market already votes for caution. |
 | **Governance leader** (most active) | RekklesNA/ProxmoxMCP-Plus (~241★, ~42 tools, v0.5.8) | Genuine gating: `command_policy`, `approval_token`, TLS, DNS-rebind, job tracking. **But permissive by default** (`high_risk_mode=audit_only`, approval off) and **no dry-run / no auto-rollback / no blast-radius / no firewall·SDN·ACL·HA modules.** |
-| **Trust peer** (respect it) | fabriziosalmi/proxxx (~15★, Rust cockpit, v0.8.4) | The real trust peer: pre-flight **risk gate (PLAN-ish)**, **HMAC-keyed, offline-verifiable audit chain** (arguably stronger than Proximo's *default-unkeyed* one), **Telegram HITL**. **But no auto-UNDO** (rollback *preview* only), and its firewall/SDN/ACL/PBS-writes live in the **human TUI, not the MCP surface** an agent drives. |
+| **Trust peer** (respect it) | fabriziosalmi/proxxx (~15★, Rust cockpit, v0.8.4) | The real trust peer: pre-flight **risk gate (PLAN-ish)**, **HMAC-keyed, offline-verifiable audit chain** (arguably stronger than Proximo's *default-unkeyed* one), **Telegram HITL**. **But no auto-UNDO** (no auto-snapshot-before-mutate — it doesn't take the snapshot for you). proxxx now ships a **25-tool MCP surface, but it's lifecycle/inventory-only** (`src/mcp/tools.rs`, verified 2026-06-19) — its firewall/SDN/ACL/PBS-writes, GitOps state engine, and audit-verify stay in the **CLI/TUI, off the surface an agent drives.** |
 | **Breadth rival** | chajus1/proxmox-mcp-enhanced (~115 tools) | Claims to cover "every aspect." Trust layer unverified/absent — but it **kills any "most complete by count" pitch. Count is not a moat.** |
 
 Two cross-cuts decide framing:
@@ -64,7 +69,7 @@ week RekklesNA ships a flag. The durable thesis is the part that **cannot be ret
    foundation first, then the tools on top of it.
 2. **The governance plane on the MCP surface.** Firewall · SDN/network · cluster-HA/migration ·
    ACL/users/roles/realms · PBS — exposed *to the agent*, every op PLAN+UNDO+PROVE. RekklesNA has no module
-   for it; proxxx keeps it in the human TUI; the gateways can't reach it. This is the empty intersection.
+   for it; proxxx keeps it in its CLI/TUI, off its lifecycle-only MCP surface; the gateways can't reach it. This is the empty intersection.
    *Honesty:* the identity/storage/SDN/network/realm surface and offline migration + HA-config have been
    **live-proven to execute** against a real PVE 9.2 API (including a nested 3-node test cluster), with PROVE
    verified throughout. Still unproven at live scale: real HA fencing (hardware watchdog), online

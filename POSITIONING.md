@@ -10,7 +10,7 @@
 
 ## Where Proximo honestly stands
 
-Proximo is a **late entrant** in a contested lane — v0.5.0, public on GitHub since 2026-06-10,
+Proximo is a **late entrant** in a contested lane — v0.6.0, public on GitHub since 2026-06-10,
 on PyPI as `proximo-proxmox` and on GHCR (signed multi-arch image), zero adoption so far. The trust spine (PLAN/UNDO/PROVE) and the core VM/snapshot/backup lifecycle have been
 live-proven against real Proxmox hosts (a single node plus a nested 3-node test cluster — not production scale). The broad *governance* plane has now been **live-proven to execute**
 against a real PVE 9.2 API, including on a nested 3-node test cluster: identity (role/group/user/ACL),
@@ -149,7 +149,7 @@ bearer auth on the control endpoint, and `PROXIMO_A2A_ALLOWED_HOSTS` Host/DNS-re
   before any public statement.
 - **Bolt-on risk.** A shallow trust feature from the leader is plausible; the defense is depth + coverage +
   by-construction (the moat above), never feature-novelty.
-- **Still v0.5.0, brand-new public, zero adoption.** On GitHub + PyPI (`proximo-proxmox`) + GHCR (signed image) — all three live. No
+- **Still v0.6.0, brand-new public, zero adoption.** On GitHub + PyPI (`proximo-proxmox`) + GHCR (signed image) — all three live. No
   "the only one" / "the best" claims until they are true *and* live.
 
 ## The one-liner

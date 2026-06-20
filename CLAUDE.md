@@ -38,6 +38,8 @@ Four pillars: **PLAN** (dry-run preview before any mutation — you can't mutate
 ## Release / publish posture
 
 - PUBLIC on PyPI (`proximo-proxmox` — bare `proximo` is reserved), GitHub, GHCR (signed multi-arch image). Command/import stay `proximo`.
-- **PyPI publish is manual (`uv publish`) — no publish workflow.** The GitHub `main` branch uses a curated/squashed history; confirm the release method before pushing, and never force-push.
+- **PyPI publish is tokenless** via GitHub Actions OIDC Trusted Publishing (`.github/workflows/release-pypi.yml`), gated behind the `pypi` environment's required-reviewer rule — the publish job pauses for human approval. Cut a release: `scripts/release.sh X.Y.Z` (single-sources the version + runs the drift gate) → write the CHANGELOG entry → commit + tag `vX.Y.Z` → push → `gh release create` → approve the paused job. No API token in the release path (the old manual `uv publish` is retired).
+- **Drift gate:** the `version-consistency` CI job + `scripts/version_tools.py` fail the build if `pyproject` / `__init__` / git tag / CHANGELOG disagree (`release-check` enforces the full set at release time).
+- **GitHub `main` uses a curated/squashed history:** publish via `git commit-tree` parented on `github/main`, **fast-forward only, never force-push**. Full per-commit history lives on the internal gitea mirror. ⚠️ Remotes are inverted: `origin` = internal gitea, `github` = PUBLIC.
 - **Honest semver:** pre-1.0 stays `0.x`. The version means maturity, bumped intentionally — never a per-deploy counter. Deploy identity = git SHA.
 - Before any public push: leak-audit the diff (no secrets / IPs / internal paths), and confirm the version, CHANGELOG, and any claimed counts are accurate.

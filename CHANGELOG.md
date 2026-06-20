@@ -4,6 +4,26 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-06-20
+
+**Release-process & CI hardening.** No functional changes to the shipped package — the
+`proximo` runtime code is identical to 0.6.0; this release brings the repository's release
+and security tooling up to standard (and is the first release published via the new
+tokenless pipeline).
+
+### Added
+- **Drift-proof releases.** `scripts/version_tools.py` (single source of truth for the
+  version) + `scripts/release.sh` (one-command bump + local gate), plus a
+  `version-consistency` CI check that fails the build if `pyproject.toml`,
+  `src/proximo/__init__.py`, the git tag, and the CHANGELOG ever disagree.
+- **Security CI.** gitleaks (secret scanning), pip-audit (dependency CVEs), CodeQL code
+  scanning, and Dependabot (GitHub Actions + pip + security updates).
+- **Tokenless PyPI publishing** via OIDC Trusted Publishing, gated behind a manual-approval
+  environment — no API token in the release path.
+
+### Changed
+- Hardened the MCP tool-count guard (145) against silently-shadowed tools.
+
 ## [0.6.0] — 2026-06-19
 
 **Blast-radius coverage push.** Extends the computed blast-radius engine across the destructive tool

@@ -54,12 +54,15 @@ def _api(node: str = "pve"):
 
 
 class _ListApi:
-    """Fake api for plan_create / plan_clone: supplies list_guests + config.node."""
+    """Fake api for plan_create / plan_clone: supplies list_guests + config.node (+ optional source
+    guest config for the SDN-bridge disclosure)."""
 
-    def __init__(self, guests: list[dict], node: str = "pve", raise_on_list: bool = False):
+    def __init__(self, guests: list[dict], node: str = "pve", raise_on_list: bool = False,
+                 vm_config: dict | None = None):
         self._guests = guests
         self.config = SimpleNamespace(node=node)
         self._raise = raise_on_list
+        self._vm_config = vm_config
         self.list_calls: list = []
 
     def list_guests(self, node=None):
@@ -67,6 +70,10 @@ class _ListApi:
         if self._raise:
             raise RuntimeError("api unavailable")
         return self._guests
+
+    def _get(self, path):
+        # plan_clone reads the source guest config to disclose its NIC bridges; other paths -> {}.
+        return (self._vm_config or {}) if path.endswith("/config") else {}
 
 
 class _StatusApi:
@@ -243,6 +250,28 @@ def test_clone_guest_uses_config_node_when_none():
     api = _api(node="nodeA")
     clone_guest(api, "200", "201")
     assert "/nodes/nodeA/" in api.seen["path"]
+
+
+def test_clone_guest_storage_sent_when_provided_with_full():
+    api = _api()
+    clone_guest(api, "200", "201", full=True, storage="test")
+    assert api.seen["data"]["storage"] == "test"
+    assert api.seen["data"]["full"] == 1
+
+
+def test_clone_guest_storage_absent_when_not_provided():
+    api = _api()
+    clone_guest(api, "200", "201", full=True)
+    assert "storage" not in api.seen["data"]
+
+
+def test_clone_guest_storage_requires_full_clone():
+    # PVE only honors a target storage for a FULL clone — a linked clone must stay on the source
+    # storage. Refuse loudly rather than send a request PVE will reject confusingly.
+    api = _api()
+    with pytest.raises(ProximoError):
+        clone_guest(api, "200", "201", full=False, storage="test")
+    assert api.seen == {}  # nothing was sent
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +527,27 @@ def test_plan_clone_discloses_unavailable_check():
     p = plan_clone(api, "200", "201")
     text = " ".join(p.blast_radius + p.risk_reasons).lower()
     assert "could not confirm" in text or "unavailable" in text or "collision check" in text
+
+
+def test_plan_clone_discloses_target_storage():
+    api = _ListApi([{"vmid": 200}])  # source exists, newid 201 free
+    p = plan_clone(api, "200", "201", storage="targetstore")
+    assert any("targetstore" in b for b in p.blast_radius)
+
+
+def test_plan_clone_discloses_sdn_bridge_requirement():
+    # PVE 8 requires SDN.Use on the bridge to clone a guest carrying a NIC — the plan should say so.
+    api = _ListApi([{"vmid": 200}],
+                   vm_config={"net0": "virtio=AA:BB:CC,bridge=vmbr0", "scsi0": "local:vm-200-disk-0,size=8G"})
+    p = plan_clone(api, "200", "201")
+    text = " ".join(p.blast_radius)
+    assert "vmbr0" in text and "SDN.Use" in text
+
+
+def test_plan_clone_no_nic_no_sdn_disclosure():
+    api = _ListApi([{"vmid": 200}], vm_config={"scsi0": "local:vm-200-disk-0,size=8G"})  # no net*
+    p = plan_clone(api, "200", "201")
+    assert not any("SDN.Use" in b for b in p.blast_radius)
 
 
 def test_plan_clone_rejects_nonnumeric_vmid():

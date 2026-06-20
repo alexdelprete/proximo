@@ -23,7 +23,9 @@ Keyed mode (opt-in, set ``PROXIMO_AUDIT_KEY_PATH``):
 Tamper-EVIDENT, not tamper-PROOF: anyone with write access (and, in keyed mode, the key) can rewrite the
 chain from a point forward. Detection is the guarantee, not prevention.
 
-Secrets are never written here — callers pass only non-sensitive detail.
+The PVE API token is never written here. Callers pass non-sensitive detail, with ONE documented
+exception: ``ct_psql`` records the SQL body and ``ct_exec`` the command argv it runs (the operator's own
+input, on a 0600 log) — set ``PROXIMO_LEDGER_REDACT=1`` for a fingerprint (sha256 + kind + length) instead.
 """
 
 from __future__ import annotations

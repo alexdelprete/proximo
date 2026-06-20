@@ -123,6 +123,9 @@ there is no second code path to bypass). Fail-closed perimeter: non-localhost bi
 bearer token (`PROXIMO_A2A_TOKEN_FILE`); Host-header allowlist defends against DNS rebinding. Ledger note:
 an opt-in HMAC-keyed chain is available (`PROXIMO_AUDIT_KEY_PATH`); the default is unkeyed —
 tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor is the strong guarantee either way.
+`ct_psql` records the SQL body and `ct_exec` the command argv it runs (the operator's own input) for a
+complete audit trail; set `PROXIMO_LEDGER_REDACT=1` to record a fingerprint (sha256 + kind + length)
+instead, when the SQL/command may carry secrets/PII. The PVE API token is never written to the ledger.
 
 ### What's next
 - [x] **PyPI** — `proximo-proxmox` published 2026-06-10; `uvx proximo-proxmox` works

@@ -166,7 +166,12 @@ def _classify_guest(storage: str, guest: dict, config: dict) -> BlastEntry | Non
     boot = _boot_slot(config, kind)
     boot_on_s = boot is not None and slots.get(boot) == storage
     boot_critical_on_s = sorted(_BOOT_CRITICAL.intersection(on_s))
-    wont_boot = only_copy or boot_on_s or bool(boot_critical_on_s)
+    # Boot disk indeterminable AND we lose disk(s) on S that are neither the only copy nor a
+    # boot-critical slot: one of the lost disks MAY itself be the boot disk, so we cannot promise
+    # the guest still boots. Over-flag as won't-boot rather than under-flag (the engine's doctrine)
+    # — never falsely claim "boot disk is elsewhere" when we cannot see where it is.
+    boot_indeterminate = boot is None and not only_copy and not boot_critical_on_s
+    wont_boot = only_copy or boot_on_s or bool(boot_critical_on_s) or boot_indeterminate
 
     if only_copy:
         effect = f"will NOT boot — all data disks ({', '.join(on_s)}) are on this storage"
@@ -175,10 +180,11 @@ def _classify_guest(storage: str, guest: dict, config: dict) -> BlastEntry | Non
     elif boot_critical_on_s:
         effect = (f"will NOT boot — loses UEFI/TPM state ({', '.join(boot_critical_on_s)}) on this "
                   "storage; UEFI / Secure-Boot / TPM-backed guests cannot boot without it")
+    elif boot_indeterminate:
+        effect = (f"may NOT boot — loses disk(s) ({', '.join(on_s)}) on this storage; the boot disk "
+                  "could not be determined and may be among them")
     else:
         effect = f"degraded — loses disk(s) {', '.join(on_s)}; boot disk is elsewhere"
-        if boot is None:
-            effect += " (boot order not determinable — classified conservatively)"
     if running:
         effect += " — RUNNING: losing the disk live may crash or corrupt the guest"
 
@@ -786,6 +792,9 @@ def compute_acl_blast(
                 "group-based ACL grants exist and were not resolved; "
                 "shadow analysis may miss group-inherited privileges"
             )
+            # Honesty contract: uncertainty that could HIDE a widen/shadow forces risk UP (the
+            # disclosure line alone under-reports via the structured risk field). Over-flag is safe.
+            risk = RISK_HIGH
         if not delete:
             if shadowed_inherited:
                 sr = ", ".join(sorted(shadowed_inherited))

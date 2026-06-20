@@ -29,6 +29,7 @@ class ProximoConfig:
     ca_bundle: str | None = None  # path to the internal/Caddy CA bundle; preferred over disabling TLS verify
     enable_exec: bool = False  # OFF by default (API-only, safe). True enables ssh->pct exec (root-grant tradeoff).
     audit_key_path: str | None = None  # opt-in: path to an HMAC key file → keyed (tamper-resistant) PROVE ledger
+    redact_ledger: bool = False  # opt-in: store a fingerprint of ct_psql SQL / ct_exec argv, not the body
 
     @classmethod
     def from_env(cls) -> ProximoConfig:
@@ -46,6 +47,7 @@ class ProximoConfig:
         ca_bundle = os.environ.get("PROXIMO_CA_BUNDLE") or None
         enable_exec = os.environ.get("PROXIMO_ENABLE_EXEC", "false").lower() in ("1", "true", "yes", "on")
         audit_key_path = os.environ.get("PROXIMO_AUDIT_KEY_PATH") or None
+        redact_ledger = os.environ.get("PROXIMO_LEDGER_REDACT", "false").lower() in ("1", "true", "yes", "on")
 
         # Honest warnings (no phantom comments): least-privilege and TLS are load-bearing.
         if "*" in ct_allowlist:
@@ -76,6 +78,7 @@ class ProximoConfig:
             ca_bundle=ca_bundle,
             enable_exec=enable_exec,
             audit_key_path=audit_key_path,
+            redact_ledger=redact_ledger,
         )
 
     def ct_permitted(self, ctid: str) -> bool:

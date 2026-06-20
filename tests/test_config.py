@@ -55,3 +55,21 @@ def test_from_env_parses_enable_exec(monkeypatch):
         warnings.simplefilter("ignore")
         cfg = ProximoConfig.from_env()
     assert cfg.enable_exec is True
+
+
+def test_redact_ledger_off_by_default():
+    # Audit completeness is the default: ct_psql/ct_exec record the body unless explicitly opted out.
+    assert _cfg().redact_ledger is False
+
+
+def test_from_env_parses_redact_ledger(monkeypatch):
+    import warnings
+
+    monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://x:8006/api2/json")
+    monkeypatch.setenv("PROXIMO_NODE", "pve")
+    monkeypatch.setenv("PROXIMO_TOKEN_PATH", "/run/x")
+    monkeypatch.setenv("PROXIMO_LEDGER_REDACT", "1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        cfg = ProximoConfig.from_env()
+    assert cfg.redact_ledger is True

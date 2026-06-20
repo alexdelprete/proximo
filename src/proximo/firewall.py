@@ -226,7 +226,9 @@ def firewall_rule_add(
     comment: str | None = None,
     enable: bool = True,
 ) -> None:
-    """Add a new firewall rule. Appends to the end of the rule list.
+    """Add a new firewall rule. PVE inserts it at the TOP (position 0) and shifts existing rules
+    down — `pos` is ignored on create — so the new rule takes PRECEDENCE (matching is first-match,
+    top-down). A new DROP can therefore shadow a lower ACCEPT (e.g. for SSH/8006) and cause a lockout.
 
     POST /cluster/firewall/rules
     POST /nodes/{node}/firewall/rules
@@ -526,7 +528,9 @@ def plan_firewall_rule_add(
         current={},
         blast_radius=reach.summary_lines + [
             f"adds a firewall rule to {scope_label}: {rule_summary}",
-            "rule is appended — positions of existing rules are not shifted",
+            "PVE inserts this rule at the TOP (position 0) and shifts existing rules down — it takes "
+            "PRECEDENCE over them (first-match, top-down); a new DROP can shadow a lower ACCEPT "
+            "(e.g. for SSH/8006) and cause a lockout",
             "a misplaced DROP/REJECT can interrupt connectivity; a misplaced ACCEPT can open access",
             "no UNDO: firewall config is not in guest snapshots; revert by removing this rule",
         ],

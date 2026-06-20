@@ -17,12 +17,14 @@ from proximo.planning import (
     _max_risk,
     classify_command,
     classify_sql,
+    command_fingerprint,
     plan_exec,
     plan_power,
     plan_psql,
     plan_rollback,
     plan_snapshot_create,
     plan_snapshot_delete,
+    sql_fingerprint,
     undo_snapname,
 )
 
@@ -184,6 +186,50 @@ def test_plan_psql_carries_heuristic_note_and_classifies():
     assert p.risk == RISK_HIGH
     assert "heuristic" in p.note.lower()
     assert "appdb" in p.change
+
+
+def test_sql_fingerprint_has_no_raw_sql():
+    fp = sql_fingerprint("DROP TABLE secrets")
+    assert "sql" not in fp                            # no raw-sql key
+    assert "DROP TABLE secrets" not in str(fp)        # body appears nowhere
+    assert len(fp["sql_sha256"]) == 64
+    assert fp["sql_len"] == len("DROP TABLE secrets")
+
+
+def test_sql_fingerprint_kind_is_leading_keyword():
+    assert sql_fingerprint("select 1")["sql_kind"] == "SELECT"
+    assert sql_fingerprint("  DROP TABLE t")["sql_kind"] == "DROP"
+
+
+def test_plan_psql_keeps_sql_by_default():
+    p = plan_psql("105", "DROP TABLE t", db="appdb")
+    assert "DROP TABLE t" in p.change
+
+
+def test_plan_psql_redacts_sql_when_asked():
+    p = plan_psql("105", "DROP TABLE secrets", db="appdb", redact=True)
+    assert "DROP TABLE secrets" not in p.change
+    assert "sha256:" in p.change
+    assert p.risk == RISK_HIGH   # classification stays honest even when the body is hidden
+
+
+def test_command_fingerprint_has_no_raw_args():
+    fp = command_fingerprint(["mysql", "--password", "hunter2"])
+    assert "command" not in fp
+    assert "hunter2" not in str(fp)             # secret arg appears nowhere
+    assert len(fp["cmd_sha256"]) == 64
+    assert fp["cmd_kind"] == "mysql"            # executable name is safe to show; secrets are in args
+
+
+def test_plan_exec_keeps_command_by_default():
+    p = plan_exec("105", ["rm", "-rf", "/x"])
+    assert "rm" in p.change and "/x" in p.change
+
+
+def test_plan_exec_redacts_command_when_asked():
+    p = plan_exec("105", ["mysql", "--password", "hunter2"], redact=True)
+    assert "hunter2" not in p.change
+    assert "sha256:" in p.change
 
 
 # === Redteam regressions: guard every path to LOW ============================

@@ -64,12 +64,22 @@ def _check_userid(userid: str) -> str:
     return s
 
 
+def _reject_dot_traversal(s: str, label: str) -> None:
+    """Reject a '.'/'..' (or any '..'-containing) identifier. It flows into the URL path and the HTTP
+    client normalizes dot-segments BEFORE sending — e.g. `.../token/..` collapses onto the
+    user-delete endpoint — turning a scoped op into a wrong-target destructive one. Same class of
+    guard `_check_acl_path` / `_check_tfa_id` already apply; the bare regex permits all-dots."""
+    if s == "." or ".." in s:
+        raise ProximoError(f"invalid {label}: {s!r} — path-traversal segment rejected")
+
+
 def _check_tokenid(tokenid: str) -> str:
     s = str(tokenid).strip()
     if not _TOKENID_RE.match(s):
         raise ProximoError(
             f"invalid tokenid: {tokenid!r} — expected letters/digits/._- only"
         )
+    _reject_dot_traversal(s, "tokenid")
     return s
 
 
@@ -79,6 +89,7 @@ def _check_roleid(roleid: str) -> str:
         raise ProximoError(
             f"invalid roleid: {roleid!r} — expected letters/digits/._- only"
         )
+    _reject_dot_traversal(s, "roleid")
     return s
 
 

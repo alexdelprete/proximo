@@ -4,6 +4,68 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-06-20
+
+**Security & correctness.** A path-traversal that could delete a user via `pve_token_revoke`, a
+firewall rule-precedence honesty fix, two PROVE/blast-radius corrections, and opt-in ledger redaction
+for `ct_psql`/`ct_exec`. No new tools (145); the trust spine was independently re-reviewed and verified.
+
+### Added
+- **Clone target storage.** `pve_clone` accepts a `storage` parameter to place a full clone's disks
+  on a chosen storage (e.g. to keep the clone off the source storage). Refused for linked clones —
+  PVE only honors a storage override on a full copy, so the plan rejects it up front rather than
+  send a request PVE will reject. The clone plan also now discloses the `SDN.Use`-on-bridge
+  permission the cloned NIC requires on PVE 8+.
+- **Release leak-audit guard.** `scripts/release_leak_audit.py` models the curated GitHub publish
+  tree (which gitleaks and the pre-push hook never see, because it's a synthetic `git commit-tree`):
+  it strips internal-only paths (`.gitea/`) and refuses to publish if the public surface carries a
+  leak shape — RFC1918 IP, internal-TLD hostname, `/root` path, or credential token. Wired into the
+  `release.sh` gate; `build-tree` emits the clean, audited tree SHA for `git commit-tree`.
+- **Opt-in ledger redaction.** `PROXIMO_LEDGER_REDACT=1` makes `ct_psql` and `ct_exec` record a
+  fingerprint (sha256 + kind + length) of the SQL / command instead of the body, for operators whose
+  SQL or command args may carry secrets/PII (e.g. `--password ...`). Both the ledger `detail` and the
+  persisted plan are covered. Default unchanged — the body is recorded for a complete audit trail.
+
+### Fixed
+- **Security: path-traversal in `pve_token_revoke` could delete the entire user.** `_check_tokenid`
+  (and `_check_roleid`) accepted an all-dots identifier. `pve_token_revoke(userid=u, tokenid="..")`
+  built `DELETE /access/users/{u}/token/..`, which the HTTP client normalizes (RFC 3986 dot-segments)
+  to `DELETE /access/users/{u}` — deleting the **user** and all their tokens/ACLs, while the dry-run
+  plan and the tamper-evident audit ledger both recorded a harmless *"revoke token"*. A wrong-target
+  destructive mutation that bypassed both PLAN and PROVE. Now rejects `.`/`..`-class segments (the
+  same guard `_check_acl_path` / `_check_tfa_id` already applied). MCP-path only — `pve_token_revoke`
+  is excluded from the A2A slice. (Verified empirically against the project's httpx.)
+- **Honesty/safety: firewall rule-add disclosed the WRONG rule precedence.** `pve_firewall_rule_add`'s
+  docstring and plan claimed the new rule is *"appended — positions of existing rules are not shifted."*
+  PVE actually inserts a created rule at the **TOP (position 0)** — `pos` is ignored on create — shifting
+  existing rules down, so the new rule takes **precedence** (matching is first-match, top-down). The plan
+  told operators the opposite of the truth: a DROP they believed was lowest-precedence lands at the top
+  and can shadow an existing SSH/8006 ACCEPT — the exact lockout the tool exists to prevent. Corrected to
+  disclose top-insertion and the precedence/lockout implication. (Verified against the PVE API docs +
+  the "pos ignored on create" forum report.)
+- **PROVE: `pve_guest_power` recorded `outcome="ok"` for an async task.** Guest power
+  (start/stop/reboot/shutdown) is task-backed — the `POST .../status/{action}` returns a UPID, like
+  every other async op (and the identical-shape `node_service_control`). The ledger now records
+  `"submitted"`, never `"ok"`: it must not claim the guest started/stopped when only the task was
+  accepted. (The lone async op that asserted completion.)
+- **Blast-radius: ACL incomplete group-resolution under-reported risk.** When a group-type ACL entry
+  exists in scope but the target's group membership couldn't be resolved (e.g. a failed `user_get`),
+  a shadowed inherited grant could be hidden — the engine disclosed this in prose but left the
+  structured risk at MEDIUM. It now forces HIGH, matching the honesty contract every sibling engine
+  upholds (incomplete enumeration that could hide harm escalates; over-flag is acceptable).
+- **Honesty: audit-ledger docstring overclaim.** `audit.py` said *"Secrets are never written here"*
+  while `ct_psql` records the SQL body; corrected to state the PVE token is never written and that
+  `ct_psql`/`ct_exec` record the SQL/command (redactable via `PROXIMO_LEDGER_REDACT`).
+- **Blast-radius: boot-disk under-report.** When a guest's boot disk was indeterminate (legacy
+  `boot: c`/`cdn` or no boot line) and it lost a disk on the target storage, the engine reported a
+  survivable `degraded`/MEDIUM loss with the false note *"boot disk is elsewhere"* — even though a
+  lost disk could itself be the boot disk. It now over-flags as `may NOT boot`/HIGH and never claims
+  the boot disk is elsewhere when it cannot see where it is (over-flag, never under-flag).
+- **Honesty: package docstring overclaim.** `proximo.__doc__` said *"Least-privilege by default …
+  secrets never read or logged"*; corrected to match the README — *"bounded by the token you scope …
+  the PVE token never read or logged"* (the API plane has no built-in scoping; `ct_psql` SQL is
+  recorded in the ledger).
+
 ## [0.6.1] — 2026-06-20
 
 **Release-process & CI hardening.** No functional changes to the shipped package — the

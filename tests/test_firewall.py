@@ -331,6 +331,16 @@ def test_rule_add_sends_optional_fields():
     assert d["comment"] == "allow ssh"
 
 
+def test_rule_add_plan_discloses_top_insertion_not_append():
+    # PVE inserts a new rule at the TOP (pos 0) and shifts existing rules down — so a new DROP takes
+    # PRECEDENCE and can shadow a lower ACCEPT (e.g. for SSH) and cause a lockout. The plan must NOT
+    # tell the operator the opposite ("appended / positions not shifted").
+    p = plan_firewall_rule_add("DROP", direction="in", dport="22")
+    text = " ".join(p.blast_radius).lower()
+    assert "append" not in text and "not shifted" not in text   # the false, dangerous claim is gone
+    assert ("top" in text) or ("position 0" in text) or ("precedence" in text)
+
+
 def test_rule_add_omits_absent_optional_fields():
     api = _api()
     firewall_rule_add(api, "ACCEPT")

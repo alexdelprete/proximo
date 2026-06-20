@@ -105,6 +105,7 @@ def clone_guest(
     name: str | None = None,
     full: bool = False,
     pool: str | None = None,
+    storage: str | None = None,
 ) -> str:
     """Clone an existing LXC or QEMU guest to a new VMID.
 
@@ -112,11 +113,19 @@ def clone_guest(
 
     full=False (default): linked clone — requires the source to be a template.
     full=True: full copy — independent disk; slower but no template requirement.
+    storage: target storage for the full clone's disks (e.g. to keep a clone off the source
+        storage). PVE honors this ONLY for a full clone — a linked clone must stay on the source
+        storage — so we refuse `storage` without `full` rather than send a request PVE will reject.
     """
     vmid = _check_vmid(vmid)
     newid = _check_vmid(newid)
     kind = _check_kind(kind)
     _check_node(node)
+    if storage is not None and not full:
+        raise ProximoError(
+            "storage (target storage) is only valid for a full clone (full=True) — a linked clone "
+            "must stay on the source storage; PVE would reject a storage override."
+        )
     n = node or api.config.node
     data: dict = {"newid": newid}
     if full:
@@ -125,6 +134,8 @@ def clone_guest(
         data["name"] = name
     if pool is not None:
         data["pool"] = pool
+    if storage is not None:
+        data["storage"] = storage
     # MUTATION — confirm-gated + audited at the server layer.
     return api._post(f"/nodes/{n}/{kind}/{vmid}/clone", data)
 
@@ -215,16 +226,34 @@ def plan_create(
     )
 
 
+def _source_nic_bridges(api, kind: str, vmid: str, node: str | None) -> list[str]:
+    """Bridges the source guest's NIC(s) attach to (for the SDN.Use disclosure). Best-effort: returns
+    [] if the source config can't be read — disclosure must never break the plan."""
+    try:
+        cfg = api._get(f"/nodes/{node or api.config.node}/{kind}/{vmid}/config") or {}
+    except Exception:
+        return []
+    return sorted({
+        part.strip()[len("bridge="):]
+        for key, val in cfg.items()
+        if key.startswith("net") and key[3:].isdigit() and isinstance(val, str)
+        for part in val.split(",")
+        if part.strip().startswith("bridge=")
+    })
+
+
 def plan_clone(
     api,
     vmid: str,
     newid: str,
     kind: str = "lxc",
     node: str | None = None,
+    storage: str | None = None,
 ) -> Plan:
     """Preview cloning guest vmid to newid.
 
     Reads list_guests (a safe read) to detect whether newid is already in use.
+    `storage`, when set, is disclosed in the plan (the target storage for a full clone's disks).
     """
     vmid = _check_vmid(vmid)
     newid = _check_vmid(newid)
@@ -263,6 +292,17 @@ def plan_clone(
             "consumes additional disk and resource allocation"
         ]
         reasons = [f"resource consumption: clones {kind}/{vmid} to {newid}"]
+
+    if storage is not None:
+        blast = blast + [f"full-clone disks target storage '{storage}' (full clone only)"]
+
+    # Disclose the SDN.Use-on-bridge requirement (PVE 8+) for the cloned guest's NIC(s).
+    bridges = _source_nic_bridges(api, kind, vmid, node)
+    if bridges:
+        blast = blast + [
+            f"attaches NIC(s) to bridge(s) {', '.join(bridges)} — PVE 8+ requires SDN.Use on "
+            "that bridge to clone a guest carrying a NIC"
+        ]
 
     return Plan(
         action="pve_clone",

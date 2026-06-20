@@ -36,17 +36,21 @@ RC=0
 uv run python scripts/version_tools.py check || RC=1
 uv run ruff check src tests || RC=1
 uv run python -m pytest tests/test_version_consistency.py -q || RC=1
+uv run python scripts/release_leak_audit.py audit || RC=1   # model the public tree; refuse internal-infra leaks
 
 printf '\n----------------------------------------\n'
 if [ "$RC" -eq 0 ]; then
   cat <<EOF
 release: v$V set, gate GREEN.
-NEXT (Claude does the git):
+NEXT (Claude does the git; John's go for the public push):
   1. write the CHANGELOG [$V] entry (human prose)
-  2. commit, then: git tag v$V
-  3. push branch + tag to github   (John's go — public push)
-  4. create the GitHub Release for v$V
-  5. approve the gated publish job  (John's click)
+  2. commit, then: git tag v$V   (internal gitea: git push origin main --tags)
+  3. publish to github via the curated FF tree (strips .gitea/, refuses leaks):
+       T=\$(uv run python scripts/release_leak_audit.py build-tree) || exit 1
+       C=\$(git commit-tree "\$T" -p github/main -m "release: v$V")
+       git push github "\$C:main"          # fast-forward, NEVER --force
+  4. gh release create v$V                 # fires the signed GHCR build
+  5. approve the gated PyPI publish job     (John's click — tokenless OIDC)
 release.sh never pushes.
 EOF
 else

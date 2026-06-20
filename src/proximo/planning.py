@@ -14,6 +14,7 @@ Two load-bearing principles (guard every path to LOW):
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import re
@@ -310,20 +311,62 @@ def classify_sql(sql: str) -> tuple[str, list[str]]:
 
 # --- exec / psql plan wrappers ------------------------------------------------
 
-def plan_exec(ctid: str, command: list[str]) -> Plan:
+def command_fingerprint(command: list[str]) -> dict:
+    """Privacy-preserving fingerprint of a shell command for the audit ledger: proves WHICH command
+    ran (sha256 over the joined argv) + its size and executable name, without persisting the args
+    (which may carry secrets, e.g. `--password ...`). Used when PROXIMO_LEDGER_REDACT is set."""
+    joined = shlex.join(command)
+    return {
+        "cmd_sha256": hashlib.sha256(joined.encode("utf-8")).hexdigest(),
+        "cmd_kind": command[0] if command else "EMPTY",   # the executable; secrets live in the args
+        "cmd_len": len(joined),
+    }
+
+
+def plan_exec(ctid: str, command: list[str], redact: bool = False) -> Plan:
     risk, reasons = classify_command(command)
+    if redact:
+        fp = command_fingerprint(command)
+        shown = f"[redacted {fp['cmd_kind']}, {fp['cmd_len']} chars, sha256:{fp['cmd_sha256'][:12]}]"
+    else:
+        shown = shlex.join(command)
     return Plan(
         action="ct_exec", target=str(ctid),
-        change=f"run in {ctid}: {shlex.join(command)}",
+        change=f"run in {ctid}: {shown}",
         current={}, blast_radius=[], risk=risk, risk_reasons=reasons, note=_HEURISTIC_NOTE,
     )
 
 
-def plan_psql(ctid: str, sql: str, db: str = "postgres") -> Plan:
+def _sql_kind(sql: str) -> str:
+    """Coarse, human-readable statement kind (leading keyword) for a redacted ledger entry."""
+    cleaned = _strip_sql_comments(sql).strip()
+    if not cleaned:
+        return "EMPTY"
+    head = cleaned.split(None, 1)[0]
+    return head.upper() if head.isalpha() else "OTHER"
+
+
+def sql_fingerprint(sql: str) -> dict:
+    """A privacy-preserving fingerprint of a SQL statement for the audit ledger: proves WHICH
+    statement ran (sha256) and its size + coarse kind, without persisting the body (which may
+    carry secrets/PII). Used when PROXIMO_LEDGER_REDACT is set; the default records the body."""
+    return {
+        "sql_sha256": hashlib.sha256(sql.encode("utf-8")).hexdigest(),
+        "sql_kind": _sql_kind(sql),
+        "sql_len": len(sql),
+    }
+
+
+def plan_psql(ctid: str, sql: str, db: str = "postgres", redact: bool = False) -> Plan:
     risk, reasons = classify_sql(sql)
+    if redact:
+        fp = sql_fingerprint(sql)
+        shown = f"[redacted {fp['sql_kind']}, {fp['sql_len']} chars, sha256:{fp['sql_sha256'][:12]}]"
+    else:
+        shown = sql
     return Plan(
         action="ct_psql", target=str(ctid),
-        change=f"psql {db} in {ctid}: {sql}",
+        change=f"psql {db} in {ctid}: {shown}",
         current={}, blast_radius=[], risk=risk, risk_reasons=reasons, note=_HEURISTIC_NOTE,
     )
 

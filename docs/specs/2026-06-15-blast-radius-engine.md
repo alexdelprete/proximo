@@ -135,9 +135,15 @@ This is where the thesis lives or dies. The engine must never let a failed/parti
      corrupt the guest"* (state comes free from `cluster_resources`).
 
 4. **Honest VM boot-disk detection.** VM boot-disk identification uses the `boot`/`bootdisk` config
-   line when present; when absent or unparseable, the engine **does not guess** — it falls back to
-   "all disks on S ⇒ won't boot, else degraded" and the strings say *"boot order not determinable —
-   classified conservatively."* (Over-flag, never under-flag.)
+   line when present. When the boot disk is **indeterminate** (no `bootdisk`, no `boot: order=` with
+   a disk token — e.g. legacy `boot: c`/`cdn`, or a net-boot `order=net0`) **and** the guest loses a
+   disk on S that is neither its only copy nor a boot-critical slot, the engine **over-flags**: it
+   reports `severity: high` with *"may NOT boot — the boot disk could not be determined and may be
+   among them"* — because one of the lost disks may itself be the boot disk. It does **not** claim
+   *"boot disk is elsewhere"* (a reassurance it cannot back up). The legacy-`boot: c` and disk-bearing
+   net-boot cases are deliberately over-flagged here; tightening `_boot_slot` to parse them is a future
+   precision enhancement, not a safety gap. (Over-flag, never under-flag — risk is never lowered on
+   uncertainty.)
 
 ## Output contract — structured `affected` + human strings (maintainer's choice)
 

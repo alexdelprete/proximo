@@ -431,6 +431,17 @@ def test_token_revoke_rejects_invalid_tokenid():
         token_revoke(api, "admin@pam", "bad token!")
 
 
+def test_token_revoke_refuses_path_traversal_tokenid():
+    # tokenid='..' normalizes DELETE .../users/{u}/token/.. onto the USER-DELETE endpoint — a
+    # wrong-target destructive op the plan + ledger would mislabel as "revoke token". Likewise '.'
+    # collapses onto the token collection. Both MUST be refused before any DELETE is issued.
+    api = _api()
+    for bad in ("..", "."):
+        with pytest.raises(ProximoError):
+            token_revoke(api, "admin@pam", bad)
+    assert api.seen == {}   # nothing was ever issued to the wire
+
+
 # ---------------------------------------------------------------------------
 # plan_token_create
 # ---------------------------------------------------------------------------

@@ -131,12 +131,40 @@ def test_classify_lxc_rootfs_on_target_wont_boot():
     assert e.severity == "high" and e.resource == "lxc/200"
 
 
-def test_classify_unknown_boot_not_only_copy_is_degraded_with_note():
+def test_classify_indeterminate_boot_with_partial_loss_is_conservative_high():
+    # scsi0 elsewhere, scsi1 on nas, NO bootdisk/boot line -> boot disk indeterminate.
+    # The lost disk (scsi1) MAY be the boot disk, so this is NOT a survivable "degraded"
+    # loss: over-flag as won't-boot, the engine's stated doctrine (never under-flag).
     cfg = {"scsi0": "local-lvm:vm-1-disk-0,size=8G",     # some disk elsewhere
            "scsi1": "nas:1/vm-1-disk-1.qcow2,size=9G"}   # data on nas; NO bootdisk/boot line
     e = _classify_guest("nas", _guest(status="stopped"), cfg)
-    assert e.severity == "medium"
-    assert "boot order not determinable" in e.effect
+    assert e.severity == "high" and e.only_copy is False and e.via == ["scsi1"]
+    assert "may NOT boot" in e.effect
+    assert "could not be determined" in e.effect
+
+
+def test_classify_indeterminate_boot_does_not_falsely_claim_boot_disk_elsewhere():
+    # Regression: the engine used to assert "boot disk is elsewhere" even when it could
+    # NOT see the boot disk — a false reassurance. It must not claim that when boot is
+    # indeterminate (the lost disk could itself be the boot disk).
+    cfg = {"scsi0": "local-lvm:vm-1-disk-0,size=8G",
+           "scsi1": "nas:1/vm-1-disk-1.qcow2,size=9G"}
+    e = _classify_guest("nas", _guest(status="stopped"), cfg)
+    assert "boot disk is elsewhere" not in e.effect
+
+
+def test_classify_netboot_order_is_intentionally_over_flagged():
+    # ACCEPTED over-flag (documents intent so a later session doesn't "fix" it into an
+    # under-flag): a `boot: order=net0` PXE guest names no DISK token, so `_boot_slot`
+    # returns None -> treated as indeterminate -> high. The guest may actually boot from
+    # the network and survive the lost data disk, so this is imprecise — but it is the
+    # SAFE direction per the over-flag doctrine. Tightening `_boot_slot` to recognise a
+    # disk-less boot order is a future precision enhancement, not a safety fix.
+    cfg = {"boot": "order=net0",                          # PXE; no disk in the order
+           "scsi0": "local-lvm:vm-1-disk-0,size=8G",      # a data disk elsewhere -> not only-copy
+           "scsi1": "nas:1/vm-1-disk-1.qcow2,size=9G"}    # the data disk lost on nas
+    e = _classify_guest("nas", _guest(status="stopped"), cfg)
+    assert e.severity == "high" and "may NOT boot" in e.effect
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +193,18 @@ def test_compute_empty_complete_says_none_found_but_not_safe():
     assert r.affected == [] and r.max_severity == "none"
     assert any("no guest config references storage 'nas'" in line for line in r.summary_lines)
     assert any("not proof" in line for line in r.summary_lines)
+
+
+def test_compute_indeterminate_boot_guest_drives_high_severity():
+    # A guest losing a disk on the target with an indeterminate boot config must escalate
+    # the aggregate to high (raising the plan's risk floor) — not be reported as a
+    # survivable medium "degraded" loss.
+    guests = [_guest(vmid="109")]
+    configs = {"109": {"scsi0": "local-lvm:vm-109-disk-0,size=8G",        # disk elsewhere
+                       "scsi1": "nas:109/vm-109-disk-1.qcow2,size=9G"}}    # NO bootdisk/boot line
+    r = compute_storage_blast("nas", guests, configs, complete=True)
+    assert r.max_severity == "high"
+    assert r.affected[0].severity == "high"
 
 
 def test_compute_incomplete_is_loud_forces_high_and_adds_sentinel():

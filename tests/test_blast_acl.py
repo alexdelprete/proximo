@@ -6,7 +6,7 @@ are 'unchanged' context, never gains/loses; reads fail closed (caveat retained, 
 
 from __future__ import annotations
 
-from proximo.blast import compute_acl_blast
+from proximo.blast import RISK_HIGH, compute_acl_blast
 
 
 def test_grant_shadow_populates_affected_loses():
@@ -53,6 +53,17 @@ def test_group_resolution_unavailable_retains_caveat():
                           acl_entries=acl, acl_error=None, target_groups=None)  # user_get failed
     assert r.complete is False
     assert any("may be INCOMPLETE" in line for line in r.summary_lines)
+
+
+def test_unresolved_groups_forces_high_risk():
+    # Honesty contract: incomplete enumeration that could HIDE a widen (a group entry exists in
+    # scope but the target's membership couldn't be resolved) forces risk UP — a disclosure line
+    # alone under-reports via the structured risk field. Over-flag is acceptable; under-flag is the sin.
+    acl = [{"path": "/", "ugid": "ops", "roleid": "PVEVMAdmin", "type": "group", "propagate": True}]
+    r = compute_acl_blast("/vms/100", "PVEVMUser", "bob@pam", "user", delete=True,
+                          acl_entries=acl, acl_error=None, target_groups=None)  # user_get failed
+    assert r.complete is False
+    assert r.risk == RISK_HIGH
 
 
 def test_who_else_members_are_unchanged_context():

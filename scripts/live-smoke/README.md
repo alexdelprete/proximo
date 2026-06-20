@@ -1,6 +1,8 @@
 # Proximo Live-Smoke Scripts
 
-These are **live integration smoke tests** for Proximo. They are NOT unit tests — they require a real Proxmox VE host and a scoped API token, and they exercise Proximo's own stack end-to-end against that host.
+These are **live integration smoke tests** for Proximo. They are NOT unit tests — they require a real Proxmox VE host and a scoped API token, and they exercise Proximo's operations against that host.
+
+**Scope of what they verify (be precise):** most of these smokes drive Proximo's per-plane operation functions (`clone_guest`, `vzdump_backup`, `snapshot_create`, `disk_resize`, …) and their `plan_*` previews directly, over Proximo's real token/httpx stack against live PVE — asserting the **PLAN** pillar (risk + blast disclosure) and, where applicable, **UNDO** (rollback actually reverts state). They do not go through the `@mcp.tool` `pve_*` wrappers. The **confirm-gate** and the **PROVE** audit-ledger are covered separately by **`prove-smoke.py`**, which drives the real `pve_*` tools (`confirm=True`) and verifies the ledger records the mutation, the hash chain stays valid, and tampering is detected — live. Between them, all four pillars (PLAN/PROVE/UNDO/DIAGNOSE) have live coverage.
 
 They live here (not under `tests/`) precisely so that pytest does not auto-collect them.
 
@@ -19,6 +21,28 @@ They live here (not under `tests/`) precisely so that pytest does not auto-colle
 | `tfa-smoke.py` | **TFA** bounded: `tfa_list`/`tfa_get` reads + `tfa_delete` API-reachability (non-existent entry) | No factor touched, no password sent. Live-verifies PVE forbids token-based TFA mutation (`403 need proper ticket`) — reads work, delete is shape-correct but ticket-gated by PVE |
 | `fw-reach-smoke.py` | **Firewall/network reach** (blast-radius): PLAN a firewall rule add → prints the per-rule REACH + `affected`; if `PROXIMO_NODE` is set, also PLANs a network apply → prints best-effort mgmt-interface lockout naming | None — pure PLAN for the rule reach; one safe `network_list` read for the apply naming; `confirm` is never passed, nothing is applied |
 | `content-delete-smoke.py` | **Content-delete in-use detection** (blast-radius): allocate a scratch disk on `SMOKE_STORE` attached to throwaway `SMOKE_VMID` → PLAN `content_delete` (asserts it detects the in-use guest disk + names the VM) → detach → PLAN again (still flagged via the `unused` slot) → delete the volume via `content_delete` → verify the boot disk is intact | Yes — one scratch disk on the VMID/storage you specify; self-cleaning (removes the dangling `unused` slot + the volume). Bound the token to that VM + storage |
+| `guest-lifecycle-smoke.py` | **Guest power + snapshot/config/rollback lifecycle** (MUTATE→verify): on throwaway `SMOKE_VMID`, `guest_power` start→running→stop→stopped, then snapshot_create → config_set (`sockets`) → snapshot_rollback (asserts the field actually **reverted** to baseline) → snapshot_delete. Asserts post-state at every step (not just HTTP 200). Note: asserts on `sockets`, not `description` — PVE preserves description/tags across rollback | Yes — power-cycles the VM + one snapshot + one config field; baseline-snapshot first / rollback+delete last; self-cleaning via `try/finally`. VM must be STOPPED at baseline; left stopped. Bound the token to that VM (`VM.PowerMgmt`/`VM.Snapshot`/`VM.Snapshot.Rollback`/`VM.Config.*` on `/vms/<SMOKE_VMID>`) |
+| `disk-resize-smoke.py` | **Disk resize grow + grow-only guard** (MUTATE→verify): allocate a 1 GiB scratch disk on `SMOKE_STORE` → PLAN `disk_resize '+1G'` (asserts RISK_MEDIUM + "not auto-undoable" disclosure) → resize → assert the disk actually GREW to 2G → assert an absolute shrink (`1G`) is BLOCKED at both plan (RISK_HIGH) and op (refused) and had no effect | Yes — one scratch disk on the storage you specify; self-cleaning (detach + delete). Bound the token to `Datastore.AllocateSpace` on `SMOKE_STORE` (and `VM.Config.Disk` on the VM) and nowhere else |
+| `clone-smoke.py` | **Clone (target storage) + delete_guest** (MUTATE→verify): PLAN clone (asserts the target storage is disclosed) → FULL clone `SMOKE_SRC_VMID`→`SMOKE_NEW_VMID` with `storage=SMOKE_STORE` → assert the clone's boot disk landed on `SMOKE_STORE` (not the source) → `delete_guest --purge` → assert the guest is gone AND its disk was purged (no orphan volume) | Yes — creates + destroys one throwaway guest; disks only on `SMOKE_STORE`; self-cleaning. Needs the token scoped to allocate `/vms/<SMOKE_NEW_VMID>` + `SDN.Use` on the target bridge. **One-shot per grant:** destroying the guest strips its `/vms/<id>` ACL, so re-grant before re-running |
+| `template-convert-smoke.py` | **template_convert** (MUTATE→verify, IRREVERSIBLE): clones a disposable guest first (never touches a baseline), asserts it is NOT a template, PLAN `template_convert` (asserts RISK_HIGH / one-way) → convert → assert the guest is now a template (`template == 1`) → `delete_guest --purge` | Yes — clones + converts + destroys one throwaway guest; QEMU only; disks only on `SMOKE_STORE`; self-cleaning. Same grants as `clone-smoke.py`. **One-shot per grant** (destroy strips the `/vms/<id>` ACL) |
+| `backup-smoke.py` | **backup + backup_delete** (MUTATE→verify): PLAN backup (snapshot mode → asserts RISK_LOW) → vzdump `SMOKE_VMID` to `SMOKE_STORE` → assert a NEW archive for that VMID appears → `backup_delete` → assert it's gone | Yes — one vzdump archive on `SMOKE_STORE` (only the one this run creates is deleted); self-cleaning. Token needs `VM.Backup` on the VM + `Datastore.AllocateSpace` on `SMOKE_STORE`, and `SMOKE_STORE` must have `backup` content enabled |
+| `create-container-smoke.py` | **create_container + delete_guest** (MUTATE→verify): PLAN create → `create_container SMOKE_VMID` from `SMOKE_TEMPLATE` on `SMOKE_STORE` → wait for the create-lock to clear → assert the CT materialized → `delete_guest --purge` → assert gone | Yes — creates + destroys one throwaway LXC on `SMOKE_STORE`; self-cleaning. Needs `/vms/<SMOKE_VMID>` (VM.Allocate) + Datastore on `SMOKE_STORE` + `SDN.Use` on the bridge + an LXC template at `SMOKE_TEMPLATE`. **One-shot per grant** (destroy strips the `/vms/<id>` ACL) |
+| `prove-smoke.py` | **PROVE pillar + confirm-gate** (the headline): drives the real `pve_*` tools — `confirm=False` returns a PLAN and mutates nothing; `confirm=True` performs a real snapshot AND writes the tamper-evident audit ledger → asserts the ledger grew, still `verify()`s, recorded the mutation, and that a TAMPERED copy is detected (`entry_hash mismatch`); cleans up via `confirm=True` delete (also ledgered) | Yes — one snapshot on throwaway `SMOKE_VMID` via the full tool stack; self-cleaning. The tamper test runs on a COPY — never touches the real ledger. Bound the token to that VM |
+
+### `guest-lifecycle-smoke.py` additional variables
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `SMOKE_VMID` | **Yes** | — | A throwaway **QEMU** VMID that is STOPPED and whose `sockets` is not already `2` |
+| `SMOKE_KIND` | No | `qemu` | Must be `qemu` (the rollback assertion uses a QEMU field) |
+
+### `disk-resize-smoke.py` additional variables
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `SMOKE_VMID` | **Yes** | — | A throwaway VMID with a free `SMOKE_SLOT` |
+| `SMOKE_STORE` | **Yes** | — | An isolated test storage supporting `images`; grant the token `Datastore.AllocateSpace` there and nowhere else |
+| `SMOKE_SLOT` | No | `scsi1` | Disk slot to allocate (must be free) |
 
 ### `content-delete-smoke.py` additional variables
 

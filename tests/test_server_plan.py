@@ -106,11 +106,12 @@ class _FakeExec:
 
 
 def _wire(tmp_path, monkeypatch, *, status=None, enable_exec=True, allowlist=("*",),
-          snaps=None, snapshot_raises=False, task_ok=True):
+          snaps=None, snapshot_raises=False, task_ok=True, redact_ledger=False):
     log = str(tmp_path / "audit.log")
     cfg = ProximoConfig(
         api_base_url="https://x:8006/api2/json", node="pve", token_path="/run/x",
         ct_allowlist=frozenset(allowlist), enable_exec=enable_exec, audit_log_path=log,
+        redact_ledger=redact_ledger,
     )
     api = _FakeApi(status or {"status": "running", "name": "web", "uptime": 500},
                    snaps=snaps, snapshot_raises=snapshot_raises, task_ok=task_ok)
@@ -160,7 +161,7 @@ def test_oneshot_confirm_still_records_a_plan_first(tmp_path, monkeypatch):
     server.pve_guest_power("1975", "stop", confirm=True)  # sole call, no prior dry-run
     outcomes = [e["outcome"] for e in _entries(log) if e["target"] == "lxc/1975:stop"]
     assert "planned" in outcomes, "one-shot confirm executed with no plan recorded"
-    assert any(e["outcome"] == "ok" and e["detail"].get("confirmed")
+    assert any(e["outcome"] == "submitted" and e["detail"].get("confirmed")
                for e in _entries(log)), "no confirmed execution entry"
 
 
@@ -344,6 +345,46 @@ def test_ct_psql_allowlist_blocks(tmp_path, monkeypatch):
     assert server.ct_psql("999", "SELECT 1", confirm=True)["status"] == "blocked:allowlist"
 
 
+def test_ct_psql_records_sql_body_by_default(tmp_path, monkeypatch):
+    # Default = audit completeness: the executed SQL is in the ledger detail.
+    _, _, _, _, log = _wire(tmp_path, monkeypatch, enable_exec=True)
+    server.ct_psql("105", "DROP TABLE t", confirm=True)
+    psql = [e for e in _entries(log) if e["action"] == "ct_psql"]
+    assert any(e["detail"].get("sql") == "DROP TABLE t" for e in psql)
+
+
+def test_ct_psql_redacts_sql_in_ledger_when_configured(tmp_path, monkeypatch):
+    # Opt-in: the SQL body is NEVER persisted — only a verifiable fingerprint.
+    _, _, _, _, log = _wire(tmp_path, monkeypatch, enable_exec=True, redact_ledger=True)
+    server.ct_psql("105", "DROP TABLE secrets", confirm=True)
+    psql = [e for e in _entries(log) if e["action"] == "ct_psql"]
+    assert psql
+    for e in psql:                                            # plan + exec entries
+        assert "sql" not in e["detail"]                      # body never persisted
+        assert "DROP TABLE secrets" not in json.dumps(e)      # nowhere in the entry (incl. plan change)
+    assert any(len(e["detail"].get("sql_sha256", "")) == 64 for e in psql)  # fingerprint recorded
+
+
+def test_ct_exec_records_command_by_default(tmp_path, monkeypatch):
+    # Default = audit completeness: the executed argv is in the ledger detail.
+    _, _, _, _, log = _wire(tmp_path, monkeypatch, enable_exec=True)
+    server.ct_exec("105", ["psql", "-c", "select 1"], confirm=True)
+    ex = [e for e in _entries(log) if e["action"] == "ct_exec"]
+    assert any(e["detail"].get("command") == ["psql", "-c", "select 1"] for e in ex)
+
+
+def test_ct_exec_redacts_command_in_ledger_when_configured(tmp_path, monkeypatch):
+    # Opt-in: command args (which can carry secrets like --password) are NEVER persisted.
+    _, _, _, _, log = _wire(tmp_path, monkeypatch, enable_exec=True, redact_ledger=True)
+    server.ct_exec("105", ["mysql", "--password", "hunter2"], confirm=True)
+    ex = [e for e in _entries(log) if e["action"] == "ct_exec"]
+    assert ex
+    for e in ex:                                              # plan + exec entries
+        assert "command" not in e["detail"]                  # argv never persisted
+        assert "hunter2" not in json.dumps(e)                 # the secret appears nowhere
+    assert any(len(e["detail"].get("cmd_sha256", "")) == 64 for e in ex)  # fingerprint recorded
+
+
 def test_async_snapshot_mutation_records_submitted_not_ok(tmp_path, monkeypatch):
     # The PROVE ledger must not claim an async op is "ok" (done) when it only started.
     _, api, _, _, log = _wire(tmp_path, monkeypatch, snaps=[{"name": "s1"}])
@@ -358,12 +399,15 @@ def test_async_snapshot_mutation_records_submitted_not_ok(tmp_path, monkeypatch)
 def test_sync_mutation_envelope_status_is_ok(tmp_path, monkeypatch):
     """A synchronous mutation (confirm=True) must return status='ok' in the envelope.
 
-    Verifies the new symmetric contract: caller can uniformly read resp['status']
-    and it is always honest — sync ops say 'ok', async ops say 'submitted', never
-    swapped.  Uses pve_guest_power (outcome='ok', synchronous).
+    Verifies the symmetric contract: caller can uniformly read resp['status'] and it is
+    always honest — sync ops say 'ok', async ops say 'submitted', never swapped. Tested at
+    the `_audited` seam directly, since the mapping is a property of `_audited`, not of any
+    one tool (every UPID-returning op, incl. pve_guest_power, is async → 'submitted'; the
+    async side is covered by test_async_mutation_envelope_status_is_submitted).
     """
-    _, api, _, _, _ = _wire(tmp_path, monkeypatch)
-    out = server.pve_guest_power("1975", "stop", confirm=True)
+    _wire(tmp_path, monkeypatch)
+    out = server._audited("unit_sync_mutation", "x", lambda: {"done": True},
+                          mutation=True, detail={"confirmed": True})
     assert out["status"] == "ok", (
         "synchronous mutation must return status='ok' in the execute envelope"
     )

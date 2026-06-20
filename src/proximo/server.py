@@ -264,12 +264,14 @@ from .pbs import (
 )
 from .planning import (
     Plan,
+    command_fingerprint,
     plan_exec,
     plan_power,
     plan_psql,
     plan_rollback,
     plan_snapshot_create,
     plan_snapshot_delete,
+    sql_fingerprint,
     undo_snapname,
 )
 from .provisioning import (
@@ -522,8 +524,11 @@ def pve_guest_power(
     plan = _plan("pve_guest_power", target, lambda: plan_power(api, vmid, action, kind, node))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
+    # PVE guest power is task-backed (POST .../status/{action} returns a UPID) — async, like the
+    # identical-shape node_service_control. Record "submitted", never "ok": the ledger must not claim
+    # the guest stopped/started when only the task was accepted.
     return _audited("pve_guest_power", target, lambda: api.guest_power(vmid, action, kind, node),
-                    mutation=True, detail={"confirmed": True})
+                    mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
 # --- Snapshots / UNDO (REST API). Create/rollback/delete are ASYNC -> return a task UPID. ---
@@ -603,12 +608,14 @@ def ct_exec(ctid: str, command: list[str], snapshot: bool = False, confirm: bool
     result carries an `undo_point` you can revert with pve_rollback.
     """
     cfg, api, exec_, _ = _svc()
-    detail = {"command": command}
+    # Audit completeness is the default; PROXIMO_LEDGER_REDACT records a command fingerprint instead
+    # of the argv (which can carry secrets, e.g. `--password ...`) — see audit.py + README.
+    detail = command_fingerprint(command) if cfg.redact_ledger else {"command": command}
     if not cfg.enable_exec:
         return _exec_disabled("ct_exec", str(ctid), detail)
     if not cfg.ct_permitted(ctid):
         return _blocked_allowlist("ct_exec", str(ctid), detail)
-    plan = _plan("ct_exec", str(ctid), lambda: plan_exec(ctid, command))
+    plan = _plan("ct_exec", str(ctid), lambda: plan_exec(ctid, command, redact=cfg.redact_ledger))
     if not confirm:
         return {"status": "plan", "auto_snapshot": snapshot, **plan.as_dict()}
 
@@ -643,12 +650,14 @@ def ct_psql(ctid: str, sql: str, db: str = "postgres", snapshot: bool = False,
     SQL is NOT run (fail-closed). On success the result carries an `undo_point` (revert via pve_rollback).
     """
     cfg, api, exec_, _ = _svc()
-    detail = {"db": db, "sql": sql}
+    # Audit completeness is the default; PROXIMO_LEDGER_REDACT records a fingerprint instead of
+    # the body (which can carry secrets/PII) — see audit.py + README.
+    detail = {"db": db, **(sql_fingerprint(sql) if cfg.redact_ledger else {"sql": sql})}
     if not cfg.enable_exec:
         return _exec_disabled("ct_psql", str(ctid), detail)
     if not cfg.ct_permitted(ctid):
         return _blocked_allowlist("ct_psql", str(ctid), detail)
-    plan = _plan("ct_psql", str(ctid), lambda: plan_psql(ctid, sql, db=db))
+    plan = _plan("ct_psql", str(ctid), lambda: plan_psql(ctid, sql, db=db, redact=cfg.redact_ledger))
     if not confirm:
         return {"status": "plan", "auto_snapshot": snapshot, **plan.as_dict()}
 
@@ -825,16 +834,18 @@ def pve_create_vm(vmid: str, node: str | None = None, options: dict | None = Non
 @mcp.tool()
 def pve_clone(vmid: str, newid: str, kind: str = "lxc", node: str | None = None,
               name: str | None = None, full: bool = False, pool: str | None = None,
-              confirm: bool = False) -> dict:
+              storage: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: clone a guest to a new id. Dry-run by default; confirm=True. Async — returns a UPID.
-    pool: place the new guest in a resource pool (needed when the token is pool-scoped)."""
+    pool: place the new guest in a resource pool (needed when the token is pool-scoped).
+    storage: target storage for the full clone's disks (full=True only) — keeps a clone off the
+    source storage; refused for a linked clone (PVE only honors it on a full clone)."""
     _, api, _, _ = _svc()
     target = f"{kind}/{vmid}->{newid}"
-    plan = _plan("pve_clone", target, lambda: plan_clone(api, vmid, newid, kind, node))
+    plan = _plan("pve_clone", target, lambda: plan_clone(api, vmid, newid, kind, node, storage))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_clone", target,
-                    lambda: clone_guest(api, vmid, newid, kind, node, name, full, pool),
+                    lambda: clone_guest(api, vmid, newid, kind, node, name, full, pool, storage),
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 

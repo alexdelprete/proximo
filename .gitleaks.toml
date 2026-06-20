@@ -1,0 +1,18 @@
+# Proximo gitleaks config — default ruleset plus a narrow allowlist for known
+# false positives. gitleaks auto-detects this file (used by both the GitHub
+# gitleaks-action and the self-hosted gitea runner).
+title = "Proximo gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional test sentinels (fake credentials used to verify secret-masking) and compiled bytecode."
+paths = [
+  '''(^|/)__pycache__/''',
+  '''\.pyc$''',
+]
+regexes = [
+  # Test sentinels follow the SENTINEL_* naming convention, e.g. SENTINEL_PW_123.
+  '''SENTINEL_[A-Z0-9_]+''',
+]

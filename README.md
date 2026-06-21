@@ -46,8 +46,8 @@ Two backends behind one tool surface:
 
 ## Install & run
 
-> 📦 **`0.6.3` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.6.3) (CI green), and
+> 📦 **`0.6.4` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.6.4) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
@@ -93,8 +93,8 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 ## Status — the arena record
 
-🩸 **0.6.3 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2452 tests,
+🩸 **0.6.4 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2453 tests,
 0 skipped, ruff + pyright clean** — these are **mock/in-process** (4.5s, no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
 name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
 to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
@@ -129,7 +129,7 @@ instead, when the SQL/command may carry secrets/PII. The PVE API token is never 
 
 ### What's next
 - [x] **PyPI** — `proximo-proxmox` published 2026-06-10; `uvx proximo-proxmox` works
-- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.6.3` / `latest`) via a release Action
+- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.6.4` / `latest`) via a release Action
 - [x] Firewall objects · HA rules · SDN object CRUD — live-proven on PVE 9.2 (0.2.0)
 - [ ] Live smoke of the remaining surface (PBS-mutate); HA fencing + online migration when the hardware exists
 - [ ] PBS certificate-fingerprint wire-enforcement

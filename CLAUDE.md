@@ -27,7 +27,7 @@ Run a single file: `uv run python -m pytest tests/test_blast.py -q`.
 
 ## Trust spine (don't break these invariants)
 
-Four pillars: **PLAN** (dry-run preview before any mutation — you can't mutate without a plan), **PROVE** (hash-chained tamper-evident audit ledger), **UNDO** (auto-snapshot + `pve_rollback`), **DIAGNOSE** (read-only evidence). Risk ratings are an **advisory heuristic, not a sandbox** — `LOW` = "no state change," not "safe." Keep that honesty note intact in any docs/output.
+Four pillars: **PLAN** (dry-run preview before any mutation — you can't mutate without a plan), **PROVE** (hash-chained tamper-evident audit ledger), **UNDO** (heterogeneous by plane: opt-in auto-snapshot for `ct_exec`/`ct_psql`, config-revert for guest config, `pve_rollback` for guests — fail-closed where present, but firewall/SDN/ACL/token planes aren't PVE-snapshottable so they have no rollback primitive; UNDO covers the snapshottable surface, not every mutation), **DIAGNOSE** (read-only evidence). Risk ratings are an **advisory heuristic, not a sandbox** — `LOW` = "no state change," not "safe." Keep that honesty note intact in any docs/output.
 
 ## Running the server
 

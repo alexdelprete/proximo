@@ -408,6 +408,18 @@ def test_token_create_rejects_traversal_in_userid():
         token_create(api, "admin@pam/../evil", "mytoken")
 
 
+def test_userid_rejects_dot_traversal_segment_without_slash():
+    # Defense-in-depth, consistent with _check_tokenid/_check_roleid: a '..' segment in a userid
+    # must be refused even when it carries no '/' (e.g. '..@pam' / 'admin@..'). Safe today only by
+    # side-effect of the no-'/' charset; the explicit guard keeps traversal closed if the charset is
+    # ever loosened. Nothing must reach the wire.
+    api = _api()
+    for bad in ("..@pam", "admin@.."):
+        with pytest.raises(ProximoError):
+            token_revoke(api, bad, "mytoken")
+    assert api.seen == {}
+
+
 # ---------------------------------------------------------------------------
 # token_revoke — URL shape
 # ---------------------------------------------------------------------------

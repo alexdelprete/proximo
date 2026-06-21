@@ -17,6 +17,6 @@ Layering (import-safe):
     - ``executor`` — the ``AgentExecutor`` that validates + routes a skill call (needs a2a-sdk).
     - ``app``      — the Starlette/JSON-RPC server + ``proximo-a2a`` entrypoint (needs a2a-sdk + uvicorn).
 
-The a2a-sdk is an OPTIONAL dependency (``pip install 'proximo[a2a]'``); only ``card``/``executor``/
+The a2a-sdk is an OPTIONAL dependency (``pip install 'proximo-proxmox[a2a]'``); only ``card``/``executor``/
 ``app`` need it. ``skills`` stays dependency-light so the contract is always importable.
 """

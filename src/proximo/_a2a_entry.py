@@ -29,7 +29,7 @@ def main() -> None:
             raise
         print(
             f"proximo-a2a needs the optional A2A dependencies ('{missing}' is not installed).\n"
-            'Install them with:  pip install "proximo[a2a]"',
+            'Install them with:  pip install "proximo-proxmox[a2a]"',
             file=sys.stderr,
         )
         raise SystemExit(2) from None

@@ -39,7 +39,7 @@ Two backends behind one tool surface:
 
 ## Principles (the mantra, baked in — not bolted on)
 
-- **Ethical** — least-privilege posture (exec off by default; bounded by the token you scope), every action audited, mutations confirm-gated, the PVE token never read or logged.
+- **Ethical** — least-privilege posture (exec off by default; bounded by the token you scope), every action audited, mutations confirm-gated, the PVE token read only at call time, never logged or persisted.
 - **Solid** — real tests (unit + a live smoke against a throwaway CTID), typed, documented, no silent failures.
 - **Strong** — does the hard thing (container exec) cleanly and least-privileged (fail-closed CTID allowlist, opt-in). *(Container exec isn't unique — the field leader has it too; the differentiator is the trust layer below, not the exec.)*
 - **Passion + craft** — redteamed and linted before it's called done; shipped proud — docs, license, community-ready.
@@ -86,7 +86,7 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 |---|---|---|
 | **PLAN** | Dry-run by default: every mutation first returns a preview — the exact change, the guest's live state, blast radius, and an honest (advisory, heuristic) risk rating — recorded to the ledger. You can't mutate without the plan existing first. | ✅ built + redteamed |
 | **PROVE** | Hash-chained, tamper-evident audit ledger; plans and confirmations both land in it, so the approval trail is verifiable after the fact. | ✅ built + redteamed |
-| **UNDO** | Auto-snapshot before a risky change (waited-on, fail-closed if storage can't snapshot) + revert via `pve_rollback`; full snapshot lifecycle tools. Undo points aren't auto-pruned — delete with `pve_snapshot_delete`. (Snapshot/rollback are async — they submit a task you poll with `pve_task_status`.) | ✅ built + redteamed |
+| **UNDO** | Heterogeneous by plane, fail-closed where present: opt-in auto-snapshot before a risky `ct_exec`/`ct_psql` (waited-on, fail-closed if storage can't snapshot); config-revert for guest config; `pve_rollback` + full snapshot lifecycle for guests. Not every PVE plane is snapshottable — firewall/SDN/ACL/token have no rollback primitive — so UNDO covers the snapshottable surface, not every mutation. Undo points aren't auto-pruned — delete with `pve_snapshot_delete`. (Snapshot/rollback are async — poll with `pve_task_status`.) | ✅ built + redteamed |
 | **DIAGNOSE** | Read-only evidence battery (failed units, disk, errors, memory, listening ports) + node health (storage/tasks) → advisory flags. Flags surface *incompleteness* too, so an empty list never reads as a false clean bill. | ✅ built + redteamed |
 
 > **Honesty note (load-bearing):** PLAN's risk ratings are an *advisory heuristic*, not a sandbox. `LOW` means "does not change state," **not** "safe" — a read can still exfiltrate. The absence of a `HIGH` flag is **not** a safety signal; the destructive-pattern signatures are curated, not exhaustive. Review every change yourself.
@@ -95,7 +95,7 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 🩸 **0.6.3 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
 All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2452 tests,
-0 skipped, ruff + pyright clean** — these are **mock/in-process** (4.5s, no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — ten op-classes that
+0 skipped, ruff + pyright clean** — these are **mock/in-process** (4.5s, no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
 name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
 to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
 
@@ -117,7 +117,7 @@ to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
 *fencing* (needs a hardware watchdog), *online* live-migration (needs shared storage), and behavior at
 production scale. The full, unflattering field comparison lives in [`LANDSCAPE.md`](./LANDSCAPE.md).
 
-**The A2A face (experimental, opt-in):** `pip install 'proximo[a2a]'`, then `proximo-a2a` — a curated
+**The A2A face (experimental, opt-in):** `pip install 'proximo-proxmox[a2a]'`, then `proximo-a2a` — a curated
 16-skill slice over Agent2Agent that **routes through the same trust core** (PLAN/PROVE/UNDO inherited;
 there is no second code path to bypass). Fail-closed perimeter: non-localhost binds are refused without a
 bearer token (`PROXIMO_A2A_TOKEN_FILE`); Host-header allowlist defends against DNS rebinding. Ledger note:

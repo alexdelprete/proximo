@@ -25,8 +25,9 @@ from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_MEDIUM, Plan, _max_risk
 from .storage import _check_storage  # reuse: same regex/rule, no duplication
 
-# Smoke-confirm: _check_storage (from storage.py) uses ^[A-Za-z0-9._-]+\Z — permits dot-only
-# names such as "." and ".." as valid storage IDs (pre-existing; not changed here).
+# _check_storage (from storage.py) rejects '.'/'..' as path-traversal (the dot-segment guard landed
+# in 0.6.3), then enforces ^[A-Za-z0-9._-]+\Z — so a storage id reaching /storage/{storage} can't
+# normalize onto a wrong endpoint. Reused here, no duplication.
 
 # ---------------------------------------------------------------------------
 # Local validators

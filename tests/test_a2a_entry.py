@@ -24,7 +24,7 @@ def test_friendly_exit_when_extra_module_missing(monkeypatch, capsys, missing):
         entry.main()
     assert ei.value.code == 2
     err = capsys.readouterr().err
-    assert 'pip install "proximo[a2a]"' in err
+    assert 'pip install "proximo-proxmox[a2a]"' in err
     assert f"'{missing}'" in err
 
 

@@ -61,6 +61,7 @@ def _check_userid(userid: str) -> str:
             f"invalid userid: {userid!r} — expected user@realm "
             "(letters/digits/._- only; no path separators or whitespace)"
         )
+    _reject_dot_traversal(s, "userid")
     return s
 
 

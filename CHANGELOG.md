@@ -4,6 +4,34 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.6.4] — 2026-06-21
+
+**Honesty, UX & defense-in-depth.** Small fixes surfaced by a fresh-eyes multi-agent audit whose
+headline finding was that the trust spine holds under five independent adversarial reads. No new
+tools (145).
+
+### Security
+- **Defense-in-depth: `_check_userid` now rejects `.`/`..` dot-segments**, matching its sibling
+  validators (`_check_tokenid` / `_check_roleid`). A userid was safe only by side-effect of its no-`/`
+  charset; the explicit guard keeps path-traversal closed if that charset is ever loosened.
+
+### Fixed
+- **A2A install hint named a nonexistent distribution.** `pip install 'proximo[a2a]'` (in the runtime
+  error message, README, `a2a/__init__.py`, and `pyproject.toml`) hard-failed — the PyPI project is
+  `proximo-proxmox`. All four now say `proximo-proxmox[a2a]`.
+- **Honesty: "the PVE token never read or logged" was inaccurate.** The token IS read from its file at
+  call time (it just isn't logged or persisted). The README and package docstring now say so, matching
+  the code's own comment.
+
+### Docs
+- **UNDO pillar reframed to its real coverage.** It was presented as a symmetric peer pillar
+  ("auto-snapshot + rollback"); in reality auto-snapshot is opt-in and exec-only, guests use
+  config-revert / `pve_rollback`, and the firewall/SDN/ACL/token planes aren't PVE-snapshottable at all.
+  README + CLAUDE.md now state UNDO covers the snapshottable surface, not every mutation.
+- **Blast-radius op-class count corrected** in the README (ten → eleven `compute_*` functions).
+- **Two stale security comments corrected** (`storage_admin.py`, `access_governance.py`) that described
+  path-traversal gaps the validators actually close.
+
 ## [0.6.3] — 2026-06-21
 
 **Defense-in-depth & plan honesty.** Two non-destructive fixes from the post-0.6.2 codebase sweep: a

@@ -35,9 +35,8 @@ from __future__ import annotations
 
 import re
 
-# Smoke-confirm / follow-up: _check_roleid (in access.py) blocks '/' but permits '..';
-# worst-case path is /access/roles/.. (harmless), but asymmetry should be addressed in a
-# dedicated access.py hardening pass.
+# _check_roleid (in access.py) rejects both '/' (charset) and '.'/'..' (the _reject_dot_traversal
+# guard landed in 0.6.3) — no traversal asymmetry remains. _check_userid carries the same guard.
 from .access import _check_roleid, _check_userid, _is_administrator_role
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_MEDIUM, Plan

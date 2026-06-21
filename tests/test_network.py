@@ -121,6 +121,18 @@ def test_network_list_rejects_bad_node():
         network_list(api, node="bad node!")
 
 
+def test_check_iface_rejects_lone_dot_traversal():
+    # iface='.' would normalize PUT /nodes/{n}/network/. onto PUT /nodes/{n}/network — the network
+    # config APPLY/reload endpoint — a disruptive wrong-target op the plan would mislabel as an
+    # iface update. '..' was already rejected; the lone-'.' gap must close too. VLANs (eth0.100) stay OK.
+    import pytest as _pytest
+    for bad in (".", ".."):
+        with _pytest.raises(ProximoError):
+            _check_iface(bad)
+    assert _check_iface("eth0.100") == "eth0.100"   # legit VLAN iface (single dot) still allowed
+    assert _check_iface("vmbr0") == "vmbr0"
+
+
 def test_network_list_rejects_dangerous_iface_type_ampersand(monkeypatch):
     """iface_type with & must be rejected — charset guard blocks query-string injection."""
     api = ApiBackend(_cfg())

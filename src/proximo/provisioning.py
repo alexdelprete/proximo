@@ -249,11 +249,14 @@ def plan_clone(
     kind: str = "lxc",
     node: str | None = None,
     storage: str | None = None,
+    full: bool = False,
 ) -> Plan:
     """Preview cloning guest vmid to newid.
 
     Reads list_guests (a safe read) to detect whether newid is already in use.
-    `storage`, when set, is disclosed in the plan (the target storage for a full clone's disks).
+    full=False (default) is a LINKED clone — copy-on-write, requires the source to be a template;
+    full=True is a full independent copy. `storage` is only honored for a full clone (the op refuses
+    it otherwise), so the plan must reflect `full` to describe the actual result.
     """
     vmid = _check_vmid(vmid)
     newid = _check_vmid(newid)
@@ -286,15 +289,30 @@ def plan_clone(
     elif not source_found:
         blast = [f"clone will FAIL — source {kind}/{vmid} not found; nothing would be cloned"]
         reasons = [f"source {kind}/{vmid} does not exist; clone will be rejected by PVE"]
-    else:
+    elif full:
         blast = [
-            f"clones {kind}/{vmid} → {newid} (new independent guest); "
+            f"clones {kind}/{vmid} → {newid} (new independent guest, FULL clone); "
             "consumes additional disk and resource allocation"
         ]
-        reasons = [f"resource consumption: clones {kind}/{vmid} to {newid}"]
+        reasons = [f"resource consumption: full clone of {kind}/{vmid} to {newid}"]
+    else:
+        blast = [
+            f"clones {kind}/{vmid} → {newid} (LINKED clone — copy-on-write, depends on the source "
+            f"{kind}/{vmid}, which must be a template; PVE rejects a linked clone of a non-template)"
+        ]
+        reasons = [
+            f"linked clone of {kind}/{vmid} to {newid} — requires the source to be a template "
+            "(use full=True for an independent copy)"
+        ]
 
     if storage is not None:
-        blast = blast + [f"full-clone disks target storage '{storage}' (full clone only)"]
+        if full:
+            blast = blast + [f"full-clone disks target storage '{storage}'"]
+        else:
+            blast = blast + [
+                f"⚠ storage override '{storage}' requires full=True — this clone will be REFUSED "
+                "(a linked clone must stay on the source storage)"
+            ]
 
     # Disclose the SDN.Use-on-bridge requirement (PVE 8+) for the cloned guest's NIC(s).
     bridges = _source_nic_bridges(api, kind, vmid, node)

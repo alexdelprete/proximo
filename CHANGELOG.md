@@ -4,6 +4,34 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.6.3] — 2026-06-21
+
+**Defense-in-depth & plan honesty.** Two non-destructive fixes from the post-0.6.2 codebase sweep: a
+`pve_clone` dry-run that mislabeled the default *linked* clone as a "new independent guest" now reflects
+`full`, and two more path-traversal dot-segments — siblings of the 0.6.2 `pve_token_revoke` fix — are
+rejected in the network-interface and storage validators. No new tools (145).
+
+### Fixed
+- **Plan honesty: `pve_clone` dry-run mislabeled a linked clone as "independent".** `plan_clone` was
+  blind to `full` (the tool never forwarded it), so the dry-run unconditionally said *"new independent
+  guest"* — true only for `full=True`, while the default `full=False` is a **linked** clone (copy-on-write,
+  template-dependent). It also previewed a storage-targeted clone as viable even though the op refuses
+  `storage` without `full=True`. The plan now reflects `full`: linked-vs-full wording, the template
+  precondition for a linked clone, and a "will be REFUSED" note for `storage` without `full`. (Same class
+  as the firewall rule-precedence fix — the preview describing the wrong behavior. Non-destructive: every
+  divergent path already fails closed.)
+- **Security (defense-in-depth): two more path-traversal dot-segments closed.** Following the 0.6.2
+  `pve_token_revoke` fix, a codebase-wide sweep of path-interpolated identifiers found two siblings
+  whose validator permitted a `.`/`..` segment the HTTP client normalizes onto a different endpoint:
+  - `_check_iface` rejected `..` but **not a lone `.`** — `pve_network_iface_update(iface=".")`
+    collapsed `PUT /nodes/{n}/network/.` onto `PUT /nodes/{n}/network`, the network-config **apply**
+    endpoint (a disruptive wrong-target op the plan mislabeled as an interface update).
+  - `_check_storage` had no dot-segment guard (storage `.`/`..` collapsed to non-destructive
+    endpoints — lower severity, same class).
+  Both now reject `.`/`..`. Legit VLAN interfaces (`eth0.100`) and dotted storage ids are unaffected.
+  (The other path-interpolated validators were verified to already guard this — start-with-alphanumeric
+  anchors, explicit `..` rejects, or `@`/numeric structure.)
+
 ## [0.6.2] — 2026-06-20
 
 **Security & correctness.** A path-traversal that could delete a user via `pve_token_revoke`, a

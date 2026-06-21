@@ -70,7 +70,10 @@ def _check_iface(iface: str) -> str:
     ``\\Z`` (not ``$``) blocks embedded newlines (same redteam lesson as backends.py _NODE_RE).
     """
     s = str(iface)
-    if ".." in s:
+    # Reject dot-segments: '.' normalizes PUT /network/. onto PUT /network (the config-APPLY
+    # endpoint) and '..' onto the node — wrong-target ops the plan would mislabel. VLANs (eth0.100)
+    # contain a single dot but are never a lone '.'/'..', so they stay valid.
+    if s == "." or ".." in s:
         raise ProximoError(f"invalid interface name: {iface!r} (path traversal rejected)")
     if not _IFACE_RE.match(s):
         raise ProximoError(

@@ -100,6 +100,16 @@ def test_storage_content_rejects_bad_storage_id():
         storage_content(api, "local/../../etc")
 
 
+def test_storage_rejects_dot_segment_traversal():
+    # storage='.'/'..' passes the bare charset regex but would normalize the /storage/{storage}
+    # path onto a different endpoint — a wrong-target op. Reject the dot-segment class (same as the
+    # token-revoke fix). Legit dotted ids (e.g. 'my.store') stay allowed.
+    api = _FakeApi()
+    for bad in (".", ".."):
+        with pytest.raises(ProximoError, match="invalid storage id"):
+            storage_content(api, bad)
+
+
 def test_storage_content_rejects_bad_node():
     api = _FakeApi()
     with pytest.raises(ProximoError):

@@ -530,9 +530,33 @@ def test_plan_clone_discloses_unavailable_check():
 
 
 def test_plan_clone_discloses_target_storage():
+    # storage is only valid for a FULL clone; disclose it on that path.
     api = _ListApi([{"vmid": 200}])  # source exists, newid 201 free
-    p = plan_clone(api, "200", "201", storage="targetstore")
+    p = plan_clone(api, "200", "201", full=True, storage="targetstore")
     assert any("targetstore" in b for b in p.blast_radius)
+
+
+def test_plan_clone_default_is_linked_not_independent():
+    # The DEFAULT (full=False) is a LINKED clone (template-dependent), NOT a "new independent guest".
+    # The plan must not claim the opposite (same class as the firewall-precedence honesty bug).
+    api = _ListApi([{"vmid": 200}])
+    text = " ".join(plan_clone(api, "200", "201").blast_radius).lower()
+    assert "linked" in text
+    assert "independent" not in text
+
+
+def test_plan_clone_full_is_independent():
+    api = _ListApi([{"vmid": 200}])
+    text = " ".join(plan_clone(api, "200", "201", full=True).blast_radius).lower()
+    assert "independent" in text or "full clone" in text
+    assert "linked" not in text
+
+
+def test_plan_clone_storage_without_full_warns_it_will_be_refused():
+    # clone_guest REJECTS storage without full=True — the dry-run must say so, not preview it as viable.
+    api = _ListApi([{"vmid": 200}])
+    text = " ".join(plan_clone(api, "200", "201", storage="fast").blast_radius).lower()
+    assert "refused" in text or "requires full" in text
 
 
 def test_plan_clone_discloses_sdn_bridge_requirement():

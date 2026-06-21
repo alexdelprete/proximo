@@ -841,7 +841,7 @@ def pve_clone(vmid: str, newid: str, kind: str = "lxc", node: str | None = None,
     source storage; refused for a linked clone (PVE only honors it on a full clone)."""
     _, api, _, _ = _svc()
     target = f"{kind}/{vmid}->{newid}"
-    plan = _plan("pve_clone", target, lambda: plan_clone(api, vmid, newid, kind, node, storage))
+    plan = _plan("pve_clone", target, lambda: plan_clone(api, vmid, newid, kind, node, storage, full))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_clone", target,

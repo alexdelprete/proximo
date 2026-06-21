@@ -41,6 +41,10 @@ _CONTENT_DOWNLOAD_TYPES = frozenset({"iso", "vztmpl"})
 
 
 def _check_storage(storage: str) -> str:
+    # Reject dot-segments: '.'/'..' pass the bare charset regex but normalize the /storage/{storage}
+    # path onto a different endpoint (wrong-target). Legit dotted ids (e.g. 'my.store') are unaffected.
+    if storage == "." or ".." in storage:
+        raise ProximoError(f"invalid storage id: {storage!r} (path traversal rejected)")
     if not _STORAGE_RE.match(storage):
         raise ProximoError(f"invalid storage id: {storage!r} (letters/digits/._- only)")
     return storage

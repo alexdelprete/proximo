@@ -65,6 +65,40 @@ def test_pypi_token_shape_is_flagged():
     assert any(f.kind == "token" for f in res.findings)
 
 
+# --- pure: site-specific internal-identifier denylist (bare names with no generic shape) ---
+def test_deny_literal_hostname_is_flagged():
+    files = {"docs/x.md": "run the smoke on fakehost9000 today"}
+    res = rla.audit_files(files, deny_literals=("fakehost9000",))
+    assert any(f.kind == "internal-literal" and f.match == "fakehost9000" for f in res.findings)
+
+
+def test_deny_literal_match_is_case_insensitive():
+    files = {"docs/x.md": "node FAKEHOST9000 reported"}
+    res = rla.audit_files(files, deny_literals=("fakehost9000",))
+    assert any(f.kind == "internal-literal" for f in res.findings)
+
+
+def test_deny_literal_is_word_boundaried_no_substring_false_positive():
+    # a longer token that merely CONTAINS the literal must not trip the gate
+    files = {"docs/x.md": "var fakehost90001x = 1"}
+    res = rla.audit_files(files, deny_literals=("fakehost9000",))
+    assert not any(f.kind == "internal-literal" for f in res.findings)
+
+
+def test_no_deny_literals_means_no_internal_literal_findings():
+    files = {"docs/x.md": "run on fakehost9000"}
+    res = rla.audit_files(files)  # default: empty denylist -> generic gate only
+    assert not any(f.kind == "internal-literal" for f in res.findings)
+
+
+def test_load_deny_literals_reads_internal_only_file():
+    # the real denylist lives under a stripped (.gitea) path and names the real node; loading it
+    # should return a non-empty, lowercased tuple (so a bare internal hostname can be caught).
+    lits = rla.load_deny_literals()
+    assert isinstance(lits, tuple)
+    assert all(s == s.lower() for s in lits)
+
+
 def test_root_ellipsis_placeholder_is_not_flagged():
     # `/root/...` in prose is rule-text, not a real path.
     files = {"CLAUDE.md": "no absolute `/root/...` paths in tracked files"}
@@ -137,8 +171,9 @@ def test_build_public_tree_does_not_touch_real_index_or_worktree():
 
 
 def test_current_public_surface_is_leak_clean():
-    # The real publish surface (kept files, .gitea stripped) must carry no leak shapes.
-    res = rla.audit_files(rla.files_in_ref("HEAD"))
+    # The real publish surface (kept files, .gitea stripped) must carry no leak shapes — including
+    # site-specific internal identifiers from the (stripped) denylist file.
+    res = rla.audit_files(rla.files_in_ref("HEAD"), deny_literals=rla.load_deny_literals())
     assert res.ok, "leak shapes in public surface:\n" + "\n".join(
         f"  {f.kind} {f.path}:{f.line}: {f.match}" for f in res.findings
     )

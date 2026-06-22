@@ -15,7 +15,7 @@ import pytest
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from starlette.testclient import TestClient
 
-from proximo.a2a.app import build_app
+from proximo.a2a.app import _is_public, _require_auth_for_public, build_app
 from proximo.a2a.card import build_agent_card
 
 PUBLIC_URL = "http://10.1.2.3:41241/"
@@ -38,6 +38,25 @@ def test_localhost_without_token_still_serves_card():
     # no regression: dev default (loopback, no token, no Host restriction) keeps working
     client = TestClient(build_app())
     assert client.get(AGENT_CARD_WELL_KNOWN_PATH).status_code == 200
+
+
+# An empty/None/whitespace bind host means "bind all interfaces" (0.0.0.0) — the MOST public. It must
+# be treated as public so the fail-closed gate refuses it without a token. (Regression: bool("") is
+# False made _is_public("") read as non-public, so PROXIMO_A2A_HOST="" slipped the gate unauthenticated.)
+@pytest.mark.parametrize("host", ["", "   ", None, "0.0.0.0", "::", "10.1.2.3"])  # noqa: S104 -- testing bind-all IS public
+def test_bindall_or_remote_host_is_public(host):
+    assert _is_public(host) is True
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
+def test_localhost_host_is_not_public(host):
+    assert _is_public(host) is False
+
+
+@pytest.mark.parametrize("host", ["", "   ", None])
+def test_empty_bind_host_without_token_is_refused(host):
+    with pytest.raises(ValueError):
+        _require_auth_for_public(host, None, where="bind host")
 
 
 # --- bearer auth on the control endpoint ----------------------------------------------------------

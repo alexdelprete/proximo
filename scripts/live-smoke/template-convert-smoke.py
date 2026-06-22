@@ -4,19 +4,21 @@ REAL host, driven by a least-privilege scoped token.
 
 template_convert is IRREVERSIBLE (no un-template endpoint), so this never touches a baseline VM — it
 clones a throwaway first, converts the clone, and destroys it:
-  1. FULL clone SMOKE_SRC_VMID -> SMOKE_NEW_VMID with storage=SMOKE_STORE (disposable, on test storage)
+  1. FULL clone SMOKE_SRC_VMID -> SMOKE_TPL_VMID with storage=SMOKE_STORE (disposable, on test storage)
   2. assert the clone is NOT yet a template (baseline)
   3. PLAN template_convert -> assert RISK_HIGH (one-way, no undo claim)
   4. EXECUTE template_convert -> assert the guest is now a template (config `template == 1`)
   5. delete_guest(purge) the template -> assert gone
 
-SAFETY: SMOKE_NEW_VMID must be a free throwaway id the token is scoped to allocate (+ SDN.Use on the
+SAFETY: SMOKE_TPL_VMID must be a free throwaway id the token is scoped to allocate (+ SDN.Use on the
 target bridge for the cloned NIC). Disks only on SMOKE_STORE. Self-cleaning via try/finally.
 ONE-SHOT PER GRANT: the final destroy strips the `/vms/<id>` ACL — re-grant before re-running.
+NB: its own id var (NOT clone's SMOKE_NEW_VMID) so a single `run-all.py --phase destroy` pass gives each
+destroy smoke a distinct id — else the first smoke's purge strips the grant the next one needs.
 
 Run (example):
     set -a; . /path/to/proximo.env; set +a
-    SMOKE_SRC_VMID=100 SMOKE_NEW_VMID=199 SMOKE_STORE=test \
+    SMOKE_SRC_VMID=100 SMOKE_TPL_VMID=199 SMOKE_STORE=test \
         PROXIMO_TOKEN_PATH=/path/to/scoped-token \
         uv run python scripts/live-smoke/template-convert-smoke.py
 """
@@ -32,12 +34,23 @@ from proximo.provisioning import clone_guest, delete_guest
 from proximo.server import _svc
 
 SRC = os.environ.get("SMOKE_SRC_VMID", "").strip()
-NEW = os.environ.get("SMOKE_NEW_VMID", "").strip()
+NEW = os.environ.get("SMOKE_TPL_VMID", "").strip()
 STORE = os.environ.get("SMOKE_STORE", "").strip()
 KIND = "qemu"
 
 if not (SRC and NEW and STORE):
-    sys.exit("SMOKE_SRC_VMID, SMOKE_NEW_VMID, and SMOKE_STORE are required. Refusing to guess.")
+    sys.exit("SMOKE_SRC_VMID, SMOKE_TPL_VMID, and SMOKE_STORE are required. Refusing to guess.")
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safety import assert_test_target, load_allowlist  # noqa: E402  (sibling live-smoke module)
+
+POOL = os.environ.get("SMOKE_POOL", "").strip()
+
+# Independent SECOND safety layer: default-deny unless SRC, the NEW (create+PURGE) id, and STORE are
+# allowlisted test targets — refuses a prod id before any allocate/convert/purge.
+_AL = load_allowlist(os.environ)
+assert_test_target(_AL, vmid=SRC)
+assert_test_target(_AL, vmid=NEW, storage=STORE)
 
 
 def _exists(api) -> bool:
@@ -64,11 +77,12 @@ def _wait(pred, timeout: int = 240) -> bool:
 def main() -> int:
     _, api, _, _ = _svc()
     r: dict[str, bool] = {}
-    assert not _exists(api), f"{KIND}/{NEW} already exists — choose a free SMOKE_NEW_VMID; aborting"
+    assert not _exists(api), f"{KIND}/{NEW} already exists — choose a free SMOKE_TPL_VMID; aborting"
 
     try:
         print(f"[1] FULL clone {SRC} -> {NEW} storage={STORE} (disposable) ...")
-        clone_guest(api, SRC, NEW, KIND, None, name="proximotmplsmoke", full=True, storage=STORE)
+        clone_guest(api, SRC, NEW, KIND, None, name="proximotmplsmoke", full=True, storage=STORE,
+                    pool=POOL or None)
         if not _wait(lambda: _exists(api) and "lock" not in guest_config_get(api, NEW, KIND, None)):
             print("    clone did not materialize — aborting")
             return 1

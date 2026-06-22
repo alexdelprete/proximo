@@ -137,6 +137,13 @@ def test_check_realmid_rejects_leading_hyphen():
         _check_realmid("-bad")
 
 
+def test_check_realmid_rejects_dot_dot_traversal():
+    # consistency with the other id validators: no embedded '..' (defense-in-depth, even though the
+    # charset already forbids '/', so it can't form a collapsible path segment)
+    with pytest.raises(ProximoError):
+        _check_realmid("a..b")
+
+
 def test_check_realmid_rejects_leading_dot():
     with pytest.raises(ProximoError):
         _check_realmid(".bad")

@@ -491,7 +491,7 @@ def compute_apply_lockout(pending_ifaces: list[str], mgmt_host: str | None,
 - [ ] **Step 3: Live-smoke** `scripts/live-smoke/fw-reach-smoke.py` — read-only: build a rule from env
   (`PROXIMO_FW_ACTION/DIRECTION/SOURCE/DPORT`), call `plan_firewall_rule_add`, print reach + affected.
 - [ ] **Step 4: Independent 3-lens redteam** over the full diff (A+B). Apply findings test-first; re-gate.
-  Then run the read-only reach smoke on x3650.
+  Then run the read-only reach smoke on pve-node.
 - [ ] **Step 5: Commit.**
 
 ---

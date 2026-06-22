@@ -28,6 +28,9 @@ from proximo.config_edit import guest_config_get
 from proximo.server import _svc
 from proximo.storage import content_delete, plan_content_delete, storage_content
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safety import assert_test_target, load_allowlist  # noqa: E402  (sibling live-smoke module)
+
 
 def _volid(cfg: dict, slot: str) -> str | None:
     v = cfg.get(slot)
@@ -48,6 +51,10 @@ def main() -> int:
         return 2
     slot = os.environ.get("SMOKE_SLOT", "scsi1")
     size = os.environ.get("SMOKE_SIZE", "1")
+
+    # Independent SECOND safety layer (beneath token scoping): default-deny unless both the VMID and
+    # the storage are allowlisted test targets. See safety.py.
+    assert_test_target(load_allowlist(os.environ), vmid=vmid, storage=store)
 
     _, api, _, _ = _svc()
     cpath = f"/nodes/{api.config.node}/qemu/{vmid}/config"

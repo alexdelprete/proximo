@@ -642,3 +642,50 @@ def test_ct_logs_exec_disabled_wins_over_allowlist(tmp_path, monkeypatch):
     assert any(e["action"] == "ct_logs" and e["outcome"] == "blocked:exec_disabled"
                and not e["mutation"] for e in entries)
     assert not any(e["outcome"] == "blocked:allowlist" for e in entries)
+
+
+# === registry-completeness: every MUTATING tool must be confirm-gated (PLAN-by-default) ===========
+
+# The read-only surface: tools that legitimately take NO `confirm` gate. EVERYTHING ELSE must gate.
+# This is the guardrail the whole thesis demands — a future MUTATING tool added without a confirm
+# param fails here (it won't be in this set), forcing the author to gate it (or, if it's genuinely
+# read-only, to consciously add it below). Counterpart to test_tool_count's count pin: that catches
+# "a tool changed"; this catches "a dangerous tool is ungated".
+_READ_ONLY_TOOLS = frozenset({
+    "audit_verify", "ct_diagnose", "ct_logs",
+    "pbs_datastore_status", "pbs_datastores_list", "pbs_gc_status", "pbs_namespaces_list",
+    "pbs_snapshots_list",
+    "pve_acl_list", "pve_backup_list", "pve_cloudinit_get", "pve_cluster_resources",
+    "pve_cluster_status", "pve_diagnose", "pve_doctor", "pve_firewall_alias_list",
+    "pve_firewall_options_get", "pve_firewall_rules_list", "pve_group_get", "pve_groups_list",
+    "pve_guest_config_get", "pve_guest_status", "pve_ha_groups_list", "pve_ha_resources_list",
+    "pve_ha_rules_list", "pve_ipset_list", "pve_list_guests", "pve_network_list",
+    "pve_node_certificates", "pve_node_dns", "pve_node_journal", "pve_node_rrddata",
+    "pve_node_service_status", "pve_node_services_list", "pve_node_status", "pve_node_subscription",
+    "pve_node_syslog", "pve_overbroad_grants", "pve_pool_get", "pve_pools_list", "pve_realm_get",
+    "pve_realms_list", "pve_roles_list", "pve_sdn_subnet_list", "pve_sdn_vnets_list",
+    "pve_sdn_zones_list", "pve_security_groups_list", "pve_snapshot_list", "pve_storage_config_get",
+    "pve_storage_config_list", "pve_storage_content", "pve_storage_status", "pve_task_log",
+    "pve_task_status", "pve_task_wait", "pve_tasks_list", "pve_tfa_get", "pve_tfa_list",
+    "pve_tokens_list", "pve_user_get", "pve_users_list",
+})
+
+
+async def test_every_mutating_tool_is_confirm_gated():
+    import inspect
+    tools = await server.mcp.list_tools()
+    ungated = {
+        t.name for t in tools
+        if "confirm" not in inspect.signature(getattr(server, t.name)).parameters
+    }
+    new_ungated = ungated - _READ_ONLY_TOOLS
+    assert not new_ungated, (
+        "Tool(s) with NO confirm gate that are not in the read-only allowlist. If a tool MUTATES it "
+        "MUST take `confirm=` (dry-run-by-default is the trust thesis). If it is genuinely read-only, "
+        f"add it to _READ_ONLY_TOOLS:\n  {sorted(new_ungated)}"
+    )
+    stale = _READ_ONLY_TOOLS - ungated
+    assert not stale, (
+        "Tool(s) in _READ_ONLY_TOOLS that now HAVE a confirm gate (or were removed). Update the set:\n"
+        f"  {sorted(stale)}"
+    )

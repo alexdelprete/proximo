@@ -4,6 +4,56 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.6.5] — 2026-06-22
+
+**Security & live-integration CI.** Closes an A2A bind auth-bypass, hardens identifier validation,
+fixes a plan-honesty gap, and lands a substantial live-integration smoke harness that exercises the
+trust spine against a real cluster. No new tools (145).
+
+### Security
+- **A2A auth-bypass: an empty bind host bound every interface *without* auth.** `_is_public` treated
+  an empty/whitespace host as non-public (`bool("")` is `False`), so `PROXIMO_A2A_HOST=""` bound
+  `0.0.0.0` — all interfaces — while skipping the bearer-token requirement a non-loopback bind is
+  meant to force. An empty, `None`, or whitespace-only host is now classified public: the A2A control
+  endpoint refuses to start on it without a bearer token, fail-closed like any other public bind.
+- **Identifier validation hardened.** `vmid` is validated as ASCII digits (was `str.isdigit()`, which
+  accepts non-ASCII Unicode digits); `realmid` rejects `.`/`..` dot-segments (the path-traversal class
+  closed across the other identifiers in 0.6.2/0.6.3); firewall alias CIDRs are validated; and the
+  TLS-verify default is pinned fail-closed by test.
+
+### Fixed
+- **Plan honesty: `pve_network_iface_update` preview was blind to staged `options`.** The dry-run did
+  not disclose every field it would stage, and a reserved `type` key could be passed through. The plan
+  now discloses the staged fields and rejects the reserved key.
+
+### Added
+- **Public-tree leak-gate catches bare internal hostnames.** The release leak-audit previously matched
+  only dotted internal TLDs (`.lan`/`.internal`/`.intranet`); it now also refuses bare internal
+  hostnames via an internal-only denylist (itself stripped from the public tree).
+- **Registry-completeness gate (CI).** A test pins the read-only tool set and asserts every *other*
+  registered tool takes a `confirm=` parameter, so a new mutating tool cannot ship un-gated. (It proves
+  a mutator *has* the confirm gate, not that `confirm=False` no-ops.)
+- **Live-integration smoke harness.** A phase-tagged orchestrator (`scripts/live-smoke/run-all.py`:
+  read → plan → mutate → destroy, escalating by blast radius) plus planes for the mutate slice,
+  access-CRUD, storage-admin, and PBS (namespace / snapshot-delete / prune / gc / verify). Each plane
+  is guarded by an independent default-deny allowlist (`safety.py`) — a VMID/storage/PBS-host not named
+  as a test target is refused *before* any API call, a second safety layer beneath the scoped token —
+  is self-seeding and self-cleaning, and SKIPs when its scoped env is unset. The PBS `verify` smoke
+  asserts *real, scoped* verification (the target snapshot's `verification.state == 'ok'` and a decoy
+  snapshot left untouched). It is wired to a nightly advisory CI job (non-blocking); the read+plan
+  slice runs with only a read token and is proven end-to-end against a real cluster.
+- **Characterization fixtures pin the blast engine to real PVE response shapes**
+  (`tests/test_live_shapes.py`), locking the backup-job selection-mode serialization the
+  `guest_destroy` resolver depends on against ground truth — real PVE omits unset `pool`/`vmid` keys
+  rather than sending `null`, serializes `all` as an int and `exclude` as a comma-string, and always
+  carries a synthetic `current` snapshot entry. Shape-only and credential-free, so they run in the
+  fast suite.
+
+### Docs
+- **Overclaim corrections.** Fixed a self-contradicting "the hypervisor is never touched" line, the
+  PROVE "verifiable" framing, and the PLAN "gate" wording; replaced hardcoded test counts with
+  drift-resistant phrasing.
+
 ## [0.6.4] — 2026-06-21
 
 **Honesty, UX & defense-in-depth.** Small fixes surfaced by a fresh-eyes multi-agent audit whose

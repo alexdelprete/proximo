@@ -1738,7 +1738,7 @@ def pve_network_iface_update(
     cfg, api, _, _ = _svc()
     tgt = f"nodes/{node or cfg.node}/network/{iface}"
     plan = _plan("pve_network_iface_update", tgt,
-                 lambda: plan_iface_update(api, iface, node))
+                 lambda: plan_iface_update(api, iface, node, options or {}))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_network_iface_update", tgt,

@@ -1,5 +1,10 @@
 # Proximo — Roadmap to the Complete, Provable Proxmox Control Plane
 
+> ⚠️ **Historical snapshot (2026-06-10, pre-publication).** Tool/test counts and the "what's next"
+> list below reflect the 0.1.x cut. For current status — now **public at 0.6.4** (145 tools, 2,500+
+> tests, live-CI tier wired) — see `README.md` and `CHANGELOG.md`. This doc is kept for the design
+> thesis and the build-order record, not as a live status board.
+
 > Created 2026-06-08. The goal, stated at full size: **every operation Proxmox VE can perform,
 > exposed as an MCP tool, with every mutating one PLANNED (dry-run first), UNDOABLE where the
 > platform allows, and PROVED (tamper-evident ledger).** Not a focused subset. The whole surface,

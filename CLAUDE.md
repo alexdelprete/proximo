@@ -11,7 +11,7 @@ Proximo uses its own uv `.venv`. Always:
 
 ```
 uv sync --extra dev                 # installs dev extras (pytest, ruff, pyright, a2a-sdk)
-uv run python -m pytest -q          # full suite (2453 tests, 0 skipped) — the form every plan doc uses
+uv run python -m pytest -q          # full suite (2,500+ tests, 0 skipped) — the form every plan doc uses
 uv run ruff check src tests
 uv run pyright                      # type-checks src only (scoped in pyproject by design)
 ```

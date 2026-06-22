@@ -57,10 +57,10 @@ def _check_realmid(realm: str) -> str:
     or newline (path-traversal rejection).  \\Z anchors past any trailing newline.
     """
     s = str(realm).strip()
-    if not _REALMID_RE.match(s):
+    if ".." in s or not _REALMID_RE.match(s):  # no embedded '..' (consistent with sibling id validators)
         raise ProximoError(
             f"invalid realm id: {realm!r} — expected letters/digits/._- "
-            "starting with alnum (no slash, no whitespace)"
+            "starting with alnum (no slash, no whitespace, no '..')"
         )
     return s
 

@@ -227,6 +227,11 @@ def network_iface_update(
     """
     iface = _check_iface(iface)
     _check_node(node)
+    if "type" in opts:
+        raise ProximoError(
+            "opts must not contain the reserved key 'type' — changing an interface's type is a "
+            "structural change; recreate the interface instead (symmetry with iface_create's guard)"
+        )
     n = node or api.config.node
     return api._put(f"/nodes/{n}/network/{iface}", opts or {})
 
@@ -364,14 +369,17 @@ def plan_iface_update(
     api,
     iface: str,
     node: str | None = None,
+    opts: dict | None = None,
 ) -> Plan:
     """Preview updating a network interface.
 
-    Reads the current interface config (a safe read) to show what is being changed.
+    Reads the current interface config (a safe read) to show what is being changed, and discloses
+    the STAGED fields (*opts*) so the confirmed plan describes the actual mutation, not just "(staged)".
     Staged change — not live until network_apply. RISK_MEDIUM.
     """
     iface = _check_iface(iface)
     _check_node(node)
+    opts = opts or {}
 
     current: dict = {}
     found = True
@@ -417,6 +425,9 @@ def plan_iface_update(
         blast.extend(att.summary_lines)
         affected = att.affected
         complete = att.complete
+
+    if opts:
+        blast.append("staged fields: " + ", ".join(f"{k}={opts[k]}" for k in sorted(opts)))
 
     return Plan(
         action="pve_network_iface_update",

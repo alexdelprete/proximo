@@ -925,6 +925,7 @@ def alias_create(
     No UNDO: revert by deleting the alias. Passive until a rule references it.
     """
     name = _check_fw_name(name, "alias name")
+    cidr = _check_cidr(cidr)
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {"name": name, "cidr": cidr}
     if comment is not None:
@@ -954,7 +955,7 @@ def alias_update(
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {}
     if cidr is not None:
-        data["cidr"] = cidr
+        data["cidr"] = _check_cidr(cidr)
     if comment is not None:
         data["comment"] = comment
     if rename is not None:

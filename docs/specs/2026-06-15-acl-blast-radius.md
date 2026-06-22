@@ -185,7 +185,7 @@ I/O / seam tests (fake api, mirrors `test_blast_seam.py` / `test_server_round3_w
 
 Full suite stays green (currently 2156); ruff + `pyright` (src-scoped) clean. Independent 3-lens
 adversarial redteam before "done" (correctness/under-flag · honesty/false-gains-loses · leak), then a
-read-only live ACL-blast smoke on x3650.
+read-only live ACL-blast smoke on pve-node.
 
 ## Non-goals / explicitly deferred
 

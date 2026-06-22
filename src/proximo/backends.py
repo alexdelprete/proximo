@@ -38,7 +38,7 @@ class ProximoError(RuntimeError):
 
 
 def _check_vmid(vmid: str) -> str:
-    if not str(vmid).isdigit():
+    if not re.fullmatch(r"[0-9]+", str(vmid)):  # ASCII 0-9 only; str.isdigit() also accepts Unicode digits
         raise ProximoError(f"invalid vmid: {vmid!r} (must be numeric)")
     return str(vmid)
 

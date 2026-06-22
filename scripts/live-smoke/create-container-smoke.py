@@ -37,6 +37,14 @@ KIND = "lxc"
 if not (VMID and STORE and TEMPLATE):
     sys.exit("SMOKE_VMID, SMOKE_STORE, and SMOKE_TEMPLATE are required. Refusing to guess.")
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safety import assert_test_target, load_allowlist  # noqa: E402  (sibling live-smoke module)
+
+# Independent SECOND safety layer: default-deny unless the VMID (create+PURGE target) and STORE are
+# allowlisted test targets — refuses a prod id before any allocate/purge.
+_AL = load_allowlist(os.environ)
+assert_test_target(_AL, vmid=VMID, storage=STORE)
+
 
 def _exists(api) -> bool:
     try:

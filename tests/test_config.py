@@ -57,6 +57,28 @@ def test_from_env_parses_enable_exec(monkeypatch):
     assert cfg.enable_exec is True
 
 
+def test_verify_tls_defaults_to_true_when_unset(monkeypatch):
+    # Fail-closed: TLS verification is ON unless explicitly disabled. (Guards against a silent flip.)
+    monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://x:8006/api2/json")
+    monkeypatch.setenv("PROXIMO_NODE", "pve")
+    monkeypatch.setenv("PROXIMO_TOKEN_PATH", "/run/x")
+    monkeypatch.delenv("PROXIMO_VERIFY_TLS", raising=False)
+    cfg = ProximoConfig.from_env()
+    assert cfg.verify_tls is True
+
+
+def test_verify_tls_false_without_ca_bundle_warns_loudly(monkeypatch):
+    # Disabling verification with no CA bundle must not be silent.
+    monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://x:8006/api2/json")
+    monkeypatch.setenv("PROXIMO_NODE", "pve")
+    monkeypatch.setenv("PROXIMO_TOKEN_PATH", "/run/x")
+    monkeypatch.setenv("PROXIMO_VERIFY_TLS", "false")
+    monkeypatch.delenv("PROXIMO_CA_BUNDLE", raising=False)
+    with pytest.warns(UserWarning, match="(?i)cert validation"):
+        cfg = ProximoConfig.from_env()
+    assert cfg.verify_tls is False
+
+
 def test_redact_ledger_off_by_default():
     # Audit completeness is the default: ct_psql/ct_exec record the body unless explicitly opted out.
     assert _cfg().redact_ledger is False

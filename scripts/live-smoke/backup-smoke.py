@@ -33,6 +33,13 @@ KIND = os.environ.get("SMOKE_KIND", "qemu").strip()
 if not (VMID and STORE):
     sys.exit("SMOKE_VMID and SMOKE_STORE are required. Refusing to guess.")
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safety import assert_test_target, load_allowlist  # noqa: E402  (sibling live-smoke module)
+
+# Independent SECOND safety layer (beneath token scoping): default-deny unless both the VMID and
+# the storage are allowlisted test targets. See safety.py.
+assert_test_target(load_allowlist(os.environ), vmid=VMID, storage=STORE)
+
 
 def _archives(api) -> dict[str, dict]:
     return {str(b.get("volid", "")): b for b in backup_list(api, STORE, None)

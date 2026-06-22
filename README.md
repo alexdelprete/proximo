@@ -74,7 +74,7 @@ uv pip install -e .          # or: pip install -e .
 
 > **Safe by default:** Proximo is **API-only** out of the box. The in-container exec edge is **opt-in** (`PROXIMO_ENABLE_EXEC=1`) and tells you plainly that it grants near-root on the host.
 >
-> The hypervisor is never touched in either mode. Management goes over the Proxmox **API** (scoped token); the in-container exec edge goes over your existing **ssh** to PVE.
+> The default path never touches the hypervisor host — management goes over the Proxmox **API** (scoped token). The opt-in exec edge is the one exception: it uses your existing **ssh** to PVE to run `pct exec` as root on the host. That's exactly why it's off by default and says so loudly.
 >
 > *(A Debian package is deferred/optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.)*
 
@@ -84,8 +84,8 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 | Pillar | What it does | Status |
 |---|---|---|
-| **PLAN** | Dry-run by default: every mutation first returns a preview — the exact change, the guest's live state, blast radius, and an honest (advisory, heuristic) risk rating — recorded to the ledger. You can't mutate without the plan existing first. | ✅ built + redteamed |
-| **PROVE** | Hash-chained, tamper-evident audit ledger; plans and confirmations both land in it, so the approval trail is verifiable after the fact. | ✅ built + redteamed |
+| **PLAN** | Dry-run by default: every mutation first returns a preview — the exact change, the guest's live state, blast radius, and an honest (advisory, heuristic) risk rating — recorded to the ledger. A mutation can't run without its plan being built and recorded first. (It's a recorded *preview*, not a separate human approval step: one `confirm=true` call records the plan **and** performs the change — so in an agent loop, review the preview yourself.) | ✅ built + redteamed |
+| **PROVE** | Hash-chained audit ledger; plans and confirmations both land in it. `audit_verify` is tamper-**evident** — it catches edits, reordering, and insertion. Catching truncation/wipe/forged-tail needs the opt-in keyed mode + an off-box head anchor (see the honesty note); the default ledger is unkeyed. | ✅ built + redteamed |
 | **UNDO** | Heterogeneous by plane, fail-closed where present: opt-in auto-snapshot before a risky `ct_exec`/`ct_psql` (waited-on, fail-closed if storage can't snapshot); config-revert for guest config; `pve_rollback` + full snapshot lifecycle for guests. Not every PVE plane is snapshottable — firewall/SDN/ACL/token have no rollback primitive — so UNDO covers the snapshottable surface, not every mutation. Undo points aren't auto-pruned — delete with `pve_snapshot_delete`. (Snapshot/rollback are async — poll with `pve_task_status`.) | ✅ built + redteamed |
 | **DIAGNOSE** | Read-only evidence battery (failed units, disk, errors, memory, listening ports) + node health (storage/tasks) → advisory flags. Flags surface *incompleteness* too, so an empty list never reads as a false clean bill. | ✅ built + redteamed |
 
@@ -94,8 +94,7 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 ## Status — the arena record
 
 🩸 **0.6.4 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2453 tests,
-0 skipped, ruff + pyright clean** — these are **mock/in-process** (4.5s, no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2,500+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
 name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
 to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
 

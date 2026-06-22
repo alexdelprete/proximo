@@ -26,7 +26,7 @@ reversible config-object edit.
 ## Honesty correction: most of this round is live-provable, not mock-only
 
 Initial framing assumed SDN/HA/firewall could only be mock-proven (no SDN/HA/cluster running on the
-single x3650). That is **too pessimistic**. SDN objects, firewall aliases/IP-sets/security-groups,
+single pve-node). That is **too pessimistic**. SDN objects, firewall aliases/IP-sets/security-groups,
 and HA groups are **config objects** (`/etc/pve/sdn/*`, `cluster.fw`, `/etc/pve/ha/groups.cfg`) — not
 operations that require a running SDN controller, HA stack, or multi-node cluster. Their
 create→read→delete is **additive and reversible with no connectivity effect** — the *same shape* as

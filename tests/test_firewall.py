@@ -1106,6 +1106,13 @@ def test_alias_create_includes_comment_when_given():
     assert api.seen["data"]["comment"] == "web servers"
 
 
+def test_alias_create_rejects_invalid_cidr():
+    # consistency with ipset entries: validate the cidr fail-fast (it also prints into the plan)
+    api = _api()
+    with pytest.raises(ProximoError):
+        alias_create(api, name="web", cidr="not-a-cidr")
+
+
 def test_alias_create_omits_comment_when_absent():
     api = _api()
     alias_create(api, name="web", cidr="10.0.0.0/24")

@@ -42,6 +42,21 @@ KIND = os.environ.get("SMOKE_KIND", "qemu").strip()
 if not (SRC and NEW and STORE):
     sys.exit("SMOKE_SRC_VMID, SMOKE_NEW_VMID, and SMOKE_STORE are required. Refusing to guess.")
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safety import assert_test_target, load_allowlist  # noqa: E402  (sibling live-smoke module)
+
+# Optional pool assignment (OFF by default): pool-create needs Pool.Allocate on the pool, which the
+# scoped token lacks — the per-VMID grant (VM.Allocate on /vms/<NEW>) is self-sufficient. Set SMOKE_POOL
+# only if the token is also granted Pool.Allocate on that pool.
+POOL = os.environ.get("SMOKE_POOL", "").strip()
+
+# Independent SECOND safety layer (beneath token scoping): default-deny unless the source, the NEW id,
+# and the storage are all allowlisted test targets. NEW is the create+PURGE target — the catastrophe
+# surface on a node that also runs prod — so the guard MUST refuse a prod id before any allocate/purge.
+_AL = load_allowlist(os.environ)
+assert_test_target(_AL, vmid=SRC)
+assert_test_target(_AL, vmid=NEW, storage=STORE)
+
 
 def _exists(api, vmid: str) -> bool:
     try:
@@ -79,7 +94,8 @@ def main() -> int:
 
     try:
         print(f"\n[2] FULL clone {SRC} -> {NEW} storage={STORE} ...")
-        clone_guest(api, SRC, NEW, KIND, None, name="proximoclonesmoke", full=True, storage=STORE)
+        clone_guest(api, SRC, NEW, KIND, None, name="proximoclonesmoke", full=True, storage=STORE,
+                    pool=POOL or None)
         r["clone_materialized"] = _wait(
             lambda: _exists(api, NEW) and "lock" not in guest_config_get(api, NEW, KIND, None))
         disk = _boot_disk(api)

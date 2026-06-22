@@ -796,7 +796,7 @@ Dispatch independent review over the `feat/acl-blast-radius` diff:
 - **honesty/false-gains-loses:** can a who-else member EVER carry `gains`/`loses`? Is the "incomplete" caveat ever dropped when a read actually failed? Does any read swallow into a clean result? privsep default safe (defaults to no-fold)?
 - **leak:** generic fixtures only (`bob@pam`, `ops`, `/vms/100`) — no real principals/realms.
 
-Apply confirmed findings test-first; re-run Step 1's gate. Then run the read-only `acl-blast-smoke.py` on x3650 (GREEN-zone read) to prove end-to-end.
+Apply confirmed findings test-first; re-run Step 1's gate. Then run the read-only `acl-blast-smoke.py` on pve-node (GREEN-zone read) to prove end-to-end.
 
 ---
 

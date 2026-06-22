@@ -812,10 +812,10 @@ def test_node_journal_returns_strings_passthrough():
 
     def fake_get(path):
         seen["path"] = path
-        return ["cursor;s=abc", "Mar 02 23:32 x3650 pveproxy[1]: worker started"]
+        return ["cursor;s=abc", "Mar 02 23:32 pve1 pveproxy[1]: worker started"]
 
     api = __import__("types").SimpleNamespace(config=__import__("types").SimpleNamespace(node="pve"),
                                               _get=fake_get)
     out = node_journal(api)
-    assert out == ["cursor;s=abc", "Mar 02 23:32 x3650 pveproxy[1]: worker started"]
+    assert out == ["cursor;s=abc", "Mar 02 23:32 pve1 pveproxy[1]: worker started"]
     assert all(isinstance(x, str) for x in out)

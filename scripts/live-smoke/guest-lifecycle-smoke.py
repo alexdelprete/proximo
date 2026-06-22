@@ -35,6 +35,9 @@ import time
 from proximo.config_edit import guest_config_get, guest_config_set
 from proximo.server import _svc
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safety import assert_test_target, load_allowlist  # noqa: E402  (sibling live-smoke module)
+
 VMID = os.environ.get("SMOKE_VMID", "").strip()
 KIND = os.environ.get("SMOKE_KIND", "qemu").strip()
 # Real hardware field PVE snapshots + reverts (unlike description/tags). Toggle between two values.
@@ -46,6 +49,10 @@ if not VMID:
     sys.exit("SMOKE_VMID is required — a throwaway QEMU VMID the token is scoped to. Refusing to guess.")
 if KIND != "qemu":
     sys.exit(f"this smoke asserts on a QEMU field ({SET_KEY}); SMOKE_KIND must be 'qemu', got {KIND!r}.")
+
+# Independent SECOND safety layer (beneath token scoping): default-deny unless VMID is an allowlisted
+# test target. Set PROXIMO_SMOKE_TEST_VMIDS / PROXIMO_SMOKE_VMID_RANGE. See safety.py.
+assert_test_target(load_allowlist(os.environ), vmid=VMID)
 
 
 def _snaps(api) -> set[str]:

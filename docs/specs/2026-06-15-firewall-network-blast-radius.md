@@ -192,7 +192,7 @@ iface when matchable; HIGH always.
 
 Full suite stays green (currently 2172); ruff + pyright clean. Independent 3-lens redteam
 (correctness/under-flag · honesty/per-rule-reach-not-cluster-exposed · leak) before "done", then a
-read-only live reach smoke on x3650.
+read-only live reach smoke on pve-node.
 
 ## Sequencing (advisor)
 

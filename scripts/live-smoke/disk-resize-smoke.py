@@ -40,6 +40,13 @@ if not VMID or not STORE:
     sys.exit("SMOKE_VMID and SMOKE_STORE are required "
              "(a throwaway VMID + an isolated test storage). Refusing to guess.")
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safety import assert_test_target, load_allowlist  # noqa: E402  (sibling live-smoke module)
+
+# Independent SECOND safety layer (beneath token scoping): default-deny unless both the VMID and
+# the storage are allowlisted test targets. See safety.py.
+assert_test_target(load_allowlist(os.environ), vmid=VMID, storage=STORE)
+
 
 def _entry(api) -> str:
     return str(guest_config_get(api, VMID, KIND, None).get(SLOT, "") or "")

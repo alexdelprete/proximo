@@ -334,6 +334,22 @@ def test_network_iface_update_rejects_invalid_iface():
         network_iface_update(api, "iface/slash", node=None)
 
 
+def test_network_iface_update_rejects_reserved_type_key(monkeypatch):
+    # changing an iface's 'type' via a field update is structural — reject it (symmetry with create).
+    api = ApiBackend(_cfg())
+    monkeypatch.setattr(api, "_put", lambda *a, **k: None)
+    with pytest.raises(ProximoError, match="reserved key"):
+        network_iface_update(api, "vmbr0", type="bond")
+
+
+def test_plan_iface_update_previews_staged_fields():
+    # the confirmed PLAN must disclose WHAT changes — the staged option keys, not just "(staged)".
+    api = _NetworkListApi(ifaces=[{"iface": "vmbr0", "type": "bridge"}])
+    p = plan_iface_update(api, "vmbr0", opts={"bridge_ports": "eth1", "address": "10.0.0.9"})
+    blast = " ".join(p.blast_radius)
+    assert "bridge_ports" in blast and "address" in blast
+
+
 def test_network_iface_update_rejects_traversal_iface():
     api = ApiBackend(_cfg())
     with pytest.raises(ProximoError, match="traversal"):

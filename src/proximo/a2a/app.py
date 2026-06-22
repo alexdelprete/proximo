@@ -45,8 +45,14 @@ _JWKS_PATH = "/.well-known/jwks.json"
 
 
 def _is_public(host: str | None) -> bool:
-    """True when *host* is a non-localhost address (reachable off-box)."""
-    return bool(host) and host not in _LOCALHOST_ADDRS
+    """True when *host* is reachable off-box — anything that is NOT an explicit localhost address.
+
+    An empty/None/whitespace host means "bind all interfaces" (uvicorn/socket bind ``0.0.0.0``), which
+    is the MOST reachable, so it is treated as PUBLIC (→ requires a token). Only the explicit loopback
+    forms are private. (Regression guard: ``bool("")`` is False once made ``_is_public("")`` read as
+    non-public, so ``PROXIMO_A2A_HOST=""`` slipped the fail-closed gate unauthenticated.)
+    """
+    return (host or "").strip() not in _LOCALHOST_ADDRS
 
 
 def _default_allowed_hosts(rpc_url: str) -> list[str]:

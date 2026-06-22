@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from proximo.backends import ApiBackend, ExecBackend, ProximoError
+from proximo.backends import ApiBackend, ExecBackend, ProximoError, _check_vmid
 from proximo.config import ProximoConfig
 
 
@@ -34,6 +34,16 @@ def _capture(seen: dict):
         return _Proc()
 
     return fake_run
+
+
+def test_check_vmid_rejects_unicode_digits():
+    # str.isdigit() is True for non-ASCII digits (e.g. Arabic-Indic) — reject; PVE vmids are ASCII 0-9.
+    with pytest.raises(ProximoError, match="must be numeric"):
+        _check_vmid("١٢٣")
+
+
+def test_check_vmid_accepts_ascii_digits():
+    assert _check_vmid("105") == "105"
 
 
 def test_exec_remote_builds_ssh_argv(monkeypatch):
@@ -227,9 +237,9 @@ def test_node_rejects_leading_dot():
 
 
 def test_node_accepts_valid_names():
-    """Regression: x3650, pve-01, node.2 (all used in practice) must still be accepted."""
+    """Regression: host01, pve-01, node.2 (all used in practice) must still be accepted."""
     api = ApiBackend(_cfg())
-    for name in ("x3650", "pve-01", "node2", "pve.host"):
+    for name in ("host01", "pve-01", "node2", "pve.host"):
         # snapshot_list calls _check_node; test that no ProximoError is raised for valid names.
         # (The actual _get will fail since no HTTP stub, but the validator must not fire first.)
         try:

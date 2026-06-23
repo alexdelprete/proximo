@@ -40,6 +40,18 @@ proximo-a2a = "proximo._a2a_entry:main"     # A2A server shim (friendly error wi
 [tool.hatch.build.targets.wheel]
 packages = ["src/proximo"]
 
+# The sdist is a SECOND publish path (PyPI hosts it alongside the wheel). Without an explicit allowlist
+# hatchling bundles the whole repo root — including .gitea/ (internal forge CI + the node-name deny
+# list), .remember/, CLAUDE.md, and the internal strategy docs. Ship ONLY the user-facing set, the same
+# way the github mirror is curated. Deny-by-default: add a path here on purpose, never by omission.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/proximo",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"

@@ -26,7 +26,7 @@ Proxmox VE has a full REST API and a terse, powerful CLI — but the MCP landsca
 - **API-based MCP servers** give rich management (nodes, VMs, storage) but **cannot run a command inside an LXC** — that's a structural gap: the Proxmox REST API has *no* container-exec endpoint (it lives in `lxc-attach`, kernel namespaces, no REST surface).
 - **SSH-based MCP servers** can exec in containers, but lean on broad shell access with little scoping.
 
-**Few build the principled one** — both halves, on one clean surface, least-privilege, audited, *trustworthy enough to point at a hypervisor you care about.* That's the bar Proximo aims at. *(Others work the trust angle too — notably `fabriziosalmi/proxxx`; see `LANDSCAPE.md`. Proximo's specific bet is trust **by construction** across the whole control plane.)*
+**Few build the principled one** — both halves, on one clean surface, least-privilege, audited, *trustworthy enough to point at a hypervisor you care about.* That's the bar Proximo aims at. Proximo's specific bet is trust **by construction** across the whole control plane.
 
 There is **no official Proxmox MCP** (and likely won't be soon — Proxmox ships the API+CLI and leaves integrations to the community, the same way there's no official Terraform provider). Proximo is a community project, standing on its own.
 
@@ -82,7 +82,7 @@ uv pip install -e .          # or: pip install -e .
 
 ## The trust layer — what makes Proximo different
 
-Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the **trust layer for AI-driven infrastructure** — four pillars (see `POSITIONING.md`):
+Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the **trust layer for AI-driven infrastructure** — four pillars:
 
 | Pillar | What it does | Status |
 |---|---|---|
@@ -116,7 +116,7 @@ to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
 
 **Not yet proven — said plainly:** most of the 145-tool surface still runs against mocks; real HA
 *fencing* (needs a hardware watchdog), *online* live-migration (needs shared storage), and behavior at
-production scale. The full, unflattering field comparison lives in [`LANDSCAPE.md`](./LANDSCAPE.md).
+production scale.
 
 **The A2A face (experimental, opt-in):** `pip install 'proximo-proxmox[a2a]'`, then `proximo-a2a` — a curated
 16-skill slice over Agent2Agent that **routes through the same trust core** (PLAN/PROVE/UNDO inherited;
@@ -129,10 +129,11 @@ complete audit trail; set `PROXIMO_LEDGER_REDACT=1` to record a fingerprint (sha
 instead, when the SQL/command may carry secrets/PII. The PVE API token is never written to the ledger.
 
 ### What's next
-- [x] **PyPI** — `proximo-proxmox` published 2026-06-10; `uvx proximo-proxmox` works
-- [x] **GHCR** — signed multi-arch image (`ghcr.io/john-broadway/proximo:0.7.1` / `latest`) via a release Action
-- [x] Firewall objects · HA rules · SDN object CRUD — live-proven on PVE 9.2 (0.2.0)
-- [ ] Live smoke of the remaining surface (PBS-mutate); HA fencing + online migration when the hardware exists
+- [x] **PyPI / GHCR** — `proximo-proxmox` on PyPI (`uvx proximo-proxmox`) + a signed multi-arch GHCR image (`:0.7.1` / `latest`)
+- [x] **Firewall objects · HA rules · SDN object CRUD** — live-proven on PVE 9.2
+- [x] **PROVE hardening (0.7.0–0.7.1)** — keyed (HMAC-SHA256) ledger by default, off-box `head()`-pinning for tail attacks, and a crash-consistency / concurrency robustness pass
+- [x] **A runnable trust demo** — `scripts/demo/hand_the_keys.py` walks PLAN → UNDO → PROVE; the local mode runs anywhere off `pip install`, no Proxmox needed
+- [ ] Live smoke of the remaining lifecycle surface (PBS-mutate); HA fencing + online migration once the hardware exists
 - [ ] PBS certificate-fingerprint wire-enforcement
 - [ ] _(optional)_ Debian package for the Debian-native crowd
 

@@ -35,10 +35,12 @@ from pathlib import Path
 # Paths that legitimately live in the internal repo but must NEVER reach the public mirror.
 # `.gitea/` = self-hosted-forge CI (names the internal forge host).
 DENY_PREFIXES: tuple[str, ...] = (".gitea/",)
-# Denied by BASENAME (matches anywhere in the tree, not just root): `CLAUDE.md` = internal dev-memory
-# (the public mirror carries the README, not the working notes). A root-only prefix match would let a
-# nested `docs/CLAUDE.md` slip through and publish UNSCANNED (deny paths are never leak-scanned).
-DENY_BASENAMES: tuple[str, ...] = ("CLAUDE.md",)
+# Denied by BASENAME (matches anywhere in the tree, not just root) = internal-only docs the public
+# mirror must NOT carry. `CLAUDE.md` = dev-memory. POSITIONING/LANDSCAPE/ROADMAP = internal strategy:
+# competitive playbook, field survey, and the frozen design-thesis roadmap — never the public surface
+# (they expose the moat analysis + self-identified soft spots, and rot in public). The public set is
+# user-facing (README/CHANGELOG/LICENSE/demo); strategy + build-record stay on the internal mirror.
+DENY_BASENAMES: tuple[str, ...] = ("CLAUDE.md", "POSITIONING.md", "LANDSCAPE.md", "ROADMAP.md")
 
 # Site-specific internal identifiers (bare node/host names with no generic leak-shape) that must
 # never publish. Sourced from this INTERNAL-ONLY file — it lives under a deny prefix, so it is

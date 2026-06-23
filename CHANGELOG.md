@@ -4,6 +4,15 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+### Packaging / Security
+- **Both publish paths now ship only the user-facing set (deny-by-default).** The github mirror already
+  curated its tree; the **sdist did not** — hatchling bundled the whole repo root, so internal dev/strategy
+  docs rode along in the published source distribution. Now `[tool.hatch.build.targets.sdist]` ships an
+  explicit allowlist (src + README + CHANGELOG + LICENSE), and the mirror's deny list adds
+  `POSITIONING.md` / `LANDSCAPE.md` / `ROADMAP.md` alongside `CLAUDE.md`. Internal strategy + dev-memory +
+  `.gitea/` + `.remember/` no longer publish on either path. (The wheel was always clean — `packages =
+  src/proximo`.) No code or API change.
+
 ## [0.7.1] — 2026-06-23
 
 **PROVE robustness — 0.7.0 harden pass.** Crash-consistency, concurrency, and upgrade-UX hardening
@@ -582,7 +591,7 @@ spine + core lifecycle are live-proven, the governance plane is built/redteamed 
   flock-guarded, fsync'd. `verify()` and the `audit_verify` MCP tool detect any altered / deleted /
   inserted / reordered entry and pinpoint the break; `head()` is anchorable off-box. Tamper-**evident**,
   not tamper-proof (honestly scoped). +6 tamper-detection tests. Redteam: 2 findings fixed.
-- This is one of the four trust-layer pillars (PLAN · UNDO · **PROVE** · DIAGNOSE) — see POSITIONING.md.
+- This is one of the four trust-layer pillars (PLAN · UNDO · **PROVE** · DIAGNOSE).
 
 ### PLAN pillar — dry-run by default (2026-06-07)
 - New `proximo.planning` module: **every mutating tool now previews before it acts.** Called without
@@ -645,7 +654,7 @@ spine + core lifecycle are live-proven, the governance plane is built/redteamed 
   clone→backup→restore→delete, ledger verified) + read shapes across node/storage/observability + a
   PBS datastore. **Honest scope:** the bulk of the 117-tool surface — *including the dangerous plane* —
   is **MOCKED-only** (unit-tested against fakes, not fired against real Proxmox). A broad live smoke needs a
-  wider scoped token. See the `ROADMAP.md` reality-check and `LANDSCAPE.md`.
+  wider scoped token.
 
 ### A2A (Agent2Agent) face — experimental (2026-06-09)
 - Optional second protocol head (`pip install 'proximo[a2a]'` → `proximo-a2a`): a curated **16-skill slice**

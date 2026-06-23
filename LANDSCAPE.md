@@ -139,7 +139,7 @@ coverage of the governance plane — not "has an audit log."
 
 ## Where Proximo honestly stands (no spin, no shrink)
 
-- **Popularity:** zero (just-published — v0.6.4 on PyPI/GitHub/GHCR, zero public stars). MCP leaders
+- **Popularity:** zero (just-published — v0.6.5 on PyPI/GitHub/GHCR, zero public stars). MCP leaders
   ~250★; IaC leaders ~2–3k★.
 - **"First":** no. **"Most tools":** no (chajus1 ≈115). **"Only one with trust":** no (proxxx: risk-gate +
   keyed audit chain + HITL; RekklesNA: command_policy + approval-token).
@@ -157,7 +157,7 @@ coverage of the governance plane — not "has an audit log."
 - **A2A face perimeter-parity closed:** fail-closed public bind, bearer auth on the control endpoint,
   `PROXIMO_A2A_ALLOWED_HOSTS` Host/DNS-rebind allowlist — previously warn-only. Matches the leader's
   perimeter posture.
-- **Maturity, stated straight:** v0.6.4, just-published (PyPI/GitHub/GHCR); a significant portion of the broader ~145-tool
+- **Maturity, stated straight:** v0.6.5, just-published (PyPI/GitHub/GHCR); a significant portion of the broader ~145-tool
   lifecycle surface still runs against mocks; MCP face is local stdio (no network bind); perimeter
   hardening for MCP becomes required the day a remote transport is added. The differentiation above is now
   execution-confirmed on the governance plane; lifecycle breadth and production scale remain to prove.

@@ -10,6 +10,9 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 fixes a plan-honesty gap, and lands a substantial live-integration smoke harness that exercises the
 trust spine against a real cluster. No new tools (145).
 
+**Released 2026-06-22** — published on PyPI (`proximo-proxmox`), GitHub (Release `v0.6.5`), and GHCR
+(signed multi-arch image).
+
 ### Security
 - **A2A auth-bypass: an empty bind host bound every interface *without* auth.** `_is_public` treated
   an empty/whitespace host as non-public (`bool("")` is `False`), so `PROXIMO_A2A_HOST=""` bound

@@ -85,7 +85,7 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 | Pillar | What it does | Status |
 |---|---|---|
 | **PLAN** | Dry-run by default: every mutation first returns a preview — the exact change, the guest's live state, blast radius, and an honest (advisory, heuristic) risk rating — recorded to the ledger. A mutation can't run without its plan being built and recorded first. (It's a recorded *preview*, not a separate human approval step: one `confirm=true` call records the plan **and** performs the change — so in an agent loop, review the preview yourself.) | ✅ built + redteamed |
-| **PROVE** | Hash-chained audit ledger; plans and confirmations both land in it. `audit_verify` is tamper-**evident** — it catches edits, reordering, and insertion. Catching truncation/wipe/forged-tail needs the opt-in keyed mode + an off-box head anchor (see the honesty note); the default ledger is unkeyed. | ✅ built + redteamed |
+| **PROVE** | Hash-chained audit ledger; plans and confirmations both land in it. `audit_verify` is tamper-**evident** — it catches edits, reordering, and insertion. The ledger is **keyed (HMAC-SHA256) by default** (`PROXIMO_AUDIT_KEYED`; opt out with `off`). Catching tail truncation / forged append / full wipe requires an off-box head anchor: pin `audit_verify`'s `"head"` value somewhere the box can't rewrite it and pass it as `expected_head` (or set `PROXIMO_AUDIT_EXPECTED_HEAD`) — that is the strong guarantee. See the honesty note below. | ✅ built + redteamed |
 | **UNDO** | Heterogeneous by plane, fail-closed where present: opt-in auto-snapshot before a risky `ct_exec`/`ct_psql` (waited-on, fail-closed if storage can't snapshot); config-revert for guest config; `pve_rollback` + full snapshot lifecycle for guests. Not every PVE plane is snapshottable — firewall/SDN/ACL/token have no rollback primitive — so UNDO covers the snapshottable surface, not every mutation. Undo points aren't auto-pruned — delete with `pve_snapshot_delete`. (Snapshot/rollback are async — poll with `pve_task_status`.) | ✅ built + redteamed |
 | **DIAGNOSE** | Read-only evidence battery (failed units, disk, errors, memory, listening ports) + node health (storage/tasks) → advisory flags. Flags surface *incompleteness* too, so an empty list never reads as a false clean bill. | ✅ built + redteamed |
 
@@ -120,8 +120,8 @@ production scale. The full, unflattering field comparison lives in [`LANDSCAPE.m
 16-skill slice over Agent2Agent that **routes through the same trust core** (PLAN/PROVE/UNDO inherited;
 there is no second code path to bypass). Fail-closed perimeter: non-localhost binds are refused without a
 bearer token (`PROXIMO_A2A_TOKEN_FILE`); Host-header allowlist defends against DNS rebinding. Ledger note:
-an opt-in HMAC-keyed chain is available (`PROXIMO_AUDIT_KEY_PATH`); the default is unkeyed —
-tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor is the strong guarantee either way.
+the ledger is **keyed (HMAC-SHA256) by default** (`PROXIMO_AUDIT_KEYED`, opt out with `off`) —
+tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor (`PROXIMO_AUDIT_EXPECTED_HEAD`) is the strong guarantee for tail attacks.
 `ct_psql` records the SQL body and `ct_exec` the command argv it runs (the operator's own input) for a
 complete audit trail; set `PROXIMO_LEDGER_REDACT=1` to record a fingerprint (sha256 + kind + length)
 instead, when the SQL/command may carry secrets/PII. The PVE API token is never written to the ledger.

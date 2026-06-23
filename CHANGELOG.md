@@ -4,6 +4,32 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-06-23
+
+**PROVE hardening.** Keyed (HMAC) PROVE by default, off-box head-pinning to catch tail attacks,
+and a stripped-down public mirror. The keyed default **auto-migrates** an existing unkeyed ledger
+on first run — see Upgrade below.
+
+### Added
+- PROVE head-pinning: `audit_verify(expected_head=...)` and `PROXIMO_AUDIT_EXPECTED_HEAD`
+  catch tail truncation / forged append / full wipe (the off-box anchor is the strong guarantee).
+  A malformed pin is rejected as a clear caller error (one 64-hex shape rule guards both the
+  per-call `expected_head` and the env default), so a typo never masquerades as a tamper alarm.
+  When no head is pinned, `audit_verify` returns a one-line `hint` nudging the operator to anchor
+  the head off-box — so the guarantee isn't silently left unused.
+
+### Changed
+- PROVE ledger is now **keyed (HMAC-SHA256) by default** (`PROXIMO_AUDIT_KEYED`, opt out with `off`).
+  An existing unkeyed ledger is sealed and archived (never deleted), and a fresh keyed log is
+  started recording the prior head as a custody seam. Key-gen failure fails closed (no silent downgrade).
+
+### Upgrade
+- **Keyed PROVE is now the default — and existing ledgers auto-migrate.** On first run after
+  upgrading, an existing *unkeyed* ledger is sealed and archived (`audit.log.unkeyed-<stamp>-<head8>`,
+  never deleted) and a fresh *keyed* log is started. A loud warning prints the new head; if you pin
+  `PROXIMO_AUDIT_EXPECTED_HEAD`, **re-pin it to that new head**. To stay unkeyed, set
+  `PROXIMO_AUDIT_KEYED=off` before upgrading.
+
 ## [0.6.5] — 2026-06-22
 
 **Security & live-integration CI.** Closes an A2A bind auth-bypass, hardens identifier validation,

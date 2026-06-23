@@ -247,3 +247,27 @@ def test_dispatch_confirm_string_true_raises(tmp_path, monkeypatch, executor):
 
     with pytest.raises(A2AParamError, match="boolean"):
         executor._dispatch("guest_power", {"vmid": "1975", "action": "stop", "confirm": "true"})
+
+
+# ---------------------------------------------------------------------------
+# Test: audit_verify accepts expected_head param
+# ---------------------------------------------------------------------------
+
+
+def test_audit_verify_skill_accepts_expected_head():
+    """audit_verify skill must declare expected_head param."""
+    from proximo.a2a.skills import SKILLS_BY_ID, validate_and_build
+
+    skill = SKILLS_BY_ID["audit_verify"]
+    names = {p.name for p in skill.params}
+    assert "expected_head" in names
+    kwargs = validate_and_build(skill, {"expected_head": "a" * 64})
+    assert kwargs == {"expected_head": "a" * 64}
+
+
+def test_audit_verify_skill_expected_head_optional():
+    """audit_verify skill expected_head param must be optional."""
+    from proximo.a2a.skills import SKILLS_BY_ID, validate_and_build
+
+    skill = SKILLS_BY_ID["audit_verify"]
+    assert validate_and_build(skill, {}) == {}     # optional: omittable

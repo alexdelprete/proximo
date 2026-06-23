@@ -2,19 +2,26 @@
 
 Every entry is hash-chained:
     entry_hash = H(prev_hash + canonical(body))
-where `body` is the entry minus the chaining fields, and H is either SHA-256 (default) or
-HMAC-SHA256 under an operator key (opt-in — see below). Altering, inserting, reordering, or removing
+where `body` is the entry minus the chaining fields, and H is either SHA-256 or
+HMAC-SHA256 under an operator key. Altering, inserting, reordering, or removing
 any *interior* entry breaks the chain, and verify() pinpoints the first break. **Tail operations** —
 deleting the last entry, appending a forged entry, or wiping the file — are NOT caught by a forward
 walk alone; pass `verify(expected_head=...)` with a head() value you pinned off-box to detect them.
 
-Keyed mode (opt-in, set ``PROXIMO_AUDIT_KEY_PATH``):
+Keyed mode (default — controlled by ``PROXIMO_AUDIT_KEYED``, opt out with ``off``/``0``/``false``/``no``):
     With a key, entry_hash = HMAC-SHA256(key, prev_hash + canonical(body)) and each entry carries
     ``"alg": "hmac-sha256"``. An attacker who can write the log but cannot read the key cannot forge a
     valid forward rewrite. A keyed ledger **requires every entry to be keyed** — an unkeyed entry is
     treated as a downgrade and FAILS verification (the entry's own ``alg`` tag is never trusted; the
-    ledger's key configuration is authoritative). You therefore cannot mix modes in one log — start a
-    fresh log to enable keying.
+    ledger's key configuration is authoritative). You therefore cannot mix modes in one log.
+
+    Key path: ``cfg.audit_key_path`` if set (``PROXIMO_AUDIT_KEY_PATH``); otherwise auto-generated at
+    ``<audit-log-dir>/audit.key`` (0600). Key-gen failure fails closed — no silent downgrade.
+
+    Seal-and-rotate: when ``open_ledger`` is called in keyed mode against an existing *unkeyed* log,
+    the old log is sealed with a terminal ``audit_rotate`` entry, archived as
+    ``<log>.unkeyed-<UTCstamp>-<head8>`` (NEVER deleted), and a new keyed log is started that records
+    ``prev_log`` / ``prev_head`` as an auditable custody seam.
 
     Honest threat model: a same-user attacker who can write the 0600 log can often read the 0600 key
     too — so keying is a *marginal* hardening, **not** a substitute for an off-box head() anchor, which
@@ -35,8 +42,10 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import tempfile
+import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -46,6 +55,18 @@ _KEY_ALG = "hmac-sha256"
 # Fields excluded from the hashed `body`. `alg` is a transparency marker, NOT a trusted input: verify()
 # decides keyed-vs-unkeyed from the ledger's own key, so a tampered `alg` can't downgrade the check.
 _CHAIN_FIELDS = ("prev_hash", "entry_hash", "alg")
+_HEAD_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def looks_like_head(value: str) -> bool:
+    """True if `value` has the shape of a head() hash: 64 lowercase hex chars.
+
+    A SHA-256 / HMAC-SHA256 hexdigest (and GENESIS_HASH) match. This is the single
+    shape rule for a pinned head — used to validate both PROXIMO_AUDIT_EXPECTED_HEAD
+    (config) and a per-call expected_head, so a typo is rejected as a caller error
+    rather than read as a tail-attack "head mismatch".
+    """
+    return bool(_HEAD_RE.fullmatch(value))
 
 
 def _canonical(body: dict[str, Any]) -> bytes:
@@ -98,6 +119,69 @@ def load_or_create_key(path: str) -> bytes:
     if len(key) < 32:
         raise ValueError(f"audit key file {path} is too short ({len(key)} bytes; need >=32) — fail-closed")
     return key
+
+
+def detect_mode(path: str) -> str:
+    """Inspect an on-disk ledger's chaining mode without trusting it for verification.
+
+    Returns "empty" (absent / no parseable entries), "keyed" (last entry is HMAC-keyed),
+    or "unkeyed". Used ONLY to decide migration (seal-and-rotate); verify() still treats
+    the ledger's key as authoritative, never the entry's `alg`.
+    """
+    if not os.path.exists(path):
+        return "empty"
+    last: dict[str, Any] | None = None
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                last = obj
+    if last is None:
+        return "empty"
+    return "keyed" if last.get("alg") == _KEY_ALG else "unkeyed"
+
+
+def seal_and_rotate(log_path: str, key: bytes) -> tuple[str, str]:
+    """Seal an existing UNKEYED ledger and start a fresh keyed one in its place.
+
+    Under a sidecar `<log_path>.lock` (the log itself gets renamed, so we can't lock it):
+    append a terminal `audit_rotate` entry to the old log, archive it untouched-as-a-chain
+    to `<log>.unkeyed-<UTCstamp>-<head8>`, then start the new keyed log whose genesis records
+    `prev_log`/`prev_head` — an auditable custody seam. No-op (returns ("", head)) if the log
+    is not unkeyed once the lock is held (a racing process already rotated). NEVER deletes the
+    old log.
+    """
+    lock_path = log_path + ".lock"
+    with open(lock_path, "a+", encoding="utf-8",
+              opener=lambda p, flags: os.open(p, flags, 0o600)) as lf:
+        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+        try:
+            if detect_mode(log_path) != "unkeyed":
+                return "", AuditLedger(log_path, key=key).head()
+            old = AuditLedger(log_path)  # unkeyed
+            old.record("audit_rotate", target="ledger",
+                       detail={"reason": "keyed-default upgrade", "sealed": True})
+            sealed_head = old.head()
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            archive_path = f"{log_path}.unkeyed-{stamp}-{sealed_head[:8]}"
+            # Crash window: if the process dies after the rename but before the genesis record below,
+            # the archive survives intact (non-destructive — it's a complete verifiable chain), but
+            # the new log's prev_log/prev_head custody pointer is lost. Both logs still verify
+            # independently; re-running open_ledger sees an empty new log and starts fresh.
+            os.rename(log_path, archive_path)
+            new = AuditLedger(log_path, key=key)
+            new.record("audit_rotate", target="ledger",
+                       detail={"prev_log": os.path.basename(archive_path),
+                               "prev_head": sealed_head, "prev_alg": "sha256"})
+            return archive_path, sealed_head
+        finally:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
 
 
 @dataclass(frozen=True)
@@ -234,3 +318,38 @@ class AuditLedger:
         if expected_head is not None and prev != expected_head:
             return LedgerVerification(False, count, None, "head mismatch (tail truncated/appended or file replaced)")
         return LedgerVerification(ok=True, entries=count)
+
+
+def open_ledger(cfg: Any) -> AuditLedger:
+    """Build the AuditLedger for `cfg`, applying the keyed-default + seal-and-rotate policy.
+
+    - keyed off (PROXIMO_AUDIT_KEYED=off) and no explicit key path -> unkeyed ledger.
+    - else keyed: key at cfg.audit_key_path if set, else <logdir>/audit.key. An existing
+      UNKEYED log is sealed-and-rotated first. Key-gen failure fails loud (no silent downgrade).
+    """
+    log = cfg.audit_log_path
+    if cfg.audit_key_path:
+        key_path = cfg.audit_key_path
+    elif cfg.audit_keyed:
+        key_path = os.path.join(os.path.dirname(log) or ".", "audit.key")
+    else:
+        return AuditLedger(log)  # unkeyed (opt-out)
+    try:
+        key = load_or_create_key(key_path)
+    except (OSError, ValueError) as e:
+        raise RuntimeError(
+            f"cannot create audit key at {key_path}: {e}; "
+            "set PROXIMO_AUDIT_KEYED=off to run an unkeyed ledger"
+        ) from e
+    if detect_mode(log) == "unkeyed":
+        archive_path, sealed_head = seal_and_rotate(log, key)
+        ledger = AuditLedger(log, key=key)
+        warnings.warn(
+            f"PROVE ledger upgraded to keyed mode: the prior unkeyed log "
+            f"(head {sealed_head[:12]}...) was sealed and archived to {archive_path}, and a new "
+            f"keyed log was started (head {ledger.head()}). If you pin PROXIMO_AUDIT_EXPECTED_HEAD, "
+            f"re-pin it to this new head.",
+            stacklevel=2,
+        )
+        return ledger
+    return AuditLedger(log, key=key)

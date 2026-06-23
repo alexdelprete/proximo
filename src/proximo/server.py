@@ -74,7 +74,7 @@ from .access_users import (
     user_get,
     user_update,
 )
-from .audit import AuditLedger, load_or_create_key
+from .audit import AuditLedger, looks_like_head, open_ledger
 from .backends import ApiBackend, ExecBackend, ProximoError
 from .backup import (
     backup_delete,
@@ -332,8 +332,7 @@ mcp._mcp_server.version = __version__
 def _svc() -> tuple[ProximoConfig, ApiBackend, ExecBackend, AuditLedger]:
     """Lazily build config + backends (no import-time env dependency; testable)."""
     cfg = ProximoConfig.from_env()
-    key = load_or_create_key(cfg.audit_key_path) if cfg.audit_key_path else None
-    return cfg, ApiBackend(cfg), ExecBackend(cfg), AuditLedger(cfg.audit_log_path, key=key)
+    return cfg, ApiBackend(cfg), ExecBackend(cfg), open_ledger(cfg)
 
 
 @lru_cache(maxsize=1)
@@ -730,17 +729,39 @@ def pve_doctor() -> dict:
 
 
 @mcp.tool()
-def audit_verify() -> dict:
-    """Verify the tamper-evident audit ledger's hash chain — PROVE the log is intact."""
-    _, _, _, audit = _svc()
-    v = audit.verify()
+def audit_verify(expected_head: str | None = None) -> dict:
+    """Verify the tamper-evident audit ledger's hash chain — PROVE the log is intact.
+
+    Pass `expected_head` (the head() value you pinned off-box) to also catch tail
+    truncation, a forged tail-append, or a full file replacement — a forward walk
+    alone can't see those. Falls back to PROXIMO_AUDIT_EXPECTED_HEAD when omitted.
+    """
+    cfg, _, _, audit = _svc()
+    pin = expected_head if expected_head is not None else cfg.expected_head
+    if pin is not None and not looks_like_head(pin):
+        # A malformed pin is a CALLER error, not tamper — raise clearly instead of
+        # letting it fall through to a "head mismatch" that cries wolf.
+        raise ProximoError(
+            f"invalid expected_head: {pin!r} (must be a 64-char lowercase hex head() value)"
+        )
+    v = audit.verify(expected_head=pin)
+    # When nothing is pinned, the forward walk can't see tail truncation / forged append / wipe —
+    # nudge the operator to anchor the head off-box (the strong guarantee), so the feature isn't
+    # silently unused. No nudge once a pin is in effect.
+    hint = None if pin is not None else (
+        "not pinned against tail attacks: set PROXIMO_AUDIT_EXPECTED_HEAD (or pass expected_head=) "
+        "to the current 'head' value, stored off-box, to detect tail truncation / forged append / "
+        "full wipe — the off-box anchor is the strong guarantee."
+    )
     return {
         "ok": v.ok,
         "entries": v.entries,
         "broken_at_line": v.broken_at,
         "reason": v.reason,
         "head": audit.head(),
+        "expected_head": pin,
         "keyed": audit.keyed,
+        "hint": hint,
     }
 
 

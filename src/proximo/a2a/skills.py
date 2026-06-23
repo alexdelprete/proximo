@@ -152,8 +152,11 @@ SKILLS: tuple[A2ASkill, ...] = (
     ),
     A2ASkill(
         "audit_verify", "Verify audit ledger",
-        "PROVE: verify the tamper-evident audit ledger's hash chain is intact.",
-        server.audit_verify, (), mutating=False,
+        "PROVE: verify the tamper-evident audit ledger's hash chain is intact. Pass expected_head "
+        "(your off-box-pinned head) to also catch tail truncation / forged append / wipe.",
+        server.audit_verify,
+        (A2AParam("expected_head", "string", False, "off-box-pinned head() hash; detects tail attacks"),),
+        mutating=False,
         tags=("trust", "prove", "read"), examples=("Is the audit log intact?",),
     ),
     # --- reversible mutations (PLAN-by-default; confirm=true to execute) ---

@@ -33,7 +33,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Paths that legitimately live in the internal repo but must NEVER reach the public mirror.
-DENY_PREFIXES: tuple[str, ...] = (".gitea/",)
+# `.gitea/` = self-hosted-forge CI (names the internal forge host); `CLAUDE.md` = internal
+# dev-memory for this repo (the public mirror carries the README, not the working notes).
+DENY_PREFIXES: tuple[str, ...] = (".gitea/", "CLAUDE.md")
 
 # Site-specific internal identifiers (bare node/host names with no generic leak-shape) that must
 # never publish. Sourced from this INTERNAL-ONLY file — it lives under a deny prefix, so it is

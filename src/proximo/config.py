@@ -11,6 +11,8 @@ import os
 import warnings
 from dataclasses import dataclass
 
+from .audit import looks_like_head
+
 
 @dataclass(frozen=True)
 class ProximoConfig:
@@ -29,7 +31,9 @@ class ProximoConfig:
     ca_bundle: str | None = None  # path to the internal/Caddy CA bundle; preferred over disabling TLS verify
     enable_exec: bool = False  # OFF by default (API-only, safe). True enables ssh->pct exec (root-grant tradeoff).
     audit_key_path: str | None = None  # opt-in: path to an HMAC key file → keyed (tamper-resistant) PROVE ledger
+    audit_keyed: bool = True  # PROXIMO_AUDIT_KEYED — keyed (HMAC) PROVE by default; "off"/"0"/"false"/"no" disables
     redact_ledger: bool = False  # opt-in: store a fingerprint of ct_psql SQL / ct_exec argv, not the body
+    expected_head: str | None = None  # PROXIMO_AUDIT_EXPECTED_HEAD — off-box-pinned head() for tail-attack detection
 
     @classmethod
     def from_env(cls) -> ProximoConfig:
@@ -47,7 +51,15 @@ class ProximoConfig:
         ca_bundle = os.environ.get("PROXIMO_CA_BUNDLE") or None
         enable_exec = os.environ.get("PROXIMO_ENABLE_EXEC", "false").lower() in ("1", "true", "yes", "on")
         audit_key_path = os.environ.get("PROXIMO_AUDIT_KEY_PATH") or None
+        audit_keyed = os.environ.get("PROXIMO_AUDIT_KEYED", "true").lower() not in ("0", "false", "off", "no")
         redact_ledger = os.environ.get("PROXIMO_LEDGER_REDACT", "false").lower() in ("1", "true", "yes", "on")
+
+        expected_head = os.environ.get("PROXIMO_AUDIT_EXPECTED_HEAD") or None
+        if expected_head is not None and not looks_like_head(expected_head):
+            raise RuntimeError(
+                "PROXIMO_AUDIT_EXPECTED_HEAD must be a 64-char lowercase hex head() value "
+                "(a sha256/hmac-sha256 hexdigest); got a malformed value"
+            )
 
         # Honest warnings (no phantom comments): least-privilege and TLS are load-bearing.
         if "*" in ct_allowlist:
@@ -78,7 +90,9 @@ class ProximoConfig:
             ca_bundle=ca_bundle,
             enable_exec=enable_exec,
             audit_key_path=audit_key_path,
+            audit_keyed=audit_keyed,
             redact_ledger=redact_ledger,
+            expected_head=expected_head,
         )
 
     def ct_permitted(self, ctid: str) -> bool:

@@ -95,3 +95,48 @@ def test_from_env_parses_redact_ledger(monkeypatch):
         warnings.simplefilter("ignore")
         cfg = ProximoConfig.from_env()
     assert cfg.redact_ledger is True
+
+
+def _base_env(monkeypatch, **extra):
+    monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://x:8006/api2/json")
+    monkeypatch.setenv("PROXIMO_NODE", "pve")
+    monkeypatch.setenv("PROXIMO_TOKEN_PATH", "/run/x")
+    for k, v in extra.items():
+        monkeypatch.setenv(k, v)
+
+
+def test_expected_head_defaults_none(monkeypatch):
+    _base_env(monkeypatch)
+    assert ProximoConfig.from_env().expected_head is None
+
+
+def test_expected_head_accepts_64_hex(monkeypatch):
+    h = "a" * 64
+    _base_env(monkeypatch, PROXIMO_AUDIT_EXPECTED_HEAD=h)
+    assert ProximoConfig.from_env().expected_head == h
+
+
+def test_expected_head_rejects_malformed(monkeypatch):
+    _base_env(monkeypatch, PROXIMO_AUDIT_EXPECTED_HEAD="not-a-hash")
+    with pytest.raises(RuntimeError, match="PROXIMO_AUDIT_EXPECTED_HEAD"):
+        ProximoConfig.from_env()
+
+
+def test_audit_keyed_defaults_true(monkeypatch):
+    _base_env(monkeypatch)
+    assert ProximoConfig.from_env().audit_keyed is True
+
+
+def test_audit_keyed_opt_out_off(monkeypatch):
+    _base_env(monkeypatch, PROXIMO_AUDIT_KEYED="off")
+    assert ProximoConfig.from_env().audit_keyed is False
+
+
+def test_audit_keyed_opt_out_zero(monkeypatch):
+    _base_env(monkeypatch, PROXIMO_AUDIT_KEYED="0")
+    assert ProximoConfig.from_env().audit_keyed is False
+
+
+def test_audit_keyed_on_stays_true(monkeypatch):
+    _base_env(monkeypatch, PROXIMO_AUDIT_KEYED="on")
+    assert ProximoConfig.from_env().audit_keyed is True

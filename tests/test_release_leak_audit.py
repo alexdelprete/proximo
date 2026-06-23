@@ -40,6 +40,23 @@ def test_leak_inside_a_stripped_file_is_not_reported():
     assert res.findings == []
 
 
+def test_claude_md_is_stripped_from_public_tree():
+    # CLAUDE.md carries internal dev-memory — it must never reach the public mirror.
+    files = {"CLAUDE.md": "internal dev-memory", "README.md": "x", "src/proximo/server.py": "y"}
+    res = rla.audit_files(files)
+    assert "CLAUDE.md" in res.stripped
+    assert "CLAUDE.md" not in res.kept
+    assert "README.md" in res.kept  # other root markdown still publishes
+
+
+def test_leak_inside_claude_md_is_not_reported():
+    # CLAUDE.md is stripped from the public tree, so internal content inside it must NOT be a finding.
+    files = {"CLAUDE.md": "deploys to forge.internal:3000"}  # leak-audit: allow
+    res = rla.audit_files(files)
+    assert res.ok
+    assert res.findings == []
+
+
 # --- pure: content leak shapes ---
 def test_internal_tld_hostname_is_flagged():
     files = {"docs/x.md": "clone from forge.internal:3000 today"}  # leak-audit: allow

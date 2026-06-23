@@ -50,7 +50,7 @@ auto-snapshot + hash-chain + blast-radius across 100+ existing flat tools after 
 | 1 | **canvrno/ProxmoxMCP** | ~261 | ~6 | Py | Most-starred. Read-mostly "safe inspector," built for Cline. Popular *because* it doesn't hold the knives. |
 | 2 | **RekklesNA/ProxmoxMCP-Plus** | ~241 | ~42 | Py | **Active governance leader** (v0.5.8, Jun 7 2026). VMs/CT/snap/backup/ISO/storage/cluster + SSH-exec + job-control (list/get/poll/cancel/retry). Gov = `command_policy` + `approval_token` + TLS + DNS-rebind. **NO dry-run / NO auto-rollback / NO blast-radius / NO firewall·SDN·ACL·HA.** Permissive by default. |
 | 3 | **chajus1/proxmox-mcp-enhanced** | ~10 | **115** | Py | ⚠️ **The breadth rival.** Claims 115 tools "covering every aspect." Trust layer **unverified/absent** — but it rules out any "most complete by count" claim. Its dangerous-op coverage should be verified before anyone claims the completeness lane. |
-| 4 | **fabriziosalmi/proxxx** | ~15 | **25 (MCP)** | Rust | **The real TRUST peer** (v0.8.4, May 30 2026, 43 releases). MCP surface = VM/LXC lifecycle + snapshots + provisioning + cluster/node read **only** (25-tool compile-time registry, `src/mcp/tools.rs`, **corrected 2026-06-19** — the earlier "PBS browse/restore + GitOps state diff/`--dry-run` + audit-verify on MCP" was wrong; those are CLI/TUI-only, consistent with this row's own closing note and line 63). Has a pre-flight **risk gate (PLAN-ish)** + **HMAC-keyed offline-verifiable audit chain** (PROVE — arguably stronger than Proximo's default-unkeyed ledger) + Telegram **HITL**. **No auto-UNDO** (read-only rollback *preview* only). **Firewall/SDN/ACL/PBS-writes are NOT on the MCP surface** — they live in the human TUI. |
+| 4 | **fabriziosalmi/proxxx** | ~15 | **25 (MCP)** | Rust | **The real TRUST peer** (v0.8.4, May 30 2026, 43 releases). MCP surface = VM/LXC lifecycle + snapshots + provisioning + cluster/node read **only** (25-tool compile-time registry, `src/mcp/tools.rs`, **corrected 2026-06-19** — the earlier "PBS browse/restore + GitOps state diff/`--dry-run` + audit-verify on MCP" was wrong; those are CLI/TUI-only, consistent with this row's own closing note and line 63). Has a pre-flight **risk gate (PLAN-ish)** + **HMAC-keyed offline-verifiable audit chain** (PROVE — matched by Proximo's keyed-by-default ledger since 0.7.0) + Telegram **HITL**. **No auto-UNDO** (read-only rollback *preview* only). **Firewall/SDN/ACL/PBS-writes are NOT on the MCP surface** — they live in the human TUI. |
 | 5 | gilby125/mcp-proxmox | ~41 | ~55 | JS | Configurable permissions. |
 | 6 | Markermav/ProxmoxMCP-advance | ~24 | — | Py | Multi-client (Claude/Goose/Cline). |
 | 7 | bsahane/mcp-proxmox | ~18 | — | Py | FastMCP, token auth, monitoring. |
@@ -139,7 +139,7 @@ coverage of the governance plane — not "has an audit log."
 
 ## Where Proximo honestly stands (no spin, no shrink)
 
-- **Popularity:** zero (just-published — v0.6.5 on PyPI/GitHub/GHCR, zero public stars). MCP leaders
+- **Popularity:** zero (just-published — v0.7.1 on PyPI/GitHub/GHCR, zero public stars). MCP leaders
   ~250★; IaC leaders ~2–3k★.
 - **"First":** no. **"Most tools":** no (chajus1 ≈115). **"Only one with trust":** no (proxxx: risk-gate +
   keyed audit chain + HITL; RekklesNA: command_policy + approval-token).
@@ -157,7 +157,7 @@ coverage of the governance plane — not "has an audit log."
 - **A2A face perimeter-parity closed:** fail-closed public bind, bearer auth on the control endpoint,
   `PROXIMO_A2A_ALLOWED_HOSTS` Host/DNS-rebind allowlist — previously warn-only. Matches the leader's
   perimeter posture.
-- **Maturity, stated straight:** v0.6.5, just-published (PyPI/GitHub/GHCR); a significant portion of the broader ~145-tool
+- **Maturity, stated straight:** v0.7.1, just-published (PyPI/GitHub/GHCR); a significant portion of the broader ~145-tool
   lifecycle surface still runs against mocks; MCP face is local stdio (no network bind); perimeter
   hardening for MCP becomes required the day a remote transport is added. The differentiation above is now
   execution-confirmed on the governance plane; lifecycle breadth and production scale remain to prove.

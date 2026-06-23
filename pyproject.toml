@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "proximo-proxmox"
 version = "0.7.1"
-description = "The ethical Proxmox MCP — REST API management + scoped in-container exec, behind clean native tools, least-privilege and audited."
+description = "The Proxmox MCP you can hand the keys — REST management + the in-container exec the API can't reach, on one clean surface: every dangerous op planned, undoable, and audited."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"

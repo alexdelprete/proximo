@@ -15,7 +15,7 @@
 
 ## Where Proximo honestly stands
 
-Proximo is a **late entrant** in a contested lane — v0.6.5, public on GitHub since 2026-06-10,
+Proximo is a **late entrant** in a contested lane — v0.7.1, public on GitHub since 2026-06-10,
 on PyPI as `proximo-proxmox` and on GHCR (signed multi-arch image), zero adoption so far. The trust spine (PLAN/UNDO/PROVE) and the core VM/snapshot/backup lifecycle have been
 live-proven against real Proxmox hosts (a single node plus a nested 3-node test cluster — not production scale). The broad *governance* plane has now been **live-proven to execute**
 against a real PVE 9.2 API, including on a nested 3-node test cluster: identity (role/group/user/ACL),
@@ -40,7 +40,7 @@ The Proxmox-MCP lane is contested, with four distinct archetypes plus two cross-
 |---|---|---|
 | **Safe inspector** (most-starred) | canvrno/ProxmoxMCP (~261★, ~6 tools) | Read-mostly "safe inspector." Popular *because* it doesn't hold the knives — the market already votes for caution. |
 | **Governance leader** (most active) | RekklesNA/ProxmoxMCP-Plus (~241★, ~42 tools, v0.5.8) | Genuine gating: `command_policy`, `approval_token`, TLS, DNS-rebind, job tracking. **But permissive by default** (`high_risk_mode=audit_only`, approval off) and **no dry-run / no auto-rollback / no blast-radius / no firewall·SDN·ACL·HA modules.** |
-| **Trust peer** (respect it) | fabriziosalmi/proxxx (~15★, Rust cockpit, v0.8.4) | The real trust peer: pre-flight **risk gate (PLAN-ish)**, **HMAC-keyed, offline-verifiable audit chain** (arguably stronger than Proximo's *default-unkeyed* one), **Telegram HITL**. **But no auto-UNDO** (no auto-snapshot-before-mutate — it doesn't take the snapshot for you). proxxx now ships a **25-tool MCP surface, but it's lifecycle/inventory-only** (`src/mcp/tools.rs`, verified 2026-06-19) — its firewall/SDN/ACL/PBS-writes, GitOps state engine, and audit-verify stay in the **CLI/TUI, off the surface an agent drives.** |
+| **Trust peer** (respect it) | fabriziosalmi/proxxx (~15★, Rust cockpit, v0.8.4) | The real trust peer: pre-flight **risk gate (PLAN-ish)**, **HMAC-keyed, offline-verifiable audit chain** (matched by Proximo's keyed-by-default ledger since 0.7.0), **Telegram HITL**. **But no auto-UNDO** (no auto-snapshot-before-mutate — it doesn't take the snapshot for you). proxxx now ships a **25-tool MCP surface, but it's lifecycle/inventory-only** (`src/mcp/tools.rs`, verified 2026-06-19) — its firewall/SDN/ACL/PBS-writes, GitOps state engine, and audit-verify stay in the **CLI/TUI, off the surface an agent drives.** |
 | **Breadth rival** | chajus1/proxmox-mcp-enhanced (~115 tools) | Claims to cover "every aspect." Trust layer unverified/absent — but it **kills any "most complete by count" pitch. Count is not a moat.** |
 
 Two cross-cuts decide framing:
@@ -87,8 +87,8 @@ For a flat tool, each new operation is new **attack** surface; for Proximo, each
 - *First* — no. *Most tools* — no (chajus1 ≈ matches Proximo's count).
 - *"Only one with trust"* — no; proxxx (risk-gate + keyed chain + HITL) and RekklesNA (command_policy +
   approval-token) both have real trust mechanisms.
-- *Cryptographic depth* — Proximo's chain defaults **unkeyed**; an opt-in HMAC-keyed mode exists (matches
-  proxxx when enabled), but the real guarantee is the **off-box `head()` anchor**, not the hash. Auto-UNDO
+- *Cryptographic depth* — Proximo's chain is **keyed (HMAC-SHA256) by default** since 0.7.0 (matching
+  proxxx's keyed chain), but the real guarantee is the **off-box `head()` anchor**, not the hash. Auto-UNDO
   and blast-radius are the defensible depth, not the cryptography.
 
 **The assemble-from-parts threat, named honestly:** **ContextForge (audit/policy/approval) + RekklesNA
@@ -154,7 +154,7 @@ bearer auth on the control endpoint, and `PROXIMO_A2A_ALLOWED_HOSTS` Host/DNS-re
   before any public statement.
 - **Bolt-on risk.** A shallow trust feature from the leader is plausible; the defense is depth + coverage +
   by-construction (the moat above), never feature-novelty.
-- **Still v0.6.5, brand-new public, zero adoption.** On GitHub + PyPI (`proximo-proxmox`) + GHCR (signed image) — all three live. No
+- **Still v0.7.1, brand-new public, zero adoption.** On GitHub + PyPI (`proximo-proxmox`) + GHCR (signed image) — all three live. No
   "the only one" / "the best" claims until they are true *and* live.
 
 ## The one-liner

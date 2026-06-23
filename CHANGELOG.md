@@ -4,6 +4,54 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-06-23
+
+**PROVE robustness — 0.7.0 harden pass.** Crash-consistency, concurrency, and upgrade-UX hardening
+around the keyed PROVE ledger. The crypto guarantees themselves (chain integrity, downgrade-rejection,
+no-key forgery, tail-pin detection) were re-verified under adversarial testing as **holding** — these
+are robustness fixes around them, not crypto changes.
+
+### Fixed
+- **`verify()` no longer crashes on a non-string `entry_hash`.** A tampered entry whose `entry_hash`
+  was a truthy non-string (a number, list, …) raised `TypeError` instead of reporting tamper — a
+  writer-with-access DoS on the verify pillar. It now fails the check cleanly.
+- **A crash-torn last line can no longer corrupt the next append.** If a crash left the final line
+  without its trailing newline, `record()` now starts the new entry on a fresh line instead of
+  gluing two JSON objects onto one physical line (which the forward walk read as a single unparseable
+  line, silently re-anchoring the chain at GENESIS).
+- **Keyed-default migration is now race-safe.** `seal_and_rotate` claims the new keyed log path
+  atomically (temp file + `os.replace`); a concurrent writer that creates the log in the rotate
+  window is clobbered rather than landing an unkeyed entry at line 1 (which would have made the live
+  keyed ledger fail `verify()` permanently). A concurrent-start "loser" no longer emits a migration
+  warning with an empty archive path.
+
+### Changed
+- **A pinned head is normalized before validation** (`PROXIMO_AUDIT_EXPECTED_HEAD` and the
+  `audit_verify(expected_head=)` param): a hexdigest is case-insensitive and a copy-paste often
+  carries a trailing newline or spaces, so an uppercased/whitespaced head is now accepted instead of
+  raising. Previously a fat-fingered pin raised in config — which is read on *every* tool call, so it
+  broke all tools, not just `audit_verify`. Genuinely malformed pins still raise; a blank value is
+  treated as unpinned. `PROXIMO_AUDIT_KEYED` likewise tolerates surrounding whitespace (`" off "`).
+- **`audit_verify` returns a `rotation_hint`** when a head mismatch coincides with a sibling
+  migration archive — telling the operator whether the mismatch is the expected keyed-default upgrade
+  rotation (re-pin) or a genuine tail attack, since the migration's stderr warning is often swallowed
+  by MCP stdio clients.
+- **Setting `PROXIMO_AUDIT_KEY_PATH` with `PROXIMO_AUDIT_KEYED=off` now warns** that the explicit key
+  path takes precedence (the ledger is keyed), instead of silently keying.
+
+### Security
+- **The release leak-audit denies `CLAUDE.md` by basename** in BOTH the `audit` report and the
+  `build-tree` publisher — they now share one `partition_paths` rule, so `CLAUDE.md` (including a
+  nested `docs/CLAUDE.md`) is stripped from the published tree, not merely flagged. Previously a
+  basename deny was honored by `audit` but invisible to the prefix-only tree builder (the two could
+  drift — audit "clean" while the tree publishes the file).
+
+### Upgrade
+- The race-safe migration fix covers the in-process rename window. A ledger is still **all-keyed or
+  all-unkeyed for its whole life**, so during a *rolling* upgrade **quiesce or upgrade all writers of
+  a given ledger together** — a mixed keyed/unkeyed fleet writing the same ledger across the cutover
+  will land a downgraded entry and fail `verify()`. Single-process deployments are unaffected.
+
 ## [0.7.0] — 2026-06-23
 
 **PROVE hardening.** Keyed (HMAC) PROVE by default, off-box head-pinning to catch tail attacks,

@@ -332,7 +332,9 @@ def test_open_ledger_opt_out_is_unkeyed(tmp_path):
 
 def test_open_ledger_explicit_key_path_wins(tmp_path):
     kp = str(tmp_path / "custom.key")
-    led = open_ledger(_cfg(tmp_path, audit_key_path=kp, audit_keyed=False))  # explicit wins even if keyed flag off
+    # explicit key path wins even if the keyed flag is off — and that override now warns (0.7.1)
+    with pytest.warns(UserWarning, match="key path takes precedence"):
+        led = open_ledger(_cfg(tmp_path, audit_key_path=kp, audit_keyed=False))
     led.record("a", target="t1")
     assert led.keyed and (tmp_path / "custom.key").exists()
 

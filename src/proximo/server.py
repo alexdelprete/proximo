@@ -15,6 +15,7 @@ Ethical spine:
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -74,7 +75,7 @@ from .access_users import (
     user_get,
     user_update,
 )
-from .audit import AuditLedger, looks_like_head, open_ledger
+from .audit import AuditLedger, find_rotation_archive, looks_like_head, open_ledger
 from .backends import ApiBackend, ExecBackend, ProximoError
 from .backup import (
     backup_delete,
@@ -738,11 +739,15 @@ def audit_verify(expected_head: str | None = None) -> dict:
     """
     cfg, _, _, audit = _svc()
     pin = expected_head if expected_head is not None else cfg.expected_head
+    if pin is not None:
+        # Normalize a copy-pasted head (case-insensitive hexdigest; strip stray spaces/newline) the
+        # same way config does — a blank/whitespace value becomes "unpinned", not a caller error.
+        pin = pin.strip().lower() or None
     if pin is not None and not looks_like_head(pin):
-        # A malformed pin is a CALLER error, not tamper — raise clearly instead of
+        # A genuinely malformed pin is a CALLER error, not tamper — raise clearly instead of
         # letting it fall through to a "head mismatch" that cries wolf.
         raise ProximoError(
-            f"invalid expected_head: {pin!r} (must be a 64-char lowercase hex head() value)"
+            f"invalid expected_head: {pin!r} (must be a 64-char hex head() value)"
         )
     v = audit.verify(expected_head=pin)
     # When nothing is pinned, the forward walk can't see tail truncation / forged append / wipe —
@@ -753,6 +758,20 @@ def audit_verify(expected_head: str | None = None) -> dict:
         "to the current 'head' value, stored off-box, to detect tail truncation / forged append / "
         "full wipe — the off-box anchor is the strong guarantee."
     )
+    # A pinned "head mismatch" with the chain otherwise intact is byte-identical whether it's a tail
+    # attack or a keyed-default upgrade that rotated the head. If a rotation archive sits beside the
+    # ledger, say so — the stderr migration warning is often swallowed by MCP stdio clients.
+    rotation_hint = None
+    if not v.ok and v.broken_at is None and pin is not None:
+        archive = find_rotation_archive(audit.path)
+        if archive:
+            rotation_hint = (
+                "a keyed-default migration archive sits beside this ledger "
+                f"({os.path.basename(archive)!r}). If you upgraded Proximo since you pinned, this "
+                "'head mismatch' is the expected migration head-rotation — re-pin "
+                "PROXIMO_AUDIT_EXPECTED_HEAD to the 'head' value above. If you did NOT just upgrade, "
+                "treat this as a genuine tail-attack signal and investigate."
+            )
     return {
         "ok": v.ok,
         "entries": v.entries,
@@ -762,6 +781,7 @@ def audit_verify(expected_head: str | None = None) -> dict:
         "expected_head": pin,
         "keyed": audit.keyed,
         "hint": hint,
+        "rotation_hint": rotation_hint,
     }
 
 

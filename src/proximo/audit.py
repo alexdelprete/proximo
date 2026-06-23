@@ -38,6 +38,7 @@ input, on a 0600 log) — set ``PROXIMO_LEDGER_REDACT=1`` for a fingerprint (sha
 from __future__ import annotations
 
 import fcntl
+import glob
 import hashlib
 import hmac
 import json
@@ -121,6 +122,17 @@ def load_or_create_key(path: str) -> bytes:
     return key
 
 
+def find_rotation_archive(log_path: str) -> str | None:
+    """Return the newest sibling ``*.unkeyed-<stamp>-<head8>`` rotation archive, or None.
+
+    Lets a caller tell a benign keyed-default migration (which rotates the head, so a stale off-box
+    pin reads as a "head mismatch") apart from a real tail attack — the archive is the migration's
+    fingerprint. Path-only; does not read or trust the archive's contents.
+    """
+    matches = sorted(glob.glob(glob.escape(log_path) + ".unkeyed-*"))
+    return matches[-1] if matches else None
+
+
 def detect_mode(path: str) -> str:
     """Inspect an on-disk ledger's chaining mode without trusting it for verification.
 
@@ -175,10 +187,19 @@ def seal_and_rotate(log_path: str, key: bytes) -> tuple[str, str]:
             # the new log's prev_log/prev_head custody pointer is lost. Both logs still verify
             # independently; re-running open_ledger sees an empty new log and starts fresh.
             os.rename(log_path, archive_path)
-            new = AuditLedger(log_path, key=key)
-            new.record("audit_rotate", target="ledger",
-                       detail={"prev_log": os.path.basename(archive_path),
-                               "prev_head": sealed_head, "prev_alg": "sha256"})
+            # Claim the new log path ATOMICALLY: write the keyed genesis to a temp file in the same
+            # dir, then os.replace() it into place. record() and seal_and_rotate hold *different*
+            # locks (the log inode vs the sidecar .lock), so a racer can create log_path in this
+            # window; the atomic replace clobbers any such interloper file rather than letting the
+            # genesis append after an unkeyed entry (which would make the live log fail verify()
+            # forever — flock can't help, as it binds to the inode, not the freshly-created path).
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(log_path) or ".", prefix=".audit-new-")
+            os.close(fd)
+            AuditLedger(tmp, key=key).record(
+                "audit_rotate", target="ledger",
+                detail={"prev_log": os.path.basename(archive_path),
+                        "prev_head": sealed_head, "prev_alg": "sha256"})
+            os.replace(tmp, log_path)
             return archive_path, sealed_head
         finally:
             fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
@@ -234,6 +255,13 @@ class AuditLedger:
             "outcome": outcome,
             "detail": detail or {},
         }
+        # Reject non-finite JSON (NaN/Infinity) at write time: they serialize to non-RFC8259 tokens
+        # that strict external audit parsers (Go/Rust/jq) can't read. Caught loudly here rather than
+        # silently corrupting the log; verify() stays lenient for any pre-existing entry.
+        try:
+            json.dumps(body, allow_nan=False)
+        except ValueError as e:
+            raise ValueError(f"audit detail must be JSON-finite (no NaN/Infinity): {e}") from e
         # Hold an exclusive lock across read-prev + append so the chain stays consistent under concurrency.
         # Owner-only on creation: entries carry command/SQL detail, so the umask default is too open.
         # (Applies at creation only — an existing file keeps whatever mode the operator set.)
@@ -246,6 +274,13 @@ class AuditLedger:
                 entry = {**body, "prev_hash": prev, "entry_hash": _hash(body, prev, self.key)}
                 if self.key is not None:
                     entry["alg"] = _KEY_ALG
+                # Append-only newline guard: if a crash left the last line unterminated, start this
+                # entry on a fresh line rather than gluing two JSON objects onto one physical line
+                # (which the forward walk reads as one unparseable line, silently re-anchoring at
+                # GENESIS). os.pread checks the last byte without text-decode/seek hazards.
+                size = os.fstat(f.fileno()).st_size
+                if size and os.pread(f.fileno(), 1, size - 1) != b"\n":
+                    f.write("\n")
                 f.write(json.dumps(entry, separators=(",", ":"), ensure_ascii=False) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
@@ -271,12 +306,20 @@ class AuditLedger:
         """
         prev = GENESIS_HASH
         count = 0
+        sealed_seen = False
         if os.path.exists(self.path):
             with open(self.path, encoding="utf-8") as f:
                 for lineno, raw in enumerate(f, start=1):
                     raw = raw.strip()
                     if not raw:
                         continue
+                    if sealed_seen:
+                        # A terminal seal (seal-and-rotate's audit_rotate{sealed:true}) must be the
+                        # LAST entry. Anything chained after it = a write to an archived/sealed log
+                        # (e.g. a stale fd held across rotation) — flag it (detection is the guarantee).
+                        return LedgerVerification(
+                            False, count, lineno, "entry recorded after ledger seal"
+                        )
                     try:
                         entry = json.loads(raw)
                     except json.JSONDecodeError:
@@ -309,10 +352,19 @@ class AuditLedger:
                                 False, count, lineno, f"unknown chain alg {entry_alg!r}"
                             )
                         expected = _hash(body, prev, None)
-                    if not hmac.compare_digest(expected, entry.get("entry_hash") or ""):
+                    found_hash = entry.get("entry_hash")
+                    if not isinstance(found_hash, str):
+                        # A truthy non-string entry_hash (42, [..], {..}) would crash compare_digest;
+                        # treat it as tamper, not an exception (a writer-with-access DoS on verify()).
+                        return LedgerVerification(False, count, lineno, "entry_hash missing or not a string")
+                    if not hmac.compare_digest(expected, found_hash):
                         return LedgerVerification(False, count, lineno, "entry_hash mismatch (entry altered)")
                     prev = entry["entry_hash"]
                     count += 1
+                    detail = entry.get("detail")
+                    if entry.get("action") == "audit_rotate" and isinstance(detail, dict) \
+                            and detail.get("sealed") is True:
+                        sealed_seen = True
         # Tail truncation / forged append / full wipe are invisible to a forward walk — only an
         # off-box anchor can catch them.
         if expected_head is not None and prev != expected_head:
@@ -330,6 +382,12 @@ def open_ledger(cfg: Any) -> AuditLedger:
     log = cfg.audit_log_path
     if cfg.audit_key_path:
         key_path = cfg.audit_key_path
+        if not cfg.audit_keyed:
+            warnings.warn(
+                "PROXIMO_AUDIT_KEY_PATH is set, so the PROVE ledger is KEYED even though "
+                "PROXIMO_AUDIT_KEYED is off — the explicit key path takes precedence.",
+                stacklevel=2,
+            )
     elif cfg.audit_keyed:
         key_path = os.path.join(os.path.dirname(log) or ".", "audit.key")
     else:
@@ -344,12 +402,15 @@ def open_ledger(cfg: Any) -> AuditLedger:
     if detect_mode(log) == "unkeyed":
         archive_path, sealed_head = seal_and_rotate(log, key)
         ledger = AuditLedger(log, key=key)
-        warnings.warn(
-            f"PROVE ledger upgraded to keyed mode: the prior unkeyed log "
-            f"(head {sealed_head[:12]}...) was sealed and archived to {archive_path}, and a new "
-            f"keyed log was started (head {ledger.head()}). If you pin PROXIMO_AUDIT_EXPECTED_HEAD, "
-            f"re-pin it to this new head.",
-            stacklevel=2,
-        )
+        # Only the migration WINNER warns. A concurrent-start loser gets ("", head) — the winner
+        # already rotated — so it must not emit a warning reading "archived to <empty>".
+        if archive_path:
+            warnings.warn(
+                f"PROVE ledger upgraded to keyed mode: the prior unkeyed log "
+                f"(head {sealed_head[:12]}...) was sealed and archived to {archive_path}, and a new "
+                f"keyed log was started (head {ledger.head()}). If you pin PROXIMO_AUDIT_EXPECTED_HEAD, "
+                f"re-pin it to this new head.",
+                stacklevel=2,
+            )
         return ledger
     return AuditLedger(log, key=key)

@@ -180,6 +180,24 @@ def test_build_public_tree_strips_gitea_keeps_source():
     assert ".gitea/" not in listing
 
 
+def test_build_public_tree_strips_claude_md():
+    # The published tree must strip CLAUDE.md (DENY_BASENAMES), not just deny PREFIXES — a
+    # basename-only deny is invisible to a prefix `git rm -r`, so build-tree must use the SAME
+    # partition_paths logic as audit() or the two drift (audit says "stripped", tree publishes it).
+    sha = rla.build_public_tree("HEAD")
+    listing = _git_out(["ls-tree", "-r", "--name-only", sha]).splitlines()
+    assert "CLAUDE.md" not in listing
+    assert not any(p.endswith("/CLAUDE.md") for p in listing)
+
+
+def test_build_public_tree_matches_audit_stripped_set():
+    # Guard against drift: every text path build-tree publishes must be one audit() would KEEP.
+    published = set(_git_out(["ls-tree", "-r", "--name-only", rla.build_public_tree("HEAD")]).splitlines())
+    res = rla.audit_files(rla.files_in_ref("HEAD"))
+    for p in res.stripped:
+        assert p not in published, f"{p} was stripped by audit but still published by build-tree"
+
+
 def test_build_public_tree_does_not_touch_real_index_or_worktree():
     before = _git_out(["status", "--porcelain"])
     rla.build_public_tree("HEAD")

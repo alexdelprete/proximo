@@ -51,13 +51,18 @@ class ProximoConfig:
         ca_bundle = os.environ.get("PROXIMO_CA_BUNDLE") or None
         enable_exec = os.environ.get("PROXIMO_ENABLE_EXEC", "false").lower() in ("1", "true", "yes", "on")
         audit_key_path = os.environ.get("PROXIMO_AUDIT_KEY_PATH") or None
-        audit_keyed = os.environ.get("PROXIMO_AUDIT_KEYED", "true").lower() not in ("0", "false", "off", "no")
+        audit_keyed = os.environ.get("PROXIMO_AUDIT_KEYED", "true").strip().lower() not in (
+            "0", "false", "off", "no")
         redact_ledger = os.environ.get("PROXIMO_LEDGER_REDACT", "false").lower() in ("1", "true", "yes", "on")
 
-        expected_head = os.environ.get("PROXIMO_AUDIT_EXPECTED_HEAD") or None
+        # Normalize the pin before validating: a head() hexdigest is case-insensitive, and a copy-paste
+        # from the migration warning often carries a trailing newline / surrounding spaces. Without this,
+        # an uppercased/whitespaced pin raises here — and since _svc() runs from_env() for EVERY tool,
+        # that bricks all of them, not just audit_verify. Genuinely-malformed values still raise.
+        expected_head = (os.environ.get("PROXIMO_AUDIT_EXPECTED_HEAD") or "").strip().lower() or None
         if expected_head is not None and not looks_like_head(expected_head):
             raise RuntimeError(
-                "PROXIMO_AUDIT_EXPECTED_HEAD must be a 64-char lowercase hex head() value "
+                "PROXIMO_AUDIT_EXPECTED_HEAD must be a 64-char hex head() value "
                 "(a sha256/hmac-sha256 hexdigest); got a malformed value"
             )
 

@@ -33,9 +33,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Paths that legitimately live in the internal repo but must NEVER reach the public mirror.
-# `.gitea/` = self-hosted-forge CI (names the internal forge host); `CLAUDE.md` = internal
-# dev-memory for this repo (the public mirror carries the README, not the working notes).
-DENY_PREFIXES: tuple[str, ...] = (".gitea/", "CLAUDE.md")
+# `.gitea/` = self-hosted-forge CI (names the internal forge host).
+DENY_PREFIXES: tuple[str, ...] = (".gitea/",)
+# Denied by BASENAME (matches anywhere in the tree, not just root): `CLAUDE.md` = internal dev-memory
+# (the public mirror carries the README, not the working notes). A root-only prefix match would let a
+# nested `docs/CLAUDE.md` slip through and publish UNSCANNED (deny paths are never leak-scanned).
+DENY_BASENAMES: tuple[str, ...] = ("CLAUDE.md",)
 
 # Site-specific internal identifiers (bare node/host names with no generic leak-shape) that must
 # never publish. Sourced from this INTERNAL-ONLY file — it lives under a deny prefix, so it is
@@ -142,7 +145,8 @@ def partition_paths(
     kept: list[str] = []
     stripped: list[str] = []
     for p in paths:
-        (stripped if p.startswith(deny) else kept).append(p)
+        denied = p.startswith(deny) or Path(p).name in DENY_BASENAMES
+        (stripped if denied else kept).append(p)
     return kept, stripped
 
 
@@ -220,11 +224,14 @@ def build_public_tree(
     try:
         env = {**os.environ, "GIT_INDEX_FILE": idx}
         _git(["read-tree", ref], root, env=env)
-        _git(
-            ["rm", "--cached", "-r", "--quiet", "--ignore-unmatch",
-             *[d.rstrip("/") for d in deny]],
-            root, env=env,
-        )
+        # Strip EXACTLY the paths partition_paths denies — deny PREFIXES *and* DENY_BASENAMES — over
+        # the full tree (incl. binaries). Using the same partition as audit() guarantees the published
+        # tree matches the leak-audit; a prefix-only `git rm -r` is blind to a basename deny (CLAUDE.md)
+        # and would publish it while audit() reported it stripped.
+        all_paths = [p for p in _git(["ls-tree", "-r", "--name-only", "-z", ref], root).split("\0") if p]
+        _, stripped = partition_paths(all_paths, deny)
+        if stripped:
+            _git(["rm", "--cached", "--quiet", "--ignore-unmatch", "--", *stripped], root, env=env)
         return _git(["write-tree"], root, env=env).strip()
     finally:
         os.unlink(idx)

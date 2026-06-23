@@ -23,7 +23,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"   # the version baked into the image
@@ -43,7 +43,7 @@ jobs:
       id-token: write      # keyless (sigstore) signing of the provenance attestation
       attestations: write  # attach the build-provenance attestation to the image
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Multi-arch: amd64 for Proxmox hosts/servers, arm64 for Apple-Silicon
       # workstations (the image runs wherever the MCP client lives). Proximo's
@@ -55,7 +55,7 @@ jobs:
         # The next three actions are SHA-pinned (not floating tags): they hold the
         # token, publish the image, and sign provenance — a re-pointed tag here would
         # be a supply-chain hole. Dependabot bumps the SHA and the `# vN` comment.
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

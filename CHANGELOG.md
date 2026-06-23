@@ -4,6 +4,8 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-06-23
+
 ### Packaging / Security
 - **Both publish paths now ship only the user-facing set (deny-by-default).** The github mirror already
   curated its tree; the **sdist did not** — hatchling bundled the whole repo root, so internal dev/strategy

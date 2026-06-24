@@ -4,6 +4,28 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+### Added
+- **`pip-audit` is now a blocking CI gate** (was a warn-only on-ramp). The resolved dependency
+  set is clean — verified by replicating CI's `pip install -e ".[dev]"` resolution, which lands on
+  `cryptography` 49.0.0 / `starlette` 1.3.1 / `pydantic-settings` 2.14.2 with no known advisories.
+  A new CVE in a resolved dependency now reds CI until it's patched.
+- **Trivy image vulnerability scanning** (`.github/workflows/trivy.yml`) — continuous scanning
+  of the container image's OS-package + library layers (the `python:3.13-slim` base + apt layer),
+  which `pip-audit` (Python deps) and CodeQL (source) don't cover. Findings upload to the Security
+  tab. Report-first on-ramp; flips to blocking once a green run confirms the baseline.
+- **OpenSSF Scorecard** (`.github/workflows/scorecard.yml`) — supply-chain posture scoring,
+  published to the public dashboard.
+- **`SECURITY.md`** — security policy + a private vulnerability-reporting path (GitHub private
+  advisories), with honest scope notes (risk ratings are advisory, not a sandbox; the PVE token
+  is the trust boundary) and image/PyPI authenticity-verification guidance.
+
+### Changed
+- **Scoped CodeQL to the shipped package (`src/`)** via `.github/codeql/codeql-config.yml`,
+  matching the existing pyright scope. The dev/demo scripts under `scripts/` print connection
+  metadata (node, API base URL) and operation output — which CodeQL's taint tracker flagged as
+  `py/clear-text-logging-sensitive-data`, though the token secret is never logged — producing 32
+  false positives with no shipped impact. SAST now analyzes exactly what ships.
+
 ## [0.7.3] — 2026-06-24
 
 ### Added

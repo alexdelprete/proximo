@@ -23,6 +23,7 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: python
+          config-file: ./.github/codeql/codeql-config.yml   # scan src/ (the shipped product) only
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
       - name: Analyze

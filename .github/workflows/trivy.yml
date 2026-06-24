@@ -1,0 +1,62 @@
+name: Trivy — image vulnerability scan
+
+# Continuous container-image scanning. Catches OS-package CVEs in the
+# python:3.13-slim base + the apt layer (openssh-client) that pip-audit (Python
+# deps only) and CodeQL (source only) never see. Findings land in the Security tab.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 4 * * 1"   # weekly, Monday 04:41 UTC — catches newly-disclosed base CVEs
+  workflow_dispatch:
+  # No `pull_request` trigger: fork-PR tokens can't be granted `security-events: write`,
+  # so the SARIF upload would error on them. push-to-main + weekly + manual keeps the
+  # scan continuous for a solo-maintained repo without that failure mode.
+
+# Read-only floor; the scan job re-grants exactly the SARIF-upload scope it needs.
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF to the Security tab
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Build the amd64 image locally (load, never pushed) purely to scan it. The
+      # release pipeline builds + signs the multi-arch image it actually ships; this
+      # job finds a vuln in the same recipe before a release would.
+      - name: Build image for scanning (amd64, local)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          load: true
+          tags: proximo:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan (OS + library layers)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: proximo:scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true   # only actionable findings (an upstream fix exists)
+          # ON-RAMP: report-first. The SARIF still uploads to the Security tab, but this
+          # does not red CI yet — the base-image CVE state can't be verified in the
+          # dev env (no docker), so the first blocking run has to prove out on CI.
+          # Flip exit-code to '1' once a green run confirms the baseline — the same
+          # on-ramp pip-audit graduated from.
+          exit-code: '0'
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif

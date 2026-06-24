@@ -52,10 +52,9 @@ jobs:
 
   pip-audit:
     runs-on: ubuntu-latest
-    # ON-RAMP: warn-only on the first pass so pre-existing advisories don't block the
-    # first green release. Remove `continue-on-error` to make it a hard fail once the
-    # baseline is clean (see plan Task 8 follow-up).
-    continue-on-error: true
+    # Blocking gate. The dependency baseline is clean (verified 2026-06-24, after
+    # bumping cryptography/starlette/pydantic-settings off their advisories). A new CVE
+    # in a dependency now reds CI until it's patched — which is the point of the gate.
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6

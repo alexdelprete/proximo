@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Security vulnerability (do NOT open a public issue)
+    url: https://github.com/john-broadway/proximo/security/advisories/new
+    about: Report security issues privately via GitHub's vulnerability reporting. See SECURITY.md.

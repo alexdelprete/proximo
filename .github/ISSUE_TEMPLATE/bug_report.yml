@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in Proximo behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report.
+
+        **Please redact secrets** — strip tokens, real node names, and private IPs from any
+        logs or output before posting. For a *security vulnerability*, do not file here — use
+        private reporting instead (see [SECURITY.md](https://github.com/john-broadway/proximo/blob/main/SECURITY.md)).
+  - type: input
+    id: version
+    attributes:
+      label: Proximo version
+      description: The version you installed (pip version or image tag).
+      placeholder: "0.7.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How are you running it?
+      options:
+        - uvx / pip
+        - Docker (GHCR image)
+        - from source
+        - A2A face (proximo-a2a)
+    validations:
+      required: true
+  - type: input
+    id: pve
+    attributes:
+      label: Proxmox VE version
+      placeholder: "8.x / 9.x"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect to happen, and what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Configure with ...
+        2. Call tool ...
+        3. Observe ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / output (redacted)
+      render: shell

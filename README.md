@@ -56,6 +56,18 @@ Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the 
 
 > **Honesty note (load-bearing):** PLAN's risk ratings are an *advisory heuristic*, not a sandbox. `LOW` means "does not change state," **not** "safe" — a read can still exfiltrate. The absence of a `HIGH` flag is **not** a safety signal; the destructive-pattern signatures are curated, not exhaustive. Review every change yourself.
 
+## At scale
+
+One container is the demo. A cluster is the point.
+
+- **The whole cluster in one call.** `pve_cluster_resources` returns every VM, node, storage pool, and SDN object across the cluster — so the agent answers *"what's the state of everything?"* in one breath, not node by node.
+- **One tamper-evident record of every change, across every node.** This is what a human at the CLI never walks away with: every mutation Proximo makes — any node, any operator or agent — lands in a single hash-chained PROVE ledger, and `audit_verify` proves it wasn't edited, reordered, or truncated. *"Show me every state-changing action on the cluster this month, and prove the log wasn't touched"* becomes a query you can actually answer.
+- **Where the time comes back.** On one node, a senior at the CLI is faster — and that's fine. Across a dozen nodes and hundreds of guests the tedium multiplies and there's no unified record; that's where delegating execution to a *bounded, audited* agent earns its keep.
+
+Live-proven against a real **3-node PVE 9.2** cluster: offline guest migration (including local-disk), the HA-config lifecycle, and the governance plane (identity / storage / SDN) — every step recorded and verified through PROVE.
+
+> **Honest scope:** Proximo is configured per endpoint, so "fleet" here means **a cluster and its nodes**, not a set of separate, independent clusters driven from one process. Point it at the cluster you operate.
+
 ## Principles (the mantra, baked in — not bolted on)
 
 - **Ethical** — least-privilege posture (exec off by default; bounded by the token you scope), every action audited, mutations confirm-gated, the PVE token read only at call time, never logged or persisted.

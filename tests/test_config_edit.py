@@ -800,3 +800,34 @@ def test_plan_config_set_indexed_net_high_number_allowed():
     api = _fake_api(config_data={"digest": "x"})
     p = plan_config_set(api, "102", {"net7": "name=eth7,bridge=vmbr0"})
     assert "net7" in p.current["diff"]
+
+
+# --- C-1: plan reads live config from the TARGET node, not the configured default ----------------
+
+
+def test_plan_config_set_reads_from_target_node():
+    # C-1: on a multi-node cluster the plan must read live config from the SAME node the mutation
+    # will write to (node param), not api.config.node — otherwise the recorded PROVE snapshot is
+    # taken from the wrong node and the previewed diff is factually wrong.
+    seen: list[str] = []
+    api = _fake_api(node="default-node")
+    api._get = lambda path: seen.append(path) or {"cores": "1"}
+    plan_config_set(api, "105", {"cores": "2"}, kind="lxc", node="pve2")
+    assert seen[0] == "/nodes/pve2/lxc/105/config"
+
+
+def test_plan_config_revert_reads_from_target_node():
+    seen: list[str] = []
+    api = _fake_api(node="default-node")
+    api._get = lambda path: seen.append(path) or {"cores": "1"}
+    plan_config_revert(api, "105", {"cores": "1"}, kind="lxc", node="pve2")
+    assert seen[0] == "/nodes/pve2/lxc/105/config"
+
+
+def test_plan_config_set_defaults_to_config_node_when_node_omitted():
+    # No regression: when node is not passed, it still falls back to the configured default node.
+    seen: list[str] = []
+    api = _fake_api(node="default-node")
+    api._get = lambda path: seen.append(path) or {"cores": "1"}
+    plan_config_set(api, "105", {"cores": "2"}, kind="lxc")
+    assert seen[0] == "/nodes/default-node/lxc/105/config"

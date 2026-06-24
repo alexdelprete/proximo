@@ -23,7 +23,7 @@ def _params(tmp_path) -> StdioServerParameters:
         "PROXIMO_API_BASE_URL": "https://127.0.0.1:8006/api2/json",  # unreachable on purpose
         "PROXIMO_NODE": "e2e-node",
         "PROXIMO_TOKEN_PATH": str(tok),
-        "PROXIMO_VERIFY_TLS": "false",
+        "PROXIMO_VERIFY_TLS": "true",  # construct over verified TLS (H-2); PVE is unreachable here anyway
         "PROXIMO_AUDIT_LOG": str(tmp_path / "e2e-audit.log"),
     }
     return StdioServerParameters(command=sys.executable, args=["-m", "proximo"], env=env)

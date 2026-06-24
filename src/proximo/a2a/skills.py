@@ -5,7 +5,7 @@ a2a-sdk import, so it is importable everywhere and the trust guard is unit-testa
 
 Two load-bearing properties live here, on purpose:
 
-1. THE SLICE (not the whole 116). An external agent gets a deliberately conservative subset:
+1. THE SLICE (not the whole 145). An external agent gets a deliberately conservative subset:
    reads/diagnostics + REVERSIBLE mutations (power, snapshot create/delete, config set/revert,
    backup). The irreversible / lockout-class / secret-bearing tools (delete_guest, rollback,
    template_convert, firewall toggles, token create/revoke, acl_modify, network/sdn apply,

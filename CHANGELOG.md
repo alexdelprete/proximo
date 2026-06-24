@@ -4,6 +4,8 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.7.4] — 2026-06-24
+
 ### Added
 - **`pip-audit` is now a blocking CI gate** (was a warn-only on-ramp). The resolved dependency
   set is clean — verified by replicating CI's `pip install -e ".[dev]"` resolution, which lands on
@@ -18,13 +20,41 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 - **`SECURITY.md`** — security policy + a private vulnerability-reporting path (GitHub private
   advisories), with honest scope notes (risk ratings are advisory, not a sandbox; the PVE token
   is the trust boundary) and image/PyPI authenticity-verification guidance.
-
-### Changed
 - **Scoped CodeQL to the shipped package (`src/`)** via `.github/codeql/codeql-config.yml`,
   matching the existing pyright scope. The dev/demo scripts under `scripts/` print connection
   metadata (node, API base URL) and operation output — which CodeQL's taint tracker flagged as
   `py/clear-text-logging-sensitive-data`, though the token secret is never logged — producing 32
   false positives with no shipped impact. SAST now analyzes exactly what ships.
+
+### Security
+- **`ApiBackend` now refuses to construct over unverified TLS** — `PROXIMO_VERIFY_TLS=false` with no
+  CA bundle raises `ProximoError` instead of warning, matching the rule `PbsBackend` already enforces
+  (every request carries the PVE token; a read-only token is still a credential). **Breaking** if you
+  ran with `verify_tls=false`: set `PROXIMO_CA_BUNDLE` to the PVE CA cert (preferred) or
+  `PROXIMO_VERIFY_TLS=true`. (audit H-2)
+
+### Fixed
+*From an internal adversarial audit (8 dimensions, each finding independently verified):*
+- **PLAN integrity on multi-node clusters (C-1):** `plan_config_set` / `plan_config_revert` read live
+  config from the *configured default* node, ignoring the `node` the mutation targets — so the PROVE
+  plan snapshot could be from the wrong node. Both now resolve `node or config.node`, matching the
+  execute path.
+- **Audit-ledger crash on a corrupt tail line (H-1):** `_last_hash` didn't guard a valid-JSON
+  *non-dict* line, raising `TypeError` — which could crash `record()` mid-mutation (entry unrecorded)
+  or DoS `audit_verify`/`head()`. Now guarded the same way `verify()` already was.
+- **Exec opt-in is enforced at the backend (M-3):** `ExecBackend.run()` now checks
+  `PROXIMO_ENABLE_EXEC` itself, not only at the server layer — defense-in-depth against a future
+  direct caller.
+- **cloud-init UNDO honesty (M-1, M-2):** an undo-capture failure no longer degrades silently — it is
+  surfaced in the result status and the PROVE ledger (`ok:undo_unavailable`); and the undo record now
+  discloses that a revert does not delete keys the change added.
+
+### Changed (docs honesty)
+- **Honest UNDO scope in README/SETUP (H-3):** the tagline no longer claims *every* dangerous move is
+  undoable — now "undoable wherever the platform can snapshot" (delete / template-convert /
+  token-revoke and firewall/SDN/ACL ops are irreversible by design, as the body already said).
+- Corrected a stale tool count in an A2A docstring (116 → 145, L-3).
+- **README/landing copy restructured** — leads with *what it does* + the trust layer, before the backend plumbing (so a reader scanning for the value hits the safety model first, not the API table); the roadmap section trimmed to forward-looking items.
 
 ## [0.7.3] — 2026-06-24
 

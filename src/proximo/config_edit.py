@@ -332,12 +332,14 @@ def plan_config_set(api, vmid: str, changes: dict, kind: str = "lxc",
     _check_changes(to_set, kind)
     _check_changes({k: "" for k in to_delete}, kind)
 
-    # One safe read to build the diff.
+    # One safe read to build the diff — from the SAME node the mutation will target,
+    # so the recorded plan/PROVE snapshot matches what gets written (multi-node clusters).
+    n = node or api.config.node
     current_cfg: dict = {}
     read_error: str | None = None
     try:
         current_cfg = api._get(
-            f"/nodes/{api.config.node}/{kind}/{vmid}/config"
+            f"/nodes/{n}/{kind}/{vmid}/config"
         ) or {}
     except Exception as e:
         read_error = type(e).__name__
@@ -406,12 +408,13 @@ def plan_config_revert(api, vmid: str, prior_config: dict, kind: str = "lxc",
 
     writable_prior, skipped = _settable_prior(prior_config, kind)
 
-    # One safe read to build the diff.
+    # One safe read to build the diff — from the SAME node the revert will target.
+    n = node or api.config.node
     current_cfg: dict = {}
     read_error: str | None = None
     try:
         current_cfg = api._get(
-            f"/nodes/{api.config.node}/{kind}/{vmid}/config"
+            f"/nodes/{n}/{kind}/{vmid}/config"
         ) or {}
     except Exception as e:
         read_error = type(e).__name__

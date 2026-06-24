@@ -1058,15 +1058,18 @@ def pve_cloudinit_set(vmid: str, changes: dict, node: str | None = None, kind: s
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     # Capture the prior cloud-init config (secret-stripped) BEFORE the set, so the result carries
-    # a real undo_record — best-effort: a failed capture must never block the mutation.
+    # a real undo_record. A config edit is not blocked on undo-capture failure (unlike exec) — but
+    # the degraded UNDO must NOT be silent: surface it in the status AND the PROVE ledger (M-1).
     try:
         undo = capture_cloudinit_undo(api, vmid, node, kind)
+        outcome = "ok"
     except Exception as e:
         undo = {"prior_ci_config": None,
                 "secret_undo_caveat": f"undo capture failed: {type(e).__name__}"}
+        outcome = "ok:undo_unavailable"  # mutation ran, but no rollback was captured — recorded, not silent
     envelope = _audited("pve_cloudinit_set", target,
                         lambda: cloudinit_set(api, vmid, changes, node, kind),
-                        mutation=True, outcome="ok", detail={"confirmed": True})
+                        mutation=True, outcome=outcome, detail={"confirmed": True})
     envelope["undo_record"] = undo
     return envelope
 

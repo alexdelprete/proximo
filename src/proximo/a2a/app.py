@@ -189,6 +189,11 @@ def build_app(rpc_url: str | None = None, *, token: str | None = None,
 
     # When auth is on (i.e. an exposed deployment), harden the perimeter: validate the Host header
     # (DNS-rebind defense, OUTERMOST so a bad host is refused before anything) then require the bearer.
+    # When auth is on (i.e. an exposed deployment), harden the perimeter: validate the Host header
+    # (DNS-rebind defense, OUTERMOST so a bad host is refused before anything) then require the bearer.
+    # NOTE (audit L-2): no-token mode is deliberately localhost-bound + dev-only and does NOT install
+    # the Host allowlist — a deliberate, tested choice (test_no_host_restriction_without_token). The
+    # residual same-machine DNS-rebind risk is documented; flipping it is a product decision, not a fix.
     middleware: list[Middleware] = []
     if token:
         hosts = allowed_hosts or _default_allowed_hosts(rpc_url)

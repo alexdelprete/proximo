@@ -91,6 +91,11 @@ class ExecBackend:
         self.config = config
 
     def run(self, ctid: str, command: list[str], *, timeout: int = 60) -> ExecResult:
+        # Defense-in-depth: enforce the opt-in gate AT the backend, not only at the server
+        # layer. A future caller reaching ExecBackend.run() directly must not bypass the
+        # PROXIMO_ENABLE_EXEC opt-in and ride on the allowlist alone.
+        if not self.config.enable_exec:
+            raise ProximoError("in-container exec is disabled (set PROXIMO_ENABLE_EXEC=1 to enable)")
         _check_vmid(ctid)  # defense-in-depth: validate before allowlist/quoting, like ApiBackend
         if not self.config.ct_permitted(ctid):
             raise ProximoError(f"CTID {ctid} not permitted by allowlist (fail-closed)")
@@ -120,6 +125,16 @@ class ApiBackend:
     def __init__(self, config: ProximoConfig):
         self.config = config
         verify: bool | str = config.ca_bundle if config.ca_bundle else config.verify_tls
+        # FAIL-CLOSED: every request carries the PVE API-token secret. Refuse to construct
+        # this client over a completely unverified channel (verify_tls=false AND no
+        # ca_bundle) — same rule PbsBackend already enforces for the PBS token, for the
+        # same reason: the token could be intercepted in transit.
+        if verify is False:
+            raise ProximoError(
+                "refusing to send the PVE token over unverified TLS: set PROXIMO_CA_BUNDLE "
+                "to the PVE CA cert (preferred) or PROXIMO_VERIFY_TLS=true. A read-only token "
+                "is still a credential — it must not cross an unverified channel."
+            )
         self._client = httpx.Client(base_url=config.api_base_url, verify=httpx_verify(verify), timeout=30)
 
     def _auth_header(self) -> dict[str, str]:

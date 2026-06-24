@@ -86,6 +86,22 @@ def test_verify_nonstring_entry_hash_returns_false_not_crash(tmp_path, bad):
     assert not v.ok
 
 
+@pytest.mark.parametrize("bad_line", ["42", "[1, 2]", '"a string"', "3.14", "true"])
+def test_last_hash_tolerates_nondict_json_line(tmp_path, bad_line):
+    # Symmetric to the verify() guard (H-1): a valid-JSON *non-dict* tail line must not crash
+    # _last_hash — which record() calls to chain the next entry and head()/audit_verify reach.
+    # Without the isinstance guard, json.loads(line)["entry_hash"] raises TypeError, which would
+    # (a) crash record() AFTER the PVE call fired — the mutation goes unrecorded — and
+    # (b) DoS audit_verify instead of cleanly reporting the corrupt line.
+    led = _ledger(tmp_path)
+    led.record("a", target="t1")
+    p = tmp_path / "audit.log"
+    p.write_text(p.read_text() + bad_line + "\n")  # append a junk (valid-JSON, non-dict) tail line
+    led.head()                    # must not raise (this is the audit_verify path)
+    led.record("b", target="t2")  # must not raise mid-mutation
+    assert '"action":"b"' in p.read_text()  # the new entry actually made it to disk (compact JSON)
+
+
 # --- Finding: torn last line (crash mid-append) concatenates the next entry onto one line --------
 
 

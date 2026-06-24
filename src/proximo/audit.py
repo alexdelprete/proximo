@@ -240,9 +240,14 @@ class AuditLedger:
             if not line:
                 continue
             try:
-                prev = json.loads(line)["entry_hash"]
-            except (json.JSONDecodeError, KeyError):
+                entry = json.loads(line)
+            except json.JSONDecodeError:
                 continue
+            # A valid-JSON non-dict line (int/list/str) would raise TypeError on the
+            # subscript below — guard it the same way verify() does, so a corrupt tail
+            # line never crashes record() mid-mutation or DoSes audit_verify/head().
+            if isinstance(entry, dict) and "entry_hash" in entry:
+                prev = entry["entry_hash"]
         return prev
 
     def record(self, action: str, *, target: str, mutation: bool = False,

@@ -25,7 +25,7 @@ async def test_a2a_client_to_server_end_to_end(tmp_path, monkeypatch):
     tok = tmp_path / "e2e.tok"
     tok.write_text("e2e@pam!t=00000000-0000-0000-0000-000000000000")
     monkeypatch.setenv("PROXIMO_TOKEN_PATH", str(tok))
-    monkeypatch.setenv("PROXIMO_VERIFY_TLS", "false")
+    monkeypatch.setenv("PROXIMO_VERIFY_TLS", "true")  # construct over verified TLS (H-2); no real PVE call is made here
     monkeypatch.setenv("PROXIMO_AUDIT_LOG", str(tmp_path / "e2e-audit.log"))
 
     app = build_app(f"{BASE}/")

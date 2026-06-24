@@ -17,6 +17,7 @@ def _cfg(**kw) -> ProximoConfig:
         node="pve",
         token_path="/run/x",
         ct_allowlist=frozenset({"*"}),
+        enable_exec=True,  # exec backend is the feature under test here; the opt-in gate is tested separately
     )
     base.update(kw)
     return ProximoConfig(**base)
@@ -62,13 +63,36 @@ def test_exec_local_builds_direct_pct_argv(monkeypatch):
 
 
 def test_exec_allowlist_fails_closed_when_empty():
-    with pytest.raises(ProximoError):
+    with pytest.raises(ProximoError, match="allowlist"):
         ExecBackend(_cfg(ct_allowlist=frozenset())).run("105", ["true"])
 
 
 def test_exec_enforces_allowlist():
-    with pytest.raises(ProximoError):
+    with pytest.raises(ProximoError, match="allowlist"):
         ExecBackend(_cfg(ct_allowlist=frozenset({"100"}))).run("999", ["true"])
+
+
+def test_exec_disabled_raises_even_with_allowlist(monkeypatch):
+    # Defense-in-depth (M-3): ExecBackend.run() must enforce the PROXIMO_ENABLE_EXEC opt-in
+    # itself — a permissive allowlist does NOT grant exec when the gate is off.
+    monkeypatch.setattr(subprocess, "run", _capture({}))
+    with pytest.raises(ProximoError, match="exec is disabled"):
+        ExecBackend(_cfg(enable_exec=False, ct_allowlist=frozenset({"*"}))).run("105", ["true"])
+
+
+def test_apibackend_refuses_unverified_tls(monkeypatch, tmp_path):
+    # H-2: the PVE token must never cross an unverified channel. Mirrors PbsBackend's rule.
+    tok = tmp_path / "t"
+    tok.write_text("u@pam!t=secret")
+    with pytest.raises(ProximoError, match="unverified TLS"):
+        ApiBackend(_cfg(token_path=str(tok), verify_tls=False, ca_bundle=None))
+
+
+def test_apibackend_ok_with_verified_tls(tmp_path):
+    # The happy path still constructs: default verify_tls=True needs no CA bundle to build the client.
+    tok = tmp_path / "t"
+    tok.write_text("u@pam!t=secret")
+    ApiBackend(_cfg(token_path=str(tok), verify_tls=True))  # no raise
 
 
 def test_auth_header_format(tmp_path):

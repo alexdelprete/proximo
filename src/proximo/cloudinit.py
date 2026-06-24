@@ -226,7 +226,18 @@ def capture_cloudinit_undo(
             "secret fields (cipassword) are NOT captured here; reverting restores non-secret "
             "cloud-init fields only — re-supply the password manually to fully revert"
         )
-    return {"prior_ci_config": revertable, "secret_undo_caveat": note}
+    return {
+        "prior_ci_config": revertable,
+        "secret_undo_caveat": note,
+        # [SR-3 / audit M-2] Reverting re-applies these prior fields via a bare set (no delete
+        # param), so any cloud-init key this change ADDS (one absent beforehand) is NOT removed by
+        # the revert — it persists. A full key-delete revert (cf. guest_config_revert) is not yet
+        # implemented; disclose the gap rather than imply a clean round-trip.
+        "additive_key_caveat": (
+            "revert re-applies prior fields but does NOT delete keys this change adds; "
+            "a key newly introduced by the change persists after revert"
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------

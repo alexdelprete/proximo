@@ -9,13 +9,11 @@
 
 > **The Proxmox MCP you can hand the keys.**
 >
-> The others make you choose: a read-only inspector that's safe because it can't touch anything — or a loaded gun aimed at a cluster you care about. Proximo refuses the trade. Every dangerous move is **planned** (see the blast radius first), **undoable** (it snapshots *before* it acts), and **proven** (a tamper-evident record of every move) — trust built into the substrate, not bolted on after. **Hand an AI agent the keys; keep the receipts.**
+> The others make you choose: a read-only inspector that's safe because it can't touch anything — or a loaded gun aimed at a cluster you care about. Proximo refuses the trade. Every dangerous move is **planned** (see the blast radius first) and **proven** (a tamper-evident record of every move), and **undoable wherever the platform can snapshot** (it snapshots *before* it acts) — trust built into the substrate, not bolted on after. **Hand an AI agent the keys; keep the receipts.**
 
 *Named for Proximo, the lanista of* Gladiator *— the man who armed the fighter with exactly what he needed, never more, and answered for every move in the arena. That is the whole design: give the operator — human or agent — the reach to act, never the run of the house, accountable for all of it.*
 
 > *"Win the crowd and you will win your freedom."*
-
-**Strength and honor.** Earn the crowd; earn the keys.
 
 ---
 
@@ -32,12 +30,31 @@ There is **no official Proxmox MCP** (and likely won't be soon — Proxmox ships
 
 ## What it does
 
-Two backends behind one tool surface:
+Ask, in plain English, *"why is ct 105 thrashing?"* — and an AI agent pulls node and guest status, tails the logs, and runs a diagnostic *inside* the container to find out. If there's a fix, it shows you the plan before it touches anything, snapshots first, applies, and hands you a signed receipt of exactly what changed.
+
+That's the product: **a hypervisor an AI can operate without being able to wreck it.** Read-only by default. No mutation without a plan first, and the plan refuses destructive ops. It snapshots before any state change, wherever the platform can snapshot. A tamper-evident receipt for every change. The comparison isn't Proximo vs. the GUI — it's **Proximo vs. handing an LLM your root token and hoping.**
+
+Underneath, two backends behind one tool surface:
 
 | Backend | Mechanism | For |
 |---|---|---|
 | **Management** | Proxmox REST API + scoped token | node status, list/inspect guests, lifecycle (start/stop/reboot) |
 | **Exec** | `ssh` → `pct exec` | run-command-in-container, `psql` convenience, log tailing — the things the API structurally can't do |
+
+Those two backends are deliberately boring — anyone can call them. **The product is the trust layer over them.**
+
+## The trust layer — what makes Proximo different
+
+Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the **trust layer for AI-driven infrastructure** — four pillars:
+
+| Pillar | What it does | Status |
+|---|---|---|
+| **PLAN** | Dry-run by default: every mutation first returns a preview — the exact change, the guest's live state, blast radius, and an honest (advisory, heuristic) risk rating — recorded to the ledger. A mutation can't run without its plan being built and recorded first. (It's a recorded *preview*, not a separate human approval step: one `confirm=true` call records the plan **and** performs the change — so in an agent loop, review the preview yourself.) | ✅ built + redteamed |
+| **PROVE** | Hash-chained audit ledger; plans and confirmations both land in it. `audit_verify` is tamper-**evident** — it catches edits, reordering, and insertion. The ledger is **keyed (HMAC-SHA256) by default** (`PROXIMO_AUDIT_KEYED`; opt out with `off`). Catching tail truncation / forged append / full wipe requires an off-box head anchor: pin `audit_verify`'s `"head"` value somewhere the box can't rewrite it and pass it as `expected_head` (or set `PROXIMO_AUDIT_EXPECTED_HEAD`) — that is the strong guarantee. See the honesty note below. | ✅ built + redteamed |
+| **UNDO** | Heterogeneous by plane, fail-closed where present: opt-in auto-snapshot before a risky `ct_exec`/`ct_psql` (waited-on, fail-closed if storage can't snapshot); config-revert for guest config; `pve_rollback` + full snapshot lifecycle for guests. Not every PVE plane is snapshottable — firewall/SDN/ACL/token have no rollback primitive — so UNDO covers the snapshottable surface, not every mutation. Undo points aren't auto-pruned — delete with `pve_snapshot_delete`. (Snapshot/rollback are async — poll with `pve_task_status`.) | ✅ built + redteamed |
+| **DIAGNOSE** | Read-only evidence battery (failed units, disk, errors, memory, listening ports) + node health (storage/tasks) → advisory flags. Flags surface *incompleteness* too, so an empty list never reads as a false clean bill. | ✅ built + redteamed |
+
+> **Honesty note (load-bearing):** PLAN's risk ratings are an *advisory heuristic*, not a sandbox. `LOW` means "does not change state," **not** "safe" — a read can still exfiltrate. The absence of a `HIGH` flag is **not** a safety signal; the destructive-pattern signatures are curated, not exhaustive. Review every change yourself.
 
 ## Principles (the mantra, baked in — not bolted on)
 
@@ -52,11 +69,13 @@ Two backends behind one tool surface:
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.7.3` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.7.3) (CI green), and
+> 📦 **`0.7.4` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.7.4) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
-> New in 0.7.3: the **[SETUP.md](SETUP.md)** token-first walkthrough + a **`proximo doctor`** command to
-> verify what your token can (and can't) do before any AI touches it.
+> New in 0.7.4: a **security-hardening pass** — private vulnerability reporting + `SECURITY.md`, plus
+> supply-chain scanning (pip-audit, Trivy, OpenSSF Scorecard, scoped CodeQL) — and an **8-dimension
+> adversarial trust-spine audit** whose fixes landed here. **Breaking:** the API backend now refuses
+> unverified TLS — see the [CHANGELOG](./CHANGELOG.md).
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -86,23 +105,10 @@ uv pip install -e .          # or: pip install -e .
 >
 > *(A Debian package is deferred/optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.)*
 
-## The trust layer — what makes Proximo different
-
-Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the **trust layer for AI-driven infrastructure** — four pillars:
-
-| Pillar | What it does | Status |
-|---|---|---|
-| **PLAN** | Dry-run by default: every mutation first returns a preview — the exact change, the guest's live state, blast radius, and an honest (advisory, heuristic) risk rating — recorded to the ledger. A mutation can't run without its plan being built and recorded first. (It's a recorded *preview*, not a separate human approval step: one `confirm=true` call records the plan **and** performs the change — so in an agent loop, review the preview yourself.) | ✅ built + redteamed |
-| **PROVE** | Hash-chained audit ledger; plans and confirmations both land in it. `audit_verify` is tamper-**evident** — it catches edits, reordering, and insertion. The ledger is **keyed (HMAC-SHA256) by default** (`PROXIMO_AUDIT_KEYED`; opt out with `off`). Catching tail truncation / forged append / full wipe requires an off-box head anchor: pin `audit_verify`'s `"head"` value somewhere the box can't rewrite it and pass it as `expected_head` (or set `PROXIMO_AUDIT_EXPECTED_HEAD`) — that is the strong guarantee. See the honesty note below. | ✅ built + redteamed |
-| **UNDO** | Heterogeneous by plane, fail-closed where present: opt-in auto-snapshot before a risky `ct_exec`/`ct_psql` (waited-on, fail-closed if storage can't snapshot); config-revert for guest config; `pve_rollback` + full snapshot lifecycle for guests. Not every PVE plane is snapshottable — firewall/SDN/ACL/token have no rollback primitive — so UNDO covers the snapshottable surface, not every mutation. Undo points aren't auto-pruned — delete with `pve_snapshot_delete`. (Snapshot/rollback are async — poll with `pve_task_status`.) | ✅ built + redteamed |
-| **DIAGNOSE** | Read-only evidence battery (failed units, disk, errors, memory, listening ports) + node health (storage/tasks) → advisory flags. Flags surface *incompleteness* too, so an empty list never reads as a false clean bill. | ✅ built + redteamed |
-
-> **Honesty note (load-bearing):** PLAN's risk ratings are an *advisory heuristic*, not a sandbox. `LOW` means "does not change state," **not** "safe" — a read can still exfiltrate. The absence of a `HIGH` flag is **not** a safety signal; the destructive-pattern signatures are curated, not exhaustive. Review every change yourself.
-
 ## Status — the arena record
 
-🩸 **0.7.3 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2,500+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
+🩸 **0.7.4 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2,600+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
 name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
 to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
 
@@ -135,10 +141,6 @@ complete audit trail; set `PROXIMO_LEDGER_REDACT=1` to record a fingerprint (sha
 instead, when the SQL/command may carry secrets/PII. The PVE API token is never written to the ledger.
 
 ### What's next
-- [x] **PyPI / GHCR** — `proximo-proxmox` on PyPI (`uvx proximo-proxmox`) + a signed multi-arch GHCR image (`:0.7.1` / `latest`)
-- [x] **Firewall objects · HA rules · SDN object CRUD** — live-proven on PVE 9.2
-- [x] **PROVE hardening (0.7.0–0.7.1)** — keyed (HMAC-SHA256) ledger by default, off-box `head()`-pinning for tail attacks, and a crash-consistency / concurrency robustness pass
-- [x] **A runnable trust demo** — `scripts/demo/hand_the_keys.py` walks PLAN → UNDO → PROVE; the local mode runs anywhere off `pip install`, no Proxmox needed
 - [ ] Live smoke of the remaining lifecycle surface (PBS-mutate); HA fencing + online migration once the hardware exists
 - [ ] PBS certificate-fingerprint wire-enforcement
 - [ ] _(optional)_ Debian package for the Debian-native crowd

@@ -17,7 +17,8 @@ That's defense in depth, in the right order:
 
 - **The floor — your token's permissions.** Enforced by Proxmox, held by you, impossible for Proximo to exceed.
 - **On top — Proximo's safety net.** Every dangerous op is **planned** (dry-run + blast radius first),
-  **undoable** (snapshots before it acts), and **proven** (a tamper-evident log of every move).
+  **proven** (a tamper-evident log of every move), and **undoable where the platform can snapshot**
+  (it snapshots before it acts — guest/exec ops; firewall/SDN/ACL/token ops have no snapshot to revert to).
 
 > 🔒 **Do every step below in YOUR OWN terminal / browser. Never paste your token secret into an AI chat.**
 

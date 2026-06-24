@@ -104,6 +104,15 @@ def test_pbsconfig_from_env_missing_url_raises(monkeypatch):
         PbsConfig.from_env()
 
 
+def test_pbsconfig_from_env_missing_hints_pve_path_fallback(monkeypatch):
+    # When PBS isn't configured, the error should point at the PVE-path alternative that needs NO
+    # PBS config — pve_backup_list against a pbs-type storage (real dogfood finding 2026-06-24).
+    monkeypatch.delenv("PROXIMO_PBS_BASE_URL", raising=False)
+    monkeypatch.setenv("PROXIMO_PBS_TOKEN_PATH", "/run/tok")
+    with pytest.raises(RuntimeError, match="pve_backup_list"):
+        PbsConfig.from_env()
+
+
 def test_pbsconfig_from_env_missing_token_path_raises(monkeypatch):
     monkeypatch.setenv("PROXIMO_PBS_BASE_URL", "https://pbs:8007/api2/json")
     monkeypatch.delenv("PROXIMO_PBS_TOKEN_PATH", raising=False)

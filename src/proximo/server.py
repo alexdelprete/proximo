@@ -2674,6 +2674,17 @@ def pve_realm_delete(realm: str, confirm: bool = False) -> dict:
 
 
 def main() -> None:
+    # `proximo doctor` — verify your token/config (read-only preflight) BEFORE wiring Proximo into
+    # an AI client. Prints what THIS token can and cannot do; never starts the server.
+    if len(sys.argv) > 1 and sys.argv[1] == "doctor":
+        import json
+        try:
+            result = pve_doctor()
+        except Exception as e:  # config/token/connectivity problem — give a plain message, not a trace
+            print(f"proximo doctor: {e}", file=sys.stderr)
+            raise SystemExit(1) from None
+        print(json.dumps(result, indent=2))
+        return
     print(BANNER, file=sys.stderr)
     mcp.run()
 

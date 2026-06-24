@@ -391,6 +391,16 @@ def test_plan_rollback_blast_not_contradictory_when_missing():
     assert not any("discards all" in b.lower() for b in p.blast_radius)
 
 
+def test_plan_rollback_warns_description_and_tags_not_reverted():
+    # PVE does NOT include 'description' or 'tags' in snapshots, so rollback never reverts them.
+    # The PLAN must warn — a user rolling back expecting those to revert is otherwise surprised
+    # (real dogfood finding 2026-06-24: a set description survived a rollback).
+    p = plan_rollback(_SnapApi([{"name": "before_x", "snaptime": 1700000000}]), "105", "before_x")
+    warn = next((b for b in p.blast_radius if "description" in b.lower()), "")
+    assert "tags" in warn.lower()
+    assert "not" in warn.lower() and "revert" in warn.lower()
+
+
 def test_plan_snapshot_create_is_low():
     p = plan_snapshot_create("105", "before_x")
     assert p.risk == RISK_LOW

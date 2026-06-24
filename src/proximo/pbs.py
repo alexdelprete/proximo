@@ -184,7 +184,11 @@ class PbsConfig:
             base_url = os.environ["PROXIMO_PBS_BASE_URL"]
             token_path = os.environ["PROXIMO_PBS_TOKEN_PATH"]
         except KeyError as e:
-            raise RuntimeError(f"Missing required PBS env var: {e.args[0]}") from e
+            raise RuntimeError(
+                f"Missing required PBS env var: {e.args[0]}. "
+                "To list PVE-side backup archives without PBS config, use pve_backup_list "
+                "against a pbs-type storage (it goes through the PVE token you already have)."
+            ) from e
 
         verify_tls = os.environ.get("PROXIMO_PBS_VERIFY_TLS", "true").lower() != "false"
         ca_bundle = os.environ.get("PROXIMO_PBS_CA_BUNDLE") or None

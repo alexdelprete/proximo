@@ -4,6 +4,24 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.7.3] — 2026-06-24
+
+### Added
+- **`proximo doctor` CLI** — runs the read-only preflight (`pve_doctor`) from the shell and prints its
+  JSON, so a user can verify their token/config and see exactly what it CAN and CANNOT do **before**
+  wiring Proximo into any AI client. Exits non-zero with a plain message on a config/connectivity error.
+- **`SETUP.md`** — a beginner-proof, token-first setup guide (GUI + CLI): create a least-privilege
+  (read-only) token, point Proximo at your server, verify the boundary with `proximo doctor`, then
+  grant scoped write only when ready. Ships in the sdist.
+
+### Changed
+- **Rollback PLAN now warns that PVE excludes `description`/`tags` from snapshots** — so a rollback does
+  not revert those fields (use `pve_guest_config_set` / `pve_guest_config_revert` to change them). Surfaced
+  by dogfooding against a live cluster, where a set description survived a rollback. No API change.
+- **The PBS "not configured" error now points at the PVE-path fallback** — when `PROXIMO_PBS_*` is unset,
+  the error suggests `pve_backup_list` against a pbs-type storage, which needs no PBS config (it uses the
+  PVE token already in hand). No API change.
+
 ## [0.7.2] — 2026-06-23
 
 ### Packaging / Security

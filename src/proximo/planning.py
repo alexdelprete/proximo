@@ -387,7 +387,11 @@ def plan_rollback(api, vmid: str, snapname: str, kind: str = "lxc", node: str | 
     current: dict = {}
     if found:
         current = {k: found[k] for k in ("name", "snaptime", "description") if k in found}
-        blast = [f"DISCARDS all changes to {kind}/{vmid} since snapshot '{snapname}'"]
+        blast = [
+            f"DISCARDS all changes to {kind}/{vmid} since snapshot '{snapname}'",
+            "NOTE: PVE does NOT snapshot a guest's 'description' or 'tags' — rollback will not "
+            "revert those (use pve_guest_config_set / pve_guest_config_revert to change them).",
+        ]
         reasons = ["rollback is destructive — every change after the snapshot is lost"]
     else:
         # No contradiction: if the snapshot isn't there, nothing gets discarded — the rollback fails.

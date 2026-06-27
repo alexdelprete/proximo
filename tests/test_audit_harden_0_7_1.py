@@ -293,3 +293,144 @@ def test_leak_gate_strips_nested_claude_md():
     assert "README.md" in kept
     for s in ("CLAUDE.md", "docs/CLAUDE.md", "src/proximo/CLAUDE.md"):
         assert s in stripped, f"{s} should be stripped from the public mirror"
+
+
+# --- Finding: audit-target content injection (systemic, all 347 callsites) ----------------------
+#
+# _audited / _plan / _record_plan / a2a executor all pass a caller-derived `target` string into
+# audit.record() *before* backend validation fires. A hostile caller can inject C0 control chars
+# (newline, NUL, TAB, CR) or overlong strings so that, when a strict log-scanner reads the ledger,
+# the injected content fragments or spoofs entries. The HMAC chain integrity is NOT broken; this
+# is about audit-log legibility and content injection into error-outcome records.
+#
+# Fix: _sanitize_target() at the record() chokepoint in audit.py. These tests cover:
+#   (a) control-char sanitization on the SUCCESS path (recorded by _audited)
+#   (b) control-char sanitization on the ERROR/EXCEPTION path (the primary injection vector:
+#       validation rejects the call *after* _audited already built the target from the raw arg)
+#   (c) over-long target truncation
+#   (d) the _plan error path (mutation dry-run raises during planning: another pre-validation write)
+# ------------------------------------------------------------------------------------------------
+
+
+def _wire_server(tmp_path, monkeypatch):
+    """Wire proximo.server with a real ledger and a minimal stub backend."""
+    import proximo.server as server
+    from proximo.audit import AuditLedger
+    from proximo.config import ProximoConfig
+
+    log = str(tmp_path / "audit.log")
+    cfg = ProximoConfig(
+        api_base_url="https://x:8006/api2/json",
+        node="pve",
+        token_path="/run/x",
+        audit_log_path=log,
+        audit_keyed=False,
+    )
+    led = AuditLedger(log)
+    monkeypatch.setattr(server, "_svc", lambda: (cfg, None, None, led))
+    return server, led
+
+
+def _entries(log_path):
+    import json
+    from pathlib import Path
+    return [json.loads(ln) for ln in Path(log_path).read_text().splitlines() if ln.strip()]
+
+
+def test_audit_target_control_chars_sanitized_on_success_path(tmp_path, monkeypatch):
+    """Control chars in target are replaced with '?' in the recorded entry (success path)."""
+    server, led = _wire_server(tmp_path, monkeypatch)
+    log = str(tmp_path / "audit.log")
+
+    import proximo.server as srv
+    # Call _audited directly with a target that contains a newline and NUL.
+    srv._audited("test_action", "node/vm\x00id\nINJECTED", lambda: {"ok": True})
+
+    entries = _entries(log)
+    assert len(entries) == 1
+    assert entries[0]["target"] == "node/vm?id?INJECTED"
+    assert entries[0]["outcome"] == "ok"
+    # Verify chain integrity is preserved through the sanitized body.
+    assert led.verify().ok
+
+
+def test_audit_target_control_chars_sanitized_on_error_path(tmp_path, monkeypatch):
+    """The PRIMARY injection vector: validation raises inside fn(), but _audited has already built
+    the raw target. The error-outcome ledger entry must carry the sanitized target, not the raw one."""
+    server, led = _wire_server(tmp_path, monkeypatch)
+    log = str(tmp_path / "audit.log")
+
+    import proximo.server as srv
+    from proximo.backends import ProximoError
+
+    hostile_target = "pbs/config/remote/../../x\nINJECTED_ACTION: pwned"
+
+    def _bad_fn():
+        raise ProximoError("validation rejected: path traversal")
+
+    with pytest.raises(ProximoError):
+        srv._audited("pbs_remote_get", hostile_target, _bad_fn)
+
+    entries = _entries(log)
+    assert len(entries) == 1
+    assert entries[0]["outcome"] == "error"
+    # The raw newline must NOT appear in the recorded target.
+    assert "\n" not in entries[0]["target"]
+    # The injection text should appear sanitized (newline replaced with '?').
+    assert "INJECTED_ACTION" in entries[0]["target"]
+    assert "?" in entries[0]["target"]
+    assert led.verify().ok
+
+
+def test_audit_target_all_c0_control_chars_replaced(tmp_path, monkeypatch):
+    """Every C0 control char (U+0000–U+001F) is replaced with '?'; printable chars pass through."""
+    from proximo.audit import AuditLedger
+
+    led = AuditLedger(str(tmp_path / "audit.log"))
+    # Build a target with a representative set of C0 control chars.
+    raw = "a\x00b\x01c\x09d\x0ae\x0df\x1fg"  # NUL, SOH, TAB, LF, CR, US, printable
+    entry = led.record("x", target=raw)
+    assert entry["target"] == "a?b?c?d?e?f?g"
+    # Verify chain integrity holds after sanitization.
+    assert led.verify().ok
+
+
+def test_audit_target_overlong_is_truncated(tmp_path, monkeypatch):
+    """A target longer than 512 chars is capped at 512 content chars + '…[truncated]'."""
+    from proximo.audit import _AUDIT_TARGET_MAX, AuditLedger
+
+    led = AuditLedger(str(tmp_path / "audit.log"))
+    long_target = "x" * (_AUDIT_TARGET_MAX + 100)
+    entry = led.record("x", target=long_target)
+
+    recorded = entry["target"]
+    assert recorded == "x" * _AUDIT_TARGET_MAX + "…[truncated]"
+    assert len(recorded) == _AUDIT_TARGET_MAX + len("…[truncated]")
+    assert led.verify().ok
+
+
+def test_audit_target_overlong_with_injection_truncated_safely(tmp_path, monkeypatch):
+    """An overlong target that also contains control chars: sanitize first, then truncate."""
+    from proximo.audit import _AUDIT_TARGET_MAX, AuditLedger
+
+    led = AuditLedger(str(tmp_path / "audit.log"))
+    # Pad to well over max, with a newline injection buried near the end.
+    long_target = "a" * (_AUDIT_TARGET_MAX + 50) + "\nINJECTED"
+    entry = led.record("x", target=long_target)
+
+    recorded = entry["target"]
+    assert "\n" not in recorded
+    assert recorded.endswith("…[truncated]")
+    assert len(recorded) == _AUDIT_TARGET_MAX + len("…[truncated]")
+    assert led.verify().ok
+
+
+def test_audit_target_clean_string_passes_through_unchanged(tmp_path, monkeypatch):
+    """A normal target (no control chars, under max length) is recorded verbatim."""
+    from proximo.audit import AuditLedger
+
+    led = AuditLedger(str(tmp_path / "audit.log"))
+    normal = "pbs/config/remote/my-remote"
+    entry = led.record("pbs_remote_get", target=normal)
+    assert entry["target"] == normal
+    assert led.verify().ok

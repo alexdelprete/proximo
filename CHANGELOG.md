@@ -4,6 +4,23 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-06-27
+
+### Added
+- **PDM surface — 22 tools (Proxmox Datacenter Manager).** A fourth surface behind a dedicated
+  `PdmBackend` (API-token auth, `PDMAPIToken` scheme), covering the PDM read API: datacenter
+  self/topology (ping, version, node status, remotes), fleet aggregate (resources, status),
+  tasks + access (tasks, ACL, roles, users), and per-remote proxied reads — PVE
+  (`pdm_pve_resources` / `cluster_status` / `node_list` / `qemu_list` / `qemu_config` /
+  `lxc_list` / `lxc_config`) and PBS (`pdm_pbs_*`: status, datastores, snapshots). **Read-only
+  (DIAGNOSE) throughout — no PDM mutation path.** Brings the surface to **347 tools across 4
+  surfaces** (PVE / PBS / PMG / PDM).
+
+### Fixed
+- **PDM group-C `state` param.** `pdm_pve_qemu_config` / `pdm_pve_lxc_config` treated the `state`
+  query param as optional, but PDM requires it — so a plain call returned `400`. They now default
+  `state="active"` (the current-config enum value) and always send it.
+
 ## [0.8.1] — 2026-06-27
 
 ### Added

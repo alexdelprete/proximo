@@ -1,0 +1,710 @@
+"""Structural-double tests for the PDM backend (proximo.pdm).
+
+Mirrors test_pbs.py: mock httpx via MagicMock injected onto backend._client after
+construction, assert path/param shaping, auth header format, validator rejection,
+and the CA fail-closed invariant.
+
+Live shapes for A/B groups verified (PDM 1.1, 2026-06-27).
+C-group (PVE per-remote) and D-group (PBS per-remote) are live-prove-pending —
+tests assert PATH + PARAM shaping only.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from proximo.backends import ProximoError
+from proximo.pdm import (
+    PdmBackend,
+    PdmConfig,
+    _check_datastore,
+    _check_node,
+    _check_opt,
+    _check_remote,
+    _check_vmid,
+    _strip_secrets,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _cfg(**kw) -> PdmConfig:
+    """Return a PdmConfig with sensible defaults for unit tests."""
+    defaults = dict(
+        base_url="https://pdm.example.com:8443/api2/json",
+        token_path="/run/pdm-token",  # noqa: S105
+        verify_tls=True,
+        ca_bundle=None,
+    )
+    defaults.update(kw)
+    return PdmConfig(**defaults)
+
+
+def _mock_backend(response_data, *, token: str = "proximo@pdm!token:secret",  # noqa: S107
+                  status_code: int = 200) -> tuple[PdmBackend, MagicMock]:
+    """Build a PdmBackend with a mocked httpx client.
+
+    Returns (backend, mock_client). The mock client's .get() returns a response
+    whose .json() returns {"data": response_data} and .raise_for_status() is a no-op.
+    """
+    cfg = _cfg()
+    backend = PdmBackend(cfg)
+
+    # Build a fake response
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.json.return_value = {"data": response_data}
+    mock_resp.raise_for_status.return_value = None
+
+    mock_client = MagicMock()
+    mock_client.get.return_value = mock_resp
+    backend._client = mock_client
+
+    # Stub token file read via token_path attribute on the config — we inject the token
+    # by patching open at the backend level using monkeypatch in specific tests.
+    # For these structural doubles we inject it differently: override _auth_header.
+    backend._auth_header = lambda: {"Authorization": f"PDMAPIToken {token}"}
+
+    return backend, mock_client
+
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+def test_from_env_reads_required_vars(monkeypatch):
+    monkeypatch.setenv("PROXIMO_PDM_BASE_URL", "https://pdm.example.com:8443")
+    monkeypatch.setenv("PROXIMO_PDM_TOKEN_PATH", "/etc/proximo/pdm-token")
+    monkeypatch.delenv("PROXIMO_PDM_VERIFY_TLS", raising=False)
+    monkeypatch.delenv("PROXIMO_PDM_CA_BUNDLE", raising=False)
+    cfg = PdmConfig.from_env()
+    assert cfg.base_url == "https://pdm.example.com:8443/api2/json"
+    assert cfg.token_path == "/etc/proximo/pdm-token"
+    assert cfg.verify_tls is True
+    assert cfg.ca_bundle is None
+
+
+def test_from_env_appends_api2_json_when_absent(monkeypatch):
+    monkeypatch.setenv("PROXIMO_PDM_BASE_URL", "https://pdm.example.com:8443")
+    monkeypatch.setenv("PROXIMO_PDM_TOKEN_PATH", "/etc/proximo/pdm-token")
+    cfg = PdmConfig.from_env()
+    assert cfg.base_url.endswith("/api2/json")
+
+
+def test_from_env_does_not_double_append_api2_json(monkeypatch):
+    monkeypatch.setenv("PROXIMO_PDM_BASE_URL", "https://pdm.example.com:8443/api2/json")
+    monkeypatch.setenv("PROXIMO_PDM_TOKEN_PATH", "/etc/proximo/pdm-token")
+    cfg = PdmConfig.from_env()
+    # Must not be doubled
+    assert cfg.base_url.count("/api2/json") == 1
+
+
+def test_from_env_missing_base_url_raises(monkeypatch):
+    monkeypatch.delenv("PROXIMO_PDM_BASE_URL", raising=False)
+    monkeypatch.setenv("PROXIMO_PDM_TOKEN_PATH", "/etc/proximo/pdm-token")
+    with pytest.raises(RuntimeError, match="PROXIMO_PDM_BASE_URL"):
+        PdmConfig.from_env()
+
+
+def test_from_env_missing_token_path_raises(monkeypatch):
+    monkeypatch.setenv("PROXIMO_PDM_BASE_URL", "https://pdm.example.com:8443")
+    monkeypatch.delenv("PROXIMO_PDM_TOKEN_PATH", raising=False)
+    with pytest.raises(RuntimeError, match="PROXIMO_PDM_TOKEN_PATH"):
+        PdmConfig.from_env()
+
+
+def test_from_env_verify_tls_false(monkeypatch):
+    monkeypatch.setenv("PROXIMO_PDM_BASE_URL", "https://pdm.example.com:8443")
+    monkeypatch.setenv("PROXIMO_PDM_TOKEN_PATH", "/etc/proximo/pdm-token")
+    monkeypatch.setenv("PROXIMO_PDM_VERIFY_TLS", "false")
+    # verify_tls=False with no ca_bundle warns (no raise at config time — raise is at backend time)
+    import warnings
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        cfg = PdmConfig.from_env()
+    assert cfg.verify_tls is False
+
+
+def test_from_env_ca_bundle_set(monkeypatch):
+    monkeypatch.setenv("PROXIMO_PDM_BASE_URL", "https://pdm.example.com:8443")
+    monkeypatch.setenv("PROXIMO_PDM_TOKEN_PATH", "/etc/proximo/pdm-token")
+    monkeypatch.setenv("PROXIMO_PDM_CA_BUNDLE", "/etc/proximo/pdm-ca.crt")
+    cfg = PdmConfig.from_env()
+    assert cfg.ca_bundle == "/etc/proximo/pdm-ca.crt"
+
+
+# ---------------------------------------------------------------------------
+# TLS / construction invariants
+# ---------------------------------------------------------------------------
+
+def test_backend_fails_closed_on_unverified_tls():
+    """verify_tls=False AND no ca_bundle must raise ProximoError at construction."""
+    cfg = _cfg(verify_tls=False, ca_bundle=None)
+    with pytest.raises(ProximoError, match="refusing to send the PDM token"):
+        PdmBackend(cfg)
+
+
+def test_backend_ok_with_verify_tls_true():
+    """verify_tls=True constructs successfully."""
+    cfg = _cfg(verify_tls=True, ca_bundle=None)
+    backend = PdmBackend(cfg)
+    assert backend is not None
+
+
+def test_backend_ok_with_ca_bundle_even_when_verify_false():
+    """A ca_bundle overrides verify_tls=False — fails closed only when both missing."""
+    # Use the real system CA bundle (a valid PEM file) so httpx_verify() can load it.
+    cfg = _cfg(verify_tls=False, ca_bundle="/etc/ssl/certs/ca-certificates.crt")
+    # Should not raise — ca_bundle provides verification
+    backend = PdmBackend(cfg)
+    assert backend.config.ca_bundle == "/etc/ssl/certs/ca-certificates.crt"
+
+
+# ---------------------------------------------------------------------------
+# Auth header — SPACE separator (NOT '=')
+# ---------------------------------------------------------------------------
+
+def test_auth_header_uses_space_separator(tmp_path):
+    """Auth header must be 'PDMAPIToken <token>' with a SPACE, never '='."""
+    token_file = tmp_path / "pdm-token"
+    token_file.write_text("proximo@pdm!token:secret\n")
+    cfg = _cfg(token_path=str(token_file))
+    backend = PdmBackend(cfg)
+    header = backend._auth_header()
+    auth = header["Authorization"]
+    assert auth.startswith("PDMAPIToken "), f"expected 'PDMAPIToken <token>', got: {auth!r}"
+    assert "PDMAPIToken=" not in auth, "must not use '=' separator"
+    assert "PBSAPIToken" not in auth
+    assert "PVEAPIToken" not in auth
+
+
+def test_auth_header_strips_trailing_newline(tmp_path):
+    """Token files often end with a newline; strip must happen."""
+    token_file = tmp_path / "pdm-token"
+    token_file.write_text("proximo@pdm!token:secret\n\n")
+    cfg = _cfg(token_path=str(token_file))
+    backend = PdmBackend(cfg)
+    auth = backend._auth_header()["Authorization"]
+    assert auth == "PDMAPIToken proximo@pdm!token:secret"
+
+
+def test_auth_header_read_at_call_time(tmp_path):
+    """Token is read from disk on every call (supports rotation without restart)."""
+    token_file = tmp_path / "pdm-token"
+    token_file.write_text("first-token\n")
+    cfg = _cfg(token_path=str(token_file))
+    backend = PdmBackend(cfg)
+    h1 = backend._auth_header()
+    token_file.write_text("second-token\n")
+    h2 = backend._auth_header()
+    assert "first-token" in h1["Authorization"]
+    assert "second-token" in h2["Authorization"]
+
+
+# ---------------------------------------------------------------------------
+# Validators
+# ---------------------------------------------------------------------------
+
+def test_check_remote_valid():
+    assert _check_remote("pve-cluster1") == "pve-cluster1"
+    assert _check_remote("my-pbs") == "my-pbs"
+
+
+def test_check_remote_rejects_slash():
+    with pytest.raises(ProximoError):
+        _check_remote("a/b")
+
+
+def test_check_remote_rejects_newline():
+    with pytest.raises(ProximoError):
+        _check_remote("remote\n")
+
+
+def test_check_remote_rejects_empty():
+    with pytest.raises(ProximoError):
+        _check_remote("")
+
+
+def test_check_vmid_valid():
+    assert _check_vmid(100) == "100"
+    assert _check_vmid("999") == "999"
+    assert _check_vmid(999999999) == "999999999"
+
+
+def test_check_vmid_rejects_too_small():
+    with pytest.raises(ProximoError):
+        _check_vmid(99)
+
+
+def test_check_vmid_rejects_zero():
+    with pytest.raises(ProximoError):
+        _check_vmid(0)
+
+
+def test_check_vmid_rejects_non_numeric():
+    with pytest.raises(ProximoError):
+        _check_vmid("not-a-vmid")
+
+
+def test_check_datastore_valid():
+    assert _check_datastore("my-store") == "my-store"
+    assert _check_datastore("backup01") == "backup01"
+
+
+def test_check_datastore_rejects_slash():
+    with pytest.raises(ProximoError):
+        _check_datastore("a/b")
+
+
+def test_check_datastore_rejects_newline():
+    with pytest.raises(ProximoError):
+        _check_datastore("store\n")
+
+
+def test_check_node_valid():
+    assert _check_node("localhost") == "localhost"
+    assert _check_node("pve-node1") == "pve-node1"
+
+
+def test_check_node_rejects_slash():
+    with pytest.raises(ProximoError):
+        _check_node("a/b")
+
+
+def test_check_node_rejects_newline():
+    with pytest.raises(ProximoError):
+        _check_node("node\n")
+
+
+# ---------------------------------------------------------------------------
+# A-group: PDM self + topology — path shaping
+# ---------------------------------------------------------------------------
+
+def test_ping_calls_correct_path():
+    backend, mock = _mock_backend("pong")
+    result = backend.ping()
+    mock.get.assert_called_once()
+    path = mock.get.call_args[0][0]
+    assert path == "/ping"
+    assert result == "pong"
+
+
+def test_version_calls_correct_path():
+    data = {"release": "4", "repoid": "abc123", "version": "1.1"}
+    backend, mock = _mock_backend(data)
+    result = backend.version()
+    mock.get.assert_called_once()
+    assert mock.get.call_args[0][0] == "/version"
+    assert result == data
+
+
+def test_node_status_default_localhost():
+    backend, mock = _mock_backend({"cpu": 0.1})
+    backend.node_status()
+    path = mock.get.call_args[0][0]
+    assert "/nodes/localhost/status" in path
+
+
+def test_node_status_custom_node():
+    backend, mock = _mock_backend({"cpu": 0.1})
+    backend.node_status("mynode")
+    path = mock.get.call_args[0][0]
+    assert "/nodes/mynode/status" in path
+
+
+def test_node_status_rejects_invalid_node():
+    backend, _ = _mock_backend({})
+    with pytest.raises(ProximoError):
+        backend.node_status("bad/node")
+
+
+def test_remotes_list_calls_correct_path():
+    backend, mock = _mock_backend([])
+    backend.remotes_list()
+    assert mock.get.call_args[0][0] == "/remotes/remote"
+
+
+def test_remote_version_path_shape():
+    backend, mock = _mock_backend({})
+    backend.remote_version("pve-dc1")
+    path = mock.get.call_args[0][0]
+    assert path == "/remotes/remote/pve-dc1/version"
+
+
+def test_remote_version_rejects_invalid():
+    backend, _ = _mock_backend({})
+    with pytest.raises(ProximoError):
+        backend.remote_version("bad/name")
+
+
+def test_remote_config_get_path_shape():
+    backend, mock = _mock_backend({})
+    backend.remote_config_get("pve-dc1")
+    assert mock.get.call_args[0][0] == "/remotes/remote/pve-dc1/config"
+
+
+# ---------------------------------------------------------------------------
+# B-group: Fleet aggregate — path shaping
+# ---------------------------------------------------------------------------
+
+def test_resources_list_calls_correct_path():
+    backend, mock = _mock_backend([])
+    backend.resources_list()
+    assert mock.get.call_args[0][0] == "/resources/list"
+
+
+def test_resources_status_calls_correct_path():
+    data = {"failed_remotes": 0, "lxc": {"running": 0}, "remotes": 0}
+    backend, mock = _mock_backend(data)
+    backend.resources_status()
+    assert mock.get.call_args[0][0] == "/resources/status"
+
+
+# ---------------------------------------------------------------------------
+# C-group: PVE per-remote reads — path shaping (live-prove-pending)
+# ---------------------------------------------------------------------------
+
+def test_pve_remote_get_uses_flat_scheme():
+    """The PVE proxy is FLAT: /pve/remotes/{remote}/{subpath} — no /api/1.1, no /api2/json."""
+    backend, mock = _mock_backend([])
+    backend._pve_remote_get("pve-dc1", "resources")
+    path = mock.get.call_args[0][0]
+    assert path == "/pve/remotes/pve-dc1/resources"
+    assert "/api/1.1" not in path
+    assert "/api2/json" not in path
+
+
+def test_pve_resources_path_shape():
+    backend, mock = _mock_backend([])
+    backend.pve_resources("pve-dc1")
+    assert mock.get.call_args[0][0] == "/pve/remotes/pve-dc1/resources"
+
+
+def test_pve_resources_passes_kind_param():
+    backend, mock = _mock_backend([])
+    backend.pve_resources("pve-dc1", kind="vm")
+    params = mock.get.call_args[1].get("params", {})
+    assert params.get("kind") == "vm"
+
+
+def test_pve_cluster_status_path_shape():
+    backend, mock = _mock_backend([])
+    backend.pve_cluster_status("pve-dc1")
+    assert mock.get.call_args[0][0] == "/pve/remotes/pve-dc1/cluster-status"
+
+
+def test_pve_node_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.pve_node_list("pve-dc1")
+    assert mock.get.call_args[0][0] == "/pve/remotes/pve-dc1/nodes"
+
+
+def test_pve_qemu_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.pve_qemu_list("pve-dc1")
+    assert mock.get.call_args[0][0] == "/pve/remotes/pve-dc1/qemu"
+
+
+def test_pve_qemu_list_node_is_optional_query():
+    """node is an OPTIONAL query param, NOT part of the path (PDM qemu list is cluster-wide)."""
+    backend, mock = _mock_backend([])
+    backend.pve_qemu_list("pve-dc1", node="pve-node1")
+    path = mock.get.call_args[0][0]
+    assert path == "/pve/remotes/pve-dc1/qemu"
+    assert "pve-node1" not in path
+    params = mock.get.call_args[1].get("params", {})
+    assert params.get("node") == "pve-node1"
+
+
+def test_pve_qemu_config_path_shape():
+    backend, mock = _mock_backend({})
+    backend.pve_qemu_config("pve-dc1", 101)
+    assert mock.get.call_args[0][0] == "/pve/remotes/pve-dc1/qemu/101/config"
+
+
+def test_pve_qemu_config_optional_query_params():
+    backend, mock = _mock_backend({})
+    backend.pve_qemu_config("pve-dc1", 101, node="pve-node1", snapshot="snap1", state="current")
+    params = mock.get.call_args[1].get("params", {})
+    assert params.get("node") == "pve-node1"
+    assert params.get("snapshot") == "snap1"
+    assert params.get("state") == "current"
+
+
+def test_pve_qemu_config_rejects_invalid_vmid():
+    backend, _ = _mock_backend({})
+    with pytest.raises(ProximoError):
+        backend.pve_qemu_config("pve-dc1", 99)
+
+
+def test_pve_qemu_config_defaults_state_active():
+    """PDM REQUIRES `state` on qemu config (400 if omitted). It must default to
+    'active' (= current config) so a plain call works. Regression: 2026-06-27 live-prove."""
+    backend, mock = _mock_backend({})
+    backend.pve_qemu_config("pve-dc1", 101)
+    assert mock.get.call_args[1].get("params", {}).get("state") == "active"
+
+
+def test_pve_lxc_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.pve_lxc_list("pve-dc1")
+    assert mock.get.call_args[0][0] == "/pve/remotes/pve-dc1/lxc"
+
+
+def test_pve_lxc_list_node_is_optional_query():
+    backend, mock = _mock_backend([])
+    backend.pve_lxc_list("pve-dc1", node="pve-node1")
+    path = mock.get.call_args[0][0]
+    assert path == "/pve/remotes/pve-dc1/lxc"
+    assert "pve-node1" not in path
+    params = mock.get.call_args[1].get("params", {})
+    assert params.get("node") == "pve-node1"
+
+
+def test_pve_lxc_config_path_shape():
+    backend, mock = _mock_backend({})
+    backend.pve_lxc_config("pve-dc1", 102)
+    assert mock.get.call_args[0][0] == "/pve/remotes/pve-dc1/lxc/102/config"
+
+
+def test_pve_lxc_config_defaults_state_active():
+    """PDM REQUIRES `state` on lxc config (400 if omitted) — same as qemu. Default 'active'.
+    Regression: 2026-06-27 live-prove."""
+    backend, mock = _mock_backend({})
+    backend.pve_lxc_config("pve-dc1", 102)
+    assert mock.get.call_args[1].get("params", {}).get("state") == "active"
+
+
+def test_pve_remote_get_rejects_invalid_remote():
+    backend, _ = _mock_backend([])
+    with pytest.raises(ProximoError):
+        backend._pve_remote_get("bad/remote", "resources")
+
+
+# ---------------------------------------------------------------------------
+# D-group: PBS per-remote reads — path shaping (live-verified, PDM 1.1 -> PBS 4.2)
+# ---------------------------------------------------------------------------
+
+def test_pbs_remote_get_uses_flat_scheme():
+    """The PBS proxy is FLAT: /pbs/remotes/{remote}/{subpath} — no /api/1.1, no /api2/json."""
+    backend, mock = _mock_backend({})
+    backend._pbs_remote_get("pbs-dc1", "status")
+    path = mock.get.call_args[0][0]
+    assert path == "/pbs/remotes/pbs-dc1/status"
+    assert "/api/1.1" not in path
+    assert "/api2/json" not in path
+
+
+def test_pbs_remote_status_path_shape():
+    backend, mock = _mock_backend({})
+    backend.pbs_remote_status("pbs-dc1")
+    assert mock.get.call_args[0][0] == "/pbs/remotes/pbs-dc1/status"
+
+
+def test_pbs_datastores_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.pbs_datastores_list("pbs-dc1")
+    assert mock.get.call_args[0][0] == "/pbs/remotes/pbs-dc1/datastore"
+
+
+def test_pbs_snapshots_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.pbs_snapshots_list("pbs-dc1", "my-store")
+    assert mock.get.call_args[0][0] == "/pbs/remotes/pbs-dc1/datastore/my-store/snapshots"
+
+
+def test_pbs_snapshots_list_passes_ns_param():
+    backend, mock = _mock_backend([])
+    backend.pbs_snapshots_list("pbs-dc1", "my-store", ns="myns")
+    params = mock.get.call_args[1].get("params", {})
+    assert params.get("ns") == "myns"
+
+
+def test_pbs_snapshots_list_rejects_invalid_datastore():
+    backend, _ = _mock_backend([])
+    with pytest.raises(ProximoError):
+        backend.pbs_snapshots_list("pbs-dc1", "bad/store")
+
+
+@pytest.mark.parametrize("bad_ns", ["..", "a//b", "\x00", "/leading", "trailing/"])
+def test_pdm_pbs_snapshots_list_rejects_invalid_ns(bad_ns):
+    """FIX 1: ns must be validated via _check_namespace (mirrors pbs.snapshots_list)."""
+    backend, mock = _mock_backend([])
+    with pytest.raises(ProximoError):
+        backend.pbs_snapshots_list("pbs-dc1", "my-store", ns=bad_ns)
+    mock.get.assert_not_called()
+
+
+def test_pdm_pbs_snapshots_list_accepts_valid_ns():
+    backend, mock = _mock_backend([])
+    backend.pbs_snapshots_list("pbs-dc1", "my-store", ns="team/prod")
+    params = mock.get.call_args[1].get("params", {})
+    assert params.get("ns") == "team/prod"
+
+
+def test_pbs_remote_get_rejects_invalid_remote():
+    backend, _ = _mock_backend([])
+    with pytest.raises(ProximoError):
+        backend._pbs_remote_get("bad/remote", "datastore")
+
+
+# ---------------------------------------------------------------------------
+# E-group: Tasks + access — path shaping
+# ---------------------------------------------------------------------------
+
+def test_tasks_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.tasks_list()
+    assert mock.get.call_args[0][0] == "/remotes/tasks/list"
+
+
+def test_acl_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.acl_list()
+    assert mock.get.call_args[0][0] == "/access/acl"
+
+
+def test_acl_list_path_filter_passed():
+    backend, mock = _mock_backend([])
+    backend.acl_list(path="/", exact=True)
+    params = mock.get.call_args[1].get("params", {})
+    assert params.get("path") == "/"
+    assert params.get("exact") == 1
+
+
+def test_roles_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.roles_list()
+    assert mock.get.call_args[0][0] == "/access/roles"
+
+
+def test_users_list_path_shape():
+    backend, mock = _mock_backend([])
+    backend.users_list()
+    assert mock.get.call_args[0][0] == "/access/users"
+
+
+def test_users_list_include_tokens_param():
+    backend, mock = _mock_backend([])
+    backend.users_list(include_tokens=True)
+    params = mock.get.call_args[1].get("params", {})
+    assert params.get("include_tokens") == 1
+
+
+# ---------------------------------------------------------------------------
+# Empty-data guard — OR [] / OR {} never blows up callers
+# ---------------------------------------------------------------------------
+
+def test_ping_null_data_returns_empty_string():
+    backend, _ = _mock_backend(None)
+    assert backend.ping() == ""
+
+
+def test_remotes_list_null_data_returns_list():
+    backend, _ = _mock_backend(None)
+    assert backend.remotes_list() == []
+
+
+def test_resources_status_null_data_returns_dict():
+    backend, _ = _mock_backend(None)
+    assert backend.resources_status() == {}
+
+
+def test_pve_resources_null_data_returns_list():
+    backend, _ = _mock_backend(None)
+    assert backend.pve_resources("mypve") == []
+
+
+# ---------------------------------------------------------------------------
+# FIX 2: optional query-param hardening (_check_opt — control chars / length)
+# ---------------------------------------------------------------------------
+
+def test_check_opt_accepts_normal_value():
+    assert _check_opt("vm", "kind") == "vm"
+
+
+@pytest.mark.parametrize("bad", ["\x00", "a\nb", "a\tb", "x" * 257])
+def test_check_opt_rejects_control_chars_and_overlong(bad):
+    with pytest.raises(ProximoError):
+        _check_opt(bad, "param")
+
+
+def test_pve_resources_rejects_bad_kind():
+    backend, mock = _mock_backend([])
+    with pytest.raises(ProximoError):
+        backend.pve_resources("pve-dc1", kind="vm\x00")
+    mock.get.assert_not_called()
+
+
+def test_pve_qemu_config_rejects_bad_snapshot():
+    backend, mock = _mock_backend({})
+    with pytest.raises(ProximoError):
+        backend.pve_qemu_config("pve-dc1", 101, snapshot="snap\n")
+    mock.get.assert_not_called()
+
+
+def test_pve_qemu_config_rejects_bad_state():
+    backend, mock = _mock_backend({})
+    with pytest.raises(ProximoError):
+        backend.pve_qemu_config("pve-dc1", 101, state="x" * 300)
+    mock.get.assert_not_called()
+
+
+def test_pve_lxc_config_rejects_bad_snapshot():
+    backend, mock = _mock_backend({})
+    with pytest.raises(ProximoError):
+        backend.pve_lxc_config("pve-dc1", 102, snapshot="snap\x01")
+    mock.get.assert_not_called()
+
+
+def test_acl_list_rejects_bad_path():
+    backend, mock = _mock_backend([])
+    with pytest.raises(ProximoError):
+        backend.acl_list(path="/\x00")
+    mock.get.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# FIX 3: defensive credential redaction (_strip_secrets)
+# ---------------------------------------------------------------------------
+
+def test_strip_secrets_removes_credential_keys():
+    d = {"id": "x", "token": "sek", "password": "pw", "secret": "s",
+         "key": "k", "tokensecret": "ts", "safe": "keep"}
+    out = _strip_secrets(d)
+    for k in ("token", "password", "secret", "key", "tokensecret"):
+        assert k not in out
+    assert out["safe"] == "keep"
+    assert out["id"] == "x"
+
+
+def test_remote_config_get_strips_secrets():
+    backend, _ = _mock_backend({"id": "pve-dc1", "token": "sekret", "password": "pw"})
+    out = backend.remote_config_get("pve-dc1")
+    assert "token" not in out
+    assert "password" not in out
+    assert out["id"] == "pve-dc1"
+
+
+def test_remotes_list_strips_secrets():
+    backend, _ = _mock_backend([{"id": "pbs-dc1", "type": "pbs", "token": "sekret"}])
+    out = backend.remotes_list()
+    assert out[0]["id"] == "pbs-dc1"
+    assert "token" not in out[0]
+
+
+def test_users_list_strips_secrets():
+    backend, _ = _mock_backend([{"userid": "u@pdm", "password": "pw", "secret": "s"}])
+    out = backend.users_list()
+    assert out[0]["userid"] == "u@pdm"
+    assert "password" not in out[0]
+    assert "secret" not in out[0]
+
+
+def test_remotes_list_skips_non_dict_entries():
+    backend, _ = _mock_backend([{"id": "ok"}, "junk", 42])
+    out = backend.remotes_list()
+    assert out == [{"id": "ok"}]

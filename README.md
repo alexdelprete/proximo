@@ -36,13 +36,14 @@ Ask, in plain English, *"why is ct 105 thrashing?"* — and an AI agent pulls no
 
 That's the product: **a hypervisor an AI can operate without being able to wreck it.** Read-only by default. No mutation without a plan first, and the plan refuses destructive ops. It snapshots before any state change, wherever the platform can snapshot. A tamper-evident receipt for every change. The comparison isn't Proximo vs. the GUI — it's **Proximo vs. handing an LLM your root token and hoping.**
 
-Three Proxmox surfaces — one control plane:
+Four Proxmox surfaces — one control plane:
 
 | Surface | Backend | For |
 |---|---|---|
 | **Proxmox VE** | REST API + scoped token | node/guest lifecycle, storage, SDN, identity, HA, firewall |
 | **Proxmox Backup Server** | REST API + scoped token | datastores, namespaces, snapshots, sync jobs, GC, verify |
 | **Proxmox Mail Gateway** | Ticket auth (PMGAuthCookie) | mail flow, quarantine, filtering rules, domains, services |
+| **Proxmox Datacenter Manager** | API token (PDMAPIToken) | **read-only** federated fleet — remotes, aggregate resources, tasks/access, per-remote PVE/PBS reads |
 | **Container exec** | `ssh` → `pct exec` | run-command-in-container, `psql` convenience, log tailing — the things the API structurally can't do |
 
 Those backends are deliberately boring — anyone can call them. **The product is the trust layer over them.**
@@ -68,7 +69,7 @@ One container is the demo. A cluster is the point.
 - **One tamper-evident record of every change, across every node.** This is what a human at the CLI never walks away with: every mutation Proximo makes — any node, any operator or agent — lands in a single hash-chained PROVE ledger, and `audit_verify` proves it wasn't edited, reordered, or truncated. *"Show me every state-changing action on the cluster this month, and prove the log wasn't touched"* becomes a query you can actually answer.
 - **Where the time comes back.** On one node, a senior at the CLI is faster — and that's fine. Across a dozen nodes and hundreds of guests the tedium multiplies and there's no unified record; that's where delegating execution to a *bounded, audited* agent earns its keep.
 
-Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster — offline guest migration, HA lifecycle, governance plane), **PBS 4.2** (datastores, snapshots, GC, namespaces, prune/verify, sync), and **PMG 9.1** (auth, read shapes, CRUD cycles, service control, RuleDB, quarantine) — every step recorded and verified through PROVE.
+Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster — offline guest migration, HA lifecycle, governance plane), **PBS 4.2** (datastores, snapshots, GC, namespaces, prune/verify, sync), **PMG 9.1** (auth, read shapes, CRUD cycles, service control, RuleDB, quarantine), and **PDM** (read-only federated fleet — remotes, aggregate resources, tasks/access, per-remote PVE/PBS reads — against a Datacenter Manager federating 3 PVE remotes + 1 PBS) — every step recorded and verified through PROVE.
 
 > **Honest scope:** Proximo is configured per endpoint, so "fleet" here means **a cluster and its nodes**, not a set of separate, independent clusters driven from one process. Point it at the cluster you operate.
 
@@ -85,13 +86,12 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.8.0` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.8.0) (CI green), and
-> [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
-> New in 0.8.0: **103-tool PMG surface** (Proxmox Mail Gateway — ticket auth, quarantine, RuleDB
-> filtering engine, service control, config CRUD, backup) + **+6 PBS gap tools** + bugfix for
-> `pbs_group_change_owner` (POST, not PUT). All three Proxmox surfaces now live-proven.
-> See the [CHANGELOG](./CHANGELOG.md).
+> 📦 **`0.9.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.9.0) (CI green), and
+> [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> New in 0.9.0: **22-tool PDM surface** (Proxmox Datacenter Manager — read-only federated fleet view
+> across registered PVE/PBS remotes) — proximo's fourth surface. All four Proxmox surfaces now
+> live-proven. See the [CHANGELOG](./CHANGELOG.md).
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -124,7 +124,7 @@ uv pip install -e .          # or: pip install -e .
 ## Status — the arena record
 
 🩸 **0.8.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **325 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **347 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
 name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
 to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
 
@@ -148,7 +148,7 @@ to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
   rounds, including safe mutations with full create→verify→clean-up cycles.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
-**Not yet proven — said plainly:** the remaining 325-tool surface runs against mocks for shapes
+**Not yet proven — said plainly:** the remaining 347-tool surface runs against mocks for shapes
 the live smokes don't reach: real HA *fencing* (needs a hardware watchdog), *online*
 live-migration (needs shared storage), and behavior at production scale.
 

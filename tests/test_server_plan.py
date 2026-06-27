@@ -744,6 +744,14 @@ _READ_ONLY_TOOLS = frozenset({
     "pmg_what_groups_list", "pmg_what_group_get", "pmg_what_group_objects",
     "pmg_when_groups_list", "pmg_when_group_get", "pmg_when_group_objects",
     "pmg_action_objects_list", "pmg_ruledb_digest",
+    # PDM (Proxmox Datacenter Manager) — all read-only tools (no confirm param)
+    "pdm_ping", "pdm_version", "pdm_node_status", "pdm_remotes_list",
+    "pdm_remote_version", "pdm_remote_config_get",
+    "pdm_resources_list", "pdm_resources_status",
+    "pdm_pve_resources", "pdm_pve_cluster_status", "pdm_pve_node_list",
+    "pdm_pve_qemu_list", "pdm_pve_qemu_config", "pdm_pve_lxc_list", "pdm_pve_lxc_config",
+    "pdm_pbs_remote_status", "pdm_pbs_datastores_list", "pdm_pbs_snapshots_list",
+    "pdm_tasks_list", "pdm_acl_list", "pdm_roles_list", "pdm_users_list",
 })
 
 

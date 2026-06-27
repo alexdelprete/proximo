@@ -58,6 +58,28 @@ _KEY_ALG = "hmac-sha256"
 _CHAIN_FIELDS = ("prev_hash", "entry_hash", "alg")
 _HEAD_RE = re.compile(r"[0-9a-f]{64}")
 
+# Audit-target sanitization: the `target` field is a human-readable label built from caller-supplied
+# args *before* backend validation runs. A hostile caller can inject C0 control chars (newlines,
+# NUL, TAB, etc.) to fragment or forge log entries when the raw string is later read by a log tool.
+# Sanitize at the single record() chokepoint: this covers _audited, _plan/_record_plan, and the A2A
+# executor, without touching any tool callsite or the HMAC chain (which covers the sanitized body).
+_C0_RE = re.compile(r"[\x00-\x1f]")
+_AUDIT_TARGET_MAX = 512
+
+
+def _sanitize_target(raw: str) -> str:
+    """Replace C0 control chars (U+0000–U+001F) with '?' and cap to _AUDIT_TARGET_MAX chars.
+
+    Control chars (incl. NUL, TAB, CR, LF) allow a hostile caller to inject fake log entries or
+    null-terminate the target string in log-scanning tools. Replacing with '?' makes the injection
+    visible without silently discarding characters. Over-long targets are capped with a marker so
+    the ledger stays scannable. Only the `target` field is sanitized; all other fields are unchanged.
+    """
+    sanitized = _C0_RE.sub("?", raw)
+    if len(sanitized) > _AUDIT_TARGET_MAX:
+        sanitized = sanitized[:_AUDIT_TARGET_MAX] + "…[truncated]"
+    return sanitized
+
 
 def looks_like_head(value: str) -> bool:
     """True if `value` has the shape of a head() hash: 64 lowercase hex chars.
@@ -252,6 +274,7 @@ class AuditLedger:
 
     def record(self, action: str, *, target: str, mutation: bool = False,
                outcome: str = "ok", detail: dict[str, Any] | None = None) -> dict[str, Any]:
+        target = _sanitize_target(target)
         body = {
             "ts": datetime.now(UTC).isoformat(),
             "action": action,

@@ -34,7 +34,7 @@ fi
 printf '\n== gate ==\n'
 RC=0
 uv run python scripts/version_tools.py check || RC=1
-uv run ruff check src tests || RC=1
+uv run ruff check . || RC=1   # full repo — match CI's `ruff check .` (src+tests+scripts), not a subset
 uv run python -m pytest tests/test_version_consistency.py -q || RC=1
 uv run python scripts/release_leak_audit.py audit || RC=1   # model the public tree; refuse internal-infra leaks
 

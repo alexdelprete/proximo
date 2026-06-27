@@ -16,33 +16,51 @@ Run from proximo dir with PBS env:
 from __future__ import annotations
 
 import os
-import sys
-import time
-import tempfile
 import subprocess
-from urllib.parse import urlparse, quote
+import sys
+import tempfile
+import time
+from urllib.parse import quote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safety import assert_test_pbs, load_pbs_allowlist  # noqa: E402
 
+from proximo.backup_schedules import (  # noqa: E402
+    pbs_scheduled_job_create,
+    pbs_scheduled_job_delete,
+    pbs_scheduled_job_get,
+    pbs_scheduled_job_update,
+)
+
 # PBS backend + config ops
 from proximo.pbs import (  # noqa: E402
-    PbsBackend, PbsConfig,
-    datastore_list, datastore_status, gc_status,
-    gc_start, verify_start, prune, snapshots_list,
-    namespace_list, namespace_create, namespace_delete,
+    PbsBackend,
+    PbsConfig,
+    datastore_list,
+    datastore_status,
+    gc_status,
+    namespace_create,
+    namespace_delete,
+    namespace_list,
+    prune,
     snapshot_delete,
+    snapshots_list,
+    verify_start,
 )
 from proximo.pbs_config import (  # noqa: E402
-    datastore_get, datastore_create, datastore_update, datastore_delete,
-    snapshot_protected_set, snapshot_notes_get, snapshot_notes_set,
+    datastore_create,
+    datastore_delete,
+    datastore_get,
+    datastore_update,
     group_change_owner,
-    remote_create, remote_delete,
-    traffic_control_get, traffic_control_upsert, traffic_control_delete,
-)
-from proximo.backup_schedules import (  # noqa: E402
-    pbs_scheduled_job_get, pbs_scheduled_job_create,
-    pbs_scheduled_job_update, pbs_scheduled_job_delete,
+    remote_create,
+    remote_delete,
+    snapshot_notes_get,
+    snapshot_notes_set,
+    snapshot_protected_set,
+    traffic_control_delete,
+    traffic_control_get,
+    traffic_control_upsert,
 )
 
 STORE = os.environ.get("SMOKE_PBS_STORE", "test-ds")
@@ -190,7 +208,7 @@ def run_namespace_tools(api: PbsBackend) -> None:
         existing = {n.get("ns") for n in namespace_list(api, STORE)}
         if NS_NAME in existing:
             namespace_delete(api, STORE, NS_NAME, delete_groups=True)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     # 10. pbs_namespace_create
@@ -213,7 +231,7 @@ def run_namespace_tools(api: PbsBackend) -> None:
         check("pbs_namespace_delete", False, str(e))
         try:
             namespace_delete(api, STORE, NS_NAME, delete_groups=True)
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
 
@@ -231,7 +249,10 @@ def run_prune_dry_run(api: PbsBackend, cfg: PbsConfig) -> None:
         plan = prune(api, STORE, keep_last=100, backup_type="host",
                      backup_id=seed_bid, dry_run=True)
         ok = isinstance(plan, list)
-        check("pbs_prune(dry_run=True)", ok, f"plan_entries={len(plan)}, keep_count={sum(1 for d in plan if d.get('keep'))}")
+        check(
+            "pbs_prune(dry_run=True)", ok,
+            f"plan_entries={len(plan)}, keep_count={sum(1 for d in plan if d.get('keep'))}"
+        )
     except Exception as e:
         check("pbs_prune(dry_run=True)", False, str(e))
     finally:
@@ -239,7 +260,7 @@ def run_prune_dry_run(api: PbsBackend, cfg: PbsConfig) -> None:
         for s in [x for x in snapshots_list(api, STORE) if x.get("backup-id") == seed_bid]:
             try:
                 snapshot_delete(api, STORE, s["backup-type"], s["backup-id"], s["backup-time"])
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
 
 
@@ -249,7 +270,7 @@ def run_traffic_control_tools(api: PbsBackend) -> None:
     # Pre-clean
     try:
         traffic_control_delete(api, TC_NAME)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     # 21. pbs_traffic_control_upsert (create)
@@ -288,12 +309,12 @@ def run_datastore_lifecycle(api: PbsBackend) -> None:
     section("DATASTORE CREATE/UPDATE/DELETE (tools 12-14)")
 
     # Pre-clean if leftover
-    ds_path = "/var/tmp/proximo-reprove-ds"
+    ds_path = "/var/tmp/proximo-reprove-ds"  # noqa: S108
     try:
         upid = datastore_delete(api, DS_NAME)
         if isinstance(upid, str) and upid.startswith("UPID:"):
             st = wait_task(api, upid, timeout=60)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     # 12. pbs_datastore_create
@@ -349,7 +370,7 @@ def run_datastore_lifecycle(api: PbsBackend) -> None:
         try:
             import subprocess as sp
             sp.run(["ssh", "pve", f"pct exec 31339 -- rm -rf {ds_path}"], capture_output=True)
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
 
@@ -433,7 +454,10 @@ def run_snapshot_ops(api: PbsBackend, cfg: PbsConfig) -> None:
         for s in [x for x in snapshots_list(api, STORE) if x.get("backup-id") == BID_SNAP]:
             try:
                 snapshot_delete(api, STORE, s["backup-type"], s["backup-id"], s["backup-time"])
-                check("pbs_snapshot_delete(cleanup)", True, f"deleted {s['backup-type']}/{s['backup-id']}@{s['backup-time']}")
+                check(
+                    "pbs_snapshot_delete(cleanup)", True,
+                    f"deleted {s['backup-type']}/{s['backup-id']}@{s['backup-time']}"
+                )
             except Exception as e:
                 check("pbs_snapshot_delete(cleanup)", False, str(e))
 
@@ -444,7 +468,7 @@ def run_remote_tools(api: PbsBackend) -> None:
     # Pre-clean
     try:
         remote_delete(api, REMOTE_NAME)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     # 18. pbs_remote_create — use PBS's own address pointing to itself.
@@ -503,7 +527,7 @@ def run_job_tools(api: PbsBackend) -> None:
     for jtype in ("verify", "sync", "prune"):
         try:
             pbs_scheduled_job_delete(api, jtype, JOB_ID)
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     # 23. pbs_job_create (verify job — safe, config only)
@@ -541,7 +565,7 @@ def run_job_tools(api: PbsBackend) -> None:
         check("pbs_job_delete(verify)", False, str(e))
         try:
             pbs_scheduled_job_delete(api, "verify", JOB_ID)
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     # Test prune job too (config only — no retention action)

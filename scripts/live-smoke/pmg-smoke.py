@@ -51,124 +51,124 @@ from proximo.pmg import (
     PmgBackend,
     PmgConfig,
     access_permissions,
-    domains_list,
-    statistics_mail,
-    node_status,
-    node_version,
-    quarantine_spam,
-    relay_config,
-    # W2 reads
-    postfix_qshape,
-    quarantine_blocklist_list,
-    service_status,
-    spam_config,
-    statistics_domains,
-    statistics_recent,
-    statistics_spamscores,
-    statistics_virus,
-    # W2 mutations
-    postfix_flush,
-    quarantine_blocklist_add,
-    quarantine_blocklist_remove,
-    # W2 plans
-    plan_quarantine_action,
-    # W3 reads
-    quarantine_welcomelist_list,
-    # W3 mutations
-    domain_create,
-    domain_delete,
-    transport_create,
-    transport_delete,
-    mynetworks_add,
-    mynetworks_remove,
-    spam_config_update,
-    quarantine_welcomelist_add,
-    quarantine_welcomelist_remove,
-    service_control,
-    # W3 plans
-    plan_service_control,
-    # W4 reads
-    tracker_list,
-    tracker_detail,
-    quarantine_virus,
-    quarantine_attachment,
-    quarantine_virusstatus,
-    quarantine_spamstatus,
-    quarantine_spamusers,
-    statistics_mailcount,
-    statistics_sender,
-    statistics_receiver,
-    node_syslog,
-    node_rrddata,
-    tasks_list,
-    # W4 mutation
-    backup_create,
-    # W4 plan
-    plan_backup_create,
-    # W5a reads — RuleDB
-    ruledb_rules_list,
-    ruledb_rule_get,
-    ruledb_rule_from_list,
-    ruledb_rule_to_list,
-    ruledb_rule_what_list,
-    ruledb_rule_when_list,
-    ruledb_rule_actions_list,
-    who_groups_list,
-    who_group_get,
-    who_group_objects,
-    what_groups_list,
-    what_group_get,
-    what_group_objects,
-    when_groups_list,
-    when_group_get,
-    when_group_objects,
-    action_objects_list,
-    ruledb_digest,
-    # W5b mutations — group CRUD + who-object CRUD
-    who_group_create,
-    who_group_update,
-    who_group_delete,
-    who_object_add,
-    who_object_update,
-    who_object_delete,
-    what_group_create,
-    what_group_update,
-    what_group_delete,
-    when_group_create,
-    when_group_update,
-    when_group_delete,
-    # W5c mutations — WHAT-object CRUD, WHEN-object CRUD, ACTION CRUD
-    what_object_add,
-    what_object_update,
-    what_object_delete,
-    when_object_add,
-    when_object_update,
-    when_object_delete,
     action_bcc_create,
     action_bcc_update,
+    action_delete,
+    action_disclaimer_create,
+    action_disclaimer_update,
     action_field_create,
     action_field_update,
     action_notification_create,
     action_notification_update,
-    action_disclaimer_create,
-    action_disclaimer_update,
+    action_objects_list,
     action_removeattachments_create,
     action_removeattachments_update,
-    action_delete,
+    # W4 mutation
+    backup_create,
+    # W3 mutations
+    domain_create,
+    domain_delete,
+    domains_list,
+    mynetworks_add,
+    mynetworks_remove,
+    node_rrddata,
+    node_status,
+    node_syslog,
+    node_version,
+    # W4 plan
+    plan_backup_create,
+    # W2 plans
+    plan_quarantine_action,
+    # W3 plans
+    plan_service_control,
+    # W2 mutations
+    postfix_flush,
+    # W2 reads
+    postfix_qshape,
+    quarantine_attachment,
+    quarantine_blocklist_add,
+    quarantine_blocklist_list,
+    quarantine_blocklist_remove,
+    quarantine_spam,
+    quarantine_spamstatus,
+    quarantine_spamusers,
+    quarantine_virus,
+    quarantine_virusstatus,
+    quarantine_welcomelist_add,
+    # W3 reads
+    quarantine_welcomelist_list,
+    quarantine_welcomelist_remove,
+    relay_config,
+    ruledb_digest,
+    ruledb_rule_action_attach,
+    ruledb_rule_action_detach,
+    ruledb_rule_actions_list,
     # W5d mutations — rule CRUD + attach/detach
     ruledb_rule_create,
-    ruledb_rule_update,
     ruledb_rule_delete,
     ruledb_rule_from_attach,
     ruledb_rule_from_detach,
+    ruledb_rule_from_list,
+    ruledb_rule_get,
     ruledb_rule_to_attach,
     ruledb_rule_to_detach,
+    ruledb_rule_to_list,
+    ruledb_rule_update,
     ruledb_rule_what_attach,
     ruledb_rule_what_detach,
+    ruledb_rule_what_list,
     ruledb_rule_when_attach,
     ruledb_rule_when_detach,
-    ruledb_rule_action_attach,
-    ruledb_rule_action_detach,
+    ruledb_rule_when_list,
+    # W5a reads — RuleDB
+    ruledb_rules_list,
+    service_control,
+    service_status,
+    spam_config,
+    spam_config_update,
+    statistics_domains,
+    statistics_mail,
+    statistics_mailcount,
+    statistics_receiver,
+    statistics_recent,
+    statistics_sender,
+    statistics_spamscores,
+    statistics_virus,
+    tasks_list,
+    tracker_detail,
+    # W4 reads
+    tracker_list,
+    transport_create,
+    transport_delete,
+    what_group_create,
+    what_group_delete,
+    what_group_get,
+    what_group_objects,
+    what_group_update,
+    what_groups_list,
+    # W5c mutations — WHAT-object CRUD, WHEN-object CRUD, ACTION CRUD
+    what_object_add,
+    what_object_delete,
+    what_object_update,
+    when_group_create,
+    when_group_delete,
+    when_group_get,
+    when_group_objects,
+    when_group_update,
+    when_groups_list,
+    when_object_add,
+    when_object_delete,
+    when_object_update,
+    # W5b mutations — group CRUD + who-object CRUD
+    who_group_create,
+    who_group_delete,
+    who_group_get,
+    who_group_objects,
+    who_group_update,
+    who_groups_list,
+    who_object_add,
+    who_object_delete,
+    who_object_update,
 )
 
 findings: list[tuple[str, str, str]] = []
@@ -233,7 +233,11 @@ def main() -> int:
         result = access_permissions(backend)
         # PMG may not have this endpoint; we accept any non-error return
         assert result is not None or True, "unexpected None (but None is ok if empty)"
-        rec("access_permissions", "PASS", f"result_type={type(result).__name__} keys={list(result.keys())[:5] if isinstance(result, dict) else repr(result)[:60]}")
+        rec(
+            "access_permissions", "PASS",
+            f"result_type={type(result).__name__} keys="
+            f"{list(result.keys())[:5] if isinstance(result, dict) else repr(result)[:60]}"
+        )
     except Exception as e:
         rec("access_permissions", "FAIL", repr(e))
 
@@ -246,7 +250,7 @@ def main() -> int:
         assert isinstance(result, dict), f"expected dict, got {type(result)}: {result!r}"
         # Expect memory, cpu, uptime keys
         keys = list(result.keys())
-        assert keys, f"empty result dict"
+        assert keys, "empty result dict"
         rec("node_status", "PASS", f"keys={keys[:5]}")
     except Exception as e:
         rec("node_status", "FAIL", repr(e))
@@ -859,7 +863,7 @@ def main() -> int:
     try:
         service_control(backend, SAFE_SERVICE, "restart", node)
         service_restarted = True
-        rec("service_control(restart)", "PASS", f"restart command accepted without error")
+        rec("service_control(restart)", "PASS", "restart command accepted without error")
     except Exception as e:
         rec("service_control(restart)", "FAIL", repr(e))
 
@@ -884,7 +888,7 @@ def main() -> int:
     else:
         rec("service_control(poll-active)", "SKIP", "restart failed")
 
-    hr(f"plan_service_control(stop) — PLAN ONLY (pure, no API call)")
+    hr("plan_service_control(stop) — PLAN ONLY (pure, no API call)")
     try:
         plan = plan_service_control(SAFE_SERVICE, "stop", node)
         d = plan.as_dict()
@@ -959,7 +963,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # pmg_quarantine_virusstatus — GET /quarantine/virusstatus
     # -------------------------------------------------------------------------
-    hr(f"quarantine_virusstatus — GET /quarantine/virusstatus")
+    hr("quarantine_virusstatus — GET /quarantine/virusstatus")
     try:
         result = quarantine_virusstatus(backend)
         assert isinstance(result, dict), f"expected dict, got {type(result)}: {result!r}"
@@ -970,7 +974,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # pmg_quarantine_spamstatus — GET /quarantine/spamstatus
     # -------------------------------------------------------------------------
-    hr(f"quarantine_spamstatus — GET /quarantine/spamstatus")
+    hr("quarantine_spamstatus — GET /quarantine/spamstatus")
     try:
         result = quarantine_spamstatus(backend)
         assert isinstance(result, dict), f"expected dict, got {type(result)}: {result!r}"
@@ -982,7 +986,7 @@ def main() -> int:
     # pmg_quarantine_spamusers — GET /quarantine/spamusers
     # Tests the quarantine-type hyphen → Python quarantine_type mapping
     # -------------------------------------------------------------------------
-    hr(f"quarantine_spamusers(spam) — GET /quarantine/spamusers?quarantine-type=spam")
+    hr("quarantine_spamusers(spam) — GET /quarantine/spamusers?quarantine-type=spam")
     try:
         result = quarantine_spamusers(backend)  # default quarantine_type="spam"
         assert isinstance(result, list), f"expected list, got {type(result)}: {result!r}"
@@ -991,7 +995,7 @@ def main() -> int:
     except Exception as e:
         rec("quarantine_spamusers(spam)", "FAIL", repr(e))
 
-    hr(f"quarantine_spamusers(virus) — GET /quarantine/spamusers?quarantine-type=virus")
+    hr("quarantine_spamusers(virus) — GET /quarantine/spamusers?quarantine-type=virus")
     try:
         result = quarantine_spamusers(backend, quarantine_type="virus")
         assert isinstance(result, list), f"expected list, got {type(result)}: {result!r}"
@@ -1002,7 +1006,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # pmg_statistics_mailcount — GET /statistics/mailcount?timespan=3600
     # -------------------------------------------------------------------------
-    hr(f"statistics_mailcount — GET /statistics/mailcount?timespan=3600")
+    hr("statistics_mailcount — GET /statistics/mailcount?timespan=3600")
     try:
         result = statistics_mailcount(backend)  # default timespan=3600
         assert isinstance(result, list), f"expected list, got {type(result)}: {result!r}"
@@ -1013,7 +1017,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # pmg_statistics_sender — GET /statistics/sender
     # -------------------------------------------------------------------------
-    hr(f"statistics_sender — GET /statistics/sender")
+    hr("statistics_sender — GET /statistics/sender")
     try:
         result = statistics_sender(backend)
         assert isinstance(result, list), f"expected list, got {type(result)}: {result!r}"
@@ -1023,7 +1027,7 @@ def main() -> int:
 
     # W4-BUG-FIX: PMG 9.1 rejects orderby on /statistics/sender with 400.
     # Proximo now silently drops it. Verify the call succeeds with orderby dropped.
-    hr(f"statistics_sender(orderby='count:desc') — verify orderby is dropped (PMG 9.1 rejects it)")
+    hr("statistics_sender(orderby='count:desc') — verify orderby is dropped (PMG 9.1 rejects it)")
     try:
         result = statistics_sender(backend, orderby="count:desc")
         assert isinstance(result, list), f"expected list, got {type(result)}: {result!r}"
@@ -1035,7 +1039,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # pmg_statistics_receiver — GET /statistics/receiver
     # -------------------------------------------------------------------------
-    hr(f"statistics_receiver — GET /statistics/receiver")
+    hr("statistics_receiver — GET /statistics/receiver")
     try:
         result = statistics_receiver(backend)
         assert isinstance(result, list), f"expected list, got {type(result)}: {result!r}"
@@ -1088,7 +1092,7 @@ def main() -> int:
     # =========================================================================
 
     # Step 1: confirm=False → plan (no POST)
-    hr(f"plan_backup_create — PLAN ONLY (confirm=False, no POST)")
+    hr("plan_backup_create — PLAN ONLY (confirm=False, no POST)")
     try:
         plan = plan_backup_create(node, notify="never", statistic=False)
         d = plan.as_dict()
@@ -1119,7 +1123,7 @@ def main() -> int:
         rec("backup_create(live)", "FAIL", repr(e))
 
     # Step 3: poll tasks_list to verify the backup task completed
-    hr(f"backup_create(task-verify) — wait 8s then check tasks_list for completion")
+    hr("backup_create(task-verify) — wait 8s then check tasks_list for completion")
     if backup_fired:
         time.sleep(8)  # PMG config backup (no statistic) is very fast; 8s is generous
         try:
@@ -1462,7 +1466,6 @@ def main() -> int:
         assert isinstance(r, list), f"expected list, got {type(r)}: {r!r}"
         assert len(r) > 0, "expected non-empty action objects list"
         # Confirm system actions have editable flag
-        editable_flags = {obj.get("name"): obj.get("editable") for obj in r}
         system_actions = [obj for obj in r if obj.get("editable") == 0]
         system_names = [obj.get("name") for obj in system_actions]
         # Accept, Block, Quarantine should be non-editable system actions
@@ -1674,7 +1677,7 @@ def main() -> int:
     else:
         rec("W5b_who_object_add(domain)", "SKIP", "group create failed")
 
-    hr(f"W5b: who_group_objects — verify domain in group")
+    hr("W5b: who_group_objects — verify domain in group")
     if w5b_domain_added and w5b_who_id:
         try:
             objs = who_group_objects(backend, w5b_who_id)
@@ -1973,7 +1976,7 @@ def main() -> int:
                     if str(o.get("id")) == w5c_what_obj_ids["spamfilter"]]
             if objs and str(objs[0].get("spamlevel")) == "99":
                 rec("W5c_what_object_add(spamfilter-verify)", "PASS",
-                    f"spamlevel='99' confirmed in group objects")
+                    "spamlevel='99' confirmed in group objects")
             else:
                 rec("W5c_what_object_add(spamfilter-verify)", "FAIL",
                     f"object not found or spamlevel wrong: {objs!r}")
@@ -1996,7 +1999,7 @@ def main() -> int:
                     if str(o.get("id")) == w5c_what_obj_ids["contenttype"]]
             if objs and objs[0].get("contenttype") == "application/zip":
                 rec("W5c_what_object_add(contenttype-verify)", "PASS",
-                    f"contenttype='application/zip' confirmed")
+                    "contenttype='application/zip' confirmed")
             else:
                 rec("W5c_what_object_add(contenttype-verify)", "FAIL",
                     f"object not found or contenttype wrong: {objs!r}")
@@ -2019,7 +2022,7 @@ def main() -> int:
                     if str(o.get("id")) == w5c_what_obj_ids["matchfield"]]
             if objs and objs[0].get("field") == "X-Test" and objs[0].get("value") == "foo":
                 rec("W5c_what_object_add(matchfield-verify)", "PASS",
-                    f"field='X-Test' value='foo' confirmed")
+                    "field='X-Test' value='foo' confirmed")
             else:
                 rec("W5c_what_object_add(matchfield-verify)", "FAIL",
                     f"matchfield wrong: {objs!r}")
@@ -2069,7 +2072,7 @@ def main() -> int:
                     f"virusfilter obj found in group (otype_text={objs[0].get('otype_text')!r})")
             else:
                 rec("W5c_what_object_add(virusfilter-verify)", "FAIL",
-                    f"virusfilter obj not found in group objects")
+                    "virusfilter obj not found in group objects")
         except Exception as e:
             rec("W5c_what_object_add(virusfilter)", "FAIL", repr(e))
     else:
@@ -2077,7 +2080,10 @@ def main() -> int:
 
     # ---- update spamfilter: spamlevel 99 → 50 ----
     spam_obj_id = w5c_what_obj_ids.get("spamfilter")
-    hr(f"W5c: what_object_update(spamfilter, spamlevel=50) — PUT /config/ruledb/what/{w5c_what_id}/spamfilter/{spam_obj_id}")
+    hr(
+        f"W5c: what_object_update(spamfilter, spamlevel=50)"
+        f" — PUT /config/ruledb/what/{w5c_what_id}/spamfilter/{spam_obj_id}"
+    )
     if w5c_what_created and w5c_what_id and spam_obj_id:
         try:
             what_object_update(backend, w5c_what_id, "spamfilter", spam_obj_id, spamlevel=50)
@@ -2086,7 +2092,7 @@ def main() -> int:
                     if str(o.get("id")) == spam_obj_id]
             if objs and str(objs[0].get("spamlevel")) == "50":
                 rec("W5c_what_object_update(spamfilter)", "PASS",
-                    f"spamlevel updated 99→50 (PMG returns spamlevel as string)")
+                    "spamlevel updated 99→50 (PMG returns spamlevel as string)")
             else:
                 rec("W5c_what_object_update(spamfilter)", "FAIL",
                     f"spamlevel not updated: {objs!r}")
@@ -2101,7 +2107,7 @@ def main() -> int:
         for obj_type, obj_id in w5c_what_obj_ids.items():
             if obj_id is None:
                 rec(f"W5c_what_object_delete({obj_type})", "SKIP",
-                    f"obj_id is None (add failed)")
+                    "obj_id is None (add failed)")
                 continue
             try:
                 what_object_delete(backend, w5c_what_id, obj_id)
@@ -2123,7 +2129,7 @@ def main() -> int:
                     f"group {w5c_what_id!r} removed; count now={len(after)}")
             else:
                 rec("W5c_what_group_delete", "FAIL",
-                    f"group STILL present after delete")
+                    "group STILL present after delete")
         except Exception as e:
             rec("W5c_what_group_delete", "FAIL",
                 f"CLEANUP FAILED: {repr(e)}")
@@ -2163,7 +2169,7 @@ def main() -> int:
                     if str(o.get("id")) == w5c_when_obj_id]
             if objs and objs[0].get("start") == "08:00" and objs[0].get("end") == "16:00":
                 rec("W5c_when_object_add(verify)", "PASS",
-                    f"start='08:00' end='16:00' confirmed")
+                    "start='08:00' end='16:00' confirmed")
             else:
                 rec("W5c_when_object_add(verify)", "FAIL",
                     f"timeframe wrong: {objs!r}")
@@ -2174,7 +2180,10 @@ def main() -> int:
 
     # PMG 9.1 timeframe PUT requires both start AND end; partial body returns 400.
     # Bug found live 2026-06-26: sending only start= fails.
-    hr(f"W5c: when_object_update(start→09:00, end→16:00) — PUT /config/ruledb/when/{w5c_when_id}/timeframe/{w5c_when_obj_id}")
+    hr(
+        f"W5c: when_object_update(start→09:00, end→16:00)"
+        f" — PUT /config/ruledb/when/{w5c_when_id}/timeframe/{w5c_when_obj_id}"
+    )
     if w5c_when_obj_added and w5c_when_id and w5c_when_obj_id:
         try:
             when_object_update(backend, w5c_when_id, w5c_when_obj_id,
@@ -2184,7 +2193,7 @@ def main() -> int:
                     if str(o.get("id")) == w5c_when_obj_id]
             if objs and objs[0].get("start") == "09:00":
                 rec("W5c_when_object_update", "PASS",
-                    f"start updated 08:00→09:00 confirmed (end kept 16:00)")
+                    "start updated 08:00→09:00 confirmed (end kept 16:00)")
             else:
                 rec("W5c_when_object_update", "FAIL",
                     f"start not updated: {objs!r}")
@@ -2204,7 +2213,7 @@ def main() -> int:
                     f"obj {w5c_when_obj_id!r} removed; group now has {len(objs)} objects")
             else:
                 rec("W5c_when_object_delete", "FAIL",
-                    f"obj STILL present after delete")
+                    "obj STILL present after delete")
         except Exception as e:
             rec("W5c_when_object_delete", "FAIL",
                 f"CLEANUP FAILED: {repr(e)}")
@@ -2222,7 +2231,7 @@ def main() -> int:
                     f"group {w5c_when_id!r} removed; count now={len(after)}")
             else:
                 rec("W5c_when_group_delete", "FAIL",
-                    f"group STILL present after delete")
+                    "group STILL present after delete")
         except Exception as e:
             rec("W5c_when_group_delete", "FAIL",
                 f"CLEANUP FAILED: {repr(e)}")
@@ -2282,7 +2291,7 @@ def main() -> int:
             obj = next((a for a in al if str(a.get("id")) == w5c_action_ids["bcc"]), None)
             if obj and obj.get("target") == "bcc-updated@example.com":
                 rec("W5c_action_bcc_update(verify)", "PASS",
-                    f"target updated to 'bcc-updated@example.com'")
+                    "target updated to 'bcc-updated@example.com'")
             else:
                 rec("W5c_action_bcc_update(verify)", "FAIL",
                     f"target not updated: obj={obj!r}")
@@ -2312,7 +2321,7 @@ def main() -> int:
             obj = next((a for a in al if str(a.get("id")) == w5c_action_ids["field"]), None)
             if obj and obj.get("value") == "updated":
                 rec("W5c_action_field_update(verify)", "PASS",
-                    f"value updated to 'updated'")
+                    "value updated to 'updated'")
             else:
                 rec("W5c_action_field_update(verify)", "FAIL",
                     f"value not updated: obj={obj!r}")
@@ -2335,7 +2344,10 @@ def main() -> int:
 
     # PMG 9.1 notification PUT requires name+to+subject+body_text; partial body returns 400.
     # Bug found live 2026-06-26: sending only subject= fails.
-    hr(f"W5c: action_notification_update(subject→'updated-subject') — PUT /config/ruledb/action/notification/{w5c_action_ids['notification']}")
+    hr(
+        f"W5c: action_notification_update(subject→'updated-subject')"
+        f" — PUT /config/ruledb/action/notification/{w5c_action_ids['notification']}"
+    )
     if w5c_action_ids["notification"]:
         try:
             action_notification_update(backend, w5c_action_ids["notification"],
@@ -2345,7 +2357,7 @@ def main() -> int:
             obj = next((a for a in al if str(a.get("id")) == w5c_action_ids["notification"]), None)
             if obj and obj.get("subject") == "updated-subject":
                 rec("W5c_action_notification_update(verify)", "PASS",
-                    f"subject updated to 'updated-subject'")
+                    "subject updated to 'updated-subject'")
             else:
                 rec("W5c_action_notification_update(verify)", "FAIL",
                     f"subject not updated: obj={obj!r}")
@@ -2364,7 +2376,10 @@ def main() -> int:
     except Exception as e:
         rec("W5c_action_disclaimer_create", "FAIL", repr(e))
 
-    hr(f"W5c: action_disclaimer_update(disclaimer changed) — PUT /config/ruledb/action/disclaimer/{w5c_action_ids['disclaimer']}")
+    hr(
+        f"W5c: action_disclaimer_update(disclaimer changed)"
+        f" — PUT /config/ruledb/action/disclaimer/{w5c_action_ids['disclaimer']}"
+    )
     if w5c_action_ids["disclaimer"]:
         try:
             action_disclaimer_update(backend, w5c_action_ids["disclaimer"],
@@ -2373,7 +2388,7 @@ def main() -> int:
             obj = next((a for a in al if str(a.get("id")) == w5c_action_ids["disclaimer"]), None)
             if obj and obj.get("disclaimer") == "updated-text":
                 rec("W5c_action_disclaimer_update(verify)", "PASS",
-                    f"disclaimer updated to 'updated-text'")
+                    "disclaimer updated to 'updated-text'")
             else:
                 rec("W5c_action_disclaimer_update(verify)", "FAIL",
                     f"disclaimer not updated: obj={obj!r}")
@@ -2392,7 +2407,10 @@ def main() -> int:
     except Exception as e:
         rec("W5c_action_removeattachments_create", "FAIL", repr(e))
 
-    hr(f"W5c: action_removeattachments_update(text changed) — PUT /config/ruledb/action/removeattachments/{w5c_action_ids['removeattachments']}")
+    hr(
+        f"W5c: action_removeattachments_update(text changed)"
+        f" — PUT /config/ruledb/action/removeattachments/{w5c_action_ids['removeattachments']}"
+    )
     if w5c_action_ids["removeattachments"]:
         try:
             action_removeattachments_update(backend, w5c_action_ids["removeattachments"],
@@ -2402,7 +2420,7 @@ def main() -> int:
                         if str(a.get("id")) == w5c_action_ids["removeattachments"]), None)
             if obj and obj.get("text") == "updated-text":
                 rec("W5c_action_removeattachments_update(verify)", "PASS",
-                    f"text updated to 'updated-text'")
+                    "text updated to 'updated-text'")
             else:
                 rec("W5c_action_removeattachments_update(verify)", "FAIL",
                     f"text not updated: obj={obj!r}")

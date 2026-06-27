@@ -5,17 +5,67 @@ Separate backend because PBS is a distinct service from the PVE host:
 - Auth:     PBSAPIToken= (not PVEAPIToken=)
 - Paths:    /admin/datastore/...  (not /nodes/{node}/...)
 
-VERIFIED live shapes (gathered 2026-06-08 against a PBS 4.2.1 instance):
+VERIFIED live shapes (PBS 4.2, re-proved 2026-06-26):
   GET /admin/datastore
-    → [{"gc-schedule":"sun 03:00","name":"test-datastore","path":"/datastore"}, ...]
+    → [{"backend-type":"filesystem","comment":null,"mount-status":"nonremovable","store":"test-ds"}, ...]
+    NOTE: the identity field is "store" (not "name"). The 2026-06-08 doc shape was WRONG —
+    it showed "name" and "path" which are config-plane fields (from GET /config/datastore/{name}).
+    GET /admin/datastore returns: store, backend-type, comment, mount-status.
 
   GET /admin/datastore/{store}/gc
     → {"disk-bytes":int,"disk-chunks":int,"index-data-bytes":int,"index-file-count":int,
-       "next-run":epoch,"pending-bytes":int,"pending-chunks":int,"removed-bad":int,
-       "removed-bytes":int,"removed-chunks":int,"schedule":str,"still-bad":int,
+       "last-run-endtime":epoch,"last-run-state":str,"pending-bytes":int,"pending-chunks":int,
+       "removed-bad":int,"removed-bytes":int,"removed-chunks":int,"still-bad":int,
        "store":str,"upid":str|null}
+    (keys re-verified; "next-run" and "schedule" absent on PBS 4.2 unless a schedule is set)
 
-All other endpoint shapes carry "Smoke-confirm:" — documented PBS API, not live-verified.
+  GET /admin/datastore/{store}/status
+    → {"avail":int,"backend-type":str,"total":int,"used":int}
+
+  GET /admin/datastore/{store}/namespace
+    → [{"ns": ""}, ...]   (root namespace is empty string "")
+
+  PUT  /admin/datastore/{store}/protected
+    body: {backup-type, backup-id, backup-time, protected:1|0, ns?}  → null on success
+
+  GET/PUT /admin/datastore/{store}/notes
+    body (PUT): {backup-type, backup-id, backup-time, notes:str, ns?}  → null on success
+    GET params: backup-type, backup-id, backup-time, ns   → str (the notes, may be empty string)
+
+  POST /admin/datastore/{store}/change-owner   ← POST (NOT PUT) — re-verified 2026-06-26
+    body: {backup-type, backup-id, new-owner, ns?}  → null on success
+
+  POST /config/datastore   → UPID (async worker task)
+  GET  /config/datastore/{name}  → {name:str, path:str, comment?:str, gc-schedule?:str, ...}
+  PUT  /config/datastore/{name}  → null on success
+  DELETE /config/datastore/{name}  → UPID (async worker task)
+
+  POST /config/remote   → null on success (not a UPID)
+  PUT  /config/remote/{name}  → null on success
+  DELETE /config/remote/{name}  → null on success
+    body auth field: "auth-id" (VERIFIED) not "authid" or "userid"
+
+  POST /config/traffic-control  (name in body)  → null on success
+  PUT  /config/traffic-control/{name}  → null on success
+  DELETE /config/traffic-control/{name}  → null on success
+    GET /config/traffic-control/{name} on NONEXISTENT returns 400 (not 404) — both mean create.
+
+  POST /config/{sync|verify|prune}  (id in body)  → null on success
+  GET  /config/{sync|verify|prune}/{id}  → {id, store, schedule?, comment?, ...}
+  PUT  /config/{sync|verify|prune}/{id}  → null on success
+  DELETE /config/{sync|verify|prune}/{id}  → null on success
+
+  POST /admin/datastore/{store}/verify  → UPID (async task)
+  POST /admin/datastore/{store}/prune   body: {backup-type, backup-id, keep-*, dry-run:1?}
+    NOTE: backup-type + backup-id are REQUIRED (the group must exist — no group → 400 ENOENT).
+
+  POST /admin/datastore/{store}/namespace  body: {name, parent?}  → null on success
+  DELETE /admin/datastore/{store}/namespace?ns=&delete-groups=?  → null on success
+
+  POST /admin/datastore/{store}/gc  → UPID (async task)
+
+All shapes above are VERIFIED live against PBS 4.2 (pbs-test CT31339, 2026-06-26).
+Remaining "Smoke-confirm:" comments name specific unverified field/param details.
 
 Security posture mirrors backends.py (and is stricter on TLS):
 - Token read at call time from the token-path file; NEVER logged.
@@ -257,14 +307,25 @@ class PbsBackend:
         r.raise_for_status()
         return r.json().get("data")
 
+    @staticmethod
+    def _form(d: dict | None) -> dict:
+        # PBS (like PVE) wants booleans as 1/0; a raw Python bool serializes to 'true'/'false'
+        # and is rejected. Coerce so any tool may pass a native bool. Ints pass through.
+        return {k: (1 if v is True else 0 if v is False else v) for k, v in (d or {}).items()}
+
     def _post(self, path: str, data: dict | None = None):
-        r = self._client.post(path, headers=self._auth_header(), data=data or {})
+        r = self._client.post(path, headers=self._auth_header(), data=self._form(data))
+        r.raise_for_status()
+        return r.json().get("data")
+
+    def _put(self, path: str, data: dict | None = None):
+        r = self._client.request("PUT", path, headers=self._auth_header(), data=self._form(data))
         r.raise_for_status()
         return r.json().get("data")
 
     def _delete(self, path: str, params: dict | None = None):
         r = self._client.request(
-            "DELETE", path, headers=self._auth_header(), params=params or {}
+            "DELETE", path, headers=self._auth_header(), params=self._form(params)
         )
         r.raise_for_status()
         return r.json().get("data")
@@ -279,8 +340,12 @@ def datastore_list(api: PbsBackend) -> list[dict]:
 
     GET /admin/datastore
 
-    VERIFIED response shape (PBS 4.2.1, 2026-06-08):
-      [{"gc-schedule": "sun 03:00", "name": "test-datastore", "path": "/datastore"}, ...]
+    VERIFIED response shape (PBS 4.2, 2026-06-26):
+      [{"backend-type": "filesystem", "comment": null,
+        "mount-status": "nonremovable", "store": "test-ds"}, ...]
+
+    Identity field is "store" (not "name"). To get the full config including path,
+    gc-schedule, etc., call GET /config/datastore/{name} (used by datastore_get in pbs_config.py).
     """
     return api._get("/admin/datastore") or []
 
@@ -380,6 +445,41 @@ def namespace_list(
         params["max-depth"] = d  # Smoke-confirm: hyphenated vs underscored
 
     return api._get(f"/admin/datastore/{store}/namespace", params=params) or []
+
+
+def tasks_list(
+    api: PbsBackend,
+    node: str = "localhost",
+    limit: int | None = None,
+    running: bool | None = None,
+    errors: bool | None = None,
+) -> list[dict]:
+    """List tasks on a PBS node.
+
+    GET /nodes/{node}/tasks[?limit=&running=&errors=]
+
+    node:    PBS node name; defaults to 'localhost' (standard single-node PBS hostname).
+             PBS is typically a single-node service — no node config on PbsConfig.
+    limit:   maximum number of tasks to return.
+    running: if True, return only currently running tasks.
+    errors:  if True, return only tasks that ended with an error.
+
+    Smoke-confirm: exact field names returned per task entry.
+    Smoke-confirm: whether 'running' and 'errors' are accepted as boolean query params.
+    """
+    params: dict = {}
+    if limit is not None:
+        try:
+            params["limit"] = int(limit)
+        except (ValueError, TypeError) as exc:
+            raise ProximoError(
+                f"invalid limit: {limit!r} (must be an integer)"
+            ) from exc
+    if running is not None:
+        params["running"] = running
+    if errors is not None:
+        params["errors"] = errors
+    return api._get(f"/nodes/{node}/tasks", params=params) or []
 
 
 # ---------------------------------------------------------------------------

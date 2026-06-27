@@ -518,6 +518,47 @@ async def test_all_expected_tools_registered_with_fastmcp():
         "pve_ha_resources_list",
         # cluster & HA (mutations)
         "pve_guest_migrate", "pve_ha_resource_add", "pve_ha_resource_remove",
+        # backup schedules plane B (read)
+        "pve_backup_job_list",
+        # backup schedules plane B (mutations)
+        "pve_backup_job_create", "pve_backup_job_update", "pve_backup_job_delete",
+        "pve_replication_create", "pve_replication_update", "pve_replication_delete",
+        "pbs_job_create", "pbs_job_update", "pbs_job_delete", "pbs_job_run",
+        "pbs_realm_sync",
+        # notifications & metrics plane E (reads)
+        "pve_notification_endpoint_list", "pve_metrics_server_list",
+        # notifications & metrics plane E (mutations)
+        "pve_notification_endpoint_create", "pve_notification_endpoint_update",
+        "pve_notification_endpoint_delete",
+        "pve_notification_matcher_set", "pve_notification_matcher_delete",
+        "pve_notification_test",
+        "pve_metrics_server_set", "pve_metrics_server_delete",
+        # hardware PCI/USB mappings plane F (read)
+        "pve_hardware_list", "pve_mapping_pci_list", "pve_mapping_usb_list",
+        # hardware PCI/USB mappings plane F (mutations)
+        "pve_mapping_pci_create", "pve_mapping_pci_update", "pve_mapping_pci_delete",
+        "pve_mapping_usb_create", "pve_mapping_usb_update", "pve_mapping_usb_delete",
+        # ACME & TLS certs plane G (mutations)
+        "pve_acme_account_create", "pve_acme_account_update", "pve_acme_account_delete",
+        "pve_acme_plugin_create", "pve_acme_plugin_update", "pve_acme_plugin_delete",
+        # qemu-agent plane (Wave 3)
+        "pve_agent_exec", "pve_agent_info", "pve_agent_file_read",
+        "pve_agent_file_write", "pve_agent_fs", "pve_agent_set_password",
+        # node-lifecycle (Wave 4)
+        "pve_node_disks_list", "pve_node_disk_smart",
+        "pve_node_disk_wipe", "pve_node_disk_initgpt",
+        "pve_node_storage_backend_list", "pve_node_storage_backend_create",
+        "pve_node_storage_backend_delete",
+        "pve_node_time_get", "pve_node_time_set",
+        "pve_node_hosts_get", "pve_node_hosts_set",
+        "pve_node_dns_set",
+        "pve_node_cert_upload", "pve_node_cert_delete",
+        "pve_node_startall", "pve_node_stopall", "pve_node_migrateall",
+        # pbs-config-and-safety (Wave 5)
+        "pbs_datastore_create", "pbs_datastore_update", "pbs_datastore_delete",
+        "pbs_snapshot_protected_set", "pbs_snapshot_notes_set", "pbs_group_change_owner",
+        "pbs_remote_create", "pbs_remote_update", "pbs_remote_delete",
+        "pbs_traffic_control_upsert", "pbs_traffic_control_delete",
     }
     assert expected <= tools, f"missing from MCP surface: {expected - tools}"
 
@@ -653,21 +694,56 @@ def test_ct_logs_exec_disabled_wins_over_allowlist(tmp_path, monkeypatch):
 # "a tool changed"; this catches "a dangerous tool is ungated".
 _READ_ONLY_TOOLS = frozenset({
     "audit_verify", "ct_diagnose", "ct_logs",
-    "pbs_datastore_status", "pbs_datastores_list", "pbs_gc_status", "pbs_namespaces_list",
-    "pbs_snapshots_list",
-    "pve_acl_list", "pve_backup_list", "pve_cloudinit_get", "pve_cluster_resources",
+    "pbs_datastore_get", "pbs_datastore_status", "pbs_datastores_list",
+    "pbs_gc_status", "pbs_jobs_list", "pbs_namespaces_list",
+    "pbs_remote_get", "pbs_remotes_list", "pbs_snapshots_list",
+    "pbs_tasks_list", "pbs_traffic_controls_list",
+    "pve_acl_list", "pve_backup_job_list", "pve_backup_list", "pve_cloudinit_get",
+    "pve_cluster_resources",
     "pve_cluster_status", "pve_diagnose", "pve_doctor", "pve_firewall_alias_list",
     "pve_firewall_options_get", "pve_firewall_rules_list", "pve_group_get", "pve_groups_list",
     "pve_guest_config_get", "pve_guest_status", "pve_ha_groups_list", "pve_ha_resources_list",
-    "pve_ha_rules_list", "pve_ipset_list", "pve_list_guests", "pve_network_list",
+    "pve_ha_rules_list", "pve_hardware_list", "pve_ipset_list", "pve_list_guests",
+    "pve_mapping_pci_list", "pve_mapping_usb_list",
+    "pve_metrics_server_list", "pve_network_list",
     "pve_node_certificates", "pve_node_dns", "pve_node_journal", "pve_node_rrddata",
     "pve_node_service_status", "pve_node_services_list", "pve_node_status", "pve_node_subscription",
-    "pve_node_syslog", "pve_overbroad_grants", "pve_pool_get", "pve_pools_list", "pve_realm_get",
+    "pve_node_syslog", "pve_notification_endpoint_list", "pve_overbroad_grants",
+    "pve_pool_get", "pve_pools_list", "pve_realm_get",
     "pve_realms_list", "pve_roles_list", "pve_sdn_subnet_list", "pve_sdn_vnets_list",
     "pve_sdn_zones_list", "pve_security_groups_list", "pve_snapshot_list", "pve_storage_config_get",
     "pve_storage_config_list", "pve_storage_content", "pve_storage_status", "pve_task_log",
     "pve_task_status", "pve_task_wait", "pve_tasks_list", "pve_tfa_get", "pve_tfa_list",
     "pve_tokens_list", "pve_user_get", "pve_users_list",
+    # qemu-agent plane (Wave 3) — read-only tools (no confirm param)
+    "pve_agent_info", "pve_agent_file_read",
+    # node-lifecycle (Wave 4) — read-only tools (no confirm param)
+    "pve_node_disks_list", "pve_node_disk_smart", "pve_node_storage_backend_list",
+    "pve_node_time_get", "pve_node_hosts_get",
+    # PMG (Wave 1) — read-only tools (no confirm param)
+    "pmg_doctor", "pmg_node_status", "pmg_relay_config", "pmg_domains_list",
+    "pmg_statistics_mail", "pmg_quarantine_spam",
+    # PMG (Wave 2) — read-only tools (no confirm param)
+    "pmg_statistics_domains", "pmg_statistics_virus", "pmg_statistics_spamscores",
+    "pmg_statistics_recent", "pmg_quarantine_blocklist_list", "pmg_postfix_qshape",
+    "pmg_spam_config", "pmg_service_status",
+    # PMG (Wave 3) — read-only tools (no confirm param)
+    "pmg_quarantine_welcomelist_list",
+    # PMG (Wave 4) — read-only tools (no confirm param)
+    "pmg_tracker_list", "pmg_tracker_detail",
+    "pmg_quarantine_virus", "pmg_quarantine_attachment",
+    "pmg_quarantine_virusstatus", "pmg_quarantine_spamstatus", "pmg_quarantine_spamusers",
+    "pmg_statistics_mailcount", "pmg_statistics_sender", "pmg_statistics_receiver",
+    "pmg_node_syslog", "pmg_node_rrddata", "pmg_tasks_list",
+    # PMG (Wave 5a) — RuleDB read-only tools (no confirm param)
+    "pmg_ruledb_rules_list", "pmg_ruledb_rule_get",
+    "pmg_ruledb_rule_from_list", "pmg_ruledb_rule_to_list",
+    "pmg_ruledb_rule_what_list", "pmg_ruledb_rule_when_list",
+    "pmg_ruledb_rule_actions_list",
+    "pmg_who_groups_list", "pmg_who_group_get", "pmg_who_group_objects",
+    "pmg_what_groups_list", "pmg_what_group_get", "pmg_what_group_objects",
+    "pmg_when_groups_list", "pmg_when_group_get", "pmg_when_group_objects",
+    "pmg_action_objects_list", "pmg_ruledb_digest",
 })
 
 

@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "proximo-proxmox"
-version = "0.7.4"
-description = "The Proxmox MCP you can hand the keys — REST management + the in-container exec the API can't reach, on one clean surface: every dangerous op planned, undoable, and audited."
+version = "0.8.0"
+description = "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway on one clean surface: every dangerous op planned, undoable, and audited."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "John Broadway" }, { name = "Claude (Anthropic)" }]
-keywords = ["proxmox", "pve", "pbs", "mcp", "model-context-protocol", "a2a", "agent2agent", "lxc", "homelab", "infrastructure", "self-hosted"]
+keywords = ["proxmox", "pve", "pbs", "pmg", "mail-gateway", "mcp", "model-context-protocol", "a2a", "agent2agent", "lxc", "homelab", "infrastructure", "self-hosted"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: System Administrators",

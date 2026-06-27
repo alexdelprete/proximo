@@ -34,14 +34,16 @@ Ask, in plain English, *"why is ct 105 thrashing?"* — and an AI agent pulls no
 
 That's the product: **a hypervisor an AI can operate without being able to wreck it.** Read-only by default. No mutation without a plan first, and the plan refuses destructive ops. It snapshots before any state change, wherever the platform can snapshot. A tamper-evident receipt for every change. The comparison isn't Proximo vs. the GUI — it's **Proximo vs. handing an LLM your root token and hoping.**
 
-Underneath, two backends behind one tool surface:
+Three Proxmox surfaces — one control plane:
 
-| Backend | Mechanism | For |
+| Surface | Backend | For |
 |---|---|---|
-| **Management** | Proxmox REST API + scoped token | node status, list/inspect guests, lifecycle (start/stop/reboot) |
-| **Exec** | `ssh` → `pct exec` | run-command-in-container, `psql` convenience, log tailing — the things the API structurally can't do |
+| **Proxmox VE** | REST API + scoped token | node/guest lifecycle, storage, SDN, identity, HA, firewall |
+| **Proxmox Backup Server** | REST API + scoped token | datastores, namespaces, snapshots, sync jobs, GC, verify |
+| **Proxmox Mail Gateway** | Ticket auth (PMGAuthCookie) | mail flow, quarantine, filtering rules, domains, services |
+| **Container exec** | `ssh` → `pct exec` | run-command-in-container, `psql` convenience, log tailing — the things the API structurally can't do |
 
-Those two backends are deliberately boring — anyone can call them. **The product is the trust layer over them.**
+Those backends are deliberately boring — anyone can call them. **The product is the trust layer over them.**
 
 ## The trust layer — what makes Proximo different
 
@@ -64,7 +66,7 @@ One container is the demo. A cluster is the point.
 - **One tamper-evident record of every change, across every node.** This is what a human at the CLI never walks away with: every mutation Proximo makes — any node, any operator or agent — lands in a single hash-chained PROVE ledger, and `audit_verify` proves it wasn't edited, reordered, or truncated. *"Show me every state-changing action on the cluster this month, and prove the log wasn't touched"* becomes a query you can actually answer.
 - **Where the time comes back.** On one node, a senior at the CLI is faster — and that's fine. Across a dozen nodes and hundreds of guests the tedium multiplies and there's no unified record; that's where delegating execution to a *bounded, audited* agent earns its keep.
 
-Live-proven against a real **3-node PVE 9.2** cluster: offline guest migration (including local-disk), the HA-config lifecycle, and the governance plane (identity / storage / SDN) — every step recorded and verified through PROVE.
+Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster — offline guest migration, HA lifecycle, governance plane), **PBS 4.2** (datastores, snapshots, GC, namespaces, prune/verify, sync), and **PMG 9.1** (auth, read shapes, CRUD cycles, service control, RuleDB, quarantine) — every step recorded and verified through PROVE.
 
 > **Honest scope:** Proximo is configured per endpoint, so "fleet" here means **a cluster and its nodes**, not a set of separate, independent clusters driven from one process. Point it at the cluster you operate.
 
@@ -81,13 +83,13 @@ Live-proven against a real **3-node PVE 9.2** cluster: offline guest migration (
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.7.4` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.7.4) (CI green), and
+> 📦 **`0.8.0` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.8.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
-> New in 0.7.4: a **security-hardening pass** — private vulnerability reporting + `SECURITY.md`, plus
-> supply-chain scanning (pip-audit, Trivy, OpenSSF Scorecard, scoped CodeQL) — and an **8-dimension
-> adversarial trust-spine audit** whose fixes landed here. **Breaking:** the API backend now refuses
-> unverified TLS — see the [CHANGELOG](./CHANGELOG.md).
+> New in 0.8.0: **104-tool PMG surface** (Proxmox Mail Gateway — ticket auth, quarantine, RuleDB
+> filtering engine, service control, config CRUD, backup) + **+6 PBS gap tools** + bugfix for
+> `pbs_group_change_owner` (POST, not PUT). All three Proxmox surfaces now live-proven.
+> See the [CHANGELOG](./CHANGELOG.md).
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -111,16 +113,16 @@ uv pip install -e .          # or: pip install -e .
 
 **Docker (GHCR):** `docker run -i --rm … ghcr.io/john-broadway/proximo:latest` runs the stdio MCP server on demand — no daemon, no open port. Multi-arch (amd64 + arm64), shipped with an SBOM and a sigstore-signed build-provenance attestation (`gh attestation verify oci://ghcr.io/john-broadway/proximo --owner john-broadway`).
 
-> **Safe by default:** Proximo is **API-only** out of the box. The in-container exec edge is **opt-in** (`PROXIMO_ENABLE_EXEC=1`) and tells you plainly that it grants near-root on the host.
+> **Safe by default:** Proximo is **API-only** out of the box. The near-root edges are **opt-in** and say so plainly: the LXC exec edge (`PROXIMO_ENABLE_EXEC=1`) grants near-root on the host, and the VM qemu-guest-agent edge (`PROXIMO_ENABLE_AGENT=1`) grants near-root inside a guest.
 >
-> The default path never touches the hypervisor host — management goes over the Proxmox **API** (scoped token). The opt-in exec edge is the one exception: it uses your existing **ssh** to PVE to run `pct exec` as root on the host. That's exactly why it's off by default and says so loudly.
+> The default path never touches the hypervisor host — management goes over the Proxmox **API** (scoped token). The two opt-in edges are the exceptions: exec uses your existing **ssh** to PVE to run `pct exec` as root on the host; the qemu-agent edge runs in-guest ops via the API. Both are off by default, each scoped by its own fail-closed allowlist (`PROXIMO_CT_ALLOWLIST` / `PROXIMO_AGENT_ALLOWLIST`), and say so loudly.
 >
 > *(A Debian package is deferred/optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.)*
 
 ## Status — the arena record
 
-🩸 **0.7.4 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **145 MCP tools. 2,600+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-PVE proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
+🩸 **0.8.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image). _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **325 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
 name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
 to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
 
@@ -136,11 +138,17 @@ to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
   create→read→delete live-proven against a real **PVE 9.2** node; TFA admin reads proven (TFA
   mutation is ticket-gated by PVE, not token-accessible).
 - **Offline guest migration** (including local-disk) and the **HA-config** lifecycle on a 3-node PVE 9.2 test cluster.
+- **PBS 4.2** — datastores, namespaces, snapshot list/delete/notes/protect, GC, prune, verify,
+  sync jobs, and traffic control — live-proven against the test PBS instance.
+- **PMG 9.1** — auth (ticket + CSRF flow), node status/syslog/RRD, mail statistics, quarantine
+  (spam/virus/attachment list, deliver/delete/blocklist/welcomelist via `pmg_quarantine_action`), domain/transport/mynetworks/spam-config CRUD,
+  service status + restart cycle, RuleDB paths (groups/objects/rules/ordering) — W1–W5 live-smoke
+  rounds, including safe mutations with full create→verify→clean-up cycles.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
-**Not yet proven — said plainly:** most of the 145-tool surface still runs against mocks; real HA
-*fencing* (needs a hardware watchdog), *online* live-migration (needs shared storage), and behavior at
-production scale.
+**Not yet proven — said plainly:** the remaining 325-tool surface runs against mocks for shapes
+the live smokes don't reach: real HA *fencing* (needs a hardware watchdog), *online*
+live-migration (needs shared storage), and behavior at production scale.
 
 **The A2A face (experimental, opt-in):** `pip install 'proximo-proxmox[a2a]'`, then `proximo-a2a` — a curated
 16-skill slice over Agent2Agent that **routes through the same trust core** (PLAN/PROVE/UNDO inherited;
@@ -153,7 +161,7 @@ complete audit trail; set `PROXIMO_LEDGER_REDACT=1` to record a fingerprint (sha
 instead, when the SQL/command may carry secrets/PII. The PVE API token is never written to the ledger.
 
 ### What's next
-- [ ] Live smoke of the remaining lifecycle surface (PBS-mutate); HA fencing + online migration once the hardware exists
+- [ ] HA fencing + online migration once the hardware exists
 - [ ] PBS certificate-fingerprint wire-enforcement
 - [ ] _(optional)_ Debian package for the Debian-native crowd
 

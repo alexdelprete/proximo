@@ -75,6 +75,20 @@ from .access_users import (
     user_get,
     user_update,
 )
+from .acme_certs import (
+    acme_account_create,
+    acme_account_delete,
+    acme_account_update,
+    acme_plugin_create,
+    acme_plugin_delete,
+    acme_plugin_update,
+    plan_acme_account_create,
+    plan_acme_account_delete,
+    plan_acme_account_update,
+    plan_acme_plugin_create,
+    plan_acme_plugin_delete,
+    plan_acme_plugin_update,
+)
 from .audit import AuditLedger, find_rotation_archive, looks_like_head, open_ledger
 from .backends import ApiBackend, ExecBackend, ProximoError
 from .backup import (
@@ -85,6 +99,34 @@ from .backup import (
     plan_restore,
     restore_guest,
     vzdump_backup,
+)
+from .backup_schedules import (
+    backup_job_create,
+    backup_job_delete,
+    backup_job_list,
+    backup_job_update,
+    pbs_scheduled_job_create,
+    pbs_scheduled_job_delete,
+    pbs_scheduled_job_run,
+    pbs_scheduled_job_update,
+    pbs_scheduled_jobs_list,
+    plan_backup_job_create,
+    plan_backup_job_delete,
+    plan_backup_job_update,
+    plan_pbs_job_create,
+    plan_pbs_job_delete,
+    plan_pbs_job_run,
+    plan_pbs_job_update,
+    plan_pbs_realm_sync,
+    plan_replication_create,
+    plan_replication_delete,
+    plan_replication_update,
+    replication_create,
+    replication_delete,
+    replication_update,
+)
+from .backup_schedules import (
+    pbs_realm_sync as pbs_realm_sync_op,
 )
 from .cloudinit import (
     capture_cloudinit_undo,
@@ -164,6 +206,23 @@ from .firewall import (
     security_group_delete,
     security_groups_list,
 )
+from .hw_mappings import (
+    hardware_list,
+    mapping_pci_create,
+    mapping_pci_delete,
+    mapping_pci_list,
+    mapping_pci_update,
+    mapping_usb_create,
+    mapping_usb_delete,
+    mapping_usb_list,
+    mapping_usb_update,
+    plan_mapping_pci_create,
+    plan_mapping_pci_delete,
+    plan_mapping_pci_update,
+    plan_mapping_usb_create,
+    plan_mapping_usb_delete,
+    plan_mapping_usb_update,
+)
 from .network import (
     network_apply,
     network_iface_create,
@@ -195,6 +254,43 @@ from .network import (
     sdn_zone_delete,
     sdn_zone_update,
     sdn_zones_list,
+)
+from .node_lifecycle import (
+    _key_fingerprint,
+    plan_node_cert_delete,
+    plan_node_cert_upload,
+    plan_node_disk_initgpt,
+    plan_node_disk_wipe,
+    plan_node_dns_set,
+    plan_node_hosts_set,
+    plan_node_migrateall,
+    plan_node_startall,
+    plan_node_stopall,
+    plan_node_storage_backend_create,
+    plan_node_storage_backend_delete,
+    plan_node_time_set,
+)
+from .notifications import (
+    metrics_server_delete,
+    metrics_server_list,
+    metrics_server_set,
+    notification_endpoint_create,
+    notification_endpoint_delete,
+    notification_endpoint_list,
+    notification_endpoint_update,
+    notification_matcher_delete,
+    notification_matcher_set,
+    plan_metrics_server_delete,
+    plan_metrics_server_set,
+    plan_notification_endpoint_create,
+    plan_notification_endpoint_delete,
+    plan_notification_endpoint_update,
+    plan_notification_matcher_delete,
+    plan_notification_matcher_set,
+    plan_notification_test,
+)
+from .notifications import (
+    notification_test as notification_test_op,
 )
 from .observability import (
     node_certificates_info,
@@ -261,7 +357,91 @@ from .pbs import (
     snapshots_list as pbs_snapshots_list_op,
 )
 from .pbs import (
+    tasks_list as pbs_tasks_list_op,
+)
+from .pbs import (
     verify_start as pbs_verify_start_op,
+)
+from .pbs_config import (
+    _remote_password_fingerprint,
+)
+from .pbs_config import (
+    datastore_create as pbs_cfg_datastore_create,
+)
+from .pbs_config import (
+    datastore_delete as pbs_cfg_datastore_delete,
+)
+from .pbs_config import (
+    datastore_get as pbs_cfg_datastore_get,
+)
+from .pbs_config import (
+    datastore_update as pbs_cfg_datastore_update,
+)
+from .pbs_config import (
+    group_change_owner as pbs_cfg_group_change_owner,
+)
+from .pbs_config import (
+    plan_datastore_create as pbs_plan_datastore_create,
+)
+from .pbs_config import (
+    plan_datastore_delete as pbs_plan_datastore_delete,
+)
+from .pbs_config import (
+    plan_datastore_update as pbs_plan_datastore_update,
+)
+from .pbs_config import (
+    plan_group_change_owner as pbs_plan_group_change_owner,
+)
+from .pbs_config import (
+    plan_remote_create as pbs_plan_remote_create,
+)
+from .pbs_config import (
+    plan_remote_delete as pbs_plan_remote_delete,
+)
+from .pbs_config import (
+    plan_remote_update as pbs_plan_remote_update,
+)
+from .pbs_config import (
+    plan_snapshot_notes_set as pbs_plan_snapshot_notes_set,
+)
+from .pbs_config import (
+    plan_snapshot_protected_set as pbs_plan_snapshot_protected_set,
+)
+from .pbs_config import (
+    plan_traffic_control_delete as pbs_plan_traffic_control_delete,
+)
+from .pbs_config import (
+    plan_traffic_control_upsert as pbs_plan_traffic_control_upsert,
+)
+from .pbs_config import (
+    remote_create as pbs_cfg_remote_create,
+)
+from .pbs_config import (
+    remote_delete as pbs_cfg_remote_delete,
+)
+from .pbs_config import (
+    remote_get as pbs_cfg_remote_get,
+)
+from .pbs_config import (
+    remote_update as pbs_cfg_remote_update,
+)
+from .pbs_config import (
+    remotes_list as pbs_cfg_remotes_list,
+)
+from .pbs_config import (
+    snapshot_notes_set as pbs_cfg_snapshot_notes_set,
+)
+from .pbs_config import (
+    snapshot_protected_set as pbs_cfg_snapshot_protected_set,
+)
+from .pbs_config import (
+    traffic_control_delete as pbs_cfg_traffic_control_delete,
+)
+from .pbs_config import (
+    traffic_control_upsert as pbs_cfg_traffic_control_upsert,
+)
+from .pbs_config import (
+    traffic_controls_list as pbs_cfg_traffic_controls_list,
 )
 from .planning import (
     Plan,
@@ -275,6 +455,493 @@ from .planning import (
     sql_fingerprint,
     undo_snapname,
 )
+from .pmg import (
+    PmgBackend,
+    PmgConfig,
+)
+from .pmg import (
+    access_permissions as pmg_access_permissions_op,
+)
+from .pmg import (
+    action_bcc_create as pmg_action_bcc_create_op,
+)
+from .pmg import (
+    action_bcc_update as pmg_action_bcc_update_op,
+)
+from .pmg import (
+    action_delete as pmg_action_delete_op,
+)
+from .pmg import (
+    action_disclaimer_create as pmg_action_disclaimer_create_op,
+)
+from .pmg import (
+    action_disclaimer_update as pmg_action_disclaimer_update_op,
+)
+from .pmg import (
+    action_field_create as pmg_action_field_create_op,
+)
+from .pmg import (
+    action_field_update as pmg_action_field_update_op,
+)
+from .pmg import (
+    action_notification_create as pmg_action_notification_create_op,
+)
+from .pmg import (
+    action_notification_update as pmg_action_notification_update_op,
+)
+from .pmg import (
+    action_objects_list as pmg_action_objects_list_op,
+)
+from .pmg import (
+    action_removeattachments_create as pmg_action_removeattachments_create_op,
+)
+from .pmg import (
+    action_removeattachments_update as pmg_action_removeattachments_update_op,
+)
+from .pmg import (
+    backup_create as pmg_backup_create_op,
+)
+from .pmg import (
+    domain_create as pmg_domain_create_op,
+)
+from .pmg import (
+    domain_delete as pmg_domain_delete_op,
+)
+from .pmg import (
+    domains_list as pmg_domains_list_op,
+)
+from .pmg import (
+    mynetworks_add as pmg_mynetworks_add_op,
+)
+from .pmg import (
+    mynetworks_remove as pmg_mynetworks_remove_op,
+)
+from .pmg import (
+    node_rrddata as pmg_node_rrddata_op,
+)
+from .pmg import (
+    node_status as pmg_node_status_op,
+)
+from .pmg import (
+    node_syslog as pmg_node_syslog_op,
+)
+from .pmg import (
+    node_version as pmg_node_version_op,
+)
+from .pmg import (
+    plan_action_bcc_create as pmg_plan_action_bcc_create,
+)
+from .pmg import (
+    plan_action_bcc_update as pmg_plan_action_bcc_update,
+)
+from .pmg import (
+    plan_action_delete as pmg_plan_action_delete,
+)
+from .pmg import (
+    plan_action_disclaimer_create as pmg_plan_action_disclaimer_create,
+)
+from .pmg import (
+    plan_action_disclaimer_update as pmg_plan_action_disclaimer_update,
+)
+from .pmg import (
+    plan_action_field_create as pmg_plan_action_field_create,
+)
+from .pmg import (
+    plan_action_field_update as pmg_plan_action_field_update,
+)
+from .pmg import (
+    plan_action_notification_create as pmg_plan_action_notification_create,
+)
+from .pmg import (
+    plan_action_notification_update as pmg_plan_action_notification_update,
+)
+from .pmg import (
+    plan_action_removeattachments_create as pmg_plan_action_removeattachments_create,
+)
+from .pmg import (
+    plan_action_removeattachments_update as pmg_plan_action_removeattachments_update,
+)
+from .pmg import (
+    plan_backup_create as pmg_plan_backup_create,
+)
+from .pmg import (
+    plan_domain_create as pmg_plan_domain_create,
+)
+from .pmg import (
+    plan_domain_delete as pmg_plan_domain_delete,
+)
+from .pmg import (
+    plan_mynetworks_add as pmg_plan_mynetworks_add,
+)
+from .pmg import (
+    plan_mynetworks_remove as pmg_plan_mynetworks_remove,
+)
+from .pmg import (
+    plan_postfix_flush as pmg_plan_postfix_flush,
+)
+from .pmg import (
+    plan_quarantine_action as pmg_plan_quarantine_action,
+)
+from .pmg import (
+    plan_quarantine_blocklist_add as pmg_plan_quarantine_blocklist_add,
+)
+from .pmg import (
+    plan_quarantine_blocklist_remove as pmg_plan_quarantine_blocklist_remove,
+)
+from .pmg import (
+    plan_quarantine_welcomelist_add as pmg_plan_quarantine_welcomelist_add,
+)
+from .pmg import (
+    plan_quarantine_welcomelist_remove as pmg_plan_quarantine_welcomelist_remove,
+)
+from .pmg import (
+    plan_ruledb_rule_action_attach as pmg_plan_ruledb_rule_action_attach,
+)
+from .pmg import (
+    plan_ruledb_rule_action_detach as pmg_plan_ruledb_rule_action_detach,
+)
+from .pmg import (
+    plan_ruledb_rule_create as pmg_plan_ruledb_rule_create,
+)
+from .pmg import (
+    plan_ruledb_rule_delete as pmg_plan_ruledb_rule_delete,
+)
+from .pmg import (
+    plan_ruledb_rule_from_attach as pmg_plan_ruledb_rule_from_attach,
+)
+from .pmg import (
+    plan_ruledb_rule_from_detach as pmg_plan_ruledb_rule_from_detach,
+)
+from .pmg import (
+    plan_ruledb_rule_to_attach as pmg_plan_ruledb_rule_to_attach,
+)
+from .pmg import (
+    plan_ruledb_rule_to_detach as pmg_plan_ruledb_rule_to_detach,
+)
+from .pmg import (
+    plan_ruledb_rule_update as pmg_plan_ruledb_rule_update,
+)
+from .pmg import (
+    plan_ruledb_rule_what_attach as pmg_plan_ruledb_rule_what_attach,
+)
+from .pmg import (
+    plan_ruledb_rule_what_detach as pmg_plan_ruledb_rule_what_detach,
+)
+from .pmg import (
+    plan_ruledb_rule_when_attach as pmg_plan_ruledb_rule_when_attach,
+)
+from .pmg import (
+    plan_ruledb_rule_when_detach as pmg_plan_ruledb_rule_when_detach,
+)
+from .pmg import (
+    plan_service_control as pmg_plan_service_control,
+)
+from .pmg import (
+    plan_spam_config_update as pmg_plan_spam_config_update,
+)
+from .pmg import (
+    plan_transport_create as pmg_plan_transport_create,
+)
+from .pmg import (
+    plan_transport_delete as pmg_plan_transport_delete,
+)
+from .pmg import (
+    plan_what_group_create as pmg_plan_what_group_create,
+)
+from .pmg import (
+    plan_what_group_delete as pmg_plan_what_group_delete,
+)
+from .pmg import (
+    plan_what_group_update as pmg_plan_what_group_update,
+)
+from .pmg import (
+    plan_what_object_add as pmg_plan_what_object_add,
+)
+from .pmg import (
+    plan_what_object_delete as pmg_plan_what_object_delete,
+)
+from .pmg import (
+    plan_what_object_update as pmg_plan_what_object_update,
+)
+from .pmg import (
+    plan_when_group_create as pmg_plan_when_group_create,
+)
+from .pmg import (
+    plan_when_group_delete as pmg_plan_when_group_delete,
+)
+from .pmg import (
+    plan_when_group_update as pmg_plan_when_group_update,
+)
+from .pmg import (
+    plan_when_object_add as pmg_plan_when_object_add,
+)
+from .pmg import (
+    plan_when_object_delete as pmg_plan_when_object_delete,
+)
+from .pmg import (
+    plan_when_object_update as pmg_plan_when_object_update,
+)
+from .pmg import (
+    plan_who_group_create as pmg_plan_who_group_create,
+)
+from .pmg import (
+    plan_who_group_delete as pmg_plan_who_group_delete,
+)
+from .pmg import (
+    plan_who_group_update as pmg_plan_who_group_update,
+)
+from .pmg import (
+    plan_who_object_add as pmg_plan_who_object_add,
+)
+from .pmg import (
+    plan_who_object_delete as pmg_plan_who_object_delete,
+)
+from .pmg import (
+    plan_who_object_update as pmg_plan_who_object_update,
+)
+from .pmg import (
+    postfix_flush as pmg_postfix_flush_op,
+)
+from .pmg import (
+    postfix_qshape as pmg_postfix_qshape_op,
+)
+from .pmg import (
+    quarantine_action as pmg_quarantine_action_op,
+)
+from .pmg import (
+    quarantine_attachment as pmg_quarantine_attachment_op,
+)
+from .pmg import (
+    quarantine_blocklist_add as pmg_quarantine_blocklist_add_op,
+)
+from .pmg import (
+    quarantine_blocklist_list as pmg_quarantine_blocklist_list_op,
+)
+from .pmg import (
+    quarantine_blocklist_remove as pmg_quarantine_blocklist_remove_op,
+)
+from .pmg import (
+    quarantine_spam as pmg_quarantine_spam_op,
+)
+from .pmg import (
+    quarantine_spamstatus as pmg_quarantine_spamstatus_op,
+)
+from .pmg import (
+    quarantine_spamusers as pmg_quarantine_spamusers_op,
+)
+from .pmg import (
+    quarantine_virus as pmg_quarantine_virus_op,
+)
+from .pmg import (
+    quarantine_virusstatus as pmg_quarantine_virusstatus_op,
+)
+from .pmg import (
+    quarantine_welcomelist_add as pmg_quarantine_welcomelist_add_op,
+)
+from .pmg import (
+    quarantine_welcomelist_list as pmg_quarantine_welcomelist_list_op,
+)
+from .pmg import (
+    quarantine_welcomelist_remove as pmg_quarantine_welcomelist_remove_op,
+)
+from .pmg import (
+    relay_config as pmg_relay_config_op,
+)
+from .pmg import (
+    ruledb_digest as pmg_ruledb_digest_op,
+)
+from .pmg import (
+    ruledb_rule_action_attach as pmg_ruledb_rule_action_attach_op,
+)
+from .pmg import (
+    ruledb_rule_action_detach as pmg_ruledb_rule_action_detach_op,
+)
+from .pmg import (
+    ruledb_rule_actions_list as pmg_ruledb_rule_actions_list_op,
+)
+from .pmg import (
+    ruledb_rule_create as pmg_ruledb_rule_create_op,
+)
+from .pmg import (
+    ruledb_rule_delete as pmg_ruledb_rule_delete_op,
+)
+from .pmg import (
+    ruledb_rule_from_attach as pmg_ruledb_rule_from_attach_op,
+)
+from .pmg import (
+    ruledb_rule_from_detach as pmg_ruledb_rule_from_detach_op,
+)
+from .pmg import (
+    ruledb_rule_from_list as pmg_ruledb_rule_from_list_op,
+)
+from .pmg import (
+    ruledb_rule_get as pmg_ruledb_rule_get_op,
+)
+from .pmg import (
+    ruledb_rule_to_attach as pmg_ruledb_rule_to_attach_op,
+)
+from .pmg import (
+    ruledb_rule_to_detach as pmg_ruledb_rule_to_detach_op,
+)
+from .pmg import (
+    ruledb_rule_to_list as pmg_ruledb_rule_to_list_op,
+)
+from .pmg import (
+    ruledb_rule_update as pmg_ruledb_rule_update_op,
+)
+from .pmg import (
+    ruledb_rule_what_attach as pmg_ruledb_rule_what_attach_op,
+)
+from .pmg import (
+    ruledb_rule_what_detach as pmg_ruledb_rule_what_detach_op,
+)
+from .pmg import (
+    ruledb_rule_what_list as pmg_ruledb_rule_what_list_op,
+)
+from .pmg import (
+    ruledb_rule_when_attach as pmg_ruledb_rule_when_attach_op,
+)
+from .pmg import (
+    ruledb_rule_when_detach as pmg_ruledb_rule_when_detach_op,
+)
+from .pmg import (
+    ruledb_rule_when_list as pmg_ruledb_rule_when_list_op,
+)
+from .pmg import (
+    ruledb_rules_list as pmg_ruledb_rules_list_op,
+)
+from .pmg import (
+    service_control as pmg_service_control_op,
+)
+from .pmg import (
+    service_status as pmg_service_status_op,
+)
+from .pmg import (
+    spam_config as pmg_spam_config_op,
+)
+from .pmg import (
+    spam_config_update as pmg_spam_config_update_op,
+)
+from .pmg import (
+    statistics_domains as pmg_statistics_domains_op,
+)
+from .pmg import (
+    statistics_mail as pmg_statistics_mail_op,
+)
+from .pmg import (
+    statistics_mailcount as pmg_statistics_mailcount_op,
+)
+from .pmg import (
+    statistics_receiver as pmg_statistics_receiver_op,
+)
+from .pmg import (
+    statistics_recent as pmg_statistics_recent_op,
+)
+from .pmg import (
+    statistics_sender as pmg_statistics_sender_op,
+)
+from .pmg import (
+    statistics_spamscores as pmg_statistics_spamscores_op,
+)
+from .pmg import (
+    statistics_virus as pmg_statistics_virus_op,
+)
+from .pmg import (
+    tasks_list as pmg_tasks_list_op,
+)
+from .pmg import (
+    tracker_detail as pmg_tracker_detail_op,
+)
+from .pmg import (
+    tracker_list as pmg_tracker_list_op,
+)
+from .pmg import (
+    transport_create as pmg_transport_create_op,
+)
+from .pmg import (
+    transport_delete as pmg_transport_delete_op,
+)
+from .pmg import (
+    what_group_create as pmg_what_group_create_op,
+)
+from .pmg import (
+    what_group_delete as pmg_what_group_delete_op,
+)
+from .pmg import (
+    what_group_get as pmg_what_group_get_op,
+)
+from .pmg import (
+    what_group_objects as pmg_what_group_objects_op,
+)
+from .pmg import (
+    what_group_update as pmg_what_group_update_op,
+)
+from .pmg import (
+    what_groups_list as pmg_what_groups_list_op,
+)
+from .pmg import (
+    what_object_add as pmg_what_object_add_op,
+)
+from .pmg import (
+    what_object_delete as pmg_what_object_delete_op,
+)
+from .pmg import (
+    what_object_update as pmg_what_object_update_op,
+)
+from .pmg import (
+    when_group_create as pmg_when_group_create_op,
+)
+from .pmg import (
+    when_group_delete as pmg_when_group_delete_op,
+)
+from .pmg import (
+    when_group_get as pmg_when_group_get_op,
+)
+from .pmg import (
+    when_group_objects as pmg_when_group_objects_op,
+)
+from .pmg import (
+    when_group_update as pmg_when_group_update_op,
+)
+from .pmg import (
+    when_groups_list as pmg_when_groups_list_op,
+)
+from .pmg import (
+    when_object_add as pmg_when_object_add_op,
+)
+from .pmg import (
+    when_object_delete as pmg_when_object_delete_op,
+)
+from .pmg import (
+    when_object_update as pmg_when_object_update_op,
+)
+from .pmg import (
+    who_group_create as pmg_who_group_create_op,
+)
+from .pmg import (
+    who_group_delete as pmg_who_group_delete_op,
+)
+from .pmg import (
+    who_group_get as pmg_who_group_get_op,
+)
+from .pmg import (
+    who_group_objects as pmg_who_group_objects_op,
+)
+from .pmg import (
+    who_group_update as pmg_who_group_update_op,
+)
+from .pmg import (
+    who_groups_list as pmg_who_groups_list_op,
+)
+from .pmg import (
+    who_object_add as pmg_who_object_add_op,
+)
+from .pmg import (
+    who_object_delete as pmg_who_object_delete_op,
+)
+from .pmg import (
+    who_object_update as pmg_who_object_update_op,
+)
 from .provisioning import (
     clone_guest,
     create_container,
@@ -283,6 +950,17 @@ from .provisioning import (
     plan_clone,
     plan_create,
     plan_delete,
+)
+from .qemu_agent import (
+    _check_agent_fs_command,
+    _check_agent_info_command,
+    _check_file_path,
+    _content_fingerprint,
+    _password_fingerprint,
+    plan_agent_exec,
+    plan_agent_file_write,
+    plan_agent_fs,
+    plan_agent_set_password,
 )
 from .storage import (
     content_delete,
@@ -346,6 +1024,18 @@ def _pbs() -> tuple[PbsConfig, PbsBackend]:
     """
     cfg = PbsConfig.from_env()
     return cfg, PbsBackend(cfg)
+
+
+@lru_cache(maxsize=1)
+def _pmg() -> tuple[PmgConfig, PmgBackend]:
+    """Lazily build the PMG backend — only when a pmg_* tool is called.
+
+    Separate service from the PVE host: needs PROXIMO_PMG_* env (fails loud if unset).
+    PMG ops still record to the SAME tamper-evident ledger via _audited/_plan (_svc's
+    AuditLedger) so PROVE remains one coherent chain across PVE, PBS, and PMG actions.
+    """
+    cfg = PmgConfig.from_env()
+    return cfg, PmgBackend(cfg)
 
 
 def _audited(action: str, target: str, fn: Callable[[], Any], *,
@@ -481,6 +1171,29 @@ def _exec_disabled(action: str, target: str, detail: dict | None = None,
         "message": ("In-container exec is disabled (safe default: API-only). It grants near-root on the "
                     "PVE host; enable deliberately with PROXIMO_ENABLE_EXEC=1."),
     }
+
+
+def _agent_disabled(action: str, target: str, detail: dict | None = None,
+                    *, mutation: bool = True) -> dict:
+    """qemu-agent ops are off by default. Refuse + audit; explain how to opt in.
+    `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
+    _, _, _, audit = _svc()
+    audit.record(action, target=target, mutation=mutation, outcome="blocked:agent_disabled", detail=detail)
+    return {
+        "status": "blocked:agent_disabled",
+        "message": ("qemu-agent ops are disabled (safe default: API-only). "
+                    "Enable with PROXIMO_ENABLE_AGENT=1 and set PROXIMO_AGENT_ALLOWLIST."),
+    }
+
+
+def _blocked_agent_allowlist(action: str, target: str, detail: dict | None = None,
+                              *, mutation: bool = True) -> dict:
+    """Refuse + audit a qemu-agent op whose VMID isn't on the allowlist (fail-closed).
+    `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
+    _, _, _, audit = _svc()
+    audit.record(action, target=target, mutation=mutation, outcome="blocked:allowlist", detail=detail)
+    return {"status": "blocked:allowlist",
+            "message": f"Guest {target} is not permitted by the agent allowlist (fail-closed)."}
 
 
 # --- Management (REST API, read) ---
@@ -2241,6 +2954,61 @@ def pbs_namespaces_list(store: str, parent: str | None = None,
                     lambda: pbs_namespace_list_op(pbs, store, parent, max_depth))
 
 
+@mcp.tool()
+def pbs_remotes_list() -> list[dict]:
+    """List all PBS remote sync-sources (read). Passwords are never returned by the PBS API.
+    Needs PROXIMO_PBS_* config."""
+    _, pbs = _pbs()
+    return _audited("pbs_remotes_list", "pbs/config/remote",
+                    lambda: pbs_cfg_remotes_list(pbs))
+
+
+@mcp.tool()
+def pbs_remote_get(name: str) -> dict:
+    """Get the config of one PBS remote sync-source by name (read). No password returned.
+    Needs PROXIMO_PBS_* config."""
+    _, pbs = _pbs()
+    return _audited("pbs_remote_get", f"pbs/config/remote/{name}",
+                    lambda: pbs_cfg_remote_get(pbs, name))
+
+
+@mcp.tool()
+def pbs_traffic_controls_list() -> list[dict]:
+    """List all PBS traffic-control bandwidth rules (read). Needs PROXIMO_PBS_* config."""
+    _, pbs = _pbs()
+    return _audited("pbs_traffic_controls_list", "pbs/config/traffic-control",
+                    lambda: pbs_cfg_traffic_controls_list(pbs))
+
+
+@mcp.tool()
+def pbs_jobs_list(job_type: str) -> list[dict]:
+    """List all PBS scheduled jobs of the given type (read). job_type = sync|verify|prune.
+    Returns all jobs with their configs. Raises on invalid job_type. Needs PROXIMO_PBS_* config."""
+    _, pbs = _pbs()
+    return _audited("pbs_jobs_list", f"pbs/config/{job_type}",
+                    lambda: pbs_scheduled_jobs_list(pbs, job_type))
+
+
+@mcp.tool()
+def pbs_tasks_list(node: str = "localhost", limit: int | None = None,
+                   running: bool | None = None, errors: bool | None = None) -> list[dict]:
+    """List PBS tasks on a node (read). Defaults to 'localhost' (standard single-node PBS name).
+    Optionally filter: running=True for active tasks, errors=True for failed tasks.
+    Needs PROXIMO_PBS_* config."""
+    _, pbs = _pbs()
+    return _audited("pbs_tasks_list", f"pbs/nodes/{node}/tasks",
+                    lambda: pbs_tasks_list_op(pbs, node, limit, running, errors))
+
+
+@mcp.tool()
+def pbs_datastore_get(name: str) -> dict:
+    """Get full config of one PBS datastore by name (read). Returns path, gc-schedule, etc.
+    For runtime usage stats use pbs_datastore_status instead. Needs PROXIMO_PBS_* config."""
+    _, pbs = _pbs()
+    return _audited("pbs_datastore_get", f"pbs/config/datastore/{name}",
+                    lambda: pbs_cfg_datastore_get(pbs, name))
+
+
 # --- PBS deep (mutation) ---
 
 @mcp.tool()
@@ -2344,6 +3112,383 @@ def pbs_namespace_delete(store: str, ns: str, delete_groups: bool = False,
         return {"status": "plan", **plan.as_dict()}
     return _audited("pbs_namespace_delete", tgt,
                     lambda: pbs_namespace_delete_op(pbs, store, ns, delete_groups),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+# --- PBS config + safety plane (Wave 5) ---
+
+@mcp.tool()
+def pbs_datastore_create(
+    name: str,
+    path: str,
+    gc_schedule: str | None = None,
+    prune_schedule: str | None = None,
+    notification_mode: str | None = None,
+    comment: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): create a new PBS datastore at the given path.
+
+    Dry-run by default — additive, but a misconfigured path can conflict with existing storage.
+    PBS datastore creation is an async worker task (UPID) → outcome='submitted' (not 'ok').
+    No rollback primitive. confirm=True to execute.
+
+    POST /config/datastore
+    Smoke-confirm: gc-schedule / prune-schedule / notification-mode param names; sync-vs-async.
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/datastore/{name}"
+    plan = _plan("pbs_datastore_create", tgt,
+                 lambda: pbs_plan_datastore_create(
+                     name, path, gc_schedule=gc_schedule,
+                     prune_schedule=prune_schedule,
+                     notification_mode=notification_mode, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_datastore_create", tgt,
+                    lambda: pbs_cfg_datastore_create(
+                        pbs, name, path, gc_schedule=gc_schedule,
+                        prune_schedule=prune_schedule,
+                        notification_mode=notification_mode, comment=comment),
+                    mutation=True, outcome="submitted", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_datastore_update(
+    name: str,
+    gc_schedule: str | None = None,
+    prune_schedule: str | None = None,
+    notification_mode: str | None = None,
+    comment: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update PBS datastore configuration. Dry-run by default.
+
+    CAPTURE: reads current config before planning; on read failure the plan is marked incomplete.
+    Changing gc-schedule / prune-schedule affects data retention cluster-wide.
+    No rollback primitive — revert by re-applying the captured config. confirm=True to execute.
+
+    PUT /config/datastore/{name}
+    Smoke-confirm: accepted param names (hyphenated vs underscored).
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/datastore/{name}"
+    plan = _plan("pbs_datastore_update", tgt,
+                 lambda: pbs_plan_datastore_update(
+                     pbs, name, gc_schedule=gc_schedule,
+                     prune_schedule=prune_schedule,
+                     notification_mode=notification_mode, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_datastore_update", tgt,
+                    lambda: pbs_cfg_datastore_update(
+                        pbs, name, gc_schedule=gc_schedule,
+                        prune_schedule=prune_schedule,
+                        notification_mode=notification_mode, comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_datastore_delete(
+    name: str,
+    destroy_data: bool = False,
+    keep_job_configs: bool = False,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: delete a PBS datastore. Dry-run by default. RISK IS CONDITIONAL:
+
+    destroy_data=False (default) → MEDIUM: detaches the datastore config; backup CHUNKS
+      REMAIN ON DISK and the datastore is re-addable to recover.
+    destroy_data=True → HIGH, IRREVERSIBLE: PERMANENTLY DESTROYS ALL backup data in the
+      named datastore — no recovery possible.
+
+    PBS deletion is an async worker task (UPID) → outcome='submitted'. confirm=True to execute.
+
+    DELETE /config/datastore/{name}
+    Smoke-confirm: destroy-data / keep-job-configs param names; sync-vs-async.
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/datastore/{name}"
+    plan = _plan("pbs_datastore_delete", tgt,
+                 lambda: pbs_plan_datastore_delete(
+                     name, destroy_data=destroy_data, keep_job_configs=keep_job_configs))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_datastore_delete", tgt,
+                    lambda: pbs_cfg_datastore_delete(
+                        pbs, name, destroy_data=destroy_data,
+                        keep_job_configs=keep_job_configs),
+                    mutation=True, outcome="submitted", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_snapshot_protected_set(
+    store: str,
+    backup_type: str,
+    backup_id: str,
+    backup_time: int,
+    protected: bool,
+    ns: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: set or clear the protected flag on a PBS snapshot. RISK IS CONDITIONAL:
+
+    protected=True  → LOW:  shields the snapshot from pruning and GC (protective).
+    protected=False → HIGH: SILENTLY re-enables pruning/GC — this recovery point can now
+      be auto-deleted by the next prune job or GC run. No undo once auto-deleted.
+
+    No PBS snapshot primitive for rollback. Dry-run by default. confirm=True to execute.
+
+    PUT /admin/datastore/{store}/protected
+    Smoke-confirm: exact path + param names (backup-type, backup-id, backup-time, protected).
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/{store}/{backup_type}/{backup_id}@{backup_time}/protected"
+    plan = _plan("pbs_snapshot_protected_set", tgt,
+                 lambda: pbs_plan_snapshot_protected_set(
+                     store, backup_type, backup_id, backup_time, protected, ns))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_snapshot_protected_set", tgt,
+                    lambda: pbs_cfg_snapshot_protected_set(
+                        pbs, store, backup_type, backup_id, backup_time, protected, ns),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_snapshot_notes_set(
+    store: str,
+    backup_type: str,
+    backup_id: str,
+    backup_time: int,
+    notes: str,
+    ns: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): annotate a PBS snapshot with notes. Dry-run by default.
+
+    CAPTURE: reads current notes before planning; on failure the plan is marked incomplete.
+    Does not affect backup data, retention, or protection.
+    No PBS snapshot primitive — revert by re-applying the captured notes. confirm=True to execute.
+
+    PUT /admin/datastore/{store}/notes
+    Smoke-confirm: exact endpoint path + param names (backup-type, backup-id, backup-time).
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/{store}/{backup_type}/{backup_id}@{backup_time}/notes"
+    plan = _plan("pbs_snapshot_notes_set", tgt,
+                 lambda: pbs_plan_snapshot_notes_set(
+                     pbs, store, backup_type, backup_id, backup_time, notes, ns))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_snapshot_notes_set", tgt,
+                    lambda: pbs_cfg_snapshot_notes_set(
+                        pbs, store, backup_type, backup_id, backup_time, notes, ns),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_group_change_owner(
+    store: str,
+    backup_type: str,
+    backup_id: str,
+    new_owner: str,
+    ns: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): reassign the owner of a PBS backup group. Dry-run by default.
+
+    The new owner controls deletion and prune of this backup group.
+    The previous owner loses those permissions immediately.
+    No PBS snapshot primitive — revert by re-assigning the owner back. confirm=True to execute.
+
+    PUT /admin/datastore/{store}/change-owner
+    Smoke-confirm: exact path + new-owner vs owner param name.
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/{store}/{backup_type}/{backup_id}/owner"
+    plan = _plan("pbs_group_change_owner", tgt,
+                 lambda: pbs_plan_group_change_owner(
+                     store, backup_type, backup_id, new_owner, ns))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_group_change_owner", tgt,
+                    lambda: pbs_cfg_group_change_owner(
+                        pbs, store, backup_type, backup_id, new_owner, ns),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_remote_create(
+    name: str,
+    host: str,
+    auth_id: str,
+    password: str,
+    fingerprint: str | None = None,
+    port: int | None = None,
+    comment: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): create a PBS remote sync-source. Dry-run by default.
+
+    PRIVATE PASSWORD REDACTION: 'password' is a remote user credential. It is
+    UNCONDITIONALLY redacted — NEVER appears in the plan, change, current state, detail,
+    or audit ledger. Only {"password":"[redacted]"} is recorded.
+    The TLS cert 'fingerprint' is PUBLIC data — it is NOT redacted.
+
+    No rollback primitive — revert by deleting the remote (pbs_remote_delete). confirm=True to execute.
+
+    POST /config/remote
+    Smoke-confirm: auth-id vs authid param name; port param name.
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/remote/{name}"
+    # UNCONDITIONAL: password never passes through the plan factory or into the ledger.
+    pw_detail = _remote_password_fingerprint()
+    plan = _plan("pbs_remote_create", tgt,
+                 lambda: pbs_plan_remote_create(
+                     name, host, auth_id, fingerprint=fingerprint,
+                     port=port, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict(), **pw_detail}
+    return _audited("pbs_remote_create", tgt,
+                    lambda: pbs_cfg_remote_create(
+                        pbs, name, host, auth_id, password,
+                        fingerprint=fingerprint, port=port, comment=comment),
+                    mutation=True, outcome="ok",
+                    detail={**pw_detail, "confirmed": True})
+
+
+@mcp.tool()
+def pbs_remote_update(
+    name: str,
+    host: str | None = None,
+    auth_id: str | None = None,
+    password: str | None = None,
+    fingerprint: str | None = None,
+    port: int | None = None,
+    comment: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update an existing PBS remote. Dry-run by default.
+
+    CAPTURE: reads current (non-secret) config before planning; on failure plan is marked incomplete.
+    PRIVATE PASSWORD REDACTION: if 'password' is provided it is UNCONDITIONALLY redacted.
+    The TLS cert 'fingerprint' is PUBLIC and appears in plans/logs for audit.
+    No rollback primitive — revert by re-applying captured config. confirm=True to execute.
+
+    PUT /config/remote/{name}
+    Smoke-confirm: auth-id param name; whether partial PUT is accepted.
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/remote/{name}"
+    # UNCONDITIONAL if password provided: never into plan factory or ledger.
+    pw_detail = _remote_password_fingerprint() if password is not None else {}
+    plan = _plan("pbs_remote_update", tgt,
+                 lambda: pbs_plan_remote_update(
+                     pbs, name, host=host, auth_id=auth_id,
+                     fingerprint=fingerprint, port=port, comment=comment))
+    if not confirm:
+        resp = {"status": "plan", **plan.as_dict()}
+        if pw_detail:
+            resp.update(pw_detail)
+        return resp
+    return _audited("pbs_remote_update", tgt,
+                    lambda: pbs_cfg_remote_update(
+                        pbs, name, host=host, auth_id=auth_id,
+                        password=password, fingerprint=fingerprint,
+                        port=port, comment=comment),
+                    mutation=True, outcome="ok",
+                    detail={**pw_detail, "confirmed": True})
+
+
+@mcp.tool()
+def pbs_remote_delete(
+    name: str,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): remove a PBS remote and its stored credentials. Dry-run by default.
+
+    After deletion: any sync jobs referencing this remote break; re-add needs the password
+    re-supplied. No rollback primitive — re-create with pbs_remote_create to recover.
+    confirm=True to execute.
+
+    DELETE /config/remote/{name}
+    Smoke-confirm: response shape on success.
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/remote/{name}"
+    plan = _plan("pbs_remote_delete", tgt,
+                 lambda: pbs_plan_remote_delete(name))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_remote_delete", tgt,
+                    lambda: pbs_cfg_remote_delete(pbs, name),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_traffic_control_upsert(
+    name: str,
+    rate_in: int | None = None,
+    rate_out: int | None = None,
+    network: str | None = None,
+    burst_in: int | None = None,
+    burst_out: int | None = None,
+    timeframe: str | None = None,
+    comment: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: create or update a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
+
+    Detects create-vs-update by reading the existing rule config (CAPTURE on update path):
+      create → LOW:    additive, no existing rule changed.
+      update → MEDIUM: changing rate limits can throttle backups or saturate the network.
+
+    A too-low rate-in or rate-out throttles PBS backups to a crawl.
+    No rollback primitive. confirm=True to execute.
+
+    POST (create) or PUT (update) /config/traffic-control[/{name}]
+    Smoke-confirm: create-vs-update dispatch; rate-in/rate-out/burst-in/burst-out/timeframe param names.
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/traffic-control/{name}"
+    plan = _plan("pbs_traffic_control_upsert", tgt,
+                 lambda: pbs_plan_traffic_control_upsert(
+                     pbs, name, rate_in=rate_in, rate_out=rate_out, network=network,
+                     burst_in=burst_in, burst_out=burst_out, timeframe=timeframe,
+                     comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_traffic_control_upsert", tgt,
+                    lambda: pbs_cfg_traffic_control_upsert(
+                        pbs, name, rate_in=rate_in, rate_out=rate_out, network=network,
+                        burst_in=burst_in, burst_out=burst_out, timeframe=timeframe,
+                        comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_traffic_control_delete(
+    name: str,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): remove a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
+
+    After deletion: backups run unthrottled on the matched network.
+    Recoverable by re-creating the rule with pbs_traffic_control_upsert. confirm=True to execute.
+
+    DELETE /config/traffic-control/{name}
+    Smoke-confirm: response shape on success.
+    """
+    _, pbs = _pbs()
+    tgt = f"pbs/traffic-control/{name}"
+    plan = _plan("pbs_traffic_control_delete", tgt,
+                 lambda: pbs_plan_traffic_control_delete(name))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_traffic_control_delete", tgt,
+                    lambda: pbs_cfg_traffic_control_delete(pbs, name),
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
@@ -2674,6 +3819,3461 @@ def pve_realm_delete(realm: str, confirm: bool = False) -> dict:
     return _audited("pve_realm_delete", tgt,
                     lambda: realm_delete(api, realm),
                     mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+# --- Backup Schedules (Plane B) — PVE backup jobs, replication, PBS scheduled jobs ---
+
+@mcp.tool()
+def pve_backup_job_list() -> dict:
+    """List all PVE cluster backup jobs and guests not covered by any job (read).
+    Returns {jobs: [...], unprotected_guests: [...]}."""
+    _, api, _, _ = _svc()
+    return _audited("pve_backup_job_list", "cluster/backup",
+                    lambda: backup_job_list(api))
+
+
+@mcp.tool()
+def pve_backup_job_create(job_id: str, schedule: str, storage: str,
+                          mode: str | None = None, compress: str | None = None,
+                          vmid: str | None = None, enabled: bool | None = None,
+                          comment: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: create a PVE cluster backup job. Dry-run by default — shows the plan.
+    confirm=True to execute. Config-only; existing backups are NOT affected."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/backup/{job_id}"
+    plan = _plan("pve_backup_job_create", tgt,
+                 lambda: plan_backup_job_create(job_id, schedule, storage,
+                                                mode=mode, compress=compress,
+                                                vmid=vmid, enabled=enabled,
+                                                comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_backup_job_create", tgt,
+                    lambda: backup_job_create(api, job_id, schedule, storage,
+                                             mode=mode, compress=compress,
+                                             vmid=vmid, enabled=enabled, comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_backup_job_update(job_id: str, schedule: str | None = None,
+                          storage: str | None = None, mode: str | None = None,
+                          compress: str | None = None, vmid: str | None = None,
+                          enabled: bool | None = None, comment: str | None = None,
+                          confirm: bool = False) -> dict:
+    """MUTATION: update a PVE cluster backup job. Dry-run by default — captures current config.
+    confirm=True to execute. Config-only; no impact on existing backups."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/backup/{job_id}"
+    plan = _plan("pve_backup_job_update", tgt,
+                 lambda: plan_backup_job_update(api, job_id, schedule=schedule,
+                                                storage=storage, mode=mode,
+                                                compress=compress, vmid=vmid,
+                                                enabled=enabled, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_backup_job_update", tgt,
+                    lambda: backup_job_update(api, job_id, schedule=schedule,
+                                             storage=storage, mode=mode, compress=compress,
+                                             vmid=vmid, enabled=enabled, comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_backup_job_delete(job_id: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a PVE cluster backup job. Dry-run by default — captures current config.
+    confirm=True to execute. Schedule removed; existing backups are NOT deleted."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/backup/{job_id}"
+    plan = _plan("pve_backup_job_delete", tgt,
+                 lambda: plan_backup_job_delete(api, job_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_backup_job_delete", tgt,
+                    lambda: backup_job_delete(api, job_id),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_replication_create(rep_id: str, rep_type: str, target: str,
+                           schedule: str | None = None, rate: float | None = None,
+                           disable: bool | None = None, comment: str | None = None,
+                           confirm: bool = False) -> dict:
+    """MUTATION: create a PVE replication job. Dry-run by default.
+    rep_type is typically 'local'. confirm=True to execute."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/replication/{rep_id}"
+    plan = _plan("pve_replication_create", tgt,
+                 lambda: plan_replication_create(rep_id, rep_type, target,
+                                                 schedule=schedule, rate=rate,
+                                                 disable=disable, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_replication_create", tgt,
+                    lambda: replication_create(api, rep_id, rep_type, target,
+                                              schedule=schedule, rate=rate,
+                                              disable=disable, comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_replication_update(rep_id: str, schedule: str | None = None,
+                           rate: float | None = None, disable: bool | None = None,
+                           comment: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: update a PVE replication job. Dry-run by default — captures current config.
+    confirm=True to execute. Config-only; in-flight replication is not immediately disrupted."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/replication/{rep_id}"
+    plan = _plan("pve_replication_update", tgt,
+                 lambda: plan_replication_update(api, rep_id, schedule=schedule,
+                                                 rate=rate, disable=disable,
+                                                 comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_replication_update", tgt,
+                    lambda: replication_update(api, rep_id, schedule=schedule,
+                                              rate=rate, disable=disable, comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_replication_delete(rep_id: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a PVE replication job. Dry-run by default — captures current config.
+    confirm=True to execute. Replication ceases; existing replicated data is NOT removed."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/replication/{rep_id}"
+    plan = _plan("pve_replication_delete", tgt,
+                 lambda: plan_replication_delete(api, rep_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_replication_delete", tgt,
+                    lambda: replication_delete(api, rep_id),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_job_create(job_type: str, job_id: str, store: str | None = None,
+                   schedule: str | None = None, ns: str | None = None,
+                   comment: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: create a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PBS_* config. Config-only; no existing data affected."""
+    _, pbs = _pbs()
+    tgt = f"pbs/config/{job_type}/{job_id}"
+    plan = _plan("pbs_job_create", tgt,
+                 lambda: plan_pbs_job_create(job_type, job_id, store=store,
+                                             schedule=schedule, ns=ns, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_job_create", tgt,
+                    lambda: pbs_scheduled_job_create(pbs, job_type, job_id, store=store,
+                                                     schedule=schedule, ns=ns,
+                                                     comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_job_update(job_type: str, job_id: str, schedule: str | None = None,
+                   ns: str | None = None, comment: str | None = None,
+                   confirm: bool = False) -> dict:
+    """MUTATION: update a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
+    captures current config. confirm=True to execute. Needs PROXIMO_PBS_* config."""
+    _, pbs = _pbs()
+    tgt = f"pbs/config/{job_type}/{job_id}"
+    plan = _plan("pbs_job_update", tgt,
+                 lambda: plan_pbs_job_update(pbs, job_type, job_id, schedule=schedule,
+                                             ns=ns, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_job_update", tgt,
+                    lambda: pbs_scheduled_job_update(pbs, job_type, job_id,
+                                                     schedule=schedule, ns=ns,
+                                                     comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_job_delete(job_type: str, job_id: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
+    captures current config. confirm=True to execute. Schedule removed; backup data NOT deleted.
+    Needs PROXIMO_PBS_* config."""
+    _, pbs = _pbs()
+    tgt = f"pbs/config/{job_type}/{job_id}"
+    plan = _plan("pbs_job_delete", tgt,
+                 lambda: plan_pbs_job_delete(pbs, job_type, job_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_job_delete", tgt,
+                    lambda: pbs_scheduled_job_delete(pbs, job_type, job_id),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_job_run(job_type: str, job_id: str, confirm: bool = False) -> dict:
+    """MUTATION: trigger a PBS scheduled job immediately. job_type = sync|verify|prune.
+    Dry-run by default. confirm=True to execute. Async — returns UPID.
+    Needs PROXIMO_PBS_* config. Prune runs may delete snapshots per the retention policy."""
+    _, pbs = _pbs()
+    tgt = f"pbs/admin/{job_type}/{job_id}"
+    plan = _plan("pbs_job_run", tgt,
+                 lambda: plan_pbs_job_run(job_type, job_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_job_run", tgt,
+                    lambda: pbs_scheduled_job_run(pbs, job_type, job_id),
+                    mutation=True, outcome="submitted", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pbs_realm_sync(realm: str, remove_vanished: bool | None = None,
+                   dry_run: bool | None = None, scope: str | None = None,
+                   confirm: bool = False) -> dict:
+    """MUTATION: sync PBS auth realm (LDAP/AD) users. Dry-run by default.
+    confirm=True to execute. Async — returns UPID. Needs PROXIMO_PBS_* config.
+    remove_vanished=True also removes PBS users no longer in the directory."""
+    _, pbs = _pbs()
+    tgt = f"pbs/access/domains/{realm}"
+    plan = _plan("pbs_realm_sync", tgt,
+                 lambda: plan_pbs_realm_sync(realm,
+                                             remove_vanished=remove_vanished,
+                                             dry_run=dry_run, scope=scope))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_realm_sync", tgt,
+                    lambda: pbs_realm_sync_op(pbs, realm,
+                                              remove_vanished=remove_vanished,
+                                              dry_run=dry_run, scope=scope),
+                    mutation=True, outcome="submitted", detail={"confirmed": True})
+
+
+# --- Notifications & Metrics (Plane E) — PVE notification endpoints, matchers, metrics ---
+
+@mcp.tool()
+def pve_notification_endpoint_list() -> list[dict]:
+    """List all PVE notification endpoints (gotify/smtp/sendmail/webhook) (read)."""
+    _, api, _, _ = _svc()
+    return _audited("pve_notification_endpoint_list", "cluster/notifications/endpoints",
+                    lambda: notification_endpoint_list(api))
+
+
+@mcp.tool()
+def pve_notification_endpoint_create(ep_type: str, name: str,
+                                     comment: str | None = None,
+                                     options: dict | None = None,
+                                     confirm: bool = False) -> dict:
+    """MUTATION: create a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
+    Dry-run by default. confirm=True to execute. `options` carries the endpoint-specific config
+    (sendmail: {"mailto-user":"root@pam"}; gotify: {"server":..,"token":..}; webhook: {"url":..})."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/notifications/endpoints/{ep_type}/{name}"
+    plan = _plan("pve_notification_endpoint_create", tgt,
+                 lambda: plan_notification_endpoint_create(ep_type, name, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_notification_endpoint_create", tgt,
+                    lambda: notification_endpoint_create(api, ep_type, name,
+                                                         **{"comment": comment, **(options or {})}),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_notification_endpoint_update(ep_type: str, name: str,
+                                     comment: str | None = None,
+                                     options: dict | None = None,
+                                     confirm: bool = False) -> dict:
+    """MUTATION: update a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
+    Dry-run by default — captures current config. confirm=True to execute. `options` carries the
+    endpoint-specific fields to change (same shape as create)."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/notifications/endpoints/{ep_type}/{name}"
+    plan = _plan("pve_notification_endpoint_update", tgt,
+                 lambda: plan_notification_endpoint_update(api, ep_type, name,
+                                                           comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_notification_endpoint_update", tgt,
+                    lambda: notification_endpoint_update(api, ep_type, name,
+                                                         **{"comment": comment, **(options or {})}),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_notification_endpoint_delete(ep_type: str, name: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
+    Dry-run by default — captures current config. confirm=True to execute.
+    WARN: matchers referencing this endpoint will silently fail until it is restored."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/notifications/endpoints/{ep_type}/{name}"
+    plan = _plan("pve_notification_endpoint_delete", tgt,
+                 lambda: plan_notification_endpoint_delete(api, ep_type, name))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_notification_endpoint_delete", tgt,
+                    lambda: notification_endpoint_delete(api, ep_type, name),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_notification_matcher_set(name: str, comment: str | None = None,
+                                 confirm: bool = False) -> dict:
+    """MUTATION: create-or-update a PVE notification matcher (alert routing rule).
+    Dry-run by default. confirm=True to execute."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/notifications/matchers/{name}"
+    plan = _plan("pve_notification_matcher_set", tgt,
+                 lambda: plan_notification_matcher_set(name, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_notification_matcher_set", tgt,
+                    lambda: notification_matcher_set(api, name, comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_notification_matcher_delete(name: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a PVE notification matcher. Dry-run by default.
+    confirm=True to execute. WARN: alerts matching this filter go un-routed after deletion."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/notifications/matchers/{name}"
+    plan = _plan("pve_notification_matcher_delete", tgt,
+                 lambda: plan_notification_matcher_delete(name))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_notification_matcher_delete", tgt,
+                    lambda: notification_matcher_delete(api, name),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_notification_test(name: str, confirm: bool = False) -> dict:
+    """MUTATION: send a test notification to a PVE notification target. Dry-run by default.
+    confirm=True to execute. SENDS A REAL NOTIFICATION — recipients will receive it."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/notifications/targets/{name}"
+    plan = _plan("pve_notification_test", tgt,
+                 lambda: plan_notification_test(name))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_notification_test", tgt,
+                    lambda: notification_test_op(api, name),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_metrics_server_list() -> list[dict]:
+    """List all PVE metrics server definitions (influxdb, graphite, etc.) (read)."""
+    _, api, _, _ = _svc()
+    return _audited("pve_metrics_server_list", "cluster/metrics/server",
+                    lambda: metrics_server_list(api))
+
+
+@mcp.tool()
+def pve_metrics_server_set(metrics_id: str, metrics_type: str | None = None,
+                           server: str | None = None, port: int | None = None,
+                           disable: bool | None = None, comment: str | None = None,
+                           confirm: bool = False) -> dict:
+    """MUTATION: create-or-update a PVE metrics server definition. Dry-run by default.
+    confirm=True to execute. Config-only; metrics forwarding adjusts to new settings."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/metrics/server/{metrics_id}"
+    plan = _plan("pve_metrics_server_set", tgt,
+                 lambda: plan_metrics_server_set(metrics_id, type=metrics_type,
+                                                 server=server, port=port,
+                                                 disable=disable, comment=comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_metrics_server_set", tgt,
+                    lambda: metrics_server_set(api, metrics_id, type=metrics_type,
+                                              server=server, port=port,
+                                              disable=disable, comment=comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_metrics_server_delete(metrics_id: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a PVE metrics server definition. Dry-run by default.
+    confirm=True to execute. Metrics forwarding to this server ceases; no data loss."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/metrics/server/{metrics_id}"
+    plan = _plan("pve_metrics_server_delete", tgt,
+                 lambda: plan_metrics_server_delete(metrics_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_metrics_server_delete", tgt,
+                    lambda: metrics_server_delete(api, metrics_id),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+# ============================================================================
+# Plane F — Hardware PCI/USB Mappings
+# ============================================================================
+
+@mcp.tool()
+def pve_hardware_list(node: str, hw_type: str = "pci") -> dict:
+    """List physical PCI or USB devices on a PVE node (read).
+    hw_type: 'pci' (default) or 'usb'."""
+    _, api, _, _ = _svc()
+    return _audited("pve_hardware_list", f"nodes/{node}/hardware/{hw_type}",
+                    lambda: hardware_list(api, node, hw_type))
+
+
+@mcp.tool()
+def pve_mapping_pci_list() -> list[dict]:
+    """List all PCI cluster hardware mappings (read)."""
+    _, api, _, _ = _svc()
+    return _audited("pve_mapping_pci_list", "cluster/mapping/pci",
+                    lambda: mapping_pci_list(api))
+
+
+@mcp.tool()
+def pve_mapping_usb_list() -> list[dict]:
+    """List all USB cluster hardware mappings (read)."""
+    _, api, _, _ = _svc()
+    return _audited("pve_mapping_usb_list", "cluster/mapping/usb",
+                    lambda: mapping_usb_list(api))
+
+
+@mcp.tool()
+def pve_mapping_pci_create(mapping_id: str, description: str | None = None,
+                           map: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: create a PCI cluster passthrough mapping. Dry-run by default.
+    confirm=True to execute. Smoke-confirm: POST body shape (id in body) against a live PVE instance."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/mapping/pci/{mapping_id}"
+    plan = _plan("pve_mapping_pci_create", tgt,
+                 lambda: plan_mapping_pci_create(mapping_id, description=description, map=map))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_mapping_pci_create", tgt,
+                    lambda: mapping_pci_create(api, mapping_id, description=description, map=map),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_mapping_pci_update(mapping_id: str, description: str | None = None,
+                           map: str | None = None, digest: str | None = None,
+                           confirm: bool = False) -> dict:
+    """MUTATION: update a PCI cluster mapping. Dry-run by default.
+    confirm=True to execute. Reads current config for plan honesty."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/mapping/pci/{mapping_id}"
+    plan = _plan("pve_mapping_pci_update", tgt,
+                 lambda: plan_mapping_pci_update(api, mapping_id,
+                                                  description=description, map=map, digest=digest))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_mapping_pci_update", tgt,
+                    lambda: mapping_pci_update(api, mapping_id,
+                                               description=description, map=map, digest=digest),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_mapping_pci_delete(mapping_id: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a PCI cluster mapping. Dry-run by default.
+    confirm=True to execute. VMs referencing this mapping lose the device path."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/mapping/pci/{mapping_id}"
+    plan = _plan("pve_mapping_pci_delete", tgt,
+                 lambda: plan_mapping_pci_delete(api, mapping_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_mapping_pci_delete", tgt,
+                    lambda: mapping_pci_delete(api, mapping_id),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_mapping_usb_create(mapping_id: str, description: str | None = None,
+                           map: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: create a USB cluster passthrough mapping. Dry-run by default.
+    confirm=True to execute. Smoke-confirm: POST body shape (id in body) against a live PVE instance."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/mapping/usb/{mapping_id}"
+    plan = _plan("pve_mapping_usb_create", tgt,
+                 lambda: plan_mapping_usb_create(mapping_id, description=description, map=map))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_mapping_usb_create", tgt,
+                    lambda: mapping_usb_create(api, mapping_id, description=description, map=map),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_mapping_usb_update(mapping_id: str, description: str | None = None,
+                           map: str | None = None, digest: str | None = None,
+                           confirm: bool = False) -> dict:
+    """MUTATION: update a USB cluster mapping. Dry-run by default.
+    confirm=True to execute. Reads current config for plan honesty."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/mapping/usb/{mapping_id}"
+    plan = _plan("pve_mapping_usb_update", tgt,
+                 lambda: plan_mapping_usb_update(api, mapping_id,
+                                                  description=description, map=map, digest=digest))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_mapping_usb_update", tgt,
+                    lambda: mapping_usb_update(api, mapping_id,
+                                               description=description, map=map, digest=digest),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_mapping_usb_delete(mapping_id: str, confirm: bool = False) -> dict:
+    """MUTATION: delete a USB cluster mapping. Dry-run by default.
+    confirm=True to execute. VMs referencing this mapping lose the USB device path."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/mapping/usb/{mapping_id}"
+    plan = _plan("pve_mapping_usb_delete", tgt,
+                 lambda: plan_mapping_usb_delete(api, mapping_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_mapping_usb_delete", tgt,
+                    lambda: mapping_usb_delete(api, mapping_id),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+# ============================================================================
+# Plane G — ACME & TLS Certs
+# ============================================================================
+
+@mcp.tool()
+def pve_acme_account_create(name: str, contact: str, tos_url: str | None = None,
+                            directory: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: register a new ACME account with the CA. Dry-run by default.
+    confirm=True to execute. Smoke-confirm: POST body shape (name in body) against a live PVE instance."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/acme/account/{name}"
+    plan = _plan("pve_acme_account_create", tgt,
+                 lambda: plan_acme_account_create(name, contact,
+                                                   tos_url=tos_url, directory=directory))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_account_create", tgt,
+                    lambda: acme_account_create(api, name, contact,
+                                                tos_url=tos_url, directory=directory),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_acme_account_update(name: str, contact: str | None = None,
+                            confirm: bool = False) -> dict:
+    """MUTATION: update ACME account contact info. Dry-run by default.
+    confirm=True to execute. LOW risk — metadata update only, no cert impact."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/acme/account/{name}"
+    plan = _plan("pve_acme_account_update", tgt,
+                 lambda: plan_acme_account_update(api, name, contact=contact))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_account_update", tgt,
+                    lambda: acme_account_update(api, name, contact=contact),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_acme_account_delete(name: str, confirm: bool = False) -> dict:
+    """MUTATION: IRREVERSIBLE — deactivate and delete an ACME account from the CA. Dry-run by default.
+    confirm=True to execute. HIGH risk: TLS lockout at cert expiry if this is the only account."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/acme/account/{name}"
+    plan = _plan("pve_acme_account_delete", tgt,
+                 lambda: plan_acme_account_delete(api, name))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_account_delete", tgt,
+                    lambda: acme_account_delete(api, name),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_acme_plugin_create(plugin_id: str, plugin_type: str, dns_api: str | None = None,
+                           data: str | None = None, disable: bool | None = None,
+                           confirm: bool = False) -> dict:
+    """MUTATION: create an ACME DNS challenge plugin. Dry-run by default.
+    confirm=True to execute. dns_api = DNS provider name (e.g. 'cf', 'route53').
+    Smoke-confirm: POST body shape (id in body) against a live PVE instance."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/acme/plugins/{plugin_id}"
+    # dns_api maps to PVE's 'api' field (avoids name collision with the backend 'api' param)
+    kw: dict = {}
+    if dns_api is not None:
+        kw["api"] = dns_api
+    if data is not None:
+        kw["data"] = data
+    if disable is not None:
+        kw["disable"] = disable
+    plan = _plan("pve_acme_plugin_create", tgt,
+                 lambda: plan_acme_plugin_create(plugin_id, plugin_type, **kw))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_plugin_create", tgt,
+                    lambda: acme_plugin_create(api, plugin_id, plugin_type, **kw),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_acme_plugin_update(plugin_id: str, dns_api: str | None = None,
+                           data: str | None = None, disable: bool | None = None,
+                           digest: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: update an ACME DNS challenge plugin. Dry-run by default.
+    confirm=True to execute. MEDIUM risk — invalid credentials break renewal at next attempt."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/acme/plugins/{plugin_id}"
+    # dns_api maps to PVE's 'api' field
+    kw: dict = {}
+    if dns_api is not None:
+        kw["api"] = dns_api
+    if data is not None:
+        kw["data"] = data
+    if disable is not None:
+        kw["disable"] = disable
+    if digest is not None:
+        kw["digest"] = digest
+    plan = _plan("pve_acme_plugin_update", tgt,
+                 lambda: plan_acme_plugin_update(api, plugin_id, **kw))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_plugin_update", tgt,
+                    lambda: acme_plugin_update(api, plugin_id, **kw),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_acme_plugin_delete(plugin_id: str, confirm: bool = False) -> dict:
+    """MUTATION: delete an ACME DNS challenge plugin. Dry-run by default.
+    confirm=True to execute. HIGH risk: cert auto-renewal breaks — TLS lockout at cert expiry."""
+    _, api, _, _ = _svc()
+    tgt = f"cluster/acme/plugins/{plugin_id}"
+    plan = _plan("pve_acme_plugin_delete", tgt,
+                 lambda: plan_acme_plugin_delete(api, plugin_id))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_plugin_delete", tgt,
+                    lambda: acme_plugin_delete(api, plugin_id),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+# ---------------------------------------------------------------------------
+# qemu-agent plane (Wave 3) — in-guest ops via the QEMU Guest Agent
+# ---------------------------------------------------------------------------
+
+# Pace the exec-status poll loop so it never busy-waits the PVE API (mirrors _wait_task's sleep).
+_AGENT_POLL_INTERVAL = 1.0
+
+
+@mcp.tool()
+def pve_agent_exec(
+    vmid: str,
+    command: list[str],
+    node: str | None = None,
+    timeout: int = 30,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: run a command inside a guest via the qemu-agent (async, polls for result).
+
+    Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
+    Re-call with confirm=True to execute.
+
+    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
+    The command runs INSIDE the guest OS — no undo primitive on this plane.
+
+    Returns status="ok" only when the agent reports the process exited.
+    Returns status="running" with pid when the poll deadline is reached before exit.
+    """
+    cfg, api, _, audit = _svc()
+    if not cfg.enable_agent:
+        return _agent_disabled("pve_agent_exec", f"qemu/{vmid}", mutation=True)
+    if not cfg.agent_permitted(vmid):
+        return _blocked_agent_allowlist("pve_agent_exec", f"qemu/{vmid}", mutation=True)
+
+    # Ledger redaction parity with ct_exec: a guest exec argv can carry a secret (e.g. `mysql -pPW`).
+    # When PROXIMO_LEDGER_REDACT is set, store a fingerprint instead of the argv — in BOTH the plan's
+    # change line (via redact=) and the execute-path audit detail.
+    detail = command_fingerprint(command) if cfg.redact_ledger else {"command": command}
+    plan = _plan("pve_agent_exec", f"qemu/{vmid}",
+                 lambda: plan_agent_exec(vmid, command, node, redact=cfg.redact_ledger))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+
+    # Execute: POST exec, then poll exec-status until exited or deadline.
+    # Manual audit path so we can record honest outcome ("ok" vs "running").
+    try:
+        exec_result = api.agent_exec(vmid, node, command)
+        pid = exec_result.get("pid")
+        if pid is None:
+            raise ValueError("agent exec returned no pid")  # noqa: TRY301
+
+        # VERIFIED live (PVE 9.2): exec-status returns exited/exitcode/out-data/err-data.
+        deadline = time.monotonic() + timeout
+        while True:
+            status = api.agent_exec_status(vmid, node, pid)
+            # 'exited' arrives as a JSON bool; accept int 1 too defensively, and NEVER treat a
+            # falsy/missing value as completion (that would fake an "ok" for a still-running cmd).
+            if status.get("exited") in (True, 1):
+                # Process completed — honest "ok" outcome. out-data/err-data are plain text (not base64).
+                out_data = status.get("out-data", "")
+                err_data = status.get("err-data", "")
+                result = {
+                    "pid": pid,
+                    "exitcode": status.get("exitcode"),
+                    "out-data": out_data,
+                    "err-data": err_data,
+                }
+                audit.record("pve_agent_exec", target=f"qemu/{vmid}", mutation=True,
+                             outcome="ok", detail={**detail, "confirmed": True, "pid": pid})
+                return {"status": "ok", "result": result}
+            if time.monotonic() >= deadline:
+                # Timeout BEFORE exit observed — honest "running" outcome, never "ok".
+                audit.record("pve_agent_exec", target=f"qemu/{vmid}", mutation=True,
+                             outcome="running",
+                             detail={**detail, "confirmed": True, "pid": pid, "timeout": timeout})
+                return {"status": "running", "pid": pid,
+                        "message": f"command is still running (pid={pid}) — did not exit within {timeout}s; "
+                                   "poll pve_agent_info with command='exec-status' and the returned pid."}
+            time.sleep(_AGENT_POLL_INTERVAL)  # pace polls — do not hammer the PVE API
+    except Exception as e:
+        audit.record("pve_agent_exec", target=f"qemu/{vmid}", mutation=True,
+                     outcome="error", detail={"error": type(e).__name__, "confirmed": True})
+        raise
+
+
+@mcp.tool()
+def pve_agent_info(
+    vmid: str,
+    command: str = "info",
+    pid: int | None = None,
+    node: str | None = None,
+) -> dict:
+    """READ-ONLY: query the qemu-agent on a guest (ping, osinfo, hostname, users, exec-status, …).
+
+    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
+    No confirm needed — read-only.
+
+    command: one of ping, info, get-fsinfo, get-host-name, get-osinfo, get-time,
+             get-timezone, get-users, get-vcpus, network-get-interfaces,
+             get-memory-blocks, fsfreeze-status, exec-status.
+    pid: required when command='exec-status' (the pid returned by pve_agent_exec).
+    """
+    cfg, api, _, _ = _svc()
+    if not cfg.enable_agent:
+        return _agent_disabled("pve_agent_info", f"qemu/{vmid}", mutation=False)
+    if not cfg.agent_permitted(vmid):
+        return _blocked_agent_allowlist("pve_agent_info", f"qemu/{vmid}", mutation=False)
+
+    _check_agent_info_command(command)
+
+    if command == "exec-status":
+        if pid is None:
+            raise ProximoError("exec-status requires pid")
+        return _audited("pve_agent_info", f"qemu/{vmid}",
+                        lambda: api.agent_exec_status(vmid, node, pid))
+    return _audited("pve_agent_info", f"qemu/{vmid}",
+                    lambda: api.agent_simple(vmid, node, command))
+
+
+@mcp.tool()
+def pve_agent_file_read(
+    vmid: str,
+    file: str,
+    node: str | None = None,
+) -> dict:
+    """READ-ONLY: read a file from inside the guest via the qemu-agent.
+
+    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
+    No confirm needed — read-only.  File path must be absolute.
+
+    Ledger records only the file path (never the content); the returned dict carries content.
+    Smoke-confirm: PVE file-read response shape is unverified.
+    """
+    cfg, api, _, _ = _svc()
+    if not cfg.enable_agent:
+        return _agent_disabled("pve_agent_file_read", f"qemu/{vmid}", mutation=False)
+    if not cfg.agent_permitted(vmid):
+        return _blocked_agent_allowlist("pve_agent_file_read", f"qemu/{vmid}", mutation=False)
+
+    _check_file_path(file)
+    return _audited("pve_agent_file_read", f"qemu/{vmid}",
+                    lambda: api.agent_file_read(vmid, node, file),
+                    detail={"file": file})
+
+
+@mcp.tool()
+def pve_agent_file_write(
+    vmid: str,
+    file: str,
+    content: str,
+    node: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: write a file inside the guest via the qemu-agent.
+
+    Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
+    Re-call with confirm=True to execute.
+
+    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
+    File path must be absolute.  Content is UNCONDITIONALLY redacted from the ledger.
+    No undo primitive on this plane.
+    Smoke-confirm: PVE file-write endpoint and content encoding are unverified.
+    """
+    cfg, api, _, _ = _svc()
+    if not cfg.enable_agent:
+        return _agent_disabled("pve_agent_file_write", f"qemu/{vmid}", mutation=True)
+    if not cfg.agent_permitted(vmid):
+        return _blocked_agent_allowlist("pve_agent_file_write", f"qemu/{vmid}", mutation=True)
+
+    # UNCONDITIONAL: content fingerprint only, never the body.
+    detail = {"file": file, **_content_fingerprint(content)}
+    plan = _plan("pve_agent_file_write", f"qemu/{vmid}:{file}",
+                 lambda: plan_agent_file_write(vmid, file, content, node))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+
+    return _audited("pve_agent_file_write", f"qemu/{vmid}:{file}",
+                    lambda: api.agent_file_write(vmid, node, file, content),
+                    mutation=True, outcome="ok", detail={**detail, "confirmed": True})
+
+
+@mcp.tool()
+def pve_agent_fs(
+    vmid: str,
+    command: str,
+    node: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: fsfreeze-freeze, fsfreeze-thaw, or fstrim inside the guest via the qemu-agent.
+
+    Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
+    Re-call with confirm=True to execute.
+
+    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
+    command: fsfreeze-freeze | fsfreeze-thaw | fstrim
+    No undo primitive on this plane; always pair freeze with thaw.
+    """
+    cfg, api, _, _ = _svc()
+    if not cfg.enable_agent:
+        return _agent_disabled("pve_agent_fs", f"qemu/{vmid}", mutation=True)
+    if not cfg.agent_permitted(vmid):
+        return _blocked_agent_allowlist("pve_agent_fs", f"qemu/{vmid}", mutation=True)
+
+    _check_agent_fs_command(command)
+    plan = _plan("pve_agent_fs", f"qemu/{vmid}:{command}",
+                 lambda: plan_agent_fs(vmid, command, node))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+
+    return _audited("pve_agent_fs", f"qemu/{vmid}:{command}",
+                    lambda: api.agent_simple(vmid, node, command),
+                    mutation=True, outcome="ok",
+                    detail={"command": command, "confirmed": True})
+
+
+@mcp.tool()
+def pve_agent_set_password(
+    vmid: str,
+    username: str,
+    password: str,
+    node: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: set a guest OS user's password via the qemu-agent.
+
+    Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
+    Re-call with confirm=True to execute.
+
+    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
+    Password is UNCONDITIONALLY redacted from the ledger (fingerprint only — "[redacted]").
+    No undo primitive on this plane.
+    Smoke-confirm: PVE set-user-password endpoint and body fields are unverified.
+    """
+    cfg, api, _, _ = _svc()
+    if not cfg.enable_agent:
+        return _agent_disabled("pve_agent_set_password", f"qemu/{vmid}", mutation=True)
+    if not cfg.agent_permitted(vmid):
+        return _blocked_agent_allowlist("pve_agent_set_password", f"qemu/{vmid}", mutation=True)
+
+    # UNCONDITIONAL: password redacted always, regardless of cfg.redact_ledger.
+    detail = {"username": username, **_password_fingerprint()}
+    plan = _plan("pve_agent_set_password", f"qemu/{vmid}:{username}",
+                 lambda: plan_agent_set_password(vmid, username, node))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+
+    return _audited("pve_agent_set_password", f"qemu/{vmid}:{username}",
+                    lambda: api.agent_set_password(vmid, node, username, password),
+                    mutation=True, outcome="ok", detail={**detail, "confirmed": True})
+
+
+# --- node-lifecycle plane (Wave 4) ---
+
+# --- Disks (reads) ---
+
+@mcp.tool()
+def pve_node_disks_list(node: str | None = None) -> list:
+    """List physical disks on a PVE node (read).
+
+    GET /nodes/{node}/disks/list — physical disk inventory and health info.
+    Smoke-confirm: response shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    return _audited("pve_node_disks_list", node or cfg.node,
+                    lambda: api.node_disks_list(node))
+
+
+@mcp.tool()
+def pve_node_disk_smart(disk: str, node: str | None = None) -> dict:
+    """Get SMART health data for a disk on a PVE node (read).
+
+    GET /nodes/{node}/disks/smart?disk=… — SMART attributes and health status.
+    Smoke-confirm: GET (read) only — this tool does NOT trigger a self-test.
+    """
+    cfg, api, _, _ = _svc()
+    return _audited("pve_node_disk_smart", f"{node or cfg.node}:{disk}",
+                    lambda: api.node_disk_smart(disk, node))
+
+
+# --- Disks (mutations) ---
+
+@mcp.tool()
+def pve_node_disk_wipe(disk: str, node: str | None = None,
+                       confirm: bool = False) -> dict:
+    """MUTATION: wipe ALL data and the partition table on a node disk.
+
+    RISK_HIGH, NO UNDO: DESTROYS all data, partitions, and filesystems on the named disk.
+    This is irreversible — all data is permanently erased. confirm=True to execute.
+
+    PUT /nodes/{node}/disks/wipedisk
+    Smoke-confirm: endpoint and body shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/disks/{disk}"
+    plan = _plan("pve_node_disk_wipe", tgt,
+                 lambda: plan_node_disk_wipe(disk, node))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    # Async (worker UPID) like the sibling disk/storage ops — record "submitted", not "ok": the
+    # ledger must not claim the wipe finished when only the task was accepted.
+    return _audited("pve_node_disk_wipe", tgt,
+                    lambda: api.node_disk_wipe(disk, node),
+                    mutation=True, outcome="submitted",
+                    detail={"disk": disk, "confirmed": True})
+
+
+@mcp.tool()
+def pve_node_disk_initgpt(disk: str, node: str | None = None,
+                          confirm: bool = False) -> dict:
+    """MUTATION: initialize a GPT partition table on a node disk.
+
+    RISK_HIGH: overwrites the existing partition table on the named disk; irreversible.
+    confirm=True to execute.
+
+    POST /nodes/{node}/disks/initgpt
+    Smoke-confirm: endpoint and body shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/disks/{disk}"
+    plan = _plan("pve_node_disk_initgpt", tgt,
+                 lambda: plan_node_disk_initgpt(disk, node))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_disk_initgpt", tgt,
+                    lambda: api.node_disk_initgpt(disk, node),
+                    mutation=True, outcome="submitted",
+                    detail={"disk": disk, "confirmed": True})
+
+
+# --- Storage backends (reads + mutations) ---
+
+@mcp.tool()
+def pve_node_storage_backend_list(backend: str, node: str | None = None) -> list:
+    """List storage backends of a type on a PVE node (read).
+
+    backend ∈ {lvm, lvmthin, zfs, directory}.
+    GET /nodes/{node}/disks/{backend}
+    Smoke-confirm: response shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    return _audited("pve_node_storage_backend_list", f"{node or cfg.node}/disks/{backend}",
+                    lambda: api.node_storage_backend_list(backend, node))
+
+
+@mcp.tool()
+def pve_node_storage_backend_create(
+    backend: str,
+    name: str,
+    devices: str | None = None,
+    node: str | None = None,
+    confirm: bool = False,
+    **kw: Any,
+) -> dict:
+    """MUTATION: create a storage backend on the node (lvm/lvmthin/zfs/directory).
+
+    Per-backend required params:
+      zfs:       devices (comma-sep disk list) + raidlevel
+      lvm/lvmthin: devices (single disk)
+      directory: devices (disk path) + filesystem (e.g. ext4)
+
+    The named disk(s) are consumed by the new backend. confirm=True to execute.
+
+    POST /nodes/{node}/disks/{backend}
+    Smoke-confirm: endpoint and body shape not live-verified. May return a task UPID (async).
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/disks/{backend}/{name}"
+    plan = _plan("pve_node_storage_backend_create", tgt,
+                 lambda: plan_node_storage_backend_create(backend, name, devices, node, **kw))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_storage_backend_create", tgt,
+                    lambda: api.node_storage_backend_create(backend, name, node,
+                                                            **({"devices": devices} if devices else {}),
+                                                            **kw),
+                    mutation=True, outcome="submitted",
+                    detail={"backend": backend, "name": name, "confirmed": True})
+
+
+@mcp.tool()
+def pve_node_storage_backend_delete(
+    backend: str,
+    name: str,
+    node: str | None = None,
+    cleanup: bool = False,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: destroy a storage backend on the node.
+
+    RISK_HIGH, NO UNDO — backend-specific blast:
+      zfs:        destroys the zpool and ALL data on it
+      lvm/lvmthin: removes the VG — any storage built on it breaks
+      directory:  removes the directory mapping (data on disk may persist)
+
+    confirm=True to execute.
+
+    DELETE /nodes/{node}/disks/{backend}/{name}
+    Smoke-confirm: endpoint and params shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/disks/{backend}/{name}"
+    plan = _plan("pve_node_storage_backend_delete", tgt,
+                 lambda: plan_node_storage_backend_delete(backend, name, node))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    # Async (worker UPID) like backend_create — record "submitted", not "ok".
+    return _audited("pve_node_storage_backend_delete", tgt,
+                    lambda: api.node_storage_backend_delete(backend, name, node, cleanup),
+                    mutation=True, outcome="submitted",
+                    detail={"backend": backend, "name": name, "confirmed": True})
+
+
+# --- Node config (reads) ---
+
+@mcp.tool()
+def pve_node_time_get(node: str | None = None) -> dict:
+    """Get the current time and timezone of a PVE node (read).
+
+    GET /nodes/{node}/time — returns {localtime, time, timezone}.
+    Smoke-confirm: response shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    return _audited("pve_node_time_get", node or cfg.node,
+                    lambda: api.node_time_get(node))
+
+
+@mcp.tool()
+def pve_node_hosts_get(node: str | None = None) -> dict:
+    """Get the /etc/hosts content of a PVE node (read).
+
+    GET /nodes/{node}/hosts — returns {data, digest}.
+    Smoke-confirm: response shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    return _audited("pve_node_hosts_get", node or cfg.node,
+                    lambda: api.node_hosts_get(node))
+
+
+# --- Node config (mutations) ---
+
+@mcp.tool()
+def pve_node_time_set(timezone: str, node: str | None = None,
+                      confirm: bool = False) -> dict:
+    """MUTATION: set the timezone on a PVE node.
+
+    RISK_LOW. CAPTURE: reads the current timezone before planning; if unreadable → complete=False.
+    Revert by re-applying the captured timezone. confirm=True to execute.
+
+    PUT /nodes/{node}/time
+    Smoke-confirm: endpoint and body shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/time"
+    plan = _plan("pve_node_time_set", tgt,
+                 lambda: plan_node_time_set(api, timezone, node))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_time_set", tgt,
+                    lambda: api.node_time_set(timezone, node),
+                    mutation=True, outcome="ok",
+                    detail={"timezone": timezone, "confirmed": True})
+
+
+@mcp.tool()
+def pve_node_hosts_set(
+    data: str,
+    node: str | None = None,
+    digest: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: replace the /etc/hosts file on a PVE node.
+
+    RISK_MEDIUM. CAPTURE: reads current /etc/hosts before planning (revert by re-applying captured
+    content); if unreadable → complete=False. A bad /etc/hosts can break name resolution.
+    confirm=True to execute.
+
+    POST /nodes/{node}/hosts
+    Smoke-confirm: endpoint and body shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/hosts"
+    plan = _plan("pve_node_hosts_set", tgt,
+                 lambda: plan_node_hosts_set(api, data, node, digest))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_hosts_set", tgt,
+                    lambda: api.node_hosts_set(data, node, digest),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_node_dns_set(
+    search: str | None = None,
+    dns1: str | None = None,
+    dns2: str | None = None,
+    dns3: str | None = None,
+    node: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: update DNS resolver configuration on a PVE node.
+
+    RISK_LOW. CAPTURE: reads current DNS config before planning (reuse pve_node_dns read);
+    if unreadable → complete=False. confirm=True to execute.
+
+    PUT /nodes/{node}/dns
+    Smoke-confirm: endpoint and body shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/dns"
+    plan = _plan("pve_node_dns_set", tgt,
+                 lambda: plan_node_dns_set(api, search, dns1, dns2, dns3, node))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_dns_set", tgt,
+                    lambda: api.node_dns_set(node, search, dns1, dns2, dns3),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True})
+
+
+@mcp.tool()
+def pve_node_cert_upload(
+    certificates: str,
+    key: str | None = None,
+    node: str | None = None,
+    force: bool = False,
+    restart: bool = False,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: upload a custom TLS certificate to a PVE node.
+
+    RISK_HIGH, NO UNDO. A malformed cert/key can lock you out of the PVE web UI and API.
+    restart=True reloads pveproxy after upload (brief service interruption).
+
+    PRIVATE KEY REDACTION: the 'key' param is a TLS private key (secret). It is
+    UNCONDITIONALLY redacted — it NEVER appears in the plan, change, current state,
+    detail, or ledger (regardless of redact_ledger setting). Only {"key": "[redacted]"}
+    is recorded. The cert body (certificates) is public and may appear in plans/logs.
+
+    Revert: re-upload a correct cert, or use pve_node_cert_delete to revert to self-signed.
+    confirm=True to execute.
+
+    POST /nodes/{node}/certificates/custom
+    Smoke-confirm: endpoint and body shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/certificates/custom"
+
+    # UNCONDITIONAL: key redacted always; never passes through plan factory or ledger.
+    key_detail = _key_fingerprint()
+
+    plan = _plan("pve_node_cert_upload", tgt,
+                 lambda: plan_node_cert_upload(certificates, node, force, restart))
+    if not confirm:
+        # key_detail injected into return (but not into the Plan itself — plan factory has no key).
+        return {"status": "plan", **plan.as_dict(), **key_detail}
+    return _audited("pve_node_cert_upload", tgt,
+                    lambda: api.node_cert_upload(certificates, node, key, force, restart),
+                    mutation=True, outcome="ok",
+                    detail={**key_detail, "confirmed": True})
+
+
+@mcp.tool()
+def pve_node_cert_delete(
+    node: str | None = None,
+    restart: bool = False,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: delete the custom TLS certificate from a PVE node.
+
+    RISK_MEDIUM: PVE reverts to its self-signed certificate (recoverable by re-uploading).
+    restart=True reloads pveproxy after deletion. confirm=True to execute.
+
+    DELETE /nodes/{node}/certificates/custom
+    Smoke-confirm: endpoint and params shape not live-verified.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/certificates/custom"
+    plan = _plan("pve_node_cert_delete", tgt,
+                 lambda: plan_node_cert_delete(node, restart))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_cert_delete", tgt,
+                    lambda: api.node_cert_delete(node, restart),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True})
+
+
+# --- Bulk power (mutations) ---
+
+@mcp.tool()
+def pve_node_startall(
+    node: str | None = None,
+    vms: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: start all (or filtered) guests on a PVE node.
+
+    RISK_MEDIUM. Reversible — the inverse of pve_node_stopall. vms = optional CSV of VMIDs
+    to filter the scope. confirm=True to execute.
+
+    POST /nodes/{node}/startall
+    Smoke-confirm: endpoint and vms param format not live-verified. May return task UPID.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/startall"
+    plan = _plan("pve_node_startall", tgt,
+                 lambda: plan_node_startall(node, vms))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_startall", tgt,
+                    lambda: api.node_startall(node, vms),
+                    mutation=True, outcome="submitted",
+                    detail={"confirmed": True, **({"vms": vms} if vms else {})})
+
+
+@mcp.tool()
+def pve_node_stopall(
+    node: str | None = None,
+    vms: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: stop ALL (or filtered) running guests on a PVE node.
+
+    RISK_HIGH — fleet-wide service outage unless vms filters the scope.
+    Reversible via pve_node_startall, but guests must be restarted inside. confirm=True to execute.
+
+    POST /nodes/{node}/stopall
+    Smoke-confirm: endpoint and vms param format not live-verified. May return task UPID.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/stopall"
+    plan = _plan("pve_node_stopall", tgt,
+                 lambda: plan_node_stopall(node, vms))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_stopall", tgt,
+                    lambda: api.node_stopall(node, vms),
+                    mutation=True, outcome="submitted",
+                    detail={"confirmed": True, **({"vms": vms} if vms else {})})
+
+
+@mcp.tool()
+def pve_node_migrateall(
+    target: str,
+    node: str | None = None,
+    vms: str | None = None,
+    maxworkers: int | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION: migrate all (or filtered) guests from a node to a target node.
+
+    RISK_HIGH, NOT auto-reversible: reversal requires a second pve_node_migrateall back,
+    which may not restore the original state. target = destination node name (required).
+    confirm=True to execute.
+
+    POST /nodes/{node}/migrateall
+    Smoke-confirm: endpoint and body shape not live-verified. May return task UPID.
+    """
+    cfg, api, _, _ = _svc()
+    tgt = f"{node or cfg.node}/migrateall->{target}"
+    plan = _plan("pve_node_migrateall", tgt,
+                 lambda: plan_node_migrateall(target, node, vms, maxworkers))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_migrateall", tgt,
+                    lambda: api.node_migrateall(target, node, vms, maxworkers),
+                    mutation=True, outcome="submitted",
+                    detail={"target": target, "confirmed": True})
+
+
+# --- PMG (Proxmox Mail Gateway) ---
+
+@mcp.tool()
+def pmg_doctor(node: str | None = None) -> dict:
+    """PMG connectivity + credential/permission preflight (read). Checks /nodes/{node}/version
+    and /access/users. A successful /version call means ticket login also succeeded —
+    connectivity and credentials are proven together. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified: PMG has no /access/permissions endpoint (that is PVE-only);
+    /access/users is the closest equivalent and returns the same user/role information.
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_doctor", f"pmg/{n}",
+                    lambda: {
+                        "version": pmg_node_version_op(pmg, n),
+                        "permissions": pmg_access_permissions_op(pmg),
+                    })
+
+
+@mcp.tool()
+def pmg_node_status(node: str | None = None) -> dict:
+    """Get PMG node cpu/mem/disk/uptime status (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified: /nodes/{node}/status path and response shape confirmed via
+    pmg-smoke.py W1 round-trip (node_status PASS).
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_node_status", f"pmg/{n}/status",
+                    lambda: pmg_node_status_op(pmg, n))
+
+
+@mcp.tool()
+def pmg_relay_config() -> dict:
+    """Get PMG SMTP relay/smarthost configuration (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified: relay/smarthost settings live at /config/mail (not /config/relay).
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_relay_config", "pmg/config/mail",
+                    lambda: pmg_relay_config_op(pmg))
+
+
+@mcp.tool()
+def pmg_domains_list() -> list[dict]:
+    """List PMG managed mail domains (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified: /config/domains path and response shape confirmed via
+    pmg-smoke.py W1 round-trip and W3 full domain create/list/delete cycle.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_domains_list", "pmg/config/domains",
+                    lambda: pmg_domains_list_op(pmg))
+
+
+@mcp.tool()
+def pmg_statistics_mail() -> dict:
+    """Get PMG mail delivery statistics (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified: /statistics/mail returns today's aggregate counters
+    (count_in, count_out, spam, virus, bytes, …). Always returns today's totals;
+    for time-ranged data use pmg_statistics_mailcount instead.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_statistics_mail", "pmg/statistics/mail",
+                    lambda: pmg_statistics_mail_op(pmg))
+
+
+@mcp.tool()
+def pmg_quarantine_spam() -> list[dict]:
+    """List PMG quarantined spam messages (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified: endpoint is /quarantine/spam (not /quarantine/mails).
+    For virus quarantine use pmg_quarantine_virus; for attachment use pmg_quarantine_attachment.
+    To act on quarantined messages (deliver/delete/mark-seen/blocklist/welcomelist) use
+    pmg_quarantine_action.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_quarantine_spam", "pmg/quarantine/spam",
+                    lambda: pmg_quarantine_spam_op(pmg))
+
+
+@mcp.tool()
+def pmg_statistics_domains(start: int | None = None, end: int | None = None) -> list[dict]:
+    """Get PMG per-domain mail statistics (read). Optional Unix epoch start/end timespan.
+    Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: /statistics/domains.
+    Maps start/end params → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_statistics_domains", "pmg/statistics/domains",
+                    lambda: pmg_statistics_domains_op(pmg, start, end))
+
+
+@mcp.tool()
+def pmg_statistics_virus(start: int | None = None, end: int | None = None) -> list[dict]:
+    """Get PMG virus statistics (read). Optional Unix epoch start/end timespan.
+    Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: /statistics/virus.
+    Maps start/end params → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_statistics_virus", "pmg/statistics/virus",
+                    lambda: pmg_statistics_virus_op(pmg, start, end))
+
+
+@mcp.tool()
+def pmg_statistics_spamscores(start: int | None = None, end: int | None = None) -> list[dict]:
+    """Get PMG spam score distribution statistics (read). Optional Unix epoch start/end timespan.
+    Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: /statistics/spamscores.
+    Maps start/end params → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_statistics_spamscores", "pmg/statistics/spamscores",
+                    lambda: pmg_statistics_spamscores_op(pmg, start, end))
+
+
+@mcp.tool()
+def pmg_statistics_recent(hours: int = 1) -> list[dict]:
+    """Get PMG recent mail statistics (read). hours: 1-24 window. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: /statistics/recent.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_statistics_recent", "pmg/statistics/recent",
+                    lambda: pmg_statistics_recent_op(pmg, hours))
+
+
+@mcp.tool()
+def pmg_quarantine_blocklist_list(pmail: str | None = None) -> list[dict]:
+    """List PMG quarantine blocklist entries (read). Optional pmail to scope to one user.
+    Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: /quarantine/blocklist.
+    pmail is passed to the API only if provided.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_quarantine_blocklist_list", "pmg/quarantine/blocklist",
+                    lambda: pmg_quarantine_blocklist_list_op(pmg, pmail))
+
+
+@mcp.tool()
+def pmg_quarantine_blocklist_add(
+    address: str,
+    pmail: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): add an address to the quarantine blocklist. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: POST /quarantine/blocklist.
+    pmail: scope to a per-user blocklist (optional).
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/quarantine/blocklist"
+    plan = _plan("pmg_quarantine_blocklist_add", tgt,
+                 lambda: pmg_plan_quarantine_blocklist_add(address, pmail))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_quarantine_blocklist_add", tgt,
+                    lambda: pmg_quarantine_blocklist_add_op(pmg, address, pmail),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "address": address})
+
+
+@mcp.tool()
+def pmg_quarantine_action(
+    action: str,
+    mail_ids: str,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): apply an action to quarantined message(s). Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    action: one of deliver|delete|mark-seen|mark-unseen|blocklist|welcomelist.
+    mail_ids: single mail ID or comma-separated list.
+    PMG 9.1 live-proven 2026-06-26: POST /quarantine/content — delete and deliver
+    both confirmed against real quarantined GTUBE messages.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/quarantine/content"
+    plan = _plan("pmg_quarantine_action", tgt,
+                 lambda: pmg_plan_quarantine_action(action, mail_ids))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_quarantine_action", tgt,
+                    lambda: pmg_quarantine_action_op(pmg, action, mail_ids),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "action": action, "mail_ids": mail_ids})
+
+
+@mcp.tool()
+def pmg_postfix_qshape(node: str | None = None) -> list[dict]:
+    """Get PMG Postfix queue shape (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified: /nodes/{node}/postfix/qshape returns a list of
+    dicts (one row per domain + a TOTAL row with queue-age bucket counts).
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_postfix_qshape", f"pmg/{n}/postfix/qshape",
+                    lambda: pmg_postfix_qshape_op(pmg, n))
+
+
+@mcp.tool()
+def pmg_postfix_flush(node: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION (LOW): flush all Postfix queues (immediate re-delivery attempt). Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/postfix/flush_queues.
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    tgt = f"pmg/{n}/postfix/flush_queues"
+    plan = _plan("pmg_postfix_flush", tgt,
+                 lambda: pmg_plan_postfix_flush(n))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_postfix_flush", tgt,
+                    lambda: pmg_postfix_flush_op(pmg, n),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "node": n})
+
+
+@mcp.tool()
+def pmg_spam_config() -> dict:
+    """Get PMG spam filter configuration (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: /config/spam.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_spam_config", "pmg/config/spam",
+                    lambda: pmg_spam_config_op(pmg))
+
+
+@mcp.tool()
+def pmg_service_status(service: str, node: str | None = None) -> dict:
+    """Get the status of a PMG system service (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: /nodes/{node}/services/{service}/state.
+    service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon', 'pmgmirror', 'pmgtunnel',
+             'pmg-smtp-filter', 'clamav', 'spamassassin'. No hardcoded enum —
+             pass any valid service name; unknown names return a PMG 404.
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_service_status", f"pmg/{n}/services/{service}",
+                    lambda: pmg_service_status_op(pmg, service, n))
+
+
+@mcp.tool()
+def pmg_domain_create(domain: str, comment: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION (LOW): create a managed mail domain. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: POST /config/domains.
+    domain: domain name to add (e.g. 'example.com').
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/domains"
+    plan = _plan("pmg_domain_create", tgt,
+                 lambda: pmg_plan_domain_create(domain, comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_domain_create", tgt,
+                    lambda: pmg_domain_create_op(pmg, domain, comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "domain": domain})
+
+
+@mcp.tool()
+def pmg_domain_delete(domain: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete a managed mail domain. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: DELETE /config/domains/{domain}.
+    Mail routing rules referencing this domain may break — review before confirming.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/domains/{domain}"
+    plan = _plan("pmg_domain_delete", tgt,
+                 lambda: pmg_plan_domain_delete(domain))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_domain_delete", tgt,
+                    lambda: pmg_domain_delete_op(pmg, domain),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "domain": domain})
+
+
+@mcp.tool()
+def pmg_transport_create(
+    domain: str,
+    host: str,
+    comment: str | None = None,
+    port: int = 25,
+    protocol: str = "smtp",
+    use_mx: bool = True,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a mail transport rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: POST /config/transport.
+    domain: destination domain. host: next-hop relay host.
+    port: TCP port 1-65535 (default 25). protocol: smtp|lmtp (default smtp).
+    use_mx: use MX lookup for the host (default True).
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/transport"
+    plan = _plan("pmg_transport_create", tgt,
+                 lambda: pmg_plan_transport_create(domain, host, comment, port, protocol, use_mx))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_transport_create", tgt,
+                    lambda: pmg_transport_create_op(pmg, domain, host, comment, port, protocol, use_mx),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "domain": domain, "host": host})
+
+
+@mcp.tool()
+def pmg_transport_delete(domain: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete a mail transport rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: DELETE /config/transport/{domain}.
+    Mail for the domain will fall back to default PMG routing (MX lookup).
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/transport/{domain}"
+    plan = _plan("pmg_transport_delete", tgt,
+                 lambda: pmg_plan_transport_delete(domain))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_transport_delete", tgt,
+                    lambda: pmg_transport_delete_op(pmg, domain),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "domain": domain})
+
+
+@mcp.tool()
+def pmg_mynetworks_add(cidr: str, comment: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION (LOW): add a CIDR to the PMG mynetworks trusted relay list. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: POST /config/mynetworks.
+    cidr: network in CIDR notation (e.g. '10.0.0.0/8'). Only add CIDRs you control.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/mynetworks"
+    plan = _plan("pmg_mynetworks_add", tgt,
+                 lambda: pmg_plan_mynetworks_add(cidr, comment))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_mynetworks_add", tgt,
+                    lambda: pmg_mynetworks_add_op(pmg, cidr, comment),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "cidr": cidr})
+
+
+@mcp.tool()
+def pmg_mynetworks_remove(cidr: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): remove a CIDR from the PMG mynetworks trusted relay list. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: DELETE /config/mynetworks/{cidr} (CIDR URL-encoded).
+    Internal senders in the range will be subject to spam filtering after removal.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/mynetworks/{cidr}"
+    plan = _plan("pmg_mynetworks_remove", tgt,
+                 lambda: pmg_plan_mynetworks_remove(cidr))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_mynetworks_remove", tgt,
+                    lambda: pmg_mynetworks_remove_op(pmg, cidr),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "cidr": cidr})
+
+
+@mcp.tool()
+def pmg_spam_config_update(
+    bounce_score: int | None = None,
+    clamav_heuristic_score: int | None = None,
+    extract_text: bool | None = None,
+    languages: str | None = None,
+    maxspamsize: int | None = None,
+    rbl_checks: bool | None = None,
+    use_awl: bool | None = None,
+    use_bayes: bool | None = None,
+    use_razor: bool | None = None,
+    wl_bounce_relays: str | None = None,
+    delete: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update PMG spam filter configuration. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: PUT /config/spam.
+    Only non-None fields are sent — omitted fields keep their current PMG values.
+    delete: comma-separated list of field names to reset to defaults.
+    Changes take effect immediately on new inbound mail.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/spam"
+    # Build the filtered kwargs once; share between plan and execute paths.
+    kwargs = {k: v for k, v in {
+        "bounce_score": bounce_score,
+        "clamav_heuristic_score": clamav_heuristic_score,
+        "extract_text": extract_text,
+        "languages": languages,
+        "maxspamsize": maxspamsize,
+        "rbl_checks": rbl_checks,
+        "use_awl": use_awl,
+        "use_bayes": use_bayes,
+        "use_razor": use_razor,
+        "wl_bounce_relays": wl_bounce_relays,
+        "delete": delete,
+    }.items() if v is not None}
+    plan = _plan("pmg_spam_config_update", tgt,
+                 lambda: pmg_plan_spam_config_update(**kwargs))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_spam_config_update", tgt,
+                    lambda: pmg_spam_config_update_op(pmg, **kwargs),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@mcp.tool()
+def pmg_quarantine_welcomelist_list(pmail: str | None = None) -> list[dict]:
+    """List PMG quarantine welcomelist entries (read). Optional pmail to scope to one user.
+    Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/welcomelist.
+    pmail defaults to the authenticated user when not provided.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_quarantine_welcomelist_list", "pmg/quarantine/welcomelist",
+                    lambda: pmg_quarantine_welcomelist_list_op(pmg, pmail))
+
+
+@mcp.tool()
+def pmg_quarantine_welcomelist_add(
+    address: str,
+    pmail: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): add an address to the quarantine welcomelist. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: POST /quarantine/welcomelist.
+    pmail: optional per-user scope (defaults to authenticated user).
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/quarantine/welcomelist"
+    plan = _plan("pmg_quarantine_welcomelist_add", tgt,
+                 lambda: pmg_plan_quarantine_welcomelist_add(address, pmail))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_quarantine_welcomelist_add", tgt,
+                    lambda: pmg_quarantine_welcomelist_add_op(pmg, address, pmail),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "address": address})
+
+
+@mcp.tool()
+def pmg_quarantine_welcomelist_remove(
+    address: str,
+    pmail: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): remove an address from the quarantine welcomelist. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: DELETE /quarantine/welcomelist.
+    pmail: optional per-user scope (defaults to authenticated user).
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/quarantine/welcomelist"
+    plan = _plan("pmg_quarantine_welcomelist_remove", tgt,
+                 lambda: pmg_plan_quarantine_welcomelist_remove(address, pmail))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_quarantine_welcomelist_remove", tgt,
+                    lambda: pmg_quarantine_welcomelist_remove_op(pmg, address, pmail),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "address": address})
+
+
+@mcp.tool()
+def pmg_quarantine_blocklist_remove(
+    address: str,
+    pmail: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): remove an address from the quarantine blocklist. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: DELETE /quarantine/blocklist.
+    pmail: optional per-user scope (defaults to authenticated user).
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/quarantine/blocklist"
+    plan = _plan("pmg_quarantine_blocklist_remove", tgt,
+                 lambda: pmg_plan_quarantine_blocklist_remove(address, pmail))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_quarantine_blocklist_remove", tgt,
+                    lambda: pmg_quarantine_blocklist_remove_op(pmg, address, pmail),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "address": address})
+
+
+@mcp.tool()
+def pmg_service_control(
+    service: str,
+    action: str,
+    node: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): start, stop, restart, or reload a PMG service. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/services/{service}/{action}.
+    service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon', 'clamav', 'spamassassin'.
+    action: start|stop|restart|reload.
+
+    WARNING: stop on postfix/pmgproxy/pmgdaemon interrupts mail delivery until manually restarted.
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    tgt = f"pmg/{n}/services/{service}/{action}"
+    plan = _plan("pmg_service_control", tgt,
+                 lambda: pmg_plan_service_control(service, action, n))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_service_control", tgt,
+                    lambda: pmg_service_control_op(pmg, service, action, n),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "service": service, "action": action, "node": n})
+
+
+@mcp.tool()
+def pmg_tracker_list(
+    node: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+    from_: str | None = None,
+    target: str | None = None,
+    xfilter: str | None = None,
+    ndr: bool | None = None,
+    greylist: bool | None = None,
+    limit: int = 2000,
+) -> list[dict]:
+    """List mail tracking entries (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tracker.
+    Maps start/end Unix epoch → starttime/endtime query params.
+    from_: filter by envelope sender; target: filter by recipient.
+    ndr: NDR filter; greylist: greylisting filter.
+    limit: max results 0–100000 (default 2000).
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_tracker_list", f"pmg/{n}/tracker",
+                    lambda: pmg_tracker_list_op(pmg, n, start, end, from_,
+                                                target, xfilter, ndr, greylist, limit))
+
+
+@mcp.tool()
+def pmg_tracker_detail(
+    id_: str,
+    node: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+) -> list[dict]:
+    """Get tracking detail for a specific mail ID (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tracker/{id}.
+    id_: raw mail tracking ID (passed as URL path segment, no sanitisation).
+    Maps start/end Unix epoch → starttime/endtime query params.
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_tracker_detail", f"pmg/{n}/tracker/{id_}",
+                    lambda: pmg_tracker_detail_op(pmg, n, id_, start, end))
+
+
+@mcp.tool()
+def pmg_quarantine_virus(
+    pmail: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+) -> list[dict]:
+    """List virus quarantine entries (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/virus.
+    pmail: per-user scope — defaults to authenticated user (api.config.username).
+    Maps start/end Unix epoch → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_quarantine_virus", "pmg/quarantine/virus",
+                    lambda: pmg_quarantine_virus_op(pmg, pmail, start, end))
+
+
+@mcp.tool()
+def pmg_quarantine_attachment(
+    pmail: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+) -> list[dict]:
+    """List attachment quarantine entries (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/attachment.
+    pmail: per-user scope — defaults to authenticated user (api.config.username).
+    Maps start/end Unix epoch → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_quarantine_attachment", "pmg/quarantine/attachment",
+                    lambda: pmg_quarantine_attachment_op(pmg, pmail, start, end))
+
+
+@mcp.tool()
+def pmg_quarantine_virusstatus() -> dict:
+    """Get virus quarantine status summary (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/virusstatus.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_quarantine_virusstatus", "pmg/quarantine/virusstatus",
+                    lambda: pmg_quarantine_virusstatus_op(pmg))
+
+
+@mcp.tool()
+def pmg_quarantine_spamstatus() -> dict:
+    """Get spam quarantine status summary (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/spamstatus.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_quarantine_spamstatus", "pmg/quarantine/spamstatus",
+                    lambda: pmg_quarantine_spamstatus_op(pmg))
+
+
+@mcp.tool()
+def pmg_quarantine_spamusers(
+    start: int | None = None,
+    end: int | None = None,
+    quarantine_type: str = "spam",
+) -> list[dict]:
+    """List users with quarantined mail entries (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/spamusers.
+    quarantine_type: spam|virus|attachment (default spam) — sent to API as 'quarantine-type'.
+    Maps start/end Unix epoch → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_quarantine_spamusers", "pmg/quarantine/spamusers",
+                    lambda: pmg_quarantine_spamusers_op(pmg, start, end, quarantine_type))
+
+
+@mcp.tool()
+def pmg_statistics_mailcount(
+    start: int | None = None,
+    end: int | None = None,
+    timespan: int = 3600,
+) -> list[dict]:
+    """Get per-bucket mail count statistics (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /statistics/mailcount.
+    timespan: histogram bucket size in seconds, 3600–31622400 (default 3600 = 1 hour).
+    Maps start/end Unix epoch → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_statistics_mailcount", "pmg/statistics/mailcount",
+                    lambda: pmg_statistics_mailcount_op(pmg, start, end, timespan))
+
+
+@mcp.tool()
+def pmg_statistics_sender(
+    start: int | None = None,
+    end: int | None = None,
+    filter_: str | None = None,
+    orderby: str | None = None,
+) -> list[dict]:
+    """Get per-sender mail statistics (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /statistics/sender.
+    filter_: optional search string; orderby: raw sort spec passthrough.
+    Maps start/end Unix epoch → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_statistics_sender", "pmg/statistics/sender",
+                    lambda: pmg_statistics_sender_op(pmg, start, end, filter_, orderby))
+
+
+@mcp.tool()
+def pmg_statistics_receiver(
+    start: int | None = None,
+    end: int | None = None,
+    filter_: str | None = None,
+    orderby: str | None = None,
+) -> list[dict]:
+    """Get per-recipient mail statistics (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /statistics/receiver.
+    filter_: optional search string; orderby: raw sort spec passthrough.
+    Maps start/end Unix epoch → starttime/endtime query params.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_statistics_receiver", "pmg/statistics/receiver",
+                    lambda: pmg_statistics_receiver_op(pmg, start, end, filter_, orderby))
+
+
+@mcp.tool()
+def pmg_node_syslog(
+    node: str | None = None,
+    limit: int | None = None,
+    service: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    start: int | None = None,
+) -> list[dict]:
+    """Get PMG node syslog entries (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/syslog.
+    limit: max entries; service: filter by service name.
+    since/until: time range; start: pagination offset.
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_node_syslog", f"pmg/{n}/syslog",
+                    lambda: pmg_node_syslog_op(pmg, n, limit, service, since, until, start))
+
+
+@mcp.tool()
+def pmg_node_rrddata(
+    timeframe: str,
+    node: str | None = None,
+    cf: str | None = None,
+) -> list[dict]:
+    """Get PMG node RRD performance data (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/rrddata.
+    timeframe: REQUIRED — hour|day|week|month|year.
+    cf: consolidation function AVERAGE|MAX (optional).
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_node_rrddata", f"pmg/{n}/rrddata",
+                    lambda: pmg_node_rrddata_op(pmg, n, timeframe, cf))
+
+
+@mcp.tool()
+def pmg_tasks_list(
+    node: str | None = None,
+    start: int | None = None,
+    limit: int | None = None,
+    userfilter: str | None = None,
+    errors: bool | None = None,
+    typefilter: str | None = None,
+    since: int | None = None,
+    until: int | None = None,
+    statusfilter: str | None = None,
+) -> list[dict]:
+    """List PMG tasks on a node (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tasks.
+    start: pagination offset; limit: max entries.
+    errors: True = only failed tasks; userfilter/typefilter/statusfilter: text filters.
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    return _audited("pmg_tasks_list", f"pmg/{n}/tasks",
+                    lambda: pmg_tasks_list_op(pmg, n, start, limit, userfilter,
+                                              errors, typefilter, since, until, statusfilter))
+
+
+@mcp.tool()
+def pmg_backup_create(
+    node: str | None = None,
+    notify: str = "never",
+    statistic: bool = True,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a PMG configuration backup. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/backup.
+    notify: always|error|never (default never).
+    statistic: include mail statistics in backup (default True).
+    Backup is written to /var/lib/pmg/backup/ on the target node.
+    """
+    cfg, pmg = _pmg()
+    n = node or cfg.node
+    tgt = f"pmg/{n}/backup"
+    plan = _plan("pmg_backup_create", tgt,
+                 lambda: pmg_plan_backup_create(n, notify, statistic))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_backup_create", tgt,
+                    lambda: pmg_backup_create_op(pmg, n, notify, statistic),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "node": n, "notify": notify})
+
+
+@mcp.tool()
+def pmg_ruledb_rules_list() -> list[dict]:
+    """List all PMG RuleDB rules (hydrated rule list) (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules.
+    Returns the full hydrated rule list including from/to/what/when/actions for each rule.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_ruledb_rules_list", "pmg/config/ruledb/rules",
+                    lambda: pmg_ruledb_rules_list_op(pmg))
+
+
+@mcp.tool()
+def pmg_ruledb_rule_get(id_: str) -> dict:
+    """Get a PMG RuleDB rule's configuration (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/config.
+    id_: rule ID (positive integer string, e.g. '100').
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_ruledb_rule_get", f"pmg/config/ruledb/rules/{id_}/config",
+                    lambda: pmg_ruledb_rule_get_op(pmg, id_))
+
+
+@mcp.tool()
+def pmg_ruledb_rule_from_list(id_: str) -> list[dict]:
+    """List the 'from' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/from.
+    id_: rule ID (positive integer string, e.g. '100').
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_ruledb_rule_from_list", f"pmg/config/ruledb/rules/{id_}/from",
+                    lambda: pmg_ruledb_rule_from_list_op(pmg, id_))
+
+
+@mcp.tool()
+def pmg_ruledb_rule_to_list(id_: str) -> list[dict]:
+    """List the 'to' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/to.
+    id_: rule ID (positive integer string, e.g. '100').
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_ruledb_rule_to_list", f"pmg/config/ruledb/rules/{id_}/to",
+                    lambda: pmg_ruledb_rule_to_list_op(pmg, id_))
+
+
+@mcp.tool()
+def pmg_ruledb_rule_what_list(id_: str) -> list[dict]:
+    """List the 'what' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/what.
+    id_: rule ID (positive integer string, e.g. '100').
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_ruledb_rule_what_list", f"pmg/config/ruledb/rules/{id_}/what",
+                    lambda: pmg_ruledb_rule_what_list_op(pmg, id_))
+
+
+@mcp.tool()
+def pmg_ruledb_rule_when_list(id_: str) -> list[dict]:
+    """List the 'when' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/when.
+    id_: rule ID (positive integer string, e.g. '100').
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_ruledb_rule_when_list", f"pmg/config/ruledb/rules/{id_}/when",
+                    lambda: pmg_ruledb_rule_when_list_op(pmg, id_))
+
+
+@mcp.tool()
+def pmg_ruledb_rule_actions_list(id_: str) -> list[dict]:
+    """List the 'actions' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/actions.
+    id_: rule ID (positive integer string, e.g. '100').
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_ruledb_rule_actions_list", f"pmg/config/ruledb/rules/{id_}/actions",
+                    lambda: pmg_ruledb_rule_actions_list_op(pmg, id_))
+
+
+@mcp.tool()
+def pmg_who_groups_list() -> list[dict]:
+    """List all PMG RuleDB 'who' object groups (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/who.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_who_groups_list", "pmg/config/ruledb/who",
+                    lambda: pmg_who_groups_list_op(pmg))
+
+
+@mcp.tool()
+def pmg_who_group_get(ogroup: str) -> dict:
+    """Get a PMG RuleDB 'who' object group's configuration (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/config.
+    ogroup: object group name.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_who_group_get", f"pmg/config/ruledb/who/{ogroup}/config",
+                    lambda: pmg_who_group_get_op(pmg, ogroup))
+
+
+@mcp.tool()
+def pmg_who_group_objects(ogroup: str) -> list[dict]:
+    """List the objects in a PMG RuleDB 'who' object group (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/objects.
+    ogroup: object group name.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_who_group_objects", f"pmg/config/ruledb/who/{ogroup}/objects",
+                    lambda: pmg_who_group_objects_op(pmg, ogroup))
+
+
+@mcp.tool()
+def pmg_what_groups_list() -> list[dict]:
+    """List all PMG RuleDB 'what' object groups (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/what.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_what_groups_list", "pmg/config/ruledb/what",
+                    lambda: pmg_what_groups_list_op(pmg))
+
+
+@mcp.tool()
+def pmg_what_group_get(ogroup: str) -> dict:
+    """Get a PMG RuleDB 'what' object group's configuration (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/config.
+    ogroup: object group name.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_what_group_get", f"pmg/config/ruledb/what/{ogroup}/config",
+                    lambda: pmg_what_group_get_op(pmg, ogroup))
+
+
+@mcp.tool()
+def pmg_what_group_objects(ogroup: str) -> list[dict]:
+    """List the objects in a PMG RuleDB 'what' object group (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/objects.
+    ogroup: object group name.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_what_group_objects", f"pmg/config/ruledb/what/{ogroup}/objects",
+                    lambda: pmg_what_group_objects_op(pmg, ogroup))
+
+
+@mcp.tool()
+def pmg_when_groups_list() -> list[dict]:
+    """List all PMG RuleDB 'when' object groups (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/when.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_when_groups_list", "pmg/config/ruledb/when",
+                    lambda: pmg_when_groups_list_op(pmg))
+
+
+@mcp.tool()
+def pmg_when_group_get(ogroup: str) -> dict:
+    """Get a PMG RuleDB 'when' object group's configuration (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/config.
+    ogroup: object group name.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_when_group_get", f"pmg/config/ruledb/when/{ogroup}/config",
+                    lambda: pmg_when_group_get_op(pmg, ogroup))
+
+
+@mcp.tool()
+def pmg_when_group_objects(ogroup: str) -> list[dict]:
+    """List the objects in a PMG RuleDB 'when' object group (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/objects.
+    ogroup: object group name.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_when_group_objects", f"pmg/config/ruledb/when/{ogroup}/objects",
+                    lambda: pmg_when_group_objects_op(pmg, ogroup))
+
+
+@mcp.tool()
+def pmg_action_objects_list() -> list[dict]:
+    """List all PMG RuleDB action objects including non-editable (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/action/objects.
+    Returns all action objects; each entry carries an 'editable' flag.
+    Non-editable action objects are built-in and cannot be modified via the API.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_action_objects_list", "pmg/config/ruledb/action/objects",
+                    lambda: pmg_action_objects_list_op(pmg))
+
+
+@mcp.tool()
+def pmg_ruledb_digest() -> dict:
+    """Get the PMG RuleDB digest (change-detection hash) (read). Needs PROXIMO_PMG_* config.
+
+    PMG 9.1 pmgsh-verified path: GET /config/ruledb/digest.
+    The digest changes whenever any ruledb configuration is modified.
+    Use to detect configuration drift without fetching the full rule list.
+    """
+    _, pmg = _pmg()
+    return _audited("pmg_ruledb_digest", "pmg/config/ruledb/digest",
+                    lambda: pmg_ruledb_digest_op(pmg))
+
+
+@mcp.tool()
+def pmg_who_group_create(
+    name: str,
+    info: str | None = None,
+    and_: bool | None = None,
+    invert: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a PMG RuleDB 'who' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/who.
+    name: group name.
+    info: optional description.
+    and_: maps to API param 'and' (bool; AND vs OR logic for group members).
+    invert: if True, the group match is inverted.
+    Returns the numeric ogroup ID assigned by PMG on confirm.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/who"
+    plan = _plan("pmg_who_group_create", tgt,
+                 lambda: pmg_plan_who_group_create(name, info, and_, invert))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_who_group_create", tgt,
+                    lambda: pmg_who_group_create_op(pmg, name, info, and_, invert),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_who_group_update(
+    ogroup: str,
+    name: str | None = None,
+    info: str | None = None,
+    and_: bool | None = None,
+    invert: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a PMG RuleDB 'who' object group config. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/who/{ogroup}/config.
+    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
+    Only non-None fields are sent to PMG; omitted fields keep current values.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/who/{ogroup}/config"
+    plan = _plan("pmg_who_group_update", tgt,
+                 lambda: pmg_plan_who_group_update(ogroup, name, info, and_, invert))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_who_group_update", tgt,
+                    lambda: pmg_who_group_update_op(pmg, ogroup, name, info, and_, invert),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_who_group_delete(ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete a PMG RuleDB 'who' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/who/{ogroup}.
+    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
+    WARNING: also removes all objects within the group.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/who/{ogroup}"
+    plan = _plan("pmg_who_group_delete", tgt,
+                 lambda: pmg_plan_who_group_delete(ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_who_group_delete", tgt,
+                    lambda: pmg_who_group_delete_op(pmg, ogroup),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_what_group_create(
+    name: str,
+    info: str | None = None,
+    and_: bool | None = None,
+    invert: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a PMG RuleDB 'what' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/what.
+    name: group name.
+    info: optional description.
+    and_: maps to API param 'and' (bool; AND vs OR logic for group members).
+    invert: if True, the group match is inverted.
+    Returns the numeric ogroup ID assigned by PMG on confirm.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/what"
+    plan = _plan("pmg_what_group_create", tgt,
+                 lambda: pmg_plan_what_group_create(name, info, and_, invert))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_what_group_create", tgt,
+                    lambda: pmg_what_group_create_op(pmg, name, info, and_, invert),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_what_group_update(
+    ogroup: str,
+    name: str | None = None,
+    info: str | None = None,
+    and_: bool | None = None,
+    invert: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a PMG RuleDB 'what' object group config. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/what/{ogroup}/config.
+    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
+    Only non-None fields are sent to PMG; omitted fields keep current values.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/what/{ogroup}/config"
+    plan = _plan("pmg_what_group_update", tgt,
+                 lambda: pmg_plan_what_group_update(ogroup, name, info, and_, invert))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_what_group_update", tgt,
+                    lambda: pmg_what_group_update_op(pmg, ogroup, name, info, and_, invert),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_what_group_delete(ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete a PMG RuleDB 'what' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/what/{ogroup}.
+    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
+    WARNING: also removes all objects within the group.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/what/{ogroup}"
+    plan = _plan("pmg_what_group_delete", tgt,
+                 lambda: pmg_plan_what_group_delete(ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_what_group_delete", tgt,
+                    lambda: pmg_what_group_delete_op(pmg, ogroup),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_when_group_create(
+    name: str,
+    info: str | None = None,
+    and_: bool | None = None,
+    invert: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a PMG RuleDB 'when' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/when.
+    name: group name.
+    info: optional description.
+    and_: maps to API param 'and' (bool; AND vs OR logic for group members).
+    invert: if True, the group match is inverted.
+    Returns the numeric ogroup ID assigned by PMG on confirm.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/when"
+    plan = _plan("pmg_when_group_create", tgt,
+                 lambda: pmg_plan_when_group_create(name, info, and_, invert))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_when_group_create", tgt,
+                    lambda: pmg_when_group_create_op(pmg, name, info, and_, invert),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_when_group_update(
+    ogroup: str,
+    name: str | None = None,
+    info: str | None = None,
+    and_: bool | None = None,
+    invert: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a PMG RuleDB 'when' object group config. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/when/{ogroup}/config.
+    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
+    Only non-None fields are sent to PMG; omitted fields keep current values.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/when/{ogroup}/config"
+    plan = _plan("pmg_when_group_update", tgt,
+                 lambda: pmg_plan_when_group_update(ogroup, name, info, and_, invert))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_when_group_update", tgt,
+                    lambda: pmg_when_group_update_op(pmg, ogroup, name, info, and_, invert),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_when_group_delete(ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete a PMG RuleDB 'when' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/when/{ogroup}.
+    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
+    WARNING: also removes all objects within the group.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/when/{ogroup}"
+    plan = _plan("pmg_when_group_delete", tgt,
+                 lambda: pmg_plan_when_group_delete(ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_when_group_delete", tgt,
+                    lambda: pmg_when_group_delete_op(pmg, ogroup),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_who_object_add(
+    ogroup: str,
+    type_: str,
+    email: str | None = None,
+    domain: str | None = None,
+    regex: str | None = None,
+    ip: str | None = None,
+    cidr: str | None = None,
+    mode: str | None = None,
+    profile: str | None = None,
+    group: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): add an object to a PMG RuleDB 'who' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/who/{ogroup}/{type}.
+    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
+    type_: email|domain|regex|ip|network|ldap — controls the sub-path.
+    Type-specific fields: email(email), domain(domain), regex(regex), ip(ip),
+    network(cidr), ldap(mode, profile, group).
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/who/{ogroup}/{type_}"
+    plan = _plan("pmg_who_object_add", tgt,
+                 lambda: pmg_plan_who_object_add(
+                     ogroup, type_,
+                     email=email, domain=domain, regex=regex, ip=ip,
+                     cidr=cidr, mode=mode, profile=profile, group=group,
+                 ))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_who_object_add", tgt,
+                    lambda: pmg_who_object_add_op(
+                        pmg, ogroup, type_,
+                        email=email, domain=domain, regex=regex, ip=ip,
+                        cidr=cidr, mode=mode, profile=profile, group=group,
+                    ),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup, "type": type_})
+
+
+@mcp.tool()
+def pmg_who_object_update(
+    ogroup: str,
+    type_: str,
+    id_: str,
+    email: str | None = None,
+    domain: str | None = None,
+    regex: str | None = None,
+    ip: str | None = None,
+    cidr: str | None = None,
+    mode: str | None = None,
+    profile: str | None = None,
+    group: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update an object in a PMG RuleDB 'who' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/who/{ogroup}/{type}/{id}.
+    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
+    type_: email|domain|regex|ip|network|ldap — controls the sub-path.
+    id_: object ID (numeric string) from pmg_who_group_objects.
+    All type-specific fields optional; only non-None fields are sent.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/who/{ogroup}/{type_}/{id_}"
+    plan = _plan("pmg_who_object_update", tgt,
+                 lambda: pmg_plan_who_object_update(
+                     ogroup, type_, id_,
+                     email=email, domain=domain, regex=regex, ip=ip,
+                     cidr=cidr, mode=mode, profile=profile, group=group,
+                 ))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_who_object_update", tgt,
+                    lambda: pmg_who_object_update_op(
+                        pmg, ogroup, type_, id_,
+                        email=email, domain=domain, regex=regex, ip=ip,
+                        cidr=cidr, mode=mode, profile=profile, group=group,
+                    ),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_})
+
+
+@mcp.tool()
+def pmg_who_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete an object from a PMG RuleDB 'who' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/who/{ogroup}/objects/{id}.
+    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
+    id_: object ID (numeric string) from pmg_who_group_objects.
+    Object DELETE always goes through /objects/{id} regardless of type.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/who/{ogroup}/objects/{id_}"
+    plan = _plan("pmg_who_object_delete", tgt,
+                 lambda: pmg_plan_who_object_delete(ogroup, id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_who_object_delete", tgt,
+                    lambda: pmg_who_object_delete_op(pmg, ogroup, id_),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup, "id": id_})
+
+
+# ---------------------------------------------------------------------------
+# W5c: WHAT-object CRUD tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def pmg_what_object_add(
+    ogroup: str,
+    type_: str,
+    contenttype: str | None = None,
+    only_content: bool | None = None,
+    field: str | None = None,
+    value: str | None = None,
+    top_part_only: bool | None = None,
+    spamlevel: int | None = None,
+    filename: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): add an object to a PMG RuleDB 'what' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/what/{ogroup}/{type}.
+    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
+    type_: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.
+    Type-specific fields: contenttype+only_content (contenttype/archivefilter),
+    field+value+top_part_only (matchfield), spamlevel (spamfilter), filename (filenamefilter/archivefilenamefilter).
+    only_content maps to API param 'only-content'; top_part_only → 'top-part-only'.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/what/{ogroup}/{type_}"
+    plan = _plan("pmg_what_object_add", tgt,
+                 lambda: pmg_plan_what_object_add(
+                     ogroup, type_,
+                     contenttype=contenttype, only_content=only_content,
+                     field=field, value=value, top_part_only=top_part_only,
+                     spamlevel=spamlevel, filename=filename,
+                 ))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_what_object_add", tgt,
+                    lambda: pmg_what_object_add_op(
+                        pmg, ogroup, type_,
+                        contenttype=contenttype, only_content=only_content,
+                        field=field, value=value, top_part_only=top_part_only,
+                        spamlevel=spamlevel, filename=filename,
+                    ),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup, "type": type_})
+
+
+@mcp.tool()
+def pmg_what_object_update(
+    ogroup: str,
+    type_: str,
+    id_: str,
+    contenttype: str | None = None,
+    only_content: bool | None = None,
+    field: str | None = None,
+    value: str | None = None,
+    top_part_only: bool | None = None,
+    spamlevel: int | None = None,
+    filename: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update an object in a PMG RuleDB 'what' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/what/{ogroup}/{type}/{id}.
+    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
+    type_: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.
+    id_: object ID (numeric string) from pmg_what_group_objects.
+    All type-specific fields optional; only non-None fields are sent.
+    only_content → 'only-content'; top_part_only → 'top-part-only'.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/what/{ogroup}/{type_}/{id_}"
+    plan = _plan("pmg_what_object_update", tgt,
+                 lambda: pmg_plan_what_object_update(
+                     ogroup, type_, id_,
+                     contenttype=contenttype, only_content=only_content,
+                     field=field, value=value, top_part_only=top_part_only,
+                     spamlevel=spamlevel, filename=filename,
+                 ))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_what_object_update", tgt,
+                    lambda: pmg_what_object_update_op(
+                        pmg, ogroup, type_, id_,
+                        contenttype=contenttype, only_content=only_content,
+                        field=field, value=value, top_part_only=top_part_only,
+                        spamlevel=spamlevel, filename=filename,
+                    ),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_})
+
+
+@mcp.tool()
+def pmg_what_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete an object from a PMG RuleDB 'what' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/what/{ogroup}/objects/{id}.
+    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
+    id_: object ID (numeric string) from pmg_what_group_objects.
+    Object DELETE always goes through /objects/{id} regardless of type.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/what/{ogroup}/objects/{id_}"
+    plan = _plan("pmg_what_object_delete", tgt,
+                 lambda: pmg_plan_what_object_delete(ogroup, id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_what_object_delete", tgt,
+                    lambda: pmg_what_object_delete_op(pmg, ogroup, id_),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup, "id": id_})
+
+
+# ---------------------------------------------------------------------------
+# W5c: WHEN-object CRUD tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def pmg_when_object_add(
+    ogroup: str,
+    start: str,
+    end: str,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): add a timeframe object to a PMG RuleDB 'when' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/when/{ogroup}/timeframe.
+    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
+    start: time in H:i format (e.g. '08:00').
+    end: time in H:i format (e.g. '17:00').
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/when/{ogroup}/timeframe"
+    plan = _plan("pmg_when_object_add", tgt,
+                 lambda: pmg_plan_when_object_add(ogroup, start=start, end=end))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_when_object_add", tgt,
+                    lambda: pmg_when_object_add_op(pmg, ogroup, start=start, end=end),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_when_object_update(
+    ogroup: str,
+    id_: str,
+    start: str,
+    end: str,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a timeframe object in a PMG RuleDB 'when' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/when/{ogroup}/timeframe/{id}.
+    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
+    id_: object ID (numeric string) from pmg_when_group_objects.
+    Both start and end are required — PMG 9.1 timeframe PUT rejects partial updates (400).
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/when/{ogroup}/timeframe/{id_}"
+    plan = _plan("pmg_when_object_update", tgt,
+                 lambda: pmg_plan_when_object_update(ogroup, id_, start=start, end=end))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_when_object_update", tgt,
+                    lambda: pmg_when_object_update_op(pmg, ogroup, id_, start=start, end=end),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup, "id": id_})
+
+
+@mcp.tool()
+def pmg_when_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete a timeframe object from a PMG RuleDB 'when' object group. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/when/{ogroup}/objects/{id}.
+    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
+    id_: object ID (numeric string) from pmg_when_group_objects.
+    Object DELETE always goes through /objects/{id} regardless of type.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/when/{ogroup}/objects/{id_}"
+    plan = _plan("pmg_when_object_delete", tgt,
+                 lambda: pmg_plan_when_object_delete(ogroup, id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_when_object_delete", tgt,
+                    lambda: pmg_when_object_delete_op(pmg, ogroup, id_),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "ogroup": ogroup, "id": id_})
+
+
+# ---------------------------------------------------------------------------
+# W5c: ACTION CRUD tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def pmg_action_bcc_create(
+    name: str,
+    target: str,
+    info: str | None = None,
+    original: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a BCC action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/bcc.
+    name: action object name. target: BCC recipient email address.
+    info: optional description. original: if True, BCC the original sender.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/action/bcc"
+    plan = _plan("pmg_action_bcc_create", tgt,
+                 lambda: pmg_plan_action_bcc_create(name, target))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_bcc_create", tgt,
+                    lambda: pmg_action_bcc_create_op(pmg, name=name, target=target,
+                                                     info=info, original=original),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_action_bcc_update(
+    id_: str,
+    name: str | None = None,
+    target: str | None = None,
+    info: str | None = None,
+    original: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a BCC action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/bcc/{id}.
+    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
+    Only non-None fields are sent; omitted fields keep current values.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/action/bcc/{id_}"
+    plan = _plan("pmg_action_bcc_update", tgt,
+                 lambda: pmg_plan_action_bcc_update(id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_bcc_update", tgt,
+                    lambda: pmg_action_bcc_update_op(pmg, id_, name=name, target=target,
+                                                     info=info, original=original),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+
+
+@mcp.tool()
+def pmg_action_field_create(
+    name: str,
+    field: str,
+    value: str,
+    info: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a field-modification action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/field.
+    name: action object name. field: mail header field to set. value: value to assign.
+    info: optional description.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/action/field"
+    plan = _plan("pmg_action_field_create", tgt,
+                 lambda: pmg_plan_action_field_create(name, field, value))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_field_create", tgt,
+                    lambda: pmg_action_field_create_op(pmg, name=name, field=field,
+                                                       value=value, info=info),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_action_field_update(
+    id_: str,
+    name: str,
+    field: str,
+    value: str,
+    info: str | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a field-modification action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/field/{id}.
+    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
+    name, field, value all required — PMG 9.1 field action PUT rejects partial updates (400).
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/action/field/{id_}"
+    plan = _plan("pmg_action_field_update", tgt,
+                 lambda: pmg_plan_action_field_update(id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_field_update", tgt,
+                    lambda: pmg_action_field_update_op(pmg, id_, name=name, field=field,
+                                                       value=value, info=info),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+
+
+@mcp.tool()
+def pmg_action_notification_create(
+    name: str,
+    to: str,
+    subject: str,
+    body_text: str,
+    info: str | None = None,
+    attach: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a notification action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/notification.
+    name: action name. to: notification recipient. subject: notification subject.
+    body_text: notification body (maps to API param 'body'). attach: attach original message.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/action/notification"
+    plan = _plan("pmg_action_notification_create", tgt,
+                 lambda: pmg_plan_action_notification_create(name, to))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_notification_create", tgt,
+                    lambda: pmg_action_notification_create_op(
+                        pmg, name=name, to=to, subject=subject,
+                        body_text=body_text, info=info, attach=attach,
+                    ),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_action_notification_update(
+    id_: str,
+    name: str,
+    to: str,
+    subject: str,
+    body_text: str,
+    info: str | None = None,
+    attach: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a notification action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/notification/{id}.
+    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
+    name, to, subject, body_text all required — PMG 9.1 notification PUT rejects partial updates (400).
+    body_text maps to API param 'body'.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/action/notification/{id_}"
+    plan = _plan("pmg_action_notification_update", tgt,
+                 lambda: pmg_plan_action_notification_update(id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_notification_update", tgt,
+                    lambda: pmg_action_notification_update_op(
+                        pmg, id_, name=name, to=to, subject=subject,
+                        body_text=body_text, info=info, attach=attach,
+                    ),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+
+
+@mcp.tool()
+def pmg_action_disclaimer_create(
+    name: str,
+    disclaimer: str,
+    info: str | None = None,
+    position: str | None = None,
+    add_separator: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a disclaimer action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/disclaimer.
+    name: action name. disclaimer: disclaimer text. position: start|end.
+    add_separator: maps to API param 'add-separator' (bool).
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/action/disclaimer"
+    plan = _plan("pmg_action_disclaimer_create", tgt,
+                 lambda: pmg_plan_action_disclaimer_create(name))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_disclaimer_create", tgt,
+                    lambda: pmg_action_disclaimer_create_op(
+                        pmg, name=name, disclaimer=disclaimer,
+                        info=info, position=position, add_separator=add_separator,
+                    ),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_action_disclaimer_update(
+    id_: str,
+    name: str | None = None,
+    disclaimer: str | None = None,
+    info: str | None = None,
+    position: str | None = None,
+    add_separator: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a disclaimer action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/disclaimer/{id}.
+    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
+    position: start|end (validated). add_separator → 'add-separator'. Only non-None fields sent.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/action/disclaimer/{id_}"
+    plan = _plan("pmg_action_disclaimer_update", tgt,
+                 lambda: pmg_plan_action_disclaimer_update(id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_disclaimer_update", tgt,
+                    lambda: pmg_action_disclaimer_update_op(
+                        pmg, id_, name=name, disclaimer=disclaimer,
+                        info=info, position=position, add_separator=add_separator,
+                    ),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+
+
+@mcp.tool()
+def pmg_action_removeattachments_create(
+    name: str,
+    text: str,
+    info: str | None = None,
+    all_: bool | None = None,
+    quarantine: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (LOW): create a remove-attachments action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/removeattachments.
+    name: action name. text: replacement text for removed attachments.
+    all_: maps to API param 'all' (bool; remove all attachments).
+    quarantine: if True, quarantine removed attachments.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/action/removeattachments"
+    plan = _plan("pmg_action_removeattachments_create", tgt,
+                 lambda: pmg_plan_action_removeattachments_create(name))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_removeattachments_create", tgt,
+                    lambda: pmg_action_removeattachments_create_op(
+                        pmg, name=name, text=text, info=info,
+                        all_=all_, quarantine=quarantine,
+                    ),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_action_removeattachments_update(
+    id_: str,
+    name: str | None = None,
+    text: str | None = None,
+    info: str | None = None,
+    all_: bool | None = None,
+    quarantine: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a remove-attachments action object in the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/removeattachments/{id}.
+    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
+    all_: maps to API param 'all' (bool). Only non-None fields are sent.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/action/removeattachments/{id_}"
+    plan = _plan("pmg_action_removeattachments_update", tgt,
+                 lambda: pmg_plan_action_removeattachments_update(id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_removeattachments_update", tgt,
+                    lambda: pmg_action_removeattachments_update_op(
+                        pmg, id_, name=name, text=text, info=info,
+                        all_=all_, quarantine=quarantine,
+                    ),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+
+
+@mcp.tool()
+def pmg_action_delete(id_: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete an action object from the PMG RuleDB. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/action/objects/{id}.
+    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
+    NOTE: PMG rejects deletion of non-editable (built-in) system action objects.
+    Check 'editable' flag in pmg_action_objects_list before confirming.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/action/objects/{id_}"
+    plan = _plan("pmg_action_delete", tgt,
+                 lambda: pmg_plan_action_delete(id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_action_delete", tgt,
+                    lambda: pmg_action_delete_op(pmg, id_),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_create(
+    name: str,
+    priority: int,
+    active: bool = False,
+    direction: int | None = None,
+    from_and: bool | None = None,
+    from_invert: bool | None = None,
+    to_and: bool | None = None,
+    to_invert: bool | None = None,
+    what_and: bool | None = None,
+    what_invert: bool | None = None,
+    when_and: bool | None = None,
+    when_invert: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): create a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules.
+    name: rule name. priority: 0-100 (lower = higher priority).
+    active: DEFAULTS TO FALSE — rules control live mail processing; only activate
+    when the rule configuration and group attachments have been verified.
+    direction: 0=inbound, 1=outbound, 2=both.
+    from_and/from_invert/to_and/to_invert/what_and/what_invert/when_and/when_invert:
+        optional bool flags for AND/invert logic (map to hyphen-param API names).
+    Returns the numeric rule ID assigned by PMG on confirm.
+    """
+    _, pmg = _pmg()
+    tgt = "pmg/config/ruledb/rules"
+    plan = _plan("pmg_ruledb_rule_create", tgt,
+                 lambda: pmg_plan_ruledb_rule_create(
+                     name, priority, active, direction,
+                     from_and, from_invert, to_and, to_invert,
+                     what_and, what_invert, when_and, when_invert,
+                 ))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_create", tgt,
+                    lambda: pmg_ruledb_rule_create_op(
+                        pmg, name, priority, active, direction,
+                        from_and, from_invert, to_and, to_invert,
+                        what_and, what_invert, when_and, when_invert,
+                    ),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_update(
+    id_: str,
+    name: str | None = None,
+    priority: int | None = None,
+    active: bool | None = None,
+    direction: int | None = None,
+    from_and: bool | None = None,
+    from_invert: bool | None = None,
+    to_and: bool | None = None,
+    to_invert: bool | None = None,
+    what_and: bool | None = None,
+    what_invert: bool | None = None,
+    when_and: bool | None = None,
+    when_invert: bool | None = None,
+    confirm: bool = False,
+) -> dict:
+    """MUTATION (MEDIUM): update a PMG RuleDB rule configuration. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/rules/{id}/config.
+    id_: rule ID (positive integer string, e.g. '100').
+    All other fields are optional; only non-None values are sent.
+    WARNING: setting active=True activates the rule and begins live mail processing.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/config"
+    plan = _plan("pmg_ruledb_rule_update", tgt,
+                 lambda: pmg_plan_ruledb_rule_update(
+                     id_, name, priority, active, direction,
+                     from_and, from_invert, to_and, to_invert,
+                     what_and, what_invert, when_and, when_invert,
+                 ))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_update", tgt,
+                    lambda: pmg_ruledb_rule_update_op(
+                        pmg, id_, name, priority, active, direction,
+                        from_and, from_invert, to_and, to_invert,
+                        what_and, what_invert, when_and, when_invert,
+                    ),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_delete(id_: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): delete a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}.
+    id_: rule ID (positive integer string, e.g. '100').
+    WARNING: permanently removes the rule and all its group bindings.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}"
+    plan = _plan("pmg_ruledb_rule_delete", tgt,
+                 lambda: pmg_plan_ruledb_rule_delete(id_))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_delete", tgt,
+                    lambda: pmg_ruledb_rule_delete_op(pmg, id_),
+                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_from_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): attach a 'from' (sender/who) group to a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/from.
+    id_: rule ID. ogroup: numeric who-group ID from pmg_who_groups_list.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/from"
+    plan = _plan("pmg_ruledb_rule_from_attach", tgt,
+                 lambda: pmg_plan_ruledb_rule_from_attach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_from_attach", tgt,
+                    lambda: pmg_ruledb_rule_from_attach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_from_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): detach a 'from' (sender/who) group from a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/from/{ogroup}.
+    id_: rule ID. ogroup: numeric who-group ID to detach.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/from/{ogroup}"
+    plan = _plan("pmg_ruledb_rule_from_detach", tgt,
+                 lambda: pmg_plan_ruledb_rule_from_detach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_from_detach", tgt,
+                    lambda: pmg_ruledb_rule_from_detach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_to_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): attach a 'to' (recipient/who) group to a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/to.
+    id_: rule ID. ogroup: numeric who-group ID from pmg_who_groups_list.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/to"
+    plan = _plan("pmg_ruledb_rule_to_attach", tgt,
+                 lambda: pmg_plan_ruledb_rule_to_attach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_to_attach", tgt,
+                    lambda: pmg_ruledb_rule_to_attach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_to_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): detach a 'to' (recipient/who) group from a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/to/{ogroup}.
+    id_: rule ID. ogroup: numeric who-group ID to detach.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/to/{ogroup}"
+    plan = _plan("pmg_ruledb_rule_to_detach", tgt,
+                 lambda: pmg_plan_ruledb_rule_to_detach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_to_detach", tgt,
+                    lambda: pmg_ruledb_rule_to_detach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_what_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): attach a 'what' (content) group to a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/what.
+    id_: rule ID. ogroup: numeric what-group ID from pmg_what_groups_list.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/what"
+    plan = _plan("pmg_ruledb_rule_what_attach", tgt,
+                 lambda: pmg_plan_ruledb_rule_what_attach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_what_attach", tgt,
+                    lambda: pmg_ruledb_rule_what_attach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_what_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): detach a 'what' (content) group from a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/what/{ogroup}.
+    id_: rule ID. ogroup: numeric what-group ID to detach.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/what/{ogroup}"
+    plan = _plan("pmg_ruledb_rule_what_detach", tgt,
+                 lambda: pmg_plan_ruledb_rule_what_detach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_what_detach", tgt,
+                    lambda: pmg_ruledb_rule_what_detach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_when_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): attach a 'when' (timeframe) group to a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/when.
+    id_: rule ID. ogroup: numeric when-group ID from pmg_when_groups_list.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/when"
+    plan = _plan("pmg_ruledb_rule_when_attach", tgt,
+                 lambda: pmg_plan_ruledb_rule_when_attach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_when_attach", tgt,
+                    lambda: pmg_ruledb_rule_when_attach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_when_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): detach a 'when' (timeframe) group from a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/when/{ogroup}.
+    id_: rule ID. ogroup: numeric when-group ID to detach.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/when/{ogroup}"
+    plan = _plan("pmg_ruledb_rule_when_detach", tgt,
+                 lambda: pmg_plan_ruledb_rule_when_detach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_when_detach", tgt,
+                    lambda: pmg_ruledb_rule_when_detach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_action_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): attach an action group to a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 live-verified path: POST /config/ruledb/rules/{id}/action (singular; /actions returns 501).
+    id_: rule ID. ogroup: numeric action group ID from pmg_action_objects_list.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/action"
+    plan = _plan("pmg_ruledb_rule_action_attach", tgt,
+                 lambda: pmg_plan_ruledb_rule_action_attach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_action_attach", tgt,
+                    lambda: pmg_ruledb_rule_action_attach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+@mcp.tool()
+def pmg_ruledb_rule_action_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+    """MUTATION (MEDIUM): detach an action group from a PMG RuleDB rule. Dry-run by default.
+    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    PMG 9.1 live-verified path: DELETE /config/ruledb/rules/{id}/action/{ogroup} (singular; /actions returns 501).
+    id_: rule ID. ogroup: numeric action group ID to detach.
+    Only affects mail flow if the rule is active.
+    """
+    _, pmg = _pmg()
+    tgt = f"pmg/config/ruledb/rules/{id_}/action/{ogroup}"
+    plan = _plan("pmg_ruledb_rule_action_detach", tgt,
+                 lambda: pmg_plan_ruledb_rule_action_detach(id_, ogroup))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_rule_action_detach", tgt,
+                    lambda: pmg_ruledb_rule_action_detach_op(pmg, id_, ogroup),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
 def main() -> None:

@@ -4,6 +4,58 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-06-26
+
+### Added
+- **PMG surface — 104 new tools (Proxmox Mail Gateway).** Full coverage of the PMG 9.1 API
+  behind a dedicated `PmgBackend` (ticket-based auth: `POST /access/ticket` → PMGAuthCookie +
+  CSRFPreventionToken; TLS-strict, fail-closed, credential never logged or cached on disk):
+  - **Observability:** node status, mail statistics, per-sender/domain/virus/spamscore statistics,
+    quarantine spam/virus/attachment status, syslog, RRD node performance data.
+  - **Quarantine:** spam/virus/attachment list, per-user spam scores, blocklist and welcomelist CRUD
+    (add/remove), `pmg_quarantine_action` (confirm-gated: deliver/delete/mark-seen/blocklist/welcomelist).
+  - **Config CRUD:** managed domains (list/create/delete), transport maps (list/create/delete),
+    `mynetworks` CIDR entries (list/add/remove), spam config read + confirm-gated update,
+    mail relay/smarthost config, TLS/ACME/subscription read.
+  - **Service control:** service status and `pmg_service_control` (confirm-gated restart/stop/start
+    per `pmg-smtp-filter`, `postfix`, `pmgproxy`, `pmgdaemon`).
+  - **RuleDB filtering engine:** full rule/action/object-group management — groups (list/create/
+    delete/update), object types (`who`/`what`/`when`/`action`/`timeframe`), rules (list/create/
+    delete/update), object assignment (`add_to`/`remove_from`), and rule ordering
+    (`pmg_ruledb_apply` confirm-gated).
+  - **Backup:** `pmg_backup_run` (confirm-gated scheduled-backup trigger).
+  - **Postfix:** queue shape (`pmg_postfix_qshape`) and `pmg_postfix_flush` (confirm-gated queue
+    flush).
+  - **Doctor:** `pmg_doctor` reads version, access permissions, and node status to verify
+    connectivity and token scope — same startup-verify pattern as `pve_doctor`.
+- **PMG quarantine tool surface cleanup (breaking, pre-release).** The deliver path previously had
+  its own dedicated tool (`pmg_quarantine_deliver`); it was a strict subset of
+  `pmg_quarantine_action(action="deliver")` — already live-proven — and was removed to keep one
+  consistent action surface. The `pmg_quarantine_list` tool (spam quarantine only) is renamed
+  `pmg_quarantine_spam` for symmetry with `pmg_quarantine_virus` / `pmg_quarantine_attachment`. The
+  read-collection tools `pmg_quarantine_blocklist` and `pmg_quarantine_welcomelist` gain the `_list`
+  suffix (`pmg_quarantine_blocklist_list`, `pmg_quarantine_welcomelist_list`) matching every other
+  read-collection tool (`pmg_domains_list`, `pbs_*_list`, etc.). The mutators
+  (`pmg_quarantine_blocklist_add` / `_remove`, `pmg_quarantine_welcomelist_add` / `_remove`) are
+  unchanged. Tool count: 326 → 325 (PMG 104 → 103).
+- **+6 PBS coverage tools** — fills gaps in the PBS surface: `pbs_remotes_list`,
+  `pbs_remote_get`, `pbs_datastores_list` (all-datastore view), `pbs_datastore_status` (per-
+  datastore detail), `pbs_traffic_control_list`, `pbs_sync_jobs_list`.
+
+### Fixed
+- **`pbs_group_change_owner`** now issues `POST /admin/datastore/{ds}/change-owner` (was `PUT`,
+  which PBS 4.2 rejects with HTTP 404). Caught by live-smoke against the test PBS instance —
+  a case where mocks passed but the wire failed.
+
+### Changed
+- Tool count **145 → 325** (PVE 184 + PBS 33 + PMG 103 + `ct_*` 4 + `audit` 1).
+- All three Proxmox surfaces (VE · Backup Server · Mail Gateway) are now **live-proven** against
+  real Proxmox instances. PMG W1–W5 smoke confirmed: auth, read shapes, safe CRUD cycles (domain/
+  transport/mynetworks/spam-config/welcomelist/blocklist), service restart + polling, RuleDB
+  paths, and PLAN-path honesty on confirm-gated ops.
+- `pyproject.toml` description and keywords updated to reflect the three-surface control plane
+  (`pmg`, `mail-gateway` added to keywords).
+
 ## [0.7.4] — 2026-06-24
 
 ### Added

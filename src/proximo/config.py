@@ -26,6 +26,8 @@ class ProximoConfig:
 
     # --- Safety ---
     ct_allowlist: frozenset[str] = frozenset()  # empty=DENY all (fail-closed); "*"=allow all; else exact CTIDs
+    enable_agent: bool = False  # OFF by default (API-only, safe). True enables qemu-agent ops on VMs.
+    agent_allowlist: frozenset[str] = frozenset()  # empty=DENY all; "*"=allow all; else exact VMIDs
     audit_log_path: str = os.path.expanduser("~/.local/state/proximo/audit.log")
     verify_tls: bool = True
     ca_bundle: str | None = None  # path to the internal/Caddy CA bundle; preferred over disabling TLS verify
@@ -47,9 +49,13 @@ class ProximoConfig:
         allow = os.environ.get("PROXIMO_CT_ALLOWLIST", "").strip()
         ct_allowlist = frozenset(c.strip() for c in allow.split(",") if c.strip())
 
+        agent_allow = os.environ.get("PROXIMO_AGENT_ALLOWLIST", "").strip()
+        agent_allowlist = frozenset(c.strip() for c in agent_allow.split(",") if c.strip())
+
         verify_tls = os.environ.get("PROXIMO_VERIFY_TLS", "true").lower() != "false"
         ca_bundle = os.environ.get("PROXIMO_CA_BUNDLE") or None
         enable_exec = os.environ.get("PROXIMO_ENABLE_EXEC", "false").lower() in ("1", "true", "yes", "on")
+        enable_agent = os.environ.get("PROXIMO_ENABLE_AGENT", "false").lower() in ("1", "true", "yes", "on")
         audit_key_path = os.environ.get("PROXIMO_AUDIT_KEY_PATH") or None
         audit_keyed = os.environ.get("PROXIMO_AUDIT_KEYED", "true").strip().lower() not in (
             "0", "false", "off", "no")
@@ -83,6 +89,17 @@ class ProximoConfig:
                 "PVE host; scope the ssh user and set a CTID allowlist.",
                 stacklevel=2,
             )
+        if enable_agent:
+            warnings.warn(
+                "PROXIMO_ENABLE_AGENT is on — qemu-agent ops enabled. Set a VMID allowlist "
+                "(PROXIMO_AGENT_ALLOWLIST) to restrict which guests can be reached.",
+                stacklevel=2,
+            )
+        if "*" in agent_allowlist:
+            warnings.warn(
+                "PROXIMO_AGENT_ALLOWLIST='*' — qemu-agent can reach ALL VMs (least-privilege disabled).",
+                stacklevel=2,
+            )
 
         return cls(
             api_base_url=api_base_url.rstrip("/"),
@@ -98,6 +115,8 @@ class ProximoConfig:
             audit_keyed=audit_keyed,
             redact_ledger=redact_ledger,
             expected_head=expected_head,
+            enable_agent=enable_agent,
+            agent_allowlist=agent_allowlist,
         )
 
     def ct_permitted(self, ctid: str) -> bool:
@@ -112,6 +131,19 @@ class ProximoConfig:
         if "*" in self.ct_allowlist:
             return True
         return str(ctid) in self.ct_allowlist
+
+    def agent_permitted(self, vmid: str) -> bool:
+        """Least-privilege gate for qemu-agent ops — fails CLOSED.
+
+        Empty allowlist => deny everything (you must opt in).
+        "*" => allow all VMIDs (warned about at load time).
+        Otherwise => exact VMID match only.
+        """
+        if not self.agent_allowlist:
+            return False
+        if "*" in self.agent_allowlist:
+            return True
+        return str(vmid) in self.agent_allowlist
 
     @property
     def is_local(self) -> bool:

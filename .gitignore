@@ -34,3 +34,6 @@ uv.lock
 
 # Throwaway verification/smoke scratch (may hold local paths; never commit)
 .scratch/
+
+# internal session scratch — never publish
+.remember/

@@ -42,6 +42,7 @@ from proximo.pbs import (
     prune,
     snapshot_delete,
     snapshots_list,
+    tasks_list,
     verify_start,
 )
 from proximo.planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM
@@ -625,6 +626,55 @@ class TestNamespaceList:
         api = _api()
         with pytest.raises(ProximoError):
             namespace_list(api, "bad/store")
+
+
+class TestTasksList:
+    def test_default_node_is_localhost(self):
+        api = _api()
+        tasks_list(api)
+        assert api.seen["path"] == "/nodes/localhost/tasks"
+        assert api.seen["method"] == "GET"
+
+    def test_custom_node_interpolated_in_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (api.seen.update(path=path) or [])
+        tasks_list(api, node="pbs-node-2")
+        assert api.seen["path"] == "/nodes/pbs-node-2/tasks"
+
+    def test_no_params_by_default(self):
+        api = _api()
+        tasks_list(api)
+        assert api.seen["params"] == {}
+
+    def test_limit_sent_as_int_param(self):
+        api = _api()
+        tasks_list(api, limit=50)
+        assert api.seen["params"].get("limit") == 50
+
+    def test_running_param_passed_through(self):
+        api = _api()
+        tasks_list(api, running=True)
+        assert api.seen["params"].get("running") is True
+
+    def test_errors_param_passed_through(self):
+        api = _api()
+        tasks_list(api, errors=True)
+        assert api.seen["params"].get("errors") is True
+
+    def test_none_params_omitted(self):
+        api = _api()
+        tasks_list(api, limit=None, running=None, errors=None)
+        assert api.seen["params"] == {}
+
+    def test_returns_list(self):
+        api = _api()
+        result = tasks_list(api)
+        assert isinstance(result, list)
+
+    def test_invalid_limit_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            tasks_list(api, limit="bad")
 
 
 # ---------------------------------------------------------------------------

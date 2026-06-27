@@ -24,7 +24,7 @@ from pathlib import Path
 
 import proximo.server as server
 
-EXPECTED_TOOL_COUNT = 145
+EXPECTED_TOOL_COUNT = 325
 
 _SERVER_SRC = Path(server.__file__).read_text(encoding="utf-8")
 # A real decorator: the line, after optional indentation, starts with `@mcp.tool(`. The

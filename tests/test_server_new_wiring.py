@@ -230,13 +230,16 @@ async def test_new_tools_registered_with_fastmcp():
         # tasks + pools
         "pve_tasks_list", "pve_task_log", "pve_pools_list", "pve_pool_get",
         "pve_task_stop", "pve_pool_create", "pve_pool_update", "pve_pool_delete",
-        # PBS
+        # PBS (original 11)
         "pbs_datastores_list", "pbs_datastore_status", "pbs_gc_status",
         "pbs_snapshots_list", "pbs_namespaces_list", "pbs_gc_start", "pbs_verify_start",
         "pbs_prune", "pbs_snapshot_delete", "pbs_namespace_create", "pbs_namespace_delete",
+        # PBS coverage-gap reads (Wave B — 6 new)
+        "pbs_remotes_list", "pbs_remote_get", "pbs_traffic_controls_list",
+        "pbs_jobs_list", "pbs_tasks_list", "pbs_datastore_get",
     }
     assert new <= tools, f"missing from MCP surface: {new - tools}"
-    assert len(new) == 28
+    assert len(new) == 34
 
 
 def test_pbs_verify_start_dry_run_does_not_call_pbs(tmp_path, monkeypatch):

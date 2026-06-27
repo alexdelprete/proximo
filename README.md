@@ -86,7 +86,7 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > 📦 **`0.8.0` — published.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
 > [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.8.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — all three live.
-> New in 0.8.0: **104-tool PMG surface** (Proxmox Mail Gateway — ticket auth, quarantine, RuleDB
+> New in 0.8.0: **103-tool PMG surface** (Proxmox Mail Gateway — ticket auth, quarantine, RuleDB
 > filtering engine, service control, config CRUD, backup) + **+6 PBS gap tools** + bugfix for
 > `pbs_group_change_owner` (POST, not PUT). All three Proxmox surfaces now live-proven.
 > See the [CHANGELOG](./CHANGELOG.md).

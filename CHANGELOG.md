@@ -4,6 +4,20 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-06-27
+
+### Added
+- **Official MCP Registry support.** Added `server.json` (2025-12-11 schema) plus a PyPI
+  package-ownership token in the README, so Proximo can be published to
+  `registry.modelcontextprotocol.io` — which in turn feeds downstream directories
+  (Glama, PulseMCP).
+
+### Fixed
+- **Docs:** PMG surface count is now correct on the published package (103 net tools; one tool
+  was removed in 0.8.0, so the gross "104 new" netted to 103).
+
+Packaging + docs only — no functional/code changes from 0.8.0.
+
 ## [0.8.0] — 2026-06-26
 
 ### Added

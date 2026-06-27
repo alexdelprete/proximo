@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.john-broadway/proximo-proxmox",
+  "title": "Proximo",
+  "description": "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway on one audited trust core (plan, prove, undo, diagnose). MCP + A2A.",
+  "repository": {
+    "url": "https://github.com/john-broadway/proximo",
+    "source": "github"
+  },
+  "version": "0.8.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "proximo-proxmox",
+      "version": "0.8.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

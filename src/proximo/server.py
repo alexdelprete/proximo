@@ -90,7 +90,7 @@ from .acme_certs import (
     plan_acme_plugin_update,
 )
 from .audit import AuditLedger, find_rotation_archive, looks_like_head, open_ledger
-from .backends import ApiBackend, ExecBackend, ProximoError
+from .backends import ApiBackend, ExecBackend, ProximoError, _check_vmid
 from .backup import (
     backup_delete,
     backup_list,
@@ -1069,6 +1069,15 @@ def _audited(action: str, target: str, fn: Callable[[], Any], *,
     Read calls (mutation=False) pass the raw fn() return through unchanged — no envelope.
     """
     _, _, _, audit = _svc()
+    # L16 NOTE (inherent): there is a narrow window between fn() completing and the outcome
+    # audit.record() below. On process death (SIGKILL/OOM/power loss) in that window, the
+    # mutation runs but only a "planned" ledger entry exists — the outcome is not recorded.
+    # Compensating control: audit.record() calls fsync (audit.py line ~367) so in-process
+    # crashes are covered; the Proxmox task log is the authoritative record for async ops.
+    # PROVE is tamper-evident, not tamper-proof against OS-level death.
+    # A full fix (pre-record an "executing" entry) is a deliberate design change, not a one-liner:
+    # it introduces a new ledger outcome state that ripples into audit_verify chain-verification,
+    # the ledger test suite, and any callers that inspect outcome values — deferred intentionally.
     try:
         result = fn()
     except Exception as e:
@@ -1342,6 +1351,7 @@ def ct_exec(ctid: str, command: list[str], snapshot: bool = False, confirm: bool
     detail = command_fingerprint(command) if cfg.redact_ledger else {"command": command}
     if not cfg.enable_exec:
         return _exec_disabled("ct_exec", str(ctid), detail)
+    ctid = _check_vmid(ctid)  # L07: validate CTID format at server layer before allowlist gate
     if not cfg.ct_permitted(ctid):
         return _blocked_allowlist("ct_exec", str(ctid), detail)
     plan = _plan("ct_exec", str(ctid), lambda: plan_exec(ctid, command, redact=cfg.redact_ledger))
@@ -1384,6 +1394,7 @@ def ct_psql(ctid: str, sql: str, db: str = "postgres", snapshot: bool = False,
     detail = {"db": db, **(sql_fingerprint(sql) if cfg.redact_ledger else {"sql": sql})}
     if not cfg.enable_exec:
         return _exec_disabled("ct_psql", str(ctid), detail)
+    ctid = _check_vmid(ctid)  # L07: validate CTID format at server layer before allowlist gate
     if not cfg.ct_permitted(ctid):
         return _blocked_allowlist("ct_psql", str(ctid), detail)
     plan = _plan("ct_psql", str(ctid), lambda: plan_psql(ctid, sql, db=db, redact=cfg.redact_ledger))
@@ -1417,6 +1428,7 @@ def ct_logs(ctid: str, unit: str, lines: int = 50) -> dict:
     detail = {"unit": unit, "lines": lines}
     if not cfg.enable_exec:
         return _exec_disabled("ct_logs", str(ctid), detail, mutation=False)
+    ctid = _check_vmid(ctid)  # L07: validate CTID format at server layer before allowlist gate
     if not cfg.ct_permitted(ctid):
         return _blocked_allowlist("ct_logs", str(ctid), detail, mutation=False)
 
@@ -1435,6 +1447,7 @@ def ct_diagnose(ctid: str, kind: str = "lxc", node: str | None = None) -> dict:
     No mutation, no confirm. The in-container probes need PROXIMO_ENABLE_EXEC and the CTID allowlist
     (same as ct_logs); with exec off it returns the API-only part and discloses the skipped probes."""
     cfg, api, exec_, _ = _svc()
+    ctid = _check_vmid(ctid)  # L07: validate CTID at server layer before the allowlist gate / ledger target
     target = f"{kind}/{ctid}"
     if cfg.enable_exec and not cfg.ct_permitted(ctid):
         return _blocked_allowlist("ct_diagnose", str(ctid), mutation=False)
@@ -1577,7 +1590,9 @@ def pve_create_container(vmid: str, ostemplate: str, storage: str, node: str | N
     `options` carries extra create params (cores, memory, net0, rootfs, password, ...)."""
     _, api, _, _ = _svc()
     target = f"lxc/{vmid}"
-    plan = _plan("pve_create_container", target, lambda: plan_create(api, vmid, "lxc", node))
+    plan = _plan("pve_create_container", target,
+                 lambda: plan_create(api, vmid, "lxc", node,
+                                     {"ostemplate": ostemplate, "storage": storage, **(options or {})}))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited(
@@ -1593,7 +1608,7 @@ def pve_create_vm(vmid: str, node: str | None = None, options: dict | None = Non
     `options` carries create params (cores, memory, net0, scsi0, ostype, ...)."""
     _, api, _, _ = _svc()
     target = f"qemu/{vmid}"
-    plan = _plan("pve_create_vm", target, lambda: plan_create(api, vmid, "qemu", node))
+    plan = _plan("pve_create_vm", target, lambda: plan_create(api, vmid, "qemu", node, options or {}))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_create_vm", target,
@@ -1611,7 +1626,8 @@ def pve_clone(vmid: str, newid: str, kind: str = "lxc", node: str | None = None,
     source storage; refused for a linked clone (PVE only honors it on a full clone)."""
     _, api, _, _ = _svc()
     target = f"{kind}/{vmid}->{newid}"
-    plan = _plan("pve_clone", target, lambda: plan_clone(api, vmid, newid, kind, node, storage, full))
+    plan = _plan("pve_clone", target,
+                 lambda: plan_clone(api, vmid, newid, kind, node, storage, full, name, pool))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_clone", target,
@@ -1898,15 +1914,17 @@ def pve_token_create(
     """
     _, api, _, _ = _svc()
     tgt = f"token:{userid}!{tokenid}"
+    # L03: pass expire+comment so the PLAN surface reflects what will actually be created
     plan = _plan("pve_token_create", tgt,
-                 lambda: plan_token_create(userid, tokenid, privsep))
+                 lambda: plan_token_create(userid, tokenid, privsep, expire=expire, comment=comment))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     # SECRET HANDLING: return op result directly (carries the token value to caller);
-    # detail dict must NEVER contain the secret — only {"confirmed": True}.
+    # detail dict must NEVER contain the secret — only {"confirmed": True} + non-secret params.
     return _audited("pve_token_create", tgt,
                     lambda: token_create(api, userid, tokenid, privsep, comment, expire),
-                    mutation=True, outcome="ok", detail={"confirmed": True})
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "expire": expire, "privsep": privsep})
 
 
 @mcp.tool()
@@ -2630,7 +2648,7 @@ def pve_ha_resource_add(
     _, api, _, _ = _svc()
     tgt = f"ha:{kind}/{vmid}"
     plan = _plan("pve_ha_resource_add", tgt,
-                 lambda: plan_ha_resource_add(vmid, kind, group, state))
+                 lambda: plan_ha_resource_add(vmid, kind, group, state, max_restart, max_relocate))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_ha_resource_add", tgt,
@@ -3348,8 +3366,11 @@ def pbs_remote_create(
     """MUTATION (MEDIUM): create a PBS remote sync-source. Dry-run by default.
 
     PRIVATE PASSWORD REDACTION: 'password' is a remote user credential. It is
-    UNCONDITIONALLY redacted — NEVER appears in the plan, change, current state, detail,
-    or audit ledger. Only {"password":"[redacted]"} is recorded.
+    UNCONDITIONALLY redacted from the server-side plan, change, current state, detail,
+    and audit ledger. Only {"password":"[redacted]"} is recorded on those surfaces.
+    L02 NOTE: the MCP tool-call itself is a structured JSON object in which 'password' appears
+    as a plain parameter — it is visible in the LLM's output token stream and in any MCP client
+    log. This is an MCP-protocol property; server-side redaction protects the ledger only.
     The TLS cert 'fingerprint' is PUBLIC data — it is NOT redacted.
 
     No rollback primitive — revert by deleting the remote (pbs_remote_delete). confirm=True to execute.
@@ -3389,7 +3410,11 @@ def pbs_remote_update(
     """MUTATION (MEDIUM): update an existing PBS remote. Dry-run by default.
 
     CAPTURE: reads current (non-secret) config before planning; on failure plan is marked incomplete.
-    PRIVATE PASSWORD REDACTION: if 'password' is provided it is UNCONDITIONALLY redacted.
+    PRIVATE PASSWORD REDACTION: if 'password' is provided it is UNCONDITIONALLY redacted from the
+    server-side plan, change, current state, detail, and audit ledger.
+    L02 NOTE: the MCP tool-call itself is a structured JSON object in which 'password' appears as
+    a plain parameter — visible in the LLM's output token stream and any MCP client log.
+    This is an MCP-protocol property; server-side redaction protects the ledger only.
     The TLS cert 'fingerprint' is PUBLIC and appears in plans/logs for audit.
     No rollback primitive — revert by re-applying captured config. confirm=True to execute.
 
@@ -3851,23 +3876,30 @@ def pve_backup_job_list() -> dict:
 @mcp.tool()
 def pve_backup_job_create(job_id: str, schedule: str, storage: str,
                           mode: str | None = None, compress: str | None = None,
-                          vmid: str | None = None, enabled: bool | None = None,
+                          vmid: str | None = None, all_guests: bool | None = None,
+                          pool: str | None = None, exclude: str | None = None,
+                          enabled: bool | None = None,
                           comment: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: create a PVE cluster backup job. Dry-run by default — shows the plan.
-    confirm=True to execute. Config-only; existing backups are NOT affected."""
+    confirm=True to execute. Config-only; existing backups are NOT affected.
+    Guest selection is mutually exclusive — pass at most one of: vmid (CSV of guest IDs),
+    all_guests=True (every guest), or pool (a resource pool); PVE requires a selection.
+    exclude (CSV) filters all_guests."""
     _, api, _, _ = _svc()
     tgt = f"cluster/backup/{job_id}"
+    # all_guests -> PVE's `all` wire field (the tool name avoids shadowing the builtin).
+    # Falsy all_guests collapses to None so it behaves exactly like omitting it (no all=0 leak).
+    sel = {"vmid": vmid, "all": all_guests or None, "pool": pool, "exclude": exclude}
     plan = _plan("pve_backup_job_create", tgt,
                  lambda: plan_backup_job_create(job_id, schedule, storage,
                                                 mode=mode, compress=compress,
-                                                vmid=vmid, enabled=enabled,
-                                                comment=comment))
+                                                enabled=enabled, comment=comment, **sel))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_backup_job_create", tgt,
                     lambda: backup_job_create(api, job_id, schedule, storage,
                                              mode=mode, compress=compress,
-                                             vmid=vmid, enabled=enabled, comment=comment),
+                                             enabled=enabled, comment=comment, **sel),
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
@@ -4970,8 +5002,9 @@ def pve_node_dns_set(
 ) -> dict:
     """MUTATION: update DNS resolver configuration on a PVE node.
 
-    RISK_LOW. CAPTURE: reads current DNS config before planning (reuse pve_node_dns read);
-    if unreadable → complete=False. confirm=True to execute.
+    RISK_MEDIUM (a wrong resolver config breaks name resolution cluster-wide — same failure
+    mode as node hosts_set). CAPTURE: reads current DNS config before planning (reuse
+    pve_node_dns read); if unreadable → complete=False. confirm=True to execute.
 
     PUT /nodes/{node}/dns
     Smoke-confirm: endpoint and body shape not live-verified.
@@ -5314,7 +5347,8 @@ def pmg_quarantine_action(
     mail_ids: str,
     confirm: bool = False,
 ) -> dict:
-    """MUTATION (MEDIUM): apply an action to quarantined message(s). Dry-run by default.
+    """MUTATION (MEDIUM; HIGH for action='delete' — permanent, irreversible). Apply an action to
+    quarantined message(s). Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
     action: one of deliver|delete|mark-seen|mark-unseen|blocklist|welcomelist.

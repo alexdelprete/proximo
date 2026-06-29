@@ -179,12 +179,17 @@ def plan_create(
     vmid: str,
     kind: str = "lxc",
     node: str | None = None,
+    options: dict | None = None,
 ) -> Plan:
     """Preview creating a new guest with the given vmid.
 
     Reads list_guests (a safe read) to detect whether vmid is already in use.
     If the collision check itself fails, that uncertainty is disclosed — the absence
     of a HIGH flag is not a safety signal.
+
+    *options* are the create params that will actually be sent (cores, memory, privileged,
+    password, …). They are surfaced in the plan so the preview/ledger reflect the real mutation
+    (the `password` option is redacted); a privileged LXC escalates the plan to RISK_HIGH.
     """
     vmid = _check_vmid(vmid)
     kind = _check_kind(kind)
@@ -215,13 +220,22 @@ def plan_create(
         blast = [f"new {kind}/{vmid} will be created, consuming resources (disk, memory, CPU allocation)"]
         reasons = [f"resource consumption: creates a new {kind} {vmid}"]
 
+    options = options or {}
+    privileged = bool(options.get("privileged"))
+    # surface what will actually be created — redact the `password` create-option (a secret)
+    opt_display = {k: ("[redacted]" if k == "password" else v) for k, v in options.items()}
+    if opt_display:
+        blast = blast + [f"create options: {opt_display}"]
+    if privileged:
+        blast = blast + ["privileged=1: container shares host UID 0 — guest-root escape == host-root"]
+        reasons = reasons + ["privileged LXC: host-equivalent root; container isolation is weaker (HIGH)"]
     return Plan(
         action="pve_create",
         target=f"{kind}/{vmid}",
-        change=f"create {kind} {vmid}",
+        change=f"create {kind} {vmid}" + (f" with {opt_display}" if opt_display else ""),
         current={},
         blast_radius=blast,
-        risk=RISK_MEDIUM,
+        risk=RISK_HIGH if privileged else RISK_MEDIUM,
         risk_reasons=reasons,
     )
 
@@ -250,6 +264,8 @@ def plan_clone(
     node: str | None = None,
     storage: str | None = None,
     full: bool = False,
+    name: str | None = None,
+    pool: str | None = None,
 ) -> Plan:
     """Preview cloning guest vmid to newid.
 
@@ -322,10 +338,15 @@ def plan_clone(
             "that bridge to clone a guest carrying a NIC"
         ]
 
+    if name is not None:
+        blast = blast + [f"new guest display name: '{name}'"]
+    if pool is not None:
+        blast = blast + [f"placed in resource pool '{pool}' — controls which tokens can manage the clone"]
     return Plan(
         action="pve_clone",
         target=f"{kind}/{vmid}→{newid}",
-        change=f"clone {kind} {vmid} to {newid}",
+        change=(f"clone {kind} {vmid} to {newid}"
+                + (f" as '{name}'" if name else "") + (f" in pool '{pool}'" if pool else "")),
         current={},
         blast_radius=blast,
         risk=RISK_MEDIUM,

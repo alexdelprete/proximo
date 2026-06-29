@@ -24,7 +24,7 @@ import httpx
 import pytest
 
 from proximo.backends import ProximoError
-from proximo.planning import RISK_LOW, RISK_MEDIUM
+from proximo.planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM
 from proximo.pmg import (
     PmgBackend,
     PmgConfig,
@@ -1235,6 +1235,11 @@ class TestPlanQuarantineAction:
         p = plan_quarantine_action("deliver", "abc123")
         assert p.risk == RISK_MEDIUM
 
+    def test_delete_is_high(self):
+        # permanent, irreversible message deletion must be HIGH, not MEDIUM
+        p = plan_quarantine_action("delete", "abc123")
+        assert p.risk == RISK_HIGH
+
     def test_action_string(self):
         p = plan_quarantine_action("delete", "abc123")
         assert p.action == "pmg_quarantine_action"
@@ -2023,14 +2028,21 @@ class TestTrackerDetail:
         tracker_detail(api, "pmg", "msg-abc123")
         assert api.seen["path"] == "/nodes/pmg/tracker/msg-abc123"
 
-    def test_id_passed_raw(self):
-        # id_ is not validated — arbitrary strings go into the path
+    def test_id_traversal_rejected(self):
+        # id_ is a URL path segment — slash/traversal/injection metachars must be rejected
+        api = _api()
+        for bad in ("some/id", "../../etc", "id?x=1", "a#b", "id\nlog"):
+            with pytest.raises(ProximoError, match="invalid tracker id"):
+                tracker_detail(api, "pmg", bad)
+
+    def test_clean_id_with_colon_passes(self):
+        # mail-ish chars (e.g. ':') are still allowed — only structural metachars are blocked
         api = _api()
         api._get = lambda path, params=None: (
             api.seen.update(path=path) or []
         )
-        tracker_detail(api, "pmg", "some:complex/id")
-        assert "some:complex/id" in api.seen["path"]
+        tracker_detail(api, "pmg", "queue:ABC123")
+        assert api.seen["path"] == "/nodes/pmg/tracker/queue:ABC123"
 
     def test_maps_start_to_starttime(self):
         api = _api()

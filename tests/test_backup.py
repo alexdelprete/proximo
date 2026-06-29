@@ -312,10 +312,12 @@ def test_plan_backup_does_not_claim_safe():
         assert "safe" not in text
 
 
-def test_plan_backup_unknown_mode_is_medium():
-    # plan_backup does not raise on unknown mode — the op-layer does that.
-    p = plan_backup("102", "local", mode="turbo")
-    assert p.risk == RISK_MEDIUM
+def test_plan_backup_rejects_invalid_mode():
+    # plan_backup now validates mode (mirroring vzdump_backup), so the plan leg
+    # fails fast with a clear error instead of returning a plan whose to_proceed
+    # says "re-call with confirm=true" for an operation that would always raise.
+    with pytest.raises(ProximoError, match="invalid backup mode"):
+        plan_backup("102", "local", mode="turbo")
 
 
 def test_plan_backup_target_includes_vmid():

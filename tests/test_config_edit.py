@@ -73,11 +73,24 @@ def _fake_api(node: str = "pve", config_data: dict | None = None,
     def fake_auth():
         return {"Authorization": "PVEAPIToken=fake"}
 
+    client = FakeClient()
+
+    def fake_form(d):
+        # mirror ApiBackend._form: bool->1/0, drop None
+        return {k: (1 if v is True else 0 if v is False else v)
+                for k, v in (d or {}).items() if v is not None}
+
+    def fake_put(path, data=None):
+        # mirror ApiBackend._put so _put_config exercises the real coercion path
+        r = client.request("PUT", path, headers=fake_auth(), data=fake_form(data))
+        return r.json().get("data")
+
     api = SimpleNamespace(
         config=SimpleNamespace(node=node),
         _get=fake_get,
-        _client=FakeClient(),
+        _client=client,
         _auth_header=fake_auth,
+        _put=fake_put,
         put_calls=put_calls,
     )
     return api
@@ -244,6 +257,17 @@ def test_guest_config_get_rejects_invalid_node():
 # ---------------------------------------------------------------------------
 # guest_config_set — path, PUT body, prior capture, digest, delete param
 # ---------------------------------------------------------------------------
+
+def test_put_config_coerces_bool_and_drops_none():
+    # M8/L11: _put_config must route through _form — a bool reaches the wire as 1/0, None is omitted
+    from proximo.config_edit import _put_config
+    api = _fake_api()
+    _put_config(api, "/nodes/pve/lxc/102/config", {"onboot": True, "skip": None})
+    _, _, data = api.put_calls[0]
+    assert data["onboot"] == 1
+    assert data["onboot"] is not True
+    assert "skip" not in data
+
 
 def test_guest_config_set_issues_put_to_correct_lxc_path():
     api = _fake_api()

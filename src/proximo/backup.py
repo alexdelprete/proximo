@@ -186,6 +186,8 @@ def plan_backup(
     _check_vmid(vmid)
     _check_kind(kind)
     _check_storage(storage)
+    if mode not in _VALID_MODES:
+        raise ProximoError(f"invalid backup mode: {mode!r} (expected snapshot|suspend|stop)")
 
     if mode == "snapshot":
         risk = RISK_LOW
@@ -201,18 +203,13 @@ def plan_backup(
             f"backs up {kind}/{vmid} to storage '{storage}'",
             "guest is SUSPENDED briefly while memory is frozen; short-lived service interruption",
         ]
-    elif mode == "stop":
+    else:  # mode == "stop"
         risk = RISK_HIGH
         reasons = ["stop mode HALTS the guest for the backup duration — downtime"]
         blast = [
             f"STOPS {kind}/{vmid} for the backup duration, then restarts it",
             "guest is OFFLINE during the backup; any connected clients will be disconnected",
         ]
-    else:
-        # Unrecognized mode: honest MEDIUM floor (not rejected here — the op-layer rejects it)
-        risk = RISK_MEDIUM
-        reasons = [f"unrecognized backup mode: {mode!r}"]
-        blast = [f"backup of {kind}/{vmid} in mode {mode!r} — effect unknown"]
 
     return Plan(
         action="pve_backup",

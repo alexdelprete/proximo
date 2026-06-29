@@ -69,12 +69,13 @@ def test_verify_tls_defaults_to_true_when_unset(monkeypatch):
 
 def test_verify_tls_false_without_ca_bundle_warns_loudly(monkeypatch):
     # Disabling verification with no CA bundle must not be silent.
+    # The warning accurately reflects the actual outcome: the backend refuses to start.
     monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://x:8006/api2/json")
     monkeypatch.setenv("PROXIMO_NODE", "pve")
     monkeypatch.setenv("PROXIMO_TOKEN_PATH", "/run/x")
     monkeypatch.setenv("PROXIMO_VERIFY_TLS", "false")
     monkeypatch.delenv("PROXIMO_CA_BUNDLE", raising=False)
-    with pytest.warns(UserWarning, match="(?i)cert validation"):
+    with pytest.warns(UserWarning, match="(?i)fail.closed|refuse to start"):
         cfg = ProximoConfig.from_env()
     assert cfg.verify_tls is False
 
@@ -128,15 +129,171 @@ def test_audit_keyed_defaults_true(monkeypatch):
 
 
 def test_audit_keyed_opt_out_off(monkeypatch):
+    # F4: disabling keyed HMAC must emit a loud warning (degraded PROVE posture).
     _base_env(monkeypatch, PROXIMO_AUDIT_KEYED="off")
-    assert ProximoConfig.from_env().audit_keyed is False
+    with pytest.warns(UserWarning, match="(?i)unkeyed|HMAC"):
+        assert ProximoConfig.from_env().audit_keyed is False
 
 
 def test_audit_keyed_opt_out_zero(monkeypatch):
+    # F4: same for numeric opt-out form.
     _base_env(monkeypatch, PROXIMO_AUDIT_KEYED="0")
-    assert ProximoConfig.from_env().audit_keyed is False
+    with pytest.warns(UserWarning, match="(?i)unkeyed|HMAC"):
+        assert ProximoConfig.from_env().audit_keyed is False
 
 
 def test_audit_keyed_on_stays_true(monkeypatch):
     _base_env(monkeypatch, PROXIMO_AUDIT_KEYED="on")
     assert ProximoConfig.from_env().audit_keyed is True
+
+
+# ---------------------------------------------------------------------------
+# F1 — PROXIMO_SSH_TARGET charset validation (option-injection guard)
+# ---------------------------------------------------------------------------
+
+def test_ssh_target_accepts_hostname(monkeypatch):
+    """Normal SSH alias/hostname must pass validation."""
+    _base_env(monkeypatch, PROXIMO_SSH_TARGET="pve.example.com")
+    cfg = ProximoConfig.from_env()
+    assert cfg.ssh_target == "pve.example.com"
+
+
+def test_ssh_target_accepts_user_at_host(monkeypatch):
+    """user@host form is valid (common SSH pattern)."""
+    _base_env(monkeypatch, PROXIMO_SSH_TARGET="admin@pve")
+    cfg = ProximoConfig.from_env()
+    assert cfg.ssh_target == "admin@pve"
+
+
+def test_ssh_target_accepts_ipv4(monkeypatch):
+    """IPv4 address must pass validation."""
+    _base_env(monkeypatch, PROXIMO_SSH_TARGET="192.0.2.1")
+    cfg = ProximoConfig.from_env()
+    assert cfg.ssh_target == "192.0.2.1"
+
+
+def test_ssh_target_empty_allowed_for_local_mode(monkeypatch):
+    """Empty string is valid — it signals on-host (local) mode via is_local."""
+    _base_env(monkeypatch, PROXIMO_SSH_TARGET="")
+    cfg = ProximoConfig.from_env()
+    assert cfg.ssh_target == ""
+    assert cfg.is_local is True
+
+
+def test_ssh_target_rejects_option_injection(monkeypatch):
+    """A dash-prefix injects ssh options — must be rejected at parse time."""
+    _base_env(monkeypatch, PROXIMO_SSH_TARGET="-oProxyCommand=evil")
+    with pytest.raises(RuntimeError, match="PROXIMO_SSH_TARGET"):
+        ProximoConfig.from_env()
+
+
+def test_ssh_target_rejects_leading_dash(monkeypatch):
+    """Any leading dash (not just -o) must be blocked."""
+    _base_env(monkeypatch, PROXIMO_SSH_TARGET="-N")
+    with pytest.raises(RuntimeError, match="PROXIMO_SSH_TARGET"):
+        ProximoConfig.from_env()
+
+
+def test_ssh_target_rejects_shell_metacharacters(monkeypatch):
+    """Shell metacharacters in the target must be blocked."""
+    _base_env(monkeypatch, PROXIMO_SSH_TARGET="pve;evil")
+    with pytest.raises(RuntimeError, match="PROXIMO_SSH_TARGET"):
+        ProximoConfig.from_env()
+
+
+# ---------------------------------------------------------------------------
+# F2 — Agent allowlist wildcard warning gated on enable_agent
+# ---------------------------------------------------------------------------
+
+def test_agent_allowlist_star_no_warn_when_agent_disabled(monkeypatch):
+    """Wildcard allowlist with agent disabled must not emit a warning (cry-wolf)."""
+    import warnings as _w
+    _base_env(monkeypatch, PROXIMO_AGENT_ALLOWLIST="*")
+    # enable_agent defaults to False; wildcard warning must be silent
+    with _w.catch_warnings():
+        _w.simplefilter("error", UserWarning)
+        # Should not raise even though AGENT_ALLOWLIST=* is set
+        try:
+            ProximoConfig.from_env()
+        except UserWarning as exc:
+            if "agent" in str(exc).lower() and "wildcard" in str(exc).lower() or "ALL VMs" in str(exc):
+                raise AssertionError(
+                    "wildcard warning fired even though enable_agent is False"
+                ) from exc
+
+
+def test_agent_allowlist_star_warns_when_agent_enabled(monkeypatch):
+    """Wildcard allowlist must warn when the agent feature is actually enabled."""
+    _base_env(monkeypatch, PROXIMO_ENABLE_AGENT="1", PROXIMO_AGENT_ALLOWLIST="*")
+    with pytest.warns(UserWarning, match="(?i)ALL VMs|least.privilege"):
+        ProximoConfig.from_env()
+
+
+# ---------------------------------------------------------------------------
+# F3 — PROXIMO_VERIFY_TLS truth-by-exclusion: full falsy-set recognition
+# ---------------------------------------------------------------------------
+
+def test_verify_tls_zero_recognized_as_off(monkeypatch):
+    """PROXIMO_VERIFY_TLS=0 must disable TLS (was silently ignored before)."""
+    _base_env(monkeypatch, PROXIMO_VERIFY_TLS="0")
+    with pytest.warns(UserWarning, match="(?i)fail.closed|refuse"):
+        cfg = ProximoConfig.from_env()
+    assert cfg.verify_tls is False
+
+
+def test_verify_tls_no_recognized_as_off(monkeypatch):
+    """PROXIMO_VERIFY_TLS=no must disable TLS."""
+    _base_env(monkeypatch, PROXIMO_VERIFY_TLS="no")
+    with pytest.warns(UserWarning, match="(?i)fail.closed|refuse"):
+        cfg = ProximoConfig.from_env()
+    assert cfg.verify_tls is False
+
+
+def test_verify_tls_off_recognized_as_off(monkeypatch):
+    """PROXIMO_VERIFY_TLS=off must disable TLS."""
+    _base_env(monkeypatch, PROXIMO_VERIFY_TLS="off")
+    with pytest.warns(UserWarning, match="(?i)fail.closed|refuse"):
+        cfg = ProximoConfig.from_env()
+    assert cfg.verify_tls is False
+
+
+def test_verify_tls_unrecognized_warns_and_stays_on(monkeypatch):
+    """An unrecognized value must emit a diagnostic warning and keep TLS enabled."""
+    _base_env(monkeypatch, PROXIMO_VERIFY_TLS="maybe")
+    with pytest.warns(UserWarning, match="(?i)not a recognized boolean"):
+        cfg = ProximoConfig.from_env()
+    assert cfg.verify_tls is True  # safe default: stays ON
+
+
+# ---------------------------------------------------------------------------
+# F4 — PROXIMO_AUDIT_KEYED=off must emit a startup warning
+# ---------------------------------------------------------------------------
+
+def test_audit_keyed_off_no_key_path_warns(monkeypatch):
+    """Setting PROXIMO_AUDIT_KEYED=no must emit a PROVE-downgrade warning."""
+    _base_env(monkeypatch, PROXIMO_AUDIT_KEYED="no")
+    with pytest.warns(UserWarning, match="(?i)unkeyed|HMAC"):
+        cfg = ProximoConfig.from_env()
+    assert cfg.audit_keyed is False
+
+
+# ---------------------------------------------------------------------------
+# F5 — from_env() warning accurately describes backend behaviour (fail-closed)
+# ---------------------------------------------------------------------------
+
+def test_verify_tls_false_warning_says_fail_closed(monkeypatch):
+    """The warning text must say 'fail-closed' / 'refuse to start', not imply running insecurely."""
+    import warnings as _w
+    _base_env(monkeypatch, PROXIMO_VERIFY_TLS="false")
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        ProximoConfig.from_env()
+    tls_warns = [str(w.message) for w in caught
+                 if "PROXIMO_VERIFY_TLS" in str(w.message)]
+    assert tls_warns, "expected a warning about PROXIMO_VERIFY_TLS=false"
+    combined = " ".join(tls_warns).lower()
+    assert "fail-closed" in combined or "refuse" in combined, (
+        f"warning should say 'fail-closed' or 'refuse to start'; got: {tls_warns}"
+    )
+    # Must NOT claim the server is already running insecurely — that was the misleading old text
+    assert "talking to the pve api without cert validation" not in combined

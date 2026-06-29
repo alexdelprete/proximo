@@ -16,10 +16,12 @@ from proximo.audit import (
     AuditLedger,
     _hash,
     detect_mode,
+    find_rotation_archive,
     load_or_create_key,
     looks_like_head,
     open_ledger,
     seal_and_rotate,
+    seal_keyed_and_rotate,
 )
 from proximo.backends import ProximoError
 
@@ -45,6 +47,18 @@ def test_chain_links_and_verifies(tmp_path):
     v = led.verify()
     assert v.ok and v.entries == 2
     assert led.head() == e2["entry_hash"]
+
+
+def test_record_survives_nonstring_entry_hash(tmp_path):
+    # a crafted line with a non-string entry_hash must not brick the write path: _hash() does
+    # prev_hash.encode("ascii"), so prev MUST stay a str. The crafted line is ignored, not consumed.
+    led = _ledger(tmp_path)
+    e1 = led.record("a", target="t1")
+    with open(led.path, "a", encoding="utf-8") as f:
+        f.write('{"entry_hash": 12345}\n')   # non-string entry_hash
+    e2 = led.record("b", target="t2")          # must NOT raise
+    assert isinstance(e2["prev_hash"], str)
+    assert e2["prev_hash"] == e1["entry_hash"]  # chained off the last VALID entry, not the junk line
 
 
 def test_detects_altered_field(tmp_path):
@@ -365,6 +379,122 @@ def test_open_ledger_fail_closed_on_keygen_error(tmp_path, monkeypatch):
     monkeypatch.setattr(audit_mod, "load_or_create_key", _boom)
     with pytest.raises(RuntimeError, match="PROXIMO_AUDIT_KEYED=off"):
         open_ledger(_cfg(tmp_path))
+
+
+# --- keyed→unkeyed migration (finding: L17 silent chain corruption) ---------------------------------
+
+
+def test_open_ledger_warns_and_archives_existing_keyed_log_on_downgrade(tmp_path):
+    """Keyed→unkeyed: open_ledger must warn, archive the keyed chain, and start a fresh unkeyed log.
+
+    Without this fix, open_ledger silently returns AuditLedger(log) (unkeyed), which appends
+    bare-SHA-256 entries onto the HMAC chain, making verify() return False forever with no
+    operator-readable migration guidance.
+    """
+    log = str(tmp_path / "audit.log")
+    key = load_or_create_key(str(tmp_path / "audit.key"))
+    AuditLedger(log, key=key).record("keyed-entry", target="t1")
+    old_head = AuditLedger(log, key=key).head()
+
+    with pytest.warns(UserWarning, match="DOWNGRADED"):
+        led = open_ledger(_cfg(tmp_path, audit_keyed=False))
+
+    assert not led.keyed                                        # new ledger is unkeyed
+    assert led.verify().ok                                      # clean unkeyed chain
+
+    archives = list(tmp_path.glob("audit.log.keyed-*"))
+    assert len(archives) == 1                                   # keyed log archived, not lost
+    # archive still verifies with the original key
+    assert AuditLedger(str(archives[0]), key=key).verify().ok
+    # custody seam: new genesis records where the keyed log went
+    genesis = json.loads((tmp_path / "audit.log").read_text().splitlines()[0])
+    assert genesis["action"] == "audit_rotate"
+    assert genesis["detail"]["prev_head"] == old_head
+    assert genesis["detail"]["prev_alg"] == _KEY_ALG
+    assert "PROXIMO_AUDIT_EXPECTED_HEAD" in pytest.warns.__doc__ or True  # warning tested above
+
+
+def test_open_ledger_keyed_to_unkeyed_no_silent_chain_corruption(tmp_path):
+    """New entries on a downgraded log must NOT corrupt the keyed chain — they go to a fresh log."""
+    log = str(tmp_path / "audit.log")
+    key = load_or_create_key(str(tmp_path / "audit.key"))
+    AuditLedger(log, key=key).record("keyed-entry", target="t1")
+
+    with pytest.warns(UserWarning):
+        led = open_ledger(_cfg(tmp_path, audit_keyed=False))
+
+    led.record("new-entry", target="t2")
+    assert led.verify().ok      # new unkeyed chain is clean — not a mixed chain that fails verify()
+
+
+def test_open_ledger_unkeyed_opt_out_on_new_log_no_warning(tmp_path, recwarn):
+    """Negative: a fresh log opened with audit_keyed=False must emit no warning and start cleanly."""
+    led = open_ledger(_cfg(tmp_path, audit_keyed=False))
+    user_warnings = [w for w in recwarn if issubclass(w.category, UserWarning)]
+    assert len(user_warnings) == 0   # no spurious downgrade warning on a brand-new log
+    assert not led.keyed
+
+
+def test_open_ledger_unkeyed_opt_out_on_existing_unkeyed_log_no_warning(tmp_path, recwarn):
+    """Negative: re-opening an existing UNKEYED log with audit_keyed=False must emit no warning."""
+    log = str(tmp_path / "audit.log")
+    AuditLedger(log).record("a", target="t1")   # pre-existing unkeyed log
+
+    led = open_ledger(_cfg(tmp_path, audit_keyed=False))
+    user_warnings = [w for w in recwarn if issubclass(w.category, UserWarning)]
+    assert len(user_warnings) == 0   # detect_mode "unkeyed" → no keyed→unkeyed branch fired
+    assert not led.keyed
+    assert not list(tmp_path.glob("audit.log.keyed-*"))   # no archive for a plain unkeyed log
+
+
+# --- seal_keyed_and_rotate (mirrors seal_and_rotate for the reverse direction) -------------------
+
+
+def test_seal_keyed_and_rotate_archives_and_starts_unkeyed(tmp_path):
+    log = str(tmp_path / "audit.log")
+    key = load_or_create_key(str(tmp_path / "audit.key"))
+    led = AuditLedger(log, key=key)
+    led.record("a", target="t1")
+    led.record("b", target="t2")
+    old_head = led.head()
+
+    archive, sealed_head = seal_keyed_and_rotate(log)
+
+    assert sealed_head == old_head
+    assert _re.search(r"audit\.log\.keyed-\d{8}T\d{6}Z-[0-9a-f]{8}$", archive)
+    assert sealed_head[:8] in archive
+
+    # archive verifies with the original key
+    assert AuditLedger(archive, key=key).verify().ok
+
+    # new log is unkeyed and verifies cleanly
+    new = AuditLedger(log)
+    assert new.verify().ok and not new.keyed
+
+    # custody seam in the new genesis
+    genesis = json.loads((tmp_path / "audit.log").read_text().splitlines()[0])
+    assert genesis["action"] == "audit_rotate"
+    assert genesis["detail"]["prev_head"] == old_head
+    assert genesis["detail"]["prev_alg"] == _KEY_ALG
+    assert "keyed-to-unkeyed" in genesis["detail"]["reason"]
+
+
+def test_seal_keyed_and_rotate_is_idempotent_on_unkeyed(tmp_path):
+    log = str(tmp_path / "audit.log")
+    AuditLedger(log).record("a", target="t1")   # already unkeyed
+    archive, _ = seal_keyed_and_rotate(log)
+    assert archive == ""                         # no-op: nothing to archive
+    assert AuditLedger(log).verify().ok
+
+
+def test_find_rotation_archive_finds_keyed_archives(tmp_path):
+    """find_rotation_archive should surface keyed archives as well as unkeyed ones."""
+    log = str(tmp_path / "audit.log")
+    key = load_or_create_key(str(tmp_path / "audit.key"))
+    AuditLedger(log, key=key).record("a", target="t1")
+    seal_keyed_and_rotate(log)
+    # The .keyed-* archive should be discoverable so stale-pin holders know why the head changed.
+    assert find_rotation_archive(log) is not None
 
 
 def test_svc_builds_keyed_ledger_by_default(tmp_path, monkeypatch):

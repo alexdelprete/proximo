@@ -614,6 +614,15 @@ def test_plan_ha_resource_add_default_is_medium_risk():
     assert p.risk == RISK_MEDIUM
 
 
+def test_plan_ha_resource_add_surfaces_max_restart_zero():
+    # max_restart=0 silently disables CRM auto-restart — the plan must surface it, not hide it
+    p = plan_ha_resource_add("100", kind="qemu", max_restart=0)
+    blast = " ".join(p.blast_radius)
+    assert "max_restart=0" in blast
+    assert "NOT auto-restart" in blast
+    assert "max_restart=0" in p.change
+
+
 def test_plan_ha_resource_add_started_state_is_medium():
     p = plan_ha_resource_add("100", kind="qemu", state="started")
     assert p.risk == RISK_MEDIUM

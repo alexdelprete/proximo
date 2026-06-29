@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 import proximo.server as server
 from proximo.audit import AuditLedger
-from proximo.backends import ExecResult
+from proximo.backends import ExecResult, ProximoError
 from proximo.config import ProximoConfig
 
 
@@ -206,6 +208,61 @@ def test_ct_psql_dryrun_classifies_and_plans(tmp_path, monkeypatch):
     assert out["status"] == "plan"
     assert out["risk"] == "high"
     assert "appdb" in out["change"]
+
+
+# === Redteam regressions L07 (2026-06-29): malformed CTID validated at server layer =======
+
+def test_ct_exec_malformed_ctid_raises_before_allowlist(tmp_path, monkeypatch):
+    """L07: under wildcard allowlist a malformed CTID must raise ProximoError at the server
+    layer BEFORE the allowlist gate, so NO 'planned' ledger entry is written.
+
+    Without the fix, '100abc' passes ct_permitted('*') and a 'planned' audit entry lands in
+    the ledger before the backend _check_vmid fires — polluting the tamper-evident chain.
+    With the fix, the error is raised before the ledger is ever opened (no log file created)."""
+    _, _, _, _, log = _wire(tmp_path, monkeypatch, enable_exec=True, allowlist=("*",))
+    with pytest.raises(ProximoError):
+        server.ct_exec("100abc", ["echo", "hi"])
+    import os
+    # No log file at all means nothing was written — the ledger is not polluted.
+    if os.path.exists(log):
+        entries = _entries(log)
+        assert not any(e["outcome"] == "planned" for e in entries), (
+            "malformed CTID leaked a 'planned' ledger entry before server-layer validation"
+        )
+
+
+def test_ct_psql_malformed_ctid_raises_before_allowlist(tmp_path, monkeypatch):
+    """L07: same guarantee for ct_psql."""
+    _, _, _, _, log = _wire(tmp_path, monkeypatch, enable_exec=True, allowlist=("*",))
+    with pytest.raises(ProximoError):
+        server.ct_psql("100abc", "SELECT 1")
+    import os
+    if os.path.exists(log):
+        entries = _entries(log)
+        assert not any(e["outcome"] == "planned" for e in entries), (
+            "malformed CTID leaked a 'planned' ledger entry before server-layer validation"
+        )
+
+
+def test_ct_logs_malformed_ctid_raises_before_exec(tmp_path, monkeypatch):
+    """L07: ct_logs is read-only (no _plan entry) but should still reject malformed CTIDs
+    at the server layer before the exec backend runs (defense-in-depth)."""
+    _, _, exec_, _, _ = _wire(tmp_path, monkeypatch, enable_exec=True, allowlist=("*",))
+    with pytest.raises(ProximoError):
+        server.ct_logs("100abc", "myservice")
+    assert exec_.ran == [], "exec backend was reached for a malformed CTID"
+
+
+def test_ct_diagnose_malformed_ctid_raises_before_ledger(tmp_path, monkeypatch):
+    """L07 (same class, surfaced during the fix): ct_diagnose built the ledger target + called
+    ct_permitted from a raw CTID — validate at the server layer first so a malformed CTID never
+    reaches the allowlist gate or the audited target."""
+    _, _, _, _, log = _wire(tmp_path, monkeypatch, enable_exec=True, allowlist=("*",))
+    with pytest.raises(ProximoError):
+        server.ct_diagnose("100abc")
+    import os
+    if os.path.exists(log):
+        assert not any(e["outcome"] != "error" for e in _entries(log)), "ledger polluted by a malformed CTID"
 
 
 # === Redteam regressions (2026-06-07) ========================================
@@ -471,6 +528,45 @@ def test_pve_diagnose_is_read_and_audited(tmp_path, monkeypatch):
     out = server.pve_diagnose("pve")
     assert "storage" in out and "flags" in out
     assert any(e["action"] == "pve_diagnose" and not e["mutation"] for e in _entries(log))
+
+
+# --- backup job selection modes ---
+
+def test_backup_job_create_exposes_all_guests_selection(tmp_path, monkeypatch):
+    _, api, _, _, log = _wire(tmp_path, monkeypatch)
+    out = server.pve_backup_job_create("daily", "0 2 * * *", "local",
+                                       all_guests=True, confirm=True)
+    assert out["status"] != "plan"  # executed
+    path, data = api.posts[0]
+    assert path == "/cluster/backup"
+    assert data["all"] is True
+    assert "vmid" not in data  # selection modes don't bleed
+
+def test_backup_job_create_exposes_pool_selection(tmp_path, monkeypatch):
+    _, api, _, _, log = _wire(tmp_path, monkeypatch)
+    server.pve_backup_job_create("p", "0 2 * * *", "local", pool="prod", confirm=True)
+    _, data = api.posts[0]
+    assert data["pool"] == "prod"
+
+def test_backup_job_create_mutually_exclusive_rejected(tmp_path, monkeypatch):
+    _, api, _, _, log = _wire(tmp_path, monkeypatch)
+    # confirm=True so the EXECUTE path is requested; _plan's validation must still re-raise
+    # before any POST — proving the gate, not just that confirm=False short-circuits.
+    with pytest.raises(ProximoError, match="mutually exclusive"):
+        server.pve_backup_job_create("daily", "0 2 * * *", "local",
+                                     vmid="100", all_guests=True, confirm=True)
+    assert api.posts == []  # plan-phase validation precluded the POST
+
+
+def test_backup_job_create_all_false_is_not_a_selection(tmp_path, monkeypatch):
+    # all_guests=False must behave like omitting it — never leak all=0 onto the wire,
+    # and never count as a selection in the mutual-exclusivity check.
+    _, api, _, _, log = _wire(tmp_path, monkeypatch)
+    server.pve_backup_job_create("p", "0 2 * * *", "local",
+                                 vmid="100", all_guests=False, confirm=True)
+    _, data = api.posts[0]
+    assert data["vmid"] == "100"
+    assert "all" not in data
 
 
 # === MCP surface ============================================================

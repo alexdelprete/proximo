@@ -126,6 +126,21 @@ def _check_store(store: str) -> str:
     return s
 
 
+# PBS node names are hostnames used as a URL path segment (/nodes/{node}/...). Validate the
+# hostname charset so a crafted value can't traverse the path or inject query/control chars.
+_PBS_NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,63}\Z")
+
+
+def _check_pbs_node(node: str) -> str:
+    s = str(node)
+    if not _PBS_NODE_RE.match(s):
+        raise ProximoError(
+            f"invalid PBS node name: {node!r} "
+            "(hostname charset only: alnum/./-, <=64 chars, no slash or control chars)"
+        )
+    return s
+
+
 def _check_namespace(ns: str | None) -> str | None:
     """Validate a PBS namespace string (may contain '/' for nested; may be empty = root).
 
@@ -467,6 +482,7 @@ def tasks_list(
     Smoke-confirm: exact field names returned per task entry.
     Smoke-confirm: whether 'running' and 'errors' are accepted as boolean query params.
     """
+    node = _check_pbs_node(node)
     params: dict = {}
     if limit is not None:
         try:

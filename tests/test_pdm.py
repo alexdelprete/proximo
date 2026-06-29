@@ -708,3 +708,66 @@ def test_remotes_list_skips_non_dict_entries():
     backend, _ = _mock_backend([{"id": "ok"}, "junk", 42])
     out = backend.remotes_list()
     assert out == [{"id": "ok"}]
+
+
+# ---------------------------------------------------------------------------
+# FIX 3b: _strip_secrets — case-insensitive, recursive (dicts + lists)
+# These tests are FAILING against the old shallow/case-sensitive implementation
+# and PASSING against the fixed version.
+# ---------------------------------------------------------------------------
+
+def test_strip_secrets_case_insensitive():
+    """Token, PASSWORD, Secret, KEY, TokenSecret must all be stripped regardless of casing."""
+    d = {
+        "Token": "t",
+        "PASSWORD": "p",
+        "Secret": "s",
+        "KEY": "k",
+        "TokenSecret": "ts",
+        "safe": "ok",
+        "id": "x",
+    }
+    out = _strip_secrets(d)
+    for bad_key in ("Token", "PASSWORD", "Secret", "KEY", "TokenSecret"):
+        assert bad_key not in out, f"expected {bad_key!r} to be stripped (case-insensitive)"
+    assert out["safe"] == "ok"
+    assert out["id"] == "x"
+
+
+def test_strip_secrets_recursive_nested_dict():
+    """A token buried in a nested dict must not survive the strip."""
+    d = {
+        "id": "pbs-dc1",
+        "remote": {"host": "203.0.113.10", "token": "nested-secret", "port": 8007},
+    }
+    out = _strip_secrets(d)
+    assert out["id"] == "pbs-dc1"
+    assert "token" not in out["remote"], "nested token must be stripped"
+    assert out["remote"]["host"] == "203.0.113.10"
+    assert out["remote"]["port"] == 8007
+
+
+def test_strip_secrets_nested_in_list():
+    """A token buried in a dict inside a list value must not survive the strip."""
+    d = {
+        "members": [
+            {"userid": "u@pdm", "token": "list-secret"},
+            {"userid": "v@pdm", "safe": "value"},
+        ]
+    }
+    out = _strip_secrets(d)
+    assert "token" not in out["members"][0], "token inside list-of-dicts must be stripped"
+    assert out["members"][0]["userid"] == "u@pdm"
+    assert out["members"][1]["userid"] == "v@pdm"
+    assert out["members"][1]["safe"] == "value"
+
+
+def test_strip_secrets_returns_copy_not_mutates_original():
+    """_strip_secrets must return a NEW dict; the original must not be modified."""
+    d = {"id": "x", "token": "original-secret", "safe": "keep"}
+    out = _strip_secrets(d)
+    assert "token" not in out
+    assert out["safe"] == "keep"
+    # Original dict must be untouched (in-place pop would destroy this):
+    assert "token" in d, "_strip_secrets must not mutate the original dict"
+    assert d["token"] == "original-secret"

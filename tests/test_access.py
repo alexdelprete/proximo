@@ -514,6 +514,46 @@ def test_plan_token_create_rejects_invalid_tokenid():
 
 
 # ---------------------------------------------------------------------------
+# plan_token_create — L03 regressions (2026-06-29): expire/comment visibility
+# ---------------------------------------------------------------------------
+
+def test_plan_token_create_no_expire_warns_never_expiring():
+    """L03: expire=None (absent) creates a never-expiring token — must be visible in the plan."""
+    p = plan_token_create("admin@pam", "mytoken", privsep=True, expire=None)
+    text = " ".join(p.blast_radius).lower()
+    assert "never" in text or "no expir" in text or "expir" in text, (
+        "plan for a never-expiring token (expire=None) doesn't mention expiry in blast_radius"
+    )
+
+
+def test_plan_token_create_zero_expire_warns_never_expiring():
+    """L03: expire=0 is PVE's explicit 'never expires' sentinel — must surface in the plan."""
+    p = plan_token_create("admin@pam", "mytoken", privsep=True, expire=0)
+    text = " ".join(p.blast_radius).lower()
+    assert "never" in text or "no expir" in text or "expir" in text, (
+        "plan for a never-expiring token (expire=0) doesn't mention expiry in blast_radius"
+    )
+
+
+def test_plan_token_create_future_expire_not_warned_as_never_expiring():
+    """L03: expire=3600 (a real TTL) should NOT carry a 'never expires' warning."""
+    p = plan_token_create("admin@pam", "mytoken", privsep=True, expire=3600)
+    text = " ".join(p.blast_radius).lower()
+    # A note about expiry is fine, but "never" should not appear
+    assert "never" not in text, (
+        "plan with a real expiry (expire=3600) incorrectly warns as never-expiring"
+    )
+
+
+def test_plan_token_create_expire_surfaces_in_change():
+    """L03: expire value must appear in the change string so the PLAN is honest."""
+    p = plan_token_create("admin@pam", "mytoken", privsep=True, expire=7200)
+    assert "7200" in p.change or "expir" in p.change.lower(), (
+        "expire value not surfaced in plan change string"
+    )
+
+
+# ---------------------------------------------------------------------------
 # plan_token_revoke
 # ---------------------------------------------------------------------------
 

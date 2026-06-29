@@ -153,12 +153,13 @@ def build_app(rpc_url: str | None = None, *, token: str | None = None,
         rpc_url: Fully-qualified JSON-RPC endpoint URL (default ``http://127.0.0.1:41241/``). Used
                  as the card's interface URL and (path-only) as the Starlette route path.
         token:   Inbound bearer token. When set, the JSON-RPC endpoint requires it, the card declares
-                 the bearer scheme, and the Host header is validated (DNS-rebind defense). When None
-                 and ``rpc_url`` advertises a non-localhost host, construction is REFUSED (fail-closed).
+                 the bearer scheme, and the bearer middleware is added to the stack. When None and
+                 ``rpc_url`` advertises a non-localhost host, construction is REFUSED (fail-closed).
                  NOTE: this factory does NOT read the environment — the ``proximo-a2a`` entrypoint
                  (``main``) loads the token and passes it in. Embedders must pass ``token=`` explicitly.
-        allowed_hosts: Host allowlist for the DNS-rebind guard (only applied when ``token`` is set).
-                 Defaults to the served host + loopback forms.
+        allowed_hosts: Host allowlist for the DNS-rebind guard (applied in ALL modes, with or without a
+                 token). Defaults to the served host + loopback forms. Pass ``["*"]`` only behind a
+                 trusted reverse-proxy that validates Host (emits a loud warning when ``"*"`` present).
     """
     if rpc_url is None:
         rpc_url = f"http://{_DEFAULT_HOST}:{_DEFAULT_PORT}/"
@@ -187,26 +188,23 @@ def build_app(rpc_url: str | None = None, *, token: str | None = None,
 
         routes = [*routes, Route(_JWKS_PATH, _serve_jwks, methods=["GET"])]
 
-    # When auth is on (i.e. an exposed deployment), harden the perimeter: validate the Host header
-    # (DNS-rebind defense, OUTERMOST so a bad host is refused before anything) then require the bearer.
-    # When auth is on (i.e. an exposed deployment), harden the perimeter: validate the Host header
-    # (DNS-rebind defense, OUTERMOST so a bad host is refused before anything) then require the bearer.
-    # NOTE (audit L-2): no-token mode is deliberately localhost-bound + dev-only and does NOT install
-    # the Host allowlist — a deliberate, tested choice (test_no_host_restriction_without_token). The
-    # residual same-machine DNS-rebind risk is documented; flipping it is a product decision, not a fix.
-    middleware: list[Middleware] = []
+    # ALWAYS install the Host-header guard (DNS-rebind defense), OUTERMOST so a bad host is refused
+    # before anything else.  In no-token dev mode the bind-host guard already restricts us to loopback
+    # (a non-loopback bind without a token is a hard error); the Host guard adds a network-layer
+    # defence-in-depth so that a same-machine DNS-rebind cannot reach a mutation endpoint unguarded.
+    # When a token is configured, the bearer middleware is also added (inner, checked after Host).
+    hosts = allowed_hosts or _default_allowed_hosts(rpc_url)
+    if "*" in hosts:
+        # Starlette treats "*" as allow-any → the DNS-rebind guard is OFF. Legitimate only behind
+        # a trusted reverse-proxy that validates Host. Never let that be silent (cf. the MCP-side
+        # CT_ALLOWLIST='*' warning) — surface it loudly.
+        warnings.warn(
+            "PROXIMO A2A host allowlist contains '*' — DNS-rebind/Host protection is DISABLED; "
+            "any Host header is accepted. Only safe behind a trusted reverse-proxy that validates Host.",
+            stacklevel=2,
+        )
+    middleware: list[Middleware] = [Middleware(TrustedHostMiddleware, allowed_hosts=hosts)]
     if token:
-        hosts = allowed_hosts or _default_allowed_hosts(rpc_url)
-        if "*" in hosts:
-            # Starlette treats "*" as allow-any → the DNS-rebind guard is OFF. Legitimate only behind
-            # a trusted reverse-proxy that validates Host. Never let that be silent (cf. the MCP-side
-            # CT_ALLOWLIST='*' warning) — surface it loudly.
-            warnings.warn(
-                "PROXIMO A2A host allowlist contains '*' — DNS-rebind/Host protection is DISABLED; "
-                "any Host header is accepted. Only safe behind a trusted reverse-proxy that validates Host.",
-                stacklevel=2,
-            )
-        middleware.append(Middleware(TrustedHostMiddleware, allowed_hosts=hosts))
         middleware.append(Middleware(_BearerAuthMiddleware, token=token, rpc_path=rpc_path))
     return Starlette(routes=routes, middleware=middleware)
 
@@ -225,8 +223,14 @@ def main() -> None:
     allowed = os.environ.get("PROXIMO_A2A_ALLOWED_HOSTS", "")
     allowed_hosts = [h.strip() for h in allowed.split(",") if h.strip()] or None
 
+    # RFC-3986 requires bare IPv6 addresses to be wrapped in brackets in the URL authority
+    # (e.g. http://[::1]:41241/).  Without brackets urlparse().hostname returns None, which the
+    # public-bind guard inside build_app misidentifies as "bind-all" (public) and refuses startup
+    # even for loopback ::1 when no token is configured.  Guard against a user who already passed
+    # a bracketed host by skipping double-bracketing.
+    url_host = f"[{host}]" if (":" in host and not host.startswith("[")) else host
     app = build_app(
-        f"http://{host}:{port}/",
+        f"http://{url_host}:{port}/",
         token=token,
         allowed_hosts=allowed_hosts,
         signing_key=_load_signing_key(),

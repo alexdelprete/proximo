@@ -558,7 +558,7 @@ class TestPlanTrafficControlDelete:
     def test_action_and_risk(self):
         p = plan_traffic_control_delete("rule1")
         assert p.action == "pbs_traffic_control_delete"
-        assert p.risk == RISK_LOW
+        assert p.risk == RISK_MEDIUM  # deleting config IS a state change — not LOW
 
     def test_blast_mentions_unthrottled(self):
         p = plan_traffic_control_delete("rule1")
@@ -668,11 +668,11 @@ class TestMutationGating:
         assert out["status"] == "plan"
         assert out["risk"] == RISK_MEDIUM
 
-    def test_traffic_control_delete_dry_run_low(self, tmp_path, monkeypatch):
+    def test_traffic_control_delete_dry_run_medium(self, tmp_path, monkeypatch):
         _, _, pbs, _, _ = _wire(tmp_path, monkeypatch)
         out = server.pbs_traffic_control_delete("rule1")
         assert out["status"] == "plan"
-        assert out["risk"] == RISK_LOW
+        assert out["risk"] == RISK_MEDIUM
 
     def test_traffic_control_upsert_create_path_low_plan(self, tmp_path, monkeypatch):
         _, _, pbs, _, _ = _wire(tmp_path, monkeypatch, get_return=None)

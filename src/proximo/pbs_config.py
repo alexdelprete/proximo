@@ -1207,7 +1207,7 @@ def plan_traffic_control_delete(name: str) -> Plan:
             "backups and restores on the matched network run unthrottled after deletion",
             "re-create with pbs_traffic_control_upsert to restore limits",
         ],
-        risk=RISK_LOW,
+        risk=RISK_MEDIUM,
         risk_reasons=[
             "removes a bandwidth limit — backups run unthrottled; network saturation is possible "
             "if the underlying network is shared",

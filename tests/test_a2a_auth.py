@@ -5,9 +5,13 @@ these tests pin that the A2A front door obeys it:
   - building a PUBLIC-bound app WITHOUT an auth token is REFUSED (not merely warned)
   - when a token is set: the JSON-RPC control endpoint requires a correct Bearer token, the Host header
     is validated against an allowlist (DNS-rebind defense), and the agent card DECLARES the bearer scheme
-  - localhost-default with no token still works unrestricted (dev ergonomics preserved)
+  - localhost-default with no token still works for loopback Hosts (dev ergonomics preserved)
+  - even in no-token dev mode the Host guard is installed — non-loopback Hosts are rejected (L20)
+  - bare IPv6 loopback (::1) is correctly bracketed in the URL passed to build_app so startup does
+    not spuriously refuse a token-free loopback bind (L21)
 
-When a token is set the Host allowlist is enforced, so token'd TestClients use a loopback base_url.
+The Host allowlist is enforced in ALL modes (not just when a token is set), so all TestClients
+that make HTTP requests must use a loopback base_url.
 """
 from __future__ import annotations
 
@@ -35,8 +39,8 @@ def test_public_bind_with_token_is_allowed():
 
 
 def test_localhost_without_token_still_serves_card():
-    # no regression: dev default (loopback, no token, no Host restriction) keeps working
-    client = TestClient(build_app())
+    # no regression: dev default (loopback, no token) keeps working — loopback Host is allowed
+    client = TestClient(build_app(), base_url=LOCAL)
     assert client.get(AGENT_CARD_WELL_KNOWN_PATH).status_code == 200
 
 
@@ -96,10 +100,18 @@ def test_allowed_host_passes_host_check():
     assert client.get(AGENT_CARD_WELL_KNOWN_PATH).status_code == 200
 
 
-def test_no_host_restriction_without_token():
-    # dev mode (no token): no Host allowlist installed; default TestClient Host ('testserver') is fine
-    client = TestClient(build_app())
+def test_loopback_host_accepted_without_token():
+    # dev mode (no token): Host guard IS installed; loopback Hosts are accepted
+    client = TestClient(build_app(), base_url=LOCAL)
     assert client.get(AGENT_CARD_WELL_KNOWN_PATH).status_code == 200
+
+
+def test_host_guard_rejects_bad_host_without_token():
+    # L20 fix: even in no-token dev mode the Host guard is installed; a non-loopback Host is
+    # rejected as DNS-rebind defense (the bind-host guard keeps us on loopback; this is a
+    # network-layer defence-in-depth so a same-machine DNS-rebind cannot reach a mutation endpoint).
+    client = TestClient(build_app(), base_url="http://evil.example.com")
+    assert client.get(AGENT_CARD_WELL_KNOWN_PATH).status_code == 400
 
 
 def test_custom_allowed_hosts_honored():
@@ -129,3 +141,35 @@ def test_wildcard_allowed_hosts_warns_not_silent():
     # choice, but it must NOT be silent — warn loudly (matches the MCP CT_ALLOWLIST='*' precedent).
     with pytest.warns(UserWarning, match="(?i)host|rebind"):
         build_app(token="s3cret", allowed_hosts=["*"])
+
+
+# --- IPv6 loopback startup (L21) -------------------------------------------------------------------
+
+def test_main_ipv6_loopback_starts_without_token(monkeypatch):
+    """main() with PROXIMO_A2A_HOST=::1 and no token must start cleanly.
+
+    Before the fix, main() builds 'http://::1:<port>/' — a malformed URL whose urlparse().hostname
+    returns None.  None is treated as 'bind-all' (public), so build_app raises ValueError even
+    though ::1 is loopback.  The fix brackets bare IPv6 addresses: 'http://[::1]:<port>/' which
+    parses hostname='::1' (in _LOCALHOST_ADDRS) → correctly identified as loopback → no token needed.
+    """
+    import uvicorn  # noqa: PLC0415
+
+    monkeypatch.setattr(uvicorn, "run", lambda *_a, **_kw: None)
+    monkeypatch.setenv("PROXIMO_A2A_HOST", "::1")
+    monkeypatch.delenv("PROXIMO_A2A_TOKEN_FILE", raising=False)
+    monkeypatch.delenv("PROXIMO_A2A_SIGNING_KEY_FILE", raising=False)
+    from proximo.a2a.app import main  # noqa: PLC0415
+    main()  # before fix: ValueError ("non-localhost"); after fix: delegates to uvicorn.run cleanly
+
+
+def test_build_app_bracketed_ipv6_loopback_accepted_without_token():
+    """build_app() with a properly bracketed IPv6 loopback URL is accepted without a token.
+
+    This is the URL shape that main() produces after the IPv6-bracketing fix (L21).  Confirms that
+    urlparse('http://[::1]:41241/').hostname == '::1', which is in _LOCALHOST_ADDRS, so the
+    fail-closed guard does not raise even with no token.
+    """
+    from starlette.applications import Starlette  # noqa: PLC0415
+
+    assert isinstance(build_app("http://[::1]:41241/"), Starlette)

@@ -244,13 +244,23 @@ def plan_acme_account_delete(api, name: str) -> Plan:
 # Plan factories — ACME plugins
 # ---------------------------------------------------------------------------
 
+def _redact_plugin_kw(kw: dict) -> dict:
+    """Mask the DNS-provider credential blob before it enters a plan string.
+
+    `data` carries the provider's API secrets (e.g. ``CF_Token=...``, ``AWS_SECRET_ACCESS_KEY=...``).
+    plan.change is BOTH returned to the caller AND written to the tamper-evident PROVE ledger, so the
+    raw value must never appear there — this is the one credential field that lacked a redaction path.
+    """
+    return {k: ("[redacted]" if k == "data" else v) for k, v in kw.items()}
+
+
 def plan_acme_plugin_create(plugin_id: str, plugin_type: str, **kw) -> Plan:
     """Plan an ACME plugin creation (additive, MEDIUM risk)."""
     _check_acme_plugin_id(plugin_id)
     return Plan(
         action="pve_acme_plugin_create",
         target=f"cluster/acme/plugins/{plugin_id}",
-        change=f"create ACME plugin {plugin_id!r} (type={plugin_type!r}): {kw}",
+        change=f"create ACME plugin {plugin_id!r} (type={plugin_type!r}): {_redact_plugin_kw(kw)}",
         current={},
         blast_radius=["adds a new ACME DNS challenge plugin (no existing config affected)"],
         risk=RISK_MEDIUM,
@@ -272,7 +282,7 @@ def plan_acme_plugin_update(api, plugin_id: str, **kw) -> Plan:
     return Plan(
         action="pve_acme_plugin_update",
         target=f"cluster/acme/plugins/{plugin_id}",
-        change=f"update ACME plugin {plugin_id!r}: {kw}",
+        change=f"update ACME plugin {plugin_id!r}: {_redact_plugin_kw(kw)}",
         current=current,
         blast_radius=[
             "changes challenge credentials for all domains using this plugin",

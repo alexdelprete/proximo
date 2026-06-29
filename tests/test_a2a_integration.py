@@ -136,7 +136,10 @@ def test_agent_card_served_over_http():
     from proximo.a2a.app import build_app
     from proximo.a2a.skills import SKILLS
 
-    client = TestClient(build_app())
+    # The DNS-rebind Host guard (TrustedHostMiddleware) is now always installed, so the client must
+    # present a loopback Host like a real client hitting the loopback-bound server — TestClient's
+    # default "testserver" Host is correctly refused (400) by the guard.
+    client = TestClient(build_app(), base_url="http://localhost")
     resp = client.get(AGENT_CARD_WELL_KNOWN_PATH)
     assert resp.status_code == 200, f"card endpoint returned {resp.status_code}"
     body = resp.json()

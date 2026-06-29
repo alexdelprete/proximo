@@ -166,6 +166,29 @@ def _check_timezone(tz: str) -> str:
     return s
 
 
+# Absolute-path file validator for qemu-agent file-read/file-write.
+# Must start with '/'; reject ALL C0 control chars (incl. CR/LF/TAB) and DEL — these have no
+# place in a path and are the header/URL-injection vectors. Printable chars (incl. space, which
+# is legal in guest paths) are allowed and percent-encoded by the caller.
+# \Z anchor prevents trailing-newline slip-through (same discipline as _NODE_RE).
+#
+# NOTE: qemu_agent.py imports backends (not the reverse), so _check_file_path is intentionally
+# duplicated here. If you move it, update the import in qemu_agent.py to pull from backends
+# instead of redefining it locally.
+_FILE_PATH_RE = re.compile(r"^/[^\x00-\x1f\x7f]*\Z")
+
+
+def _check_file_path(path: str) -> str:
+    """Validate an absolute guest file path (defense-in-depth: called at the backend layer)."""
+    if not _FILE_PATH_RE.match(path):
+        raise ProximoError(
+            f"invalid file path: {path!r} (must be an absolute path starting with '/')"
+        )
+    if ".." in path.split("/"):
+        raise ProximoError(f"path traversal not allowed: {path!r}")
+    return path
+
+
 @dataclass
 class ExecResult:
     ctid: str
@@ -250,7 +273,9 @@ class ApiBackend:
         # PVE's API type-checker wants booleans as 1/0 — Python's bool serializes to 'true'/'false',
         # which PVE rejects ("type check ('boolean') failed - got 'false'"). Coerce so any tool may
         # pass a native bool and get the wire form PVE accepts. Ints pass through (1 is True == False).
-        return {k: (1 if v is True else 0 if v is False else v) for k, v in (d or {}).items()}
+        # None is DROPPED, not sent: an unset optional must be omitted, never serialized as "None".
+        return {k: (1 if v is True else 0 if v is False else v)
+                for k, v in (d or {}).items() if v is not None}
 
     def _post(self, path: str, data: dict | None = None):
         r = self._client.post(path, headers=self._auth_header(), data=self._form(data))
@@ -275,7 +300,8 @@ class ApiBackend:
     def access_permissions(self, path: str | None = None) -> dict:
         """GET /access/permissions — the CALLING token's effective privileges, as {path: {priv: 1}}.
         No `path` => the full map across every path, so scoped (e.g. pool-only) grants stay visible."""
-        q = f"?path={path}" if path else ""
+        # url-encode the caller-supplied path so '&'/'#'/space cannot inject extra query params
+        q = f"?path={quote(path, safe='/')}" if path else ""
         return self._get(f"/access/permissions{q}") or {}
 
     def node_status(self, node: str | None = None) -> dict:
@@ -413,8 +439,9 @@ class ApiBackend:
         {'bytes-read': int, 'content': str} (plain text round-trips exactly).
         """
         vmid, n = self._agent_gate(vmid, node)
-        # Percent-encode the caller-supplied path so '&'/'?'/'#'/space cannot inject query params or
-        # break the request (the validator already rejects control chars; this closes the query seam).
+        _check_file_path(file)  # defense-in-depth: validate even on a direct backend call
+        # Percent-encode the validated path so '&'/'?'/'#'/space cannot inject query params or
+        # break the request; _check_file_path already rejects control chars and traversal.
         return self._get(f"/nodes/{n}/qemu/{vmid}/agent/file-read?file={quote(file, safe='/')}") or {}
 
     def agent_file_write(self, vmid: str, node: str | None, file: str, content: str) -> None:
@@ -425,6 +452,7 @@ class ApiBackend:
         (whether an 'encode'/base64 param is needed) is not yet exercised.
         """
         vmid, n = self._agent_gate(vmid, node)
+        _check_file_path(file)  # defense-in-depth: validate even on a direct backend call
         self._post(f"/nodes/{n}/qemu/{vmid}/agent/file-write", {"file": file, "content": content})
 
     def agent_set_password(self, vmid: str, node: str | None, username: str, password: str) -> None:

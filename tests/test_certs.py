@@ -430,6 +430,15 @@ class TestPlanAcmePluginCreate:
         with pytest.raises(ProximoError, match="invalid ACME plugin ID"):
             plan_acme_plugin_create("bad/id", "dns")
 
+    def test_redacts_data_credential_from_change(self):
+        # `data` carries DNS-provider API credentials (e.g. CF_Token=...) — it must never land
+        # in plan.change, which is both returned to the caller AND written to the PROVE ledger.
+        plan = plan_acme_plugin_create("dns-cf", "dns", api="cf", data="CF_Token=SUPERSECRET")
+        assert "CF_Token" not in plan.change
+        assert "SUPERSECRET" not in plan.change
+        assert "[redacted]" in plan.change
+        assert "cf" in plan.change  # non-secret api field stays visible
+
 
 class TestPlanAcmePluginUpdate:
     def test_risk_is_medium(self):
@@ -442,6 +451,13 @@ class TestPlanAcmePluginUpdate:
         plan = plan_acme_plugin_update(api, "dns-cf", data="CF_Token=new")
         assert api.gets == ["/cluster/acme/plugins/dns-cf"]
         assert plan.current == {"id": "dns-cf", "type": "dns"}
+
+    def test_redacts_data_credential_from_change(self):
+        api = _Api(get_returns={"/cluster/acme/plugins/dns-cf": {"id": "dns-cf"}})
+        plan = plan_acme_plugin_update(api, "dns-cf", data="CF_Token=SUPERSECRET")
+        assert "CF_Token" not in plan.change
+        assert "SUPERSECRET" not in plan.change
+        assert "[redacted]" in plan.change
 
     def test_blast_radius_mentions_credentials(self):
         api = _Api(get_returns={"/cluster/acme/plugins/dns-cf": {}})

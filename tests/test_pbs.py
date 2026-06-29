@@ -676,6 +676,13 @@ class TestTasksList:
         with pytest.raises(ProximoError):
             tasks_list(api, limit="bad")
 
+    def test_traversal_node_rejected(self):
+        # node is a URL path segment — a crafted value must not traverse/inject
+        api = _api()
+        for bad in ("../etc", "a/b", "node?x=1", "n\nlog"):
+            with pytest.raises(ProximoError, match="invalid PBS node name"):
+                tasks_list(api, node=bad)
+
 
 # ---------------------------------------------------------------------------
 # MUTATION operations — URL shapes, methods, bodies

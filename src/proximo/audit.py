@@ -145,13 +145,17 @@ def load_or_create_key(path: str) -> bytes:
 
 
 def find_rotation_archive(log_path: str) -> str | None:
-    """Return the newest sibling ``*.unkeyed-<stamp>-<head8>`` rotation archive, or None.
+    """Return the newest sibling rotation archive (``*.unkeyed-*`` or ``*.keyed-*``), or None.
 
-    Lets a caller tell a benign keyed-default migration (which rotates the head, so a stale off-box
-    pin reads as a "head mismatch") apart from a real tail attack — the archive is the migration's
-    fingerprint. Path-only; does not read or trust the archive's contents.
+    Lets a caller tell a benign migration (unkeyed→keyed OR keyed→unkeyed, both of which rotate
+    the head so a stale off-box pin reads as a "head mismatch") apart from a real tail attack —
+    the archive is the migration's fingerprint. Path-only; does not read or trust the archive's
+    contents.
     """
-    matches = sorted(glob.glob(glob.escape(log_path) + ".unkeyed-*"))
+    matches = sorted(
+        glob.glob(glob.escape(log_path) + ".unkeyed-*")
+        + glob.glob(glob.escape(log_path) + ".keyed-*")
+    )
     return matches[-1] if matches else None
 
 
@@ -227,6 +231,53 @@ def seal_and_rotate(log_path: str, key: bytes) -> tuple[str, str]:
             fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
 
 
+def seal_keyed_and_rotate(log_path: str) -> tuple[str, str]:
+    """Archive an existing KEYED ledger and start a fresh unkeyed one in its place.
+
+    Mirror of ``seal_and_rotate`` for the reverse direction: called when the operator sets
+    ``PROXIMO_AUDIT_KEYED=off`` after a keyed run (keyed→unkeyed downgrade). Because the HMAC
+    key is unavailable at this point, no terminal ``sealed:true`` entry can be appended to the
+    keyed log — the keyed chain is archived intact and is still fully verifiable with the
+    original key. The new unkeyed log records ``prev_log``/``prev_head``/``prev_alg`` as an
+    auditable custody seam, analogous to the forward migration.
+
+    Under a sidecar ``<log_path>.lock`` (the log itself gets renamed, so we can't lock it).
+    No-op (returns ``("", head)``) if the log is not keyed once the lock is held — a racing
+    process already handled it. NEVER deletes the old log.
+    """
+    lock_path = log_path + ".lock"
+    with open(lock_path, "a+", encoding="utf-8",
+              opener=lambda p, flags: os.open(p, flags, 0o600)) as lf:
+        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+        try:
+            if detect_mode(log_path) != "keyed":
+                return "", AuditLedger(log_path).head()
+            # Read the stored head without HMAC verification — the key is unavailable here,
+            # and we only need the value for the archive name and custody seam, not to verify.
+            old_head = AuditLedger(log_path).head()
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            archive_path = f"{log_path}.keyed-{stamp}-{old_head[:8]}"
+            # Archive the keyed log intact.  No terminal seal entry is possible without the key;
+            # the archive is a complete, independently verifiable keyed chain.
+            # Crash window: if the process dies after rename but before the genesis below, the
+            # archive survives (non-destructive); re-running open_ledger sees an empty new log
+            # and starts fresh with no custody seam — acceptable, as with seal_and_rotate.
+            os.rename(log_path, archive_path)
+            # Write the unkeyed genesis to a temp file, then os.replace() atomically — same
+            # pattern as seal_and_rotate to prevent a racer from creating log_path in this window.
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(log_path) or ".", prefix=".audit-new-")
+            os.close(fd)
+            AuditLedger(tmp).record(
+                "audit_rotate", target="ledger",
+                detail={"prev_log": os.path.basename(archive_path),
+                        "prev_head": old_head, "prev_alg": _KEY_ALG,
+                        "reason": "keyed-to-unkeyed downgrade"})
+            os.replace(tmp, log_path)
+            return archive_path, old_head
+        finally:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+
+
 @dataclass(frozen=True)
 class LedgerVerification:
     ok: bool
@@ -268,7 +319,9 @@ class AuditLedger:
             # A valid-JSON non-dict line (int/list/str) would raise TypeError on the
             # subscript below — guard it the same way verify() does, so a corrupt tail
             # line never crashes record() mid-mutation or DoSes audit_verify/head().
-            if isinstance(entry, dict) and "entry_hash" in entry:
+            # The entry_hash VALUE must also be a str: _hash() does prev_hash.encode("ascii"),
+            # so a crafted {"entry_hash": 123} would set prev to a non-str and brick record().
+            if isinstance(entry, dict) and isinstance(entry.get("entry_hash"), str):
                 prev = entry["entry_hash"]
         return prev
 
@@ -419,6 +472,26 @@ def open_ledger(cfg: Any) -> AuditLedger:
     elif cfg.audit_keyed:
         key_path = os.path.join(os.path.dirname(log) or ".", "audit.key")
     else:
+        # Keyed→unkeyed migration guard: if the existing log is keyed, seal-and-rotate it
+        # (archive intact, start fresh unkeyed log, warn loudly) rather than silently appending
+        # bare-SHA-256 entries onto an HMAC chain — which makes verify() fail forever with no
+        # operator-readable migration guidance.  Mirrors the forward unkeyed→keyed path exactly.
+        if detect_mode(log) == "keyed":
+            archive_path, sealed_head = seal_keyed_and_rotate(log)
+            ledger = AuditLedger(log)
+            # Only the migration WINNER warns (same pattern as forward rotation).
+            if archive_path:
+                warnings.warn(
+                    f"PROVE ledger DOWNGRADED to unkeyed mode: the prior keyed log "
+                    f"(head {sealed_head[:12]}...) was archived to {archive_path} "
+                    f"(verify it with its original HMAC key — no key was available here to "
+                    f"add a terminal seal entry). A new unkeyed log was started "
+                    f"(head {ledger.head()}). HMAC tamper-evidence is no longer active — "
+                    f"re-enable PROXIMO_AUDIT_KEYED to restore it. "
+                    f"If you pin PROXIMO_AUDIT_EXPECTED_HEAD, re-pin it to the new head.",
+                    stacklevel=2,
+                )
+            return ledger
         return AuditLedger(log)  # unkeyed (opt-out)
     try:
         key = load_or_create_key(key_path)

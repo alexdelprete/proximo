@@ -207,6 +207,14 @@ def network_iface_create(
     return api._post(f"/nodes/{n}/network", data)
 
 
+def _current_iface_type(api, iface: str, node: str | None = None) -> str | None:
+    """Return an interface's current PVE type (a read), or None if the iface is absent."""
+    for entry in network_list(api, node) or []:
+        if entry.get("iface") == iface:
+            return entry.get("type")
+    return None
+
+
 def network_iface_update(
     api,
     iface: str,
@@ -216,24 +224,38 @@ def network_iface_update(
     """Update an existing network interface configuration (staged, not live until apply).
 
     PUT /nodes/{node}/network/{iface}
-    Body: {…opts}
+    Body: {…opts, type}  — `type` is injected from the iface's current config (see below).
 
     Changes take effect only after network_apply.
 
     Returns the PVE response (often None).
 
-    Shape risk: same as iface_create — body params are type-dependent; PVE validates.
+    PVE's update endpoint requires `type` even for an address-only change. We read the
+    interface's CURRENT type and inject it, so plain field updates (address, netmask,
+    bridge_ports, …) go through while a type *change* stays impossible by construction — a
+    caller-supplied `type` is still rejected. Adds one read (network_list) before the PUT.
+    (PVE schema confirms `type` is the SOLE required update param — `pvesh usage`, 2026-06-28 —
+    so injecting it is sufficient; all other fields are optional.)
+
+    Shape risk: body params beyond type are PVE-interface-type-dependent; PVE validates.
     MUTATION — confirm-gated + audited at the server layer.
     """
     iface = _check_iface(iface)
     _check_node(node)
     if "type" in opts:
         raise ProximoError(
-            "opts must not contain the reserved key 'type' — changing an interface's type is a "
-            "structural change; recreate the interface instead (symmetry with iface_create's guard)"
+            "opts must not contain the reserved key 'type' — an interface's type is preserved "
+            "automatically from its current config; changing the type is a structural change "
+            "(recreate the interface instead)"
         )
     n = node or api.config.node
-    return api._put(f"/nodes/{n}/network/{iface}", opts or {})
+    current_type = _current_iface_type(api, iface, node)
+    if current_type is None:
+        raise ProximoError(
+            f"cannot update interface {iface!r} on {n}: not found "
+            "(no current type to preserve — create it first)"
+        )
+    return api._put(f"/nodes/{n}/network/{iface}", {**opts, "type": current_type})
 
 
 def network_apply(api, node: str | None = None) -> dict | None:

@@ -8,10 +8,21 @@ Proximo reads it at call time and never logs it, so the credential stays
 from __future__ import annotations
 
 import os
+import re
 import warnings
 from dataclasses import dataclass
 
 from .audit import looks_like_head
+
+# Charset for PROXIMO_SSH_TARGET: hostname, SSH alias, or user@host.
+# Must start with alphanumeric to block option-injection (e.g. -oProxyCommand=...).
+# Empty string is allowed separately (local/on-host mode via is_local).
+_SSH_TARGET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]*\Z")
+
+# PROXIMO_VERIFY_TLS — full falsy/truthy sets (matching audit_keyed's pattern).
+# Unrecognized values keep TLS on (safe default) and emit a diagnostic warning.
+_VTLS_FALSY = frozenset({"0", "false", "off", "no"})
+_VTLS_TRUTHY = frozenset({"1", "true", "on", "yes"})
 
 
 @dataclass(frozen=True)
@@ -52,7 +63,8 @@ class ProximoConfig:
         agent_allow = os.environ.get("PROXIMO_AGENT_ALLOWLIST", "").strip()
         agent_allowlist = frozenset(c.strip() for c in agent_allow.split(",") if c.strip())
 
-        verify_tls = os.environ.get("PROXIMO_VERIFY_TLS", "true").lower() != "false"
+        _vtls_raw = os.environ.get("PROXIMO_VERIFY_TLS", "true").strip().lower()
+        verify_tls = _vtls_raw not in _VTLS_FALSY
         ca_bundle = os.environ.get("PROXIMO_CA_BUNDLE") or None
         enable_exec = os.environ.get("PROXIMO_ENABLE_EXEC", "false").lower() in ("1", "true", "yes", "on")
         enable_agent = os.environ.get("PROXIMO_ENABLE_AGENT", "false").lower() in ("1", "true", "yes", "on")
@@ -72,15 +84,35 @@ class ProximoConfig:
                 "(a sha256/hmac-sha256 hexdigest); got a malformed value"
             )
 
+        # Validate PROXIMO_SSH_TARGET charset: empty string is the on-host sentinel (is_local);
+        # any non-empty value must be a safe hostname/alias/user@host — a leading '-' would be
+        # parsed by ssh as an option flag, enabling option-injection (e.g. -oProxyCommand=...).
+        ssh_target = os.environ.get("PROXIMO_SSH_TARGET", "pve")
+        if ssh_target and not _SSH_TARGET_RE.match(ssh_target):
+            raise RuntimeError(
+                f"PROXIMO_SSH_TARGET must be a hostname or SSH alias "
+                f"(characters: A-Z a-z 0-9 . _ @ -); got: {ssh_target!r}"
+            )
+
         # Honest warnings (no phantom comments): least-privilege and TLS are load-bearing.
         if "*" in ct_allowlist:
             warnings.warn(
                 "PROXIMO_CT_ALLOWLIST='*' — Proximo can reach ALL containers (least-privilege disabled).",
                 stacklevel=2,
             )
-        if not verify_tls and not ca_bundle:
+        if _vtls_raw not in _VTLS_FALSY | _VTLS_TRUTHY:
             warnings.warn(
-                "PROXIMO_VERIFY_TLS=false with no CA bundle — talking to the PVE API without cert validation.",
+                f"PROXIMO_VERIFY_TLS={_vtls_raw!r} is not a recognized boolean value; "
+                "TLS verification stays ON. Use 'false', '0', 'no', or 'off' to disable.",
+                stacklevel=2,
+            )
+        if not verify_tls and not ca_bundle:
+            # ApiBackend refuses to construct when verify_tls=False and no ca_bundle is set —
+            # this warning fires immediately before that hard failure so operators can act.
+            warnings.warn(
+                "PROXIMO_VERIFY_TLS=false with no CA bundle — the backend will refuse to "
+                "start (fail-closed). Set PROXIMO_CA_BUNDLE to a PEM CA file or use "
+                "PROXIMO_VERIFY_TLS=true.",
                 stacklevel=2,
             )
         if enable_exec:
@@ -95,9 +127,17 @@ class ProximoConfig:
                 "(PROXIMO_AGENT_ALLOWLIST) to restrict which guests can be reached.",
                 stacklevel=2,
             )
-        if "*" in agent_allowlist:
+        if enable_agent and "*" in agent_allowlist:
             warnings.warn(
                 "PROXIMO_AGENT_ALLOWLIST='*' — qemu-agent can reach ALL VMs (least-privilege disabled).",
+                stacklevel=2,
+            )
+        if not audit_keyed:
+            warnings.warn(
+                "PROXIMO_AUDIT_KEYED is off — the PROVE ledger is running unkeyed (bare "
+                "SHA-256, not HMAC-SHA256). Anyone with write access to the log file can "
+                "forge entries without detection. Set PROXIMO_AUDIT_KEYED=true (the default) "
+                "to restore HMAC-SHA256 tamper-evidence.",
                 stacklevel=2,
             )
 
@@ -105,7 +145,7 @@ class ProximoConfig:
             api_base_url=api_base_url.rstrip("/"),
             node=node,
             token_path=token_path,
-            ssh_target=os.environ.get("PROXIMO_SSH_TARGET", "pve"),
+            ssh_target=ssh_target,
             ct_allowlist=ct_allowlist,
             audit_log_path=os.environ.get("PROXIMO_AUDIT_LOG", cls.audit_log_path),
             verify_tls=verify_tls,

@@ -309,6 +309,8 @@ def test_network_iface_update_calls_put_on_correct_path(monkeypatch):
         seen.update(path=path, data=data)
         return None
 
+    # the update reads current config (for type injection) before the PUT
+    monkeypatch.setattr(api, "_get", lambda path: [{"iface": "vmbr0", "type": "bridge"}])
     monkeypatch.setattr(api, "_put", fake_put)
     network_iface_update(api, "vmbr0", address="10.0.0.1")
     assert seen["path"] == "/nodes/pve/network/vmbr0"
@@ -323,6 +325,7 @@ def test_network_iface_update_uses_provided_node(monkeypatch):
         seen.update(path=path)
         return None
 
+    monkeypatch.setattr(api, "_get", lambda path: [{"iface": "vmbr0", "type": "bridge"}])
     monkeypatch.setattr(api, "_put", fake_put)
     network_iface_update(api, "vmbr0", node="nodeY")
     assert "/nodes/nodeY/network/vmbr0" in seen["path"]
@@ -340,6 +343,24 @@ def test_network_iface_update_rejects_reserved_type_key(monkeypatch):
     monkeypatch.setattr(api, "_put", lambda *a, **k: None)
     with pytest.raises(ProximoError, match="reserved key"):
         network_iface_update(api, "vmbr0", type="bond")
+
+
+def test_network_iface_update_injects_current_type():
+    # PVE's PUT /network/{iface} requires `type`; we inject the iface's CURRENT type so a
+    # plain field update (e.g. address) goes through while a type CHANGE stays impossible.
+    api = _NetworkListApi(ifaces=[{"iface": "vmbr0", "type": "bridge", "address": "10.0.0.1"}])
+    network_iface_update(api, "vmbr0", address="10.0.0.9")
+    path, data = api.puts[0]
+    assert path == "/nodes/pve/network/vmbr0"
+    assert data["address"] == "10.0.0.9"
+    assert data["type"] == "bridge"  # injected from current config, never caller-supplied
+
+
+def test_network_iface_update_unknown_iface_raises():
+    # no current config to preserve the type from → fail loud rather than 400 at PVE.
+    api = _NetworkListApi(ifaces=[])
+    with pytest.raises(ProximoError, match="not found"):
+        network_iface_update(api, "vmbr0", address="10.0.0.1")
 
 
 def test_plan_iface_update_previews_staged_fields():
@@ -495,11 +516,16 @@ class _NetworkListApi:
         self.config = SimpleNamespace(node="pve")
         self._ifaces = ifaces or []
         self._fail = fail
+        self.puts: list = []
 
     def _get(self, path):
         if self._fail:
             raise RuntimeError("network read failed")
         return self._ifaces
+
+    def _put(self, path, data=None):
+        self.puts.append((path, data))
+        return None
 
 
 def test_plan_iface_create_free_iface_is_medium():

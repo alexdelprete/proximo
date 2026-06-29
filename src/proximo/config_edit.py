@@ -158,12 +158,11 @@ def _settable_prior(prior_config: dict, kind: str) -> tuple[dict, list[str]]:
 
 def _put_config(api, path: str, data: dict):
     """PUT {path} with {data}.  PVE config PUT returns null (sync).
-    Calls api._client.request directly, mirroring how ApiBackend._delete does it.
+    Routes through ApiBackend._put so the shared _form() bool->1/0 coercion applies — a native
+    Python bool in {data} would otherwise reach PVE as 'True'/'False' and be rejected.
     SHAPE-RISK: confirm 200/204 vs 405 at live smoke; also confirm QEMU sync vs async.
     """
-    r = api._client.request("PUT", path, headers=api._auth_header(), data=data)
-    r.raise_for_status()
-    return r.json().get("data")
+    return api._put(path, data)
 
 
 # ---------------------------------------------------------------------------

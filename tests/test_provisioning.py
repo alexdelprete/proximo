@@ -421,6 +421,23 @@ def test_plan_create_action_string():
     assert p.action == "pve_create"
 
 
+def test_plan_create_privileged_is_high_risk():
+    # a privileged LXC is host-equivalent root — the plan must escalate to HIGH and say so
+    api = _ListApi([])
+    p = plan_create(api, "500", "lxc", None, {"privileged": 1})
+    assert p.risk == RISK_HIGH
+    assert any("privileged" in b.lower() for b in p.blast_radius)
+
+
+def test_plan_create_surfaces_options_and_redacts_password():
+    # the plan must reflect the real create params (trust spine) but never echo the password
+    api = _ListApi([])
+    p = plan_create(api, "500", "lxc", None, {"cores": 4, "password": "hunter2"})
+    assert "cores" in p.change
+    assert "hunter2" not in p.change
+    assert "[redacted]" in p.change
+
+
 def test_plan_create_free_vmid_names_new_guest():
     api = _ListApi([{"vmid": 100}, {"vmid": 101}])
     p = plan_create(api, "500")
@@ -494,6 +511,15 @@ def test_plan_clone_action_string():
     api = _ListApi([])
     p = plan_clone(api, "200", "201")
     assert p.action == "pve_clone"
+
+
+def test_plan_clone_surfaces_name_and_pool():
+    # name and pool change what executes (pool controls who can manage the clone) — plan must show them
+    api = _ListApi([{"vmid": 200}])
+    p = plan_clone(api, "200", "201", name="web", pool="prod")
+    blast = " ".join(p.blast_radius)
+    assert "web" in blast and "prod" in blast
+    assert "web" in p.change and "prod" in p.change
 
 
 def test_plan_clone_names_source_and_target():

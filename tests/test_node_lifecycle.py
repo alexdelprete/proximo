@@ -364,6 +364,44 @@ class TestStorageBackendCreatePlan:
         with pytest.raises(ProximoError, match="unsupported storage backend"):
             plan_node_storage_backend_create("btrfs", "pool")
 
+    # --- raidlevel type-safety (L13 fix) ----------------------------------------
+
+    def test_zfs_raidlevel_bool_true_raises(self):
+        """raidlevel=True is a bool, not a valid string — must be rejected for zfs.
+
+        Bug: the old truthy check `if not kw.get("raidlevel")` accepted True
+        because `not True == False`, then _form coerced it to integer 1 on the wire.
+        """
+        with pytest.raises(ProximoError, match="raidlevel"):
+            plan_node_storage_backend_create(
+                "zfs", "tank", devices="/dev/sdb", raidlevel=True
+            )
+
+    def test_zfs_raidlevel_int_raises(self):
+        """raidlevel=1 (int) must be rejected — zfs requires a non-empty string."""
+        with pytest.raises(ProximoError, match="raidlevel"):
+            plan_node_storage_backend_create(
+                "zfs", "tank", devices="/dev/sdb", raidlevel=1
+            )
+
+    def test_lvm_raidlevel_false_rejected(self):
+        """raidlevel=False is non-None and must be rejected for lvm backends.
+
+        Bug: the old truthy check `if kw.get("raidlevel")` accepted False
+        (falsy) without raising, silently sending raidlevel=0 to PVE.
+        """
+        with pytest.raises(ProximoError, match="raidlevel"):
+            plan_node_storage_backend_create(
+                "lvm", "vg0", devices="/dev/sdb", raidlevel=False
+            )
+
+    def test_directory_raidlevel_false_rejected(self):
+        """raidlevel=False is non-None and must be rejected for directory backend."""
+        with pytest.raises(ProximoError, match="raidlevel"):
+            plan_node_storage_backend_create(
+                "directory", "mydir", devices="/dev/sdc", filesystem="ext4", raidlevel=False
+            )
+
 
 class TestStorageBackendDeletePlan:
     def test_zfs_blast_names_target_and_data(self):
@@ -449,10 +487,12 @@ class TestCaptureDnsSet:
         assert p.complete is False
         assert "could not capture" in p.note.lower()
 
-    def test_risk_low(self):
+    def test_risk_medium(self):
+        # DNS resolver change can break name resolution cluster-wide — same failure mode as
+        # hosts_set (MEDIUM), so dns_set is MEDIUM too, not LOW.
         api = _FakeNodeApi()
         p = plan_node_dns_set(api, search="local")
-        assert p.risk == "low"
+        assert p.risk == "medium"
 
 
 # ─── Plan factories — Cert ────────────────────────────────────────────────────

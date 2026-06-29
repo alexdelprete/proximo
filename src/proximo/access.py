@@ -481,7 +481,13 @@ def plan_acl_modify(
         complete=result.complete,
     )
 
-def plan_token_create(userid: str, tokenid: str, privsep: bool = True) -> Plan:
+def plan_token_create(
+    userid: str,
+    tokenid: str,
+    privsep: bool = True,
+    expire: int | None = None,
+    comment: str | None = None,
+) -> Plan:
     """Preview creating an API token.
 
     PURE — no API call needed.
@@ -490,6 +496,10 @@ def plan_token_create(userid: str, tokenid: str, privsep: bool = True) -> Plan:
     to ACLs assigned directly to it. Lower blast.
     privsep=False: token inherits ALL of the owner's permissions. The token
     effectively IS the user — RISK_HIGH, flagged as over-broad.
+
+    expire: token lifetime in seconds from creation (PVE absolute epoch or 0=never).
+    Absent/None and 0 both mean the token NEVER expires — surfaced explicitly in the
+    plan so the operator can make an informed decision (L03 fix).
 
     NOTE: the token secret value does NOT appear in the plan (it doesn't exist yet).
     The value surfaces once in the token_create result. Plans are safe to log.
@@ -517,10 +527,24 @@ def plan_token_create(userid: str, tokenid: str, privsep: bool = True) -> Plan:
             "the token secret value will be shown ONCE at creation; it cannot be retrieved again",
         ]
 
+    # L03: surface expiry visibility — expire=None/0 both mean "never expires" in PVE
+    if not expire:
+        blast.append(
+            f"token {userid}!{tokenid} has NO expiration (expire={expire!r}) — "
+            "it never expires; set expire to a positive TTL if a limited lifetime is required"
+        )
+        expire_desc = "never"
+    else:
+        expire_desc = str(expire)
+
+    change = f"create token {userid}!{tokenid} (privsep={privsep}, expire={expire_desc})"
+    if comment:
+        change += f", comment={comment!r}"
+
     return Plan(
         action="pve_token_create",
         target=f"token:{userid}!{tokenid}",
-        change=f"create token {userid}!{tokenid} (privsep={privsep})",
+        change=change,
         current={},
         blast_radius=blast,
         risk=risk,

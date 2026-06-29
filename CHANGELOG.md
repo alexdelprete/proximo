@@ -4,6 +4,57 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-06-29
+
+Security-hardening release. An adversarial multi-agent redteam of the full surface produced 32
+confirmed findings (2 high, 8 medium, 22 low); 30 are fixed and 2 are documented-as-inherent. Also
+includes three live-proven loose-end fixes. **No new tools** (still 347 across PVE/PBS/PMG/PDM).
+**Read "Changed" before upgrading — several fixes are fail-closed and can affect an existing deployment.**
+
+### Changed (review before upgrading)
+- **`PROXIMO_VERIFY_TLS=0`/`no`/`off` now actually disables TLS verification as written — and the
+  backend then REFUSES to start without a CA bundle (fail-closed).** Previously these values were
+  silently ignored and TLS stayed on. If you set `PROXIMO_VERIFY_TLS=0` and relied on it being
+  ignored, **the server will now fail to start** — remove it (TLS on) or set `PROXIMO_CA_BUNDLE`.
+- **Stricter input validation rejects malformed values that were previously accepted:** non-numeric
+  CTIDs (`ct_exec`/`ct_psql`/`ct_logs`/`ct_diagnose`), PBS node names and PMG tracker IDs containing
+  path/query metacharacters, and a non-string `raidlevel`. Well-formed input is unaffected.
+- **`PROXIMO_SSH_TARGET` is charset-validated at startup** (rejects option-injection shapes such as a
+  leading `-`); a normal host / alias / `user@host` is unaffected.
+- **Risk labels corrected (some ops now plan at a higher tier):** PMG quarantine `action=delete` →
+  HIGH (irreversible); PBS `realm_sync remove_vanished=true`, PVE `node_dns_set`, and PBS
+  `traffic_control_delete` → MEDIUM. If you gate approvals on risk tier, these now need the higher gate.
+
+### Security
+- **No credential reaches the PROVE ledger or a plan response.** ACME DNS-plugin `data` (Cloudflare/AWS
+  provider keys) and create-time `password` options are now redacted in plan output; PDM
+  secret-stripping is case-insensitive and recursive.
+- **Path-traversal / query-injection seams closed** in PMG `tracker_detail`, PBS `tasks_list`, and
+  `access_permissions` (URL-encoded / charset-guarded path segments).
+- **A2A DNS-rebind Host guard is always on** (was token-only); IPv6 `::1` loopback bind fixed.
+- **PROVE ledger hardened:** a crafted log line can no longer brick the append path (a non-string
+  `entry_hash` is rejected); a keyed→unkeyed downgrade now seals + rotates the keyed chain (custody
+  seam) instead of silently appending unverifiable bare-SHA entries; `PROXIMO_AUDIT_KEYED=off` warns.
+
+### Fixed
+- **Plan/execute honesty (the trust spine):** `pve_create_container`/`pve_create_vm` surface the create
+  `options` in the plan (a privileged LXC plans at HIGH); `pve_clone` surfaces name/pool;
+  `pve_ha_resource_add` surfaces `max_restart`/`max_relocate` (0 warns it disables CRM action);
+  `pve_token_create` surfaces expire/comment.
+- **`pve_backup_job_create` guest selection:** `all_guests`/`pool`/`exclude` exposed with
+  mutually-exclusive validation (was vmid-only). _Live-proven against real PVE._
+- **`pve_network_iface_update`** auto-injects the interface's current `type` so an address-only change
+  applies (PVE requires `type`) while a type *change* stays impossible by construction. _PVE-schema-confirmed._
+- **Config writes** route through the shared form-coercion so a native bool reaches PVE as `1`/`0`
+  (was `True`/`False` → HTTP 400); backend-layer file-path validation added to qemu-agent file ops.
+- **`pdm-smoke`** routes its version probe to a PVE remote (PBS remotes return 400 on it). _Live-proven._
+
+### Notes
+- Two findings are inherent and documented rather than patched: credentials necessarily travel as MCP
+  tool parameters (server-side redaction is complete; the parameter itself lives at the client/LLM
+  boundary), and a process-death window in the synchronous audit ledger (fsync plus the Proxmox task
+  log are the compensating controls).
+
 ## [0.9.0] — 2026-06-27
 
 ### Added

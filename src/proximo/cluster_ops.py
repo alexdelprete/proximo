@@ -475,6 +475,8 @@ def plan_ha_resource_add(
     kind: str = "lxc",
     group: str | None = None,
     state: str | None = None,
+    max_restart: int | None = None,
+    max_relocate: int | None = None,
 ) -> Plan:
     """Preview adding a guest to HA management.  PURE — no API call needed.
 
@@ -523,11 +525,19 @@ def plan_ha_resource_add(
             "to undo: remove from HA via ha_resource_remove",
         ]
 
+    if max_restart is not None:
+        warn = " — CRM will NOT auto-restart this guest on failure" if max_restart == 0 else ""
+        blast = blast + [f"max_restart={max_restart}{warn}"]
+    if max_relocate is not None:
+        warn = " — CRM will NOT relocate this guest to another node on failure" if max_relocate == 0 else ""
+        blast = blast + [f"max_relocate={max_relocate}{warn}"]
     return Plan(
         action="pve_ha_resource_add",
         target=sid,
         change=f"add {kind}/{vmid} (SID={sid}) to HA" + (f" group={group}" if group else "")
-               + (f" state={state}" if state else ""),
+               + (f" state={state}" if state else "")
+               + (f" max_restart={max_restart}" if max_restart is not None else "")
+               + (f" max_relocate={max_relocate}" if max_relocate is not None else ""),
         current={},
         blast_radius=blast,
         risk=risk,

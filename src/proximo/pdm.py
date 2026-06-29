@@ -144,14 +144,34 @@ def _check_opt(val: str, name: str) -> str:
 # Credential-shaped keys stripped from any config/user/remote dict before it leaves the backend.
 # Defence-in-depth: the PDM Auditor token should never see a secret, but a future PDM regression
 # must not be able to hand one to the caller through this read surface.
-_SECRET_KEYS = ("token", "password", "secret", "key", "tokensecret")
+# frozenset + lowercase for O(1) case-insensitive look-ups.
+_SECRET_KEYS_LOWER = frozenset(("token", "password", "secret", "key", "tokensecret"))
+
+
+def _strip_secret_value(v: object) -> object:
+    """Recursively sanitise a value — descends into nested dicts and lists."""
+    if isinstance(v, dict):
+        return _strip_secrets(v)
+    if isinstance(v, list):
+        return [_strip_secret_value(i) for i in v]
+    return v
 
 
 def _strip_secrets(d: dict) -> dict:
-    """Drop credential-shaped keys from a dict in place, then return it (read-surface guard)."""
-    for k in _SECRET_KEYS:
-        d.pop(k, None)
-    return d
+    """Return a COPY of d with credential-shaped keys removed (case-insensitive, recursive).
+
+    Handles nested dicts and lists so a credential-shaped key cannot survive
+    in any casing (Token, PASSWORD, TokenSecret, ...) or nesting depth.
+    Returns a new dict — the caller's dict is never mutated.
+    Defence-in-depth: the PDM Auditor token should never see a secret, but a
+    future PDM regression must not be able to hand one to the caller through
+    this read surface.
+    """
+    return {
+        k: _strip_secret_value(v)
+        for k, v in d.items()
+        if k.lower() not in _SECRET_KEYS_LOWER
+    }
 
 
 # ---------------------------------------------------------------------------

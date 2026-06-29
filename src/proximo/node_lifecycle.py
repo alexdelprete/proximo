@@ -17,7 +17,7 @@ Endpoints (all under /nodes/{node}/...):
     PUT    /time                         — pve_node_time_set            (MUTATION, LOW, CAPTURE)
     GET    /hosts                        — pve_node_hosts_get           (read)
     POST   /hosts                        — pve_node_hosts_set           (MUTATION, MEDIUM, CAPTURE)
-    PUT    /dns                          — pve_node_dns_set             (MUTATION, LOW, CAPTURE)
+    PUT    /dns                          — pve_node_dns_set             (MUTATION, MEDIUM, CAPTURE)
     POST   /certificates/custom         — pve_node_cert_upload          (MUTATION, HIGH, no undo)
     DELETE /certificates/custom         — pve_node_cert_delete          (MUTATION, MEDIUM)
 
@@ -76,26 +76,29 @@ def _key_fingerprint() -> dict:
 def _check_backend_create_params(backend: str, devices: str | None, **kw: Any) -> None:
     """Per-backend required-param validation for storage_backend_create.
 
-    zfs:        requires devices (disk list) + raidlevel
-    lvm/lvmthin: requires devices (single disk); rejects raidlevel
-    directory:  requires devices (disk path) + filesystem; rejects raidlevel
+    zfs:        requires devices (disk list) + raidlevel (must be a non-empty string; bool/int rejected)
+    lvm/lvmthin: requires devices (single disk); rejects any non-None raidlevel
+    directory:  requires devices (disk path) + filesystem; rejects any non-None raidlevel
     """
     if backend == "zfs":
         if not devices:
             raise ProximoError("zfs backend requires 'devices' (disk list)")
-        if not kw.get("raidlevel"):
-            raise ProximoError("zfs backend requires 'raidlevel' (e.g. raid1, raidz, single)")
+        rl = kw.get("raidlevel")
+        if not isinstance(rl, str) or not rl:
+            raise ProximoError(
+                "zfs backend requires 'raidlevel' as a non-empty string (e.g. raid1, raidz, single)"
+            )
     elif backend in ("lvm", "lvmthin"):
         if not devices:
             raise ProximoError(f"{backend} backend requires 'devices' (disk path, e.g. /dev/sdb)")
-        if kw.get("raidlevel"):
+        if kw.get("raidlevel") is not None:
             raise ProximoError(f"{backend} backend does not accept 'raidlevel'")
     elif backend == "directory":
         if not devices:
             raise ProximoError("directory backend requires 'devices' (disk path)")
         if not kw.get("filesystem"):
             raise ProximoError("directory backend requires 'filesystem' (e.g. ext4, xfs)")
-        if kw.get("raidlevel"):
+        if kw.get("raidlevel") is not None:
             raise ProximoError("directory backend does not accept 'raidlevel'")
 
 
@@ -362,8 +365,9 @@ def plan_node_dns_set(
         change=f"update DNS resolver config: {changes}",
         current=current,
         blast_radius=[f"node/{n} DNS resolver config — affects name resolution for all guests and PVE services"],
-        risk=RISK_LOW,
-        risk_reasons=["DNS config change takes effect immediately; incorrect config can break name resolution"],
+        risk=RISK_MEDIUM,
+        risk_reasons=["DNS config change takes effect immediately; incorrect config can break name "
+                      "resolution cluster-wide (same failure mode as node hosts_set, which is also MEDIUM)"],
         complete=complete,
         note=(
             "Revert by re-applying the captured DNS settings with pve_node_dns_set."

@@ -46,7 +46,7 @@ from proximo.backup_schedules import (
     replication_get,
     replication_update,
 )
-from proximo.planning import RISK_LOW
+from proximo.planning import RISK_LOW, RISK_MEDIUM
 
 # ---------------------------------------------------------------------------
 # Recording fakes
@@ -267,6 +267,34 @@ class TestBackupJobCreate:
         api = _Api()
         with pytest.raises(ProximoError):
             backup_job_create(api, "bad/id", "0 2 * * *", "local")
+
+    def test_pool_selection_passes_through(self):
+        api = _Api()
+        backup_job_create(api, "p", "0 2 * * *", "local", pool="prod")
+        _, data = api.posts[0]
+        assert data["pool"] == "prod"
+
+    def test_all_with_exclude_passes_through(self):
+        api = _Api()
+        backup_job_create(api, "weekly", "0 3 * * 0", "local", all=True, exclude="100,101")
+        _, data = api.posts[0]
+        assert data["all"] is True
+        assert data["exclude"] == "100,101"
+
+    def test_vmid_and_all_mutually_exclusive_raises(self):
+        api = _Api()
+        with pytest.raises(ProximoError, match="mutually exclusive"):
+            backup_job_create(api, "daily", "0 2 * * *", "local", vmid="100", all=True)
+
+    def test_vmid_and_pool_mutually_exclusive_raises(self):
+        api = _Api()
+        with pytest.raises(ProximoError, match="mutually exclusive"):
+            backup_job_create(api, "daily", "0 2 * * *", "local", vmid="100", pool="prod")
+
+    def test_exclude_without_all_raises(self):
+        api = _Api()
+        with pytest.raises(ProximoError, match="exclude"):
+            backup_job_create(api, "daily", "0 2 * * *", "local", vmid="100", exclude="101")
 
 
 class TestBackupJobUpdate:
@@ -499,6 +527,14 @@ class TestPlanBackupJobCreate:
         with pytest.raises(ProximoError):
             plan_backup_job_create("bad/id", "0 2 * * *", "local")
 
+    def test_mutually_exclusive_selection_raises(self):
+        with pytest.raises(ProximoError, match="mutually exclusive"):
+            plan_backup_job_create("daily", "0 2 * * *", "local", vmid="100", all=True)
+
+    def test_exclude_without_all_raises(self):
+        with pytest.raises(ProximoError, match="exclude"):
+            plan_backup_job_create("daily", "0 2 * * *", "local", exclude="101")
+
 
 class TestPlanBackupJobUpdate:
     def test_reads_current_from_api(self):
@@ -615,6 +651,12 @@ class TestPlanPbsRealmSync:
     def test_is_low_risk(self):
         plan = plan_pbs_realm_sync("ldap1")
         assert plan.risk == RISK_LOW
+
+    def test_remove_vanished_is_medium(self):
+        # remove-vanished deletes directory-absent PBS users — a destructive sync, MEDIUM not LOW
+        plan = plan_pbs_realm_sync("ldap1", remove_vanished=True)
+        assert plan.risk == RISK_MEDIUM
+        assert "remove-vanished" in plan.change.lower()
 
     def test_current_is_empty(self):
         plan = plan_pbs_realm_sync("ldap1")

@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 from .backends import ProximoError
-from .planning import RISK_LOW, Plan
+from .planning import RISK_LOW, RISK_MEDIUM, Plan
 
 # ---------------------------------------------------------------------------
 # Validators
@@ -56,6 +56,29 @@ def _check_job_id(job_id: str) -> str:
             "(must start with alnum, then alnum/_/-, <=64 chars, no slash)"
         )
     return s
+
+
+def _check_backup_selection(sel: dict) -> None:
+    """Validate a vzdump backup-job guest-selection combination.
+
+    PVE's selection modes are mutually exclusive — pass at most one of:
+      * ``vmid``  — comma-separated guest IDs
+      * ``all``   — back up every guest (bool)
+      * ``pool``  — back up a resource pool
+    ``exclude`` (comma-separated IDs) only filters the all-guests set, so it
+    requires ``all``. PVE itself enforces that a job selects *something*; we do
+    not pre-judge that here (avoids over-blocking a shape PVE may accept).
+    """
+    chosen = [name for name in ("vmid", "all", "pool") if sel.get(name)]
+    if len(chosen) > 1:
+        raise ProximoError(
+            f"backup job selection is mutually exclusive: got {chosen}; "
+            "pass at most one of vmid, all, pool"
+        )
+    if sel.get("exclude") and not sel.get("all"):
+        raise ProximoError(
+            "'exclude' only applies with all=True (it filters the all-guests set)"
+        )
 
 
 def _check_replication_id(rep_id: str) -> str:
@@ -128,11 +151,14 @@ def backup_job_create(api, job_id: str, schedule: str, storage: str, **kw) -> No
     """Create a PVE cluster backup job.
 
     POST /cluster/backup
-    Body: {id, schedule, storage, ...optional (mode, compress, vmid, enabled, comment, ...)}
-    Smoke-confirm: exact accepted body fields and required vs optional split.
+    Body: {id, schedule, storage, ...optional (mode, compress, vmid, all, pool,
+           exclude, enabled, comment, ...)}
+    Guest selection (vmid | all | pool) is mutually exclusive; exclude requires all.
+    Live-proven vs real PVE 2026-06-28: all/pool/exclude accepted; bad combos rejected pre-flight.
     MUTATION — confirm-gated + audited at the server layer.
     """
     _check_job_id(job_id)
+    _check_backup_selection(kw)
     data = {"id": job_id, "schedule": schedule, "storage": storage, **kw}
     # MUTATION — confirm-gated + audited at the server layer.
     api._post("/cluster/backup", {k: v for k, v in data.items() if v is not None})
@@ -319,6 +345,7 @@ def pbs_realm_sync(pbs, realm: str, **kw) -> str:
 def plan_backup_job_create(job_id: str, schedule: str, storage: str, **kw) -> Plan:
     """Plan a PVE backup job creation (additive, LOW risk)."""
     _check_job_id(job_id)
+    _check_backup_selection(kw)
     return Plan(
         action="pve_backup_job_create",
         target=f"cluster/backup/{job_id}",
@@ -527,17 +554,26 @@ def plan_pbs_job_run(job_type: str, job_id: str) -> Plan:
 def plan_pbs_realm_sync(realm: str, **kw) -> Plan:
     """Plan syncing a PBS auth realm (LDAP/AD). Async, UPID."""
     _check_realm(realm)
+    remove_vanished = bool(kw.get("remove_vanished") or kw.get("remove-vanished"))
     return Plan(
         action="pbs_realm_sync",
         target=f"pbs/access/domains/{realm}",
-        change=f"sync PBS auth realm {realm!r} from LDAP/AD",
+        change=(
+            f"sync PBS auth realm {realm!r} from LDAP/AD"
+            + (" (remove-vanished=true: DELETES users absent from the directory)"
+               if remove_vanished else "")
+        ),
         current={},
         blast_radius=[
             "adds/updates PBS users from the LDAP/AD directory",
-            "if remove-vanished=true: also removes users not in the directory",
+            ("remove-vanished=true: ALSO removes PBS users not present in the directory"
+             if remove_vanished else "remove-vanished not set: no user deletions"),
         ],
-        risk=RISK_LOW,
-        risk_reasons=["user sync — no data loss unless remove-vanished=true"],
+        risk=RISK_MEDIUM if remove_vanished else RISK_LOW,
+        risk_reasons=(
+            ["remove-vanished=true: deletes directory-absent PBS users (recoverable only by re-sync)"]
+            if remove_vanished else ["user sync without remove-vanished — additive, no deletions"]
+        ),
         note=(
             "Smoke-confirm: exact body params (remove-vanished, dry-run, scope) against a live PBS. "
             "Async — returns a UPID. Use pve_task_wait to poll completion."

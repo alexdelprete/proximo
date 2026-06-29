@@ -37,6 +37,23 @@ def _capture(seen: dict):
     return fake_run
 
 
+def test_form_drops_none_and_coerces_bools():
+    # L11: None must be omitted (never serialized as "None"); bools coerce to 1/0; other falsy kept
+    out = ApiBackend._form({"a": None, "b": True, "c": False, "d": 0, "e": ""})
+    assert out == {"b": 1, "c": 0, "d": 0, "e": ""}
+
+
+def test_access_permissions_encodes_query_path(monkeypatch):
+    # L14: a crafted path must not inject extra query params
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_get", lambda path: seen.update(p=path) or {})
+    api.access_permissions("/pool/x&priv=Sys.Modify")
+    query = seen["p"].split("?", 1)[1]
+    assert "&priv=" not in query   # the injected param is neutralized
+    assert "%26" in query          # '&' is percent-encoded
+
+
 def test_check_vmid_rejects_unicode_digits():
     # str.isdigit() is True for non-ASCII digits (e.g. Arabic-Indic) — reject; PVE vmids are ASCII 0-9.
     with pytest.raises(ProximoError, match="must be numeric"):
@@ -326,3 +343,123 @@ def test_apibackend_verify_bool_passes_through():
     assert httpx_verify(True) is True
     assert httpx_verify(False) is False
     assert isinstance(httpx_verify("/etc/ssl/certs/ca-certificates.crt"), ssl.SSLContext)
+
+
+# ---------------------------------------------------------------------------
+# L09: backend-layer file path validation for agent_file_read/write
+# These tests exercise the BACKEND guard directly (no server layer involved).
+# The MCP path is already safe; the backend guard closes the gap for direct
+# backend callers (integration tests, future A2A paths, library consumers).
+# ---------------------------------------------------------------------------
+
+def _agent_cfg(**kw) -> ProximoConfig:
+    """Config with agent gate enabled and wildcard allowlist for path-validation tests."""
+    base = dict(
+        api_base_url="https://x:8006/api2/json",
+        node="pve",
+        token_path="/run/x",
+        ct_allowlist=frozenset({"*"}),
+        enable_exec=True,
+        enable_agent=True,
+        agent_allowlist=frozenset({"*"}),
+    )
+    base.update(kw)
+    return ProximoConfig(**base)
+
+
+# -- _check_file_path unit tests --
+
+def test_check_file_path_rejects_relative_path():
+    from proximo.backends import _check_file_path
+    with pytest.raises(ProximoError, match="absolute path"):
+        _check_file_path("relative/path")
+
+
+def test_check_file_path_rejects_dotdot_traversal():
+    from proximo.backends import _check_file_path
+    with pytest.raises(ProximoError, match="traversal"):
+        _check_file_path("/etc/../etc/passwd")
+
+
+def test_check_file_path_rejects_null_byte():
+    from proximo.backends import _check_file_path
+    with pytest.raises(ProximoError, match="absolute path"):
+        _check_file_path("/etc/hosts\x00injected")
+
+
+def test_check_file_path_rejects_newline_in_path():
+    from proximo.backends import _check_file_path
+    with pytest.raises(ProximoError, match="absolute path"):
+        _check_file_path("/etc/hosts\nX-Injected: header")
+
+
+def test_check_file_path_accepts_valid_absolute_path():
+    from proximo.backends import _check_file_path
+    assert _check_file_path("/etc/hosts") == "/etc/hosts"
+
+
+def test_check_file_path_accepts_path_with_spaces_and_specials():
+    """Spaces and printable specials are allowed in guest paths (percent-encoded at wire layer)."""
+    from proximo.backends import _check_file_path
+    assert _check_file_path("/etc/a&b c?x=1") == "/etc/a&b c?x=1"
+
+
+# -- agent_file_read backend-layer enforcement --
+
+def test_agent_file_read_rejects_relative_path():
+    """agent_file_read must reject a non-absolute path at the backend layer (defense-in-depth)."""
+    api = ApiBackend(_agent_cfg())
+    with pytest.raises(ProximoError, match="absolute path"):
+        api.agent_file_read("101", None, "relative/path")
+
+
+def test_agent_file_read_rejects_dotdot_traversal():
+    """agent_file_read must block path traversal at the backend layer."""
+    api = ApiBackend(_agent_cfg())
+    with pytest.raises(ProximoError, match="traversal"):
+        api.agent_file_read("101", None, "/etc/../etc/passwd")
+
+
+def test_agent_file_read_rejects_control_char():
+    """agent_file_read must reject paths containing C0 control characters."""
+    api = ApiBackend(_agent_cfg())
+    with pytest.raises(ProximoError, match="absolute path"):
+        api.agent_file_read("101", None, "/etc/hosts\x0apayload")
+
+
+def test_agent_file_read_accepts_valid_path(monkeypatch):
+    """A valid absolute path clears backend validation and reaches the HTTP layer."""
+    api = ApiBackend(_agent_cfg())
+    monkeypatch.setattr(api, "_get", lambda path: {"content": "data", "bytes-read": 4})
+    result = api.agent_file_read("101", None, "/etc/hosts")
+    assert result == {"content": "data", "bytes-read": 4}
+
+
+# -- agent_file_write backend-layer enforcement --
+
+def test_agent_file_write_rejects_relative_path():
+    """agent_file_write must reject a non-absolute path at the backend layer (defense-in-depth)."""
+    api = ApiBackend(_agent_cfg())
+    with pytest.raises(ProximoError, match="absolute path"):
+        api.agent_file_write("101", None, "relative/path", "content")
+
+
+def test_agent_file_write_rejects_dotdot_traversal():
+    """agent_file_write must block path traversal at the backend layer."""
+    api = ApiBackend(_agent_cfg())
+    with pytest.raises(ProximoError, match="traversal"):
+        api.agent_file_write("101", None, "/var/log/../../../etc/shadow", "content")
+
+
+def test_agent_file_write_rejects_control_char():
+    """agent_file_write must reject paths containing C0 control characters."""
+    api = ApiBackend(_agent_cfg())
+    with pytest.raises(ProximoError, match="absolute path"):
+        api.agent_file_write("101", None, "/var/log/file\x00injected", "content")
+
+
+def test_agent_file_write_accepts_valid_path(monkeypatch):
+    """A valid absolute path clears backend validation and reaches the HTTP layer."""
+    api = ApiBackend(_agent_cfg())
+    monkeypatch.setattr(api, "_post", lambda path, data=None: None)
+    api.agent_file_write("101", None, "/var/log/probe.txt", "content")  # must not raise

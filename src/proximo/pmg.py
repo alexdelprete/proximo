@@ -35,7 +35,7 @@ import httpx
 
 from ._tls import httpx_verify
 from .backends import ProximoError
-from .planning import RISK_LOW, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
 # ---------------------------------------------------------------------------
 # Validators
@@ -69,6 +69,22 @@ def _check_mail_id(mail_id: str) -> str:
         raise ProximoError(
             f"invalid quarantine mail ID: {mail_id!r} "
             "(start with alnum, then alnum/._/-, <=128 chars, no slash or control chars)"
+        )
+    return s
+
+
+# Tracker IDs are used as a URL path segment in /nodes/{node}/tracker/{id}. They are mail/queue-ish
+# tokens (alnum plus a few mail chars); a slash, '..', or query/fragment metachar would be path
+# traversal or request injection. We allow a permissive mail charset but reject the structural chars.
+_TRACKER_ID_BAD = ("/", "\\", "?", "#", "%", "\x00", "\r", "\n", "\t", " ")
+
+
+def _check_tracker_id(tracker_id: str) -> str:
+    s = str(tracker_id)
+    if not s or ".." in s or any(c in s for c in _TRACKER_ID_BAD):
+        raise ProximoError(
+            f"invalid tracker id: {tracker_id!r} "
+            "(no '/', '\\', '..', '?', '#', '%', whitespace or control chars — path-segment safe)"
         )
     return s
 
@@ -761,11 +777,10 @@ def plan_quarantine_action(action: str, mail_ids: str) -> Plan:
             "blocklist/welcomelist: adds sender to the respective list — additive",
             "live-proven 2026-06-26: delete and deliver both confirmed on real GTUBE messages",
         ],
-        risk=RISK_MEDIUM,
+        risk=RISK_HIGH if action == "delete" else RISK_MEDIUM,
         risk_reasons=[
-            "MEDIUM: 'delete' action permanently removes quarantined messages (irreversible)",
-            "other actions (deliver, mark-*, blocklist, welcomelist) are lower-risk but "
-            "conservative MEDIUM covers the worst case for any action value",
+            "HIGH for action='delete': permanently and irreversibly removes quarantined messages",
+            "other actions (deliver, mark-*, blocklist, welcomelist) are MEDIUM — reversible or additive",
         ],
         note=(
             "PMG 9.1 live-proven 2026-06-26: POST /quarantine/content with action=delete "
@@ -1482,10 +1497,11 @@ def tracker_detail(
     GET /nodes/{node}/tracker/{id}
 
     PMG 9.1 live-verified path via pmgsh ls.
-    id_: raw mail ID, passed as URL path segment (no validation — caller-controlled).
+    id_: mail/queue tracker ID, validated path-segment-safe (no traversal/injection metachars).
     Maps start/end epoch params → starttime/endtime query params.
     """
     node = _check_node(node)
+    id_ = _check_tracker_id(id_)
     if start is not None:
         try:
             int(start)

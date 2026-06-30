@@ -19,7 +19,7 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from functools import lru_cache
+from functools import cache, lru_cache
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -79,15 +79,23 @@ from .acme_certs import (
     acme_account_create,
     acme_account_delete,
     acme_account_update,
+    acme_cert_order,
+    acme_cert_renew,
+    acme_cert_revoke,
     acme_plugin_create,
     acme_plugin_delete,
     acme_plugin_update,
+    node_acme_config_set,
     plan_acme_account_create,
     plan_acme_account_delete,
     plan_acme_account_update,
+    plan_acme_cert_order,
+    plan_acme_cert_renew,
+    plan_acme_cert_revoke,
     plan_acme_plugin_create,
     plan_acme_plugin_delete,
     plan_acme_plugin_update,
+    plan_node_acme_domains_set,
 )
 from .audit import AuditLedger, find_rotation_archive, looks_like_head, open_ledger
 from .backends import ApiBackend, ExecBackend, ProximoError, _check_vmid
@@ -984,6 +992,7 @@ from .storage_admin import (
     storage_delete,
     storage_update,
 )
+from .targets import active_target, ledger_remote, resolve_target_fields, target_aware
 from .tasks_pools import (
     plan_pool_create,
     plan_pool_delete,
@@ -1011,14 +1020,96 @@ mcp = FastMCP("proximo")
 mcp._mcp_server.version = __version__
 
 
+def tool(*d_args: Any, **d_kwargs: Any):
+    """Target-aware tool decorator: like FastMCP's, but the tool also advertises
+    `proximo_target` and routes the call to that registered box (via the active-target
+    contextvar). Apply to every plane tool. Instance-level tools that act on THIS Proximo
+    (e.g. audit_verify) intentionally keep the plain FastMCP decorator — they have no
+    remote to target.
+    """
+    inner = mcp.tool(*d_args, **d_kwargs)
+
+    def deco(fn):
+        return inner(target_aware(fn))
+
+    return deco
+
+
+def _resolve_pve_config(target_name: str | None) -> ProximoConfig:
+    """The active PVE config: None => env box (unchanged); a name => that registry remote."""
+    if target_name is None:
+        return ProximoConfig.from_env()
+    return ProximoConfig.from_target(resolve_target_fields(target_name, "pve"))
+
+
+@cache
+def _pve_backends(target_name: str | None) -> tuple[ProximoConfig, ApiBackend, ExecBackend]:
+    """Build + cache the PVE config and backends per target (registry is small/bounded)."""
+    cfg = _resolve_pve_config(target_name)
+    return cfg, ApiBackend(cfg), ExecBackend(cfg)
+
+
 @lru_cache(maxsize=1)
+def _instance_ledger() -> AuditLedger:
+    """The PROVE ledger is ONE chain for this Proximo instance — always built from the env
+    config, never per-target, so every target's ops record to the same tamper-evident chain."""
+    return open_ledger(ProximoConfig.from_env())
+
+
 def _svc() -> tuple[ProximoConfig, ApiBackend, ExecBackend, AuditLedger]:
-    """Lazily build config + backends (no import-time env dependency; testable)."""
-    cfg = ProximoConfig.from_env()
-    return cfg, ApiBackend(cfg), ExecBackend(cfg), open_ledger(cfg)
+    """Config + backends for the ACTIVE pve target (contextvar; None => env), plus the one
+    instance ledger. Backends are cached per target; the ledger is the single instance chain.
+
+    STRICT by design: a pve_* tool body calls this and uses the backend, so a non-pve active
+    target (e.g. someone aimed a pve_* tool at a pbs target) RAISES here (kind safety) rather
+    than silently hitting the env box. Ledger-only callers use _ledger(), which tolerates that.
+    """
+    cfg, api, exec_backend = _pve_backends(active_target())
+    return cfg, api, exec_backend, _instance_ledger()
 
 
-@lru_cache(maxsize=1)
+def _ledger() -> AuditLedger:
+    """The instance PROVE ledger (one chain), plane-independent.
+
+    Reads _svc()[3] so the tests' _svc mock still injects a test ledger. Tolerates a non-pve
+    active target (a pbs_*/pmg_*/pdm_* tool's ledger call, where _svc's pve resolution raises)
+    by falling back to the instance ledger directly. This is the seam the ledger helpers use.
+
+    The broad ProximoError catch is intentional: a non-PVE tool's ledger acquisition must not
+    fail because the (unrelated) env PVE backend is misconfigured (e.g. verify_tls off w/o a CA).
+    A genuine PVE problem still surfaces loudly when a pve_* tool runs, and at config-load warning
+    time — it is not silently lost, only kept out of an unrelated plane's path."""
+    try:
+        return _svc()[3]
+    except ProximoError:
+        return _instance_ledger()
+
+
+def _svc_cache_clear() -> None:
+    """Clear every per-target backend cache (all four planes) and the instance-ledger cache.
+    Preserves the `_svc.cache_clear()` API used by the tests; one call = a full reset."""
+    _pve_backends.cache_clear()
+    _pbs_backends.cache_clear()
+    _pmg_backends.cache_clear()
+    _pdm_backends.cache_clear()
+    _instance_ledger.cache_clear()
+
+
+_svc.cache_clear = _svc_cache_clear  # type: ignore[attr-defined]  # preserve existing test API
+
+
+def _resolve_pbs_config(target_name: str | None) -> PbsConfig:
+    if target_name is None:
+        return PbsConfig.from_env()
+    return PbsConfig.from_target(resolve_target_fields(target_name, "pbs"))
+
+
+@cache
+def _pbs_backends(target_name: str | None) -> tuple[PbsConfig, PbsBackend]:
+    cfg = _resolve_pbs_config(target_name)
+    return cfg, PbsBackend(cfg)
+
+
 def _pbs() -> tuple[PbsConfig, PbsBackend]:
     """Lazily build the PBS backend — only when a pbs_* tool is called.
 
@@ -1026,11 +1117,24 @@ def _pbs() -> tuple[PbsConfig, PbsBackend]:
     PBS ops still record to the SAME tamper-evident ledger via _audited/_plan (_svc's
     AuditLedger) so PROVE remains one coherent chain across PVE and PBS actions.
     """
-    cfg = PbsConfig.from_env()
-    return cfg, PbsBackend(cfg)
+    return _pbs_backends(active_target())
 
 
-@lru_cache(maxsize=1)
+_pbs.cache_clear = _pbs_backends.cache_clear  # type: ignore[attr-defined]
+
+
+def _resolve_pmg_config(target_name: str | None) -> PmgConfig:
+    if target_name is None:
+        return PmgConfig.from_env()
+    return PmgConfig.from_target(resolve_target_fields(target_name, "pmg"))
+
+
+@cache
+def _pmg_backends(target_name: str | None) -> tuple[PmgConfig, PmgBackend]:
+    cfg = _resolve_pmg_config(target_name)
+    return cfg, PmgBackend(cfg)
+
+
 def _pmg() -> tuple[PmgConfig, PmgBackend]:
     """Lazily build the PMG backend — only when a pmg_* tool is called.
 
@@ -1038,11 +1142,24 @@ def _pmg() -> tuple[PmgConfig, PmgBackend]:
     PMG ops still record to the SAME tamper-evident ledger via _audited/_plan (_svc's
     AuditLedger) so PROVE remains one coherent chain across PVE, PBS, and PMG actions.
     """
-    cfg = PmgConfig.from_env()
-    return cfg, PmgBackend(cfg)
+    return _pmg_backends(active_target())
 
 
-@lru_cache(maxsize=1)
+_pmg.cache_clear = _pmg_backends.cache_clear  # type: ignore[attr-defined]
+
+
+def _resolve_pdm_config(target_name: str | None) -> PdmConfig:
+    if target_name is None:
+        return PdmConfig.from_env()
+    return PdmConfig.from_target(resolve_target_fields(target_name, "pdm"))
+
+
+@cache
+def _pdm_backends(target_name: str | None) -> tuple[PdmConfig, PdmBackend]:
+    cfg = _resolve_pdm_config(target_name)
+    return cfg, PdmBackend(cfg)
+
+
 def _pdm() -> tuple[PdmConfig, PdmBackend]:
     """Lazily build the PDM backend — only when a pdm_* tool is called.
 
@@ -1050,8 +1167,10 @@ def _pdm() -> tuple[PdmConfig, PdmBackend]:
     PDM ops still record to the SAME tamper-evident ledger via _audited (_svc's
     AuditLedger) so PROVE remains one coherent chain across PVE, PBS, PMG, and PDM actions.
     """
-    cfg = PdmConfig.from_env()
-    return cfg, PdmBackend(cfg)
+    return _pdm_backends(active_target())
+
+
+_pdm.cache_clear = _pdm_backends.cache_clear  # type: ignore[attr-defined]
 
 
 def _audited(action: str, target: str, fn: Callable[[], Any], *,
@@ -1068,7 +1187,7 @@ def _audited(action: str, target: str, fn: Callable[[], Any], *,
 
     Read calls (mutation=False) pass the raw fn() return through unchanged — no envelope.
     """
-    _, _, _, audit = _svc()
+    audit = _ledger()
     # L16 NOTE (inherent): there is a narrow window between fn() completing and the outcome
     # audit.record() below. On process death (SIGKILL/OOM/power loss) in that window, the
     # mutation runs but only a "planned" ledger entry exists — the outcome is not recorded.
@@ -1082,9 +1201,9 @@ def _audited(action: str, target: str, fn: Callable[[], Any], *,
         result = fn()
     except Exception as e:
         audit.record(action, target=target, mutation=mutation, outcome="error",
-                     detail={**(detail or {}), "error": type(e).__name__})
+                     detail={**(detail or {}), "error": type(e).__name__}, remote=ledger_remote())
         raise
-    audit.record(action, target=target, mutation=mutation, outcome=outcome, detail=detail)
+    audit.record(action, target=target, mutation=mutation, outcome=outcome, detail=detail, remote=ledger_remote())
     if mutation:
         return {"status": outcome, "result": result}
     return result
@@ -1093,13 +1212,12 @@ def _audited(action: str, target: str, fn: Callable[[], Any], *,
 def _record_plan(plan: Plan) -> None:
     """Write the previewed plan (incl. the live state it was based on) to the tamper-evident ledger,
     with outcome="planned". This is the PLAN->PROVE weld: a verified chain shows the exact preview."""
-    _, _, _, audit = _svc()
+    audit = _ledger()
     audit.record(
         plan.action, target=plan.target, mutation=True, outcome="planned",
         detail={"change": plan.change, "risk": plan.risk, "risk_reasons": plan.risk_reasons,
                 "blast_radius": plan.blast_radius, "current": plan.current,
-                "affected": plan.affected, "complete": plan.complete},
-    )
+                "affected": plan.affected, "complete": plan.complete}, remote=ledger_remote())
 
 
 def _plan(action: str, target: str, build: Callable[[], Plan]) -> Plan:
@@ -1110,12 +1228,12 @@ def _plan(action: str, target: str, build: Callable[[], Plan]) -> Plan:
     cannot bypass the preview. If building the plan fails (e.g. plan_power's live read raises),
     audit the failed probe and re-raise; never mutate without a recorded plan.
     """
-    _, _, _, audit = _svc()
+    audit = _ledger()
     try:
         plan = build()
     except Exception as e:
         audit.record(action, target=target, mutation=True, outcome="error",
-                     detail={"error": type(e).__name__, "phase": "planning"})
+                     detail={"error": type(e).__name__, "phase": "planning"}, remote=ledger_remote())
         raise
     # The server tool name is AUTHORITATIVE for the ledger: stamp it onto the plan so the "planned"
     # entry pairs with the later "submitted"/"ok" entry under ONE action (PROVE coherence) — a plan_*
@@ -1150,7 +1268,7 @@ def _auto_undo(action: str, target: str, api: ApiBackend, vmid: str,
     """Take a labeled undo snapshot and WAIT for it. On success returns the undo-point dict; on
     failure returns an {"status": "blocked:undo_unavailable"} dict (and audits it) — the caller MUST NOT
     mutate when unavailable (fail-closed: no net, no risky act)."""
-    _, _, _, audit = _svc()
+    audit = _ledger()
     snapname = undo_snapname()
     try:
         upid = api.snapshot_create(vmid, snapname, kind=kind, node=node,
@@ -1158,7 +1276,7 @@ def _auto_undo(action: str, target: str, api: ApiBackend, vmid: str,
         _wait_task(api, upid, node=node)
     except Exception as e:
         audit.record(action, target=target, mutation=True, outcome="blocked:undo_unavailable",
-                     detail={**detail, "error": type(e).__name__})
+                     detail={**detail, "error": type(e).__name__}, remote=ledger_remote())
         return {
             "status": "blocked:undo_unavailable",
             "message": ("Requested an undo snapshot but it could not be created/completed (the "
@@ -1167,7 +1285,7 @@ def _auto_undo(action: str, target: str, api: ApiBackend, vmid: str,
             "error": type(e).__name__,
         }
     audit.record(action, target=target, mutation=True, outcome="undo_point",
-                 detail={"snapshot": snapname, "task": upid})
+                 detail={"snapshot": snapname, "task": upid}, remote=ledger_remote())
     return {"snapshot": snapname, "task": upid,
             "revert": f"pve_rollback vmid={vmid} snapname={snapname}",
             "note": ("undo points are NOT auto-pruned — they accumulate and consume storage; "
@@ -1179,8 +1297,9 @@ def _blocked_allowlist(action: str, target: str, detail: dict | None = None,
     """Refuse + audit a container op whose CTID isn't on the allowlist (fail-closed), as a clean dict
     — checked at the server layer BEFORE any snapshot/exec, so a forbidden CTID never gets touched.
     `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
-    _, _, _, audit = _svc()
-    audit.record(action, target=target, mutation=mutation, outcome="blocked:allowlist", detail=detail)
+    audit = _ledger()
+    audit.record(action, target=target, mutation=mutation, outcome="blocked:allowlist",
+                 detail=detail, remote=ledger_remote())
     return {"status": "blocked:allowlist",
             "message": f"CTID {target} is not permitted by the allowlist (fail-closed)."}
 
@@ -1189,8 +1308,9 @@ def _exec_disabled(action: str, target: str, detail: dict | None = None,
                    *, mutation: bool = True) -> dict:
     """In-container exec is off by default (safe). Refuse + audit; explain how to opt in.
     `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
-    _, _, _, audit = _svc()
-    audit.record(action, target=target, mutation=mutation, outcome="blocked:exec_disabled", detail=detail)
+    audit = _ledger()
+    audit.record(action, target=target, mutation=mutation, outcome="blocked:exec_disabled",
+                 detail=detail, remote=ledger_remote())
     return {
         "status": "blocked:exec_disabled",
         "message": ("In-container exec is disabled (safe default: API-only). It grants near-root on the "
@@ -1202,8 +1322,9 @@ def _agent_disabled(action: str, target: str, detail: dict | None = None,
                     *, mutation: bool = True) -> dict:
     """qemu-agent ops are off by default. Refuse + audit; explain how to opt in.
     `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
-    _, _, _, audit = _svc()
-    audit.record(action, target=target, mutation=mutation, outcome="blocked:agent_disabled", detail=detail)
+    audit = _ledger()
+    audit.record(action, target=target, mutation=mutation, outcome="blocked:agent_disabled",
+                 detail=detail, remote=ledger_remote())
     return {
         "status": "blocked:agent_disabled",
         "message": ("qemu-agent ops are disabled (safe default: API-only). "
@@ -1215,29 +1336,30 @@ def _blocked_agent_allowlist(action: str, target: str, detail: dict | None = Non
                               *, mutation: bool = True) -> dict:
     """Refuse + audit a qemu-agent op whose VMID isn't on the allowlist (fail-closed).
     `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
-    _, _, _, audit = _svc()
-    audit.record(action, target=target, mutation=mutation, outcome="blocked:allowlist", detail=detail)
+    audit = _ledger()
+    audit.record(action, target=target, mutation=mutation, outcome="blocked:allowlist",
+                 detail=detail, remote=ledger_remote())
     return {"status": "blocked:allowlist",
             "message": f"Guest {target} is not permitted by the agent allowlist (fail-closed)."}
 
 
 # --- Management (REST API, read) ---
 
-@mcp.tool()
+@tool()
 def pve_node_status(node: str | None = None) -> dict:
     """Health and resource status of a Proxmox node."""
     cfg, api, _, _ = _svc()
     return _audited("pve_node_status", node or cfg.node, lambda: api.node_status(node))
 
 
-@mcp.tool()
+@tool()
 def pve_list_guests(node: str | None = None) -> list[dict]:
     """List all VMs and LXC containers on a node, with state."""
     cfg, api, _, _ = _svc()
     return _audited("pve_list_guests", node or cfg.node, lambda: api.list_guests(node))
 
 
-@mcp.tool()
+@tool()
 def pve_guest_status(vmid: str, kind: str = "lxc", node: str | None = None) -> dict:
     """Status/config of one guest (kind = 'lxc' or 'qemu')."""
     _, api, _, _ = _svc()
@@ -1246,7 +1368,7 @@ def pve_guest_status(vmid: str, kind: str = "lxc", node: str | None = None) -> d
 
 # --- Management (REST API, MUTATION — confirm-gated) ---
 
-@mcp.tool()
+@tool()
 def pve_guest_power(
     vmid: str, action: str, kind: str = "lxc", node: str | None = None, confirm: bool = False
 ) -> dict:
@@ -1271,14 +1393,14 @@ def pve_guest_power(
 
 # --- Snapshots / UNDO (REST API). Create/rollback/delete are ASYNC -> return a task UPID. ---
 
-@mcp.tool()
+@tool()
 def pve_snapshot_list(vmid: str, kind: str = "lxc", node: str | None = None) -> list[dict]:
     """List a guest's snapshots (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_snapshot_list", f"{kind}/{vmid}", lambda: api.snapshot_list(vmid, kind, node))
 
 
-@mcp.tool()
+@tool()
 def pve_snapshot_create(vmid: str, snapname: str, kind: str = "lxc", node: str | None = None,
                         description: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: create a snapshot (a restore point). Dry-run by default; confirm=True to execute.
@@ -1293,7 +1415,7 @@ def pve_snapshot_create(vmid: str, snapname: str, kind: str = "lxc", node: str |
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_rollback(vmid: str, snapname: str, kind: str = "lxc", node: str | None = None,
                  confirm: bool = False) -> dict:
     """MUTATION (DESTRUCTIVE): roll a guest back to a snapshot — discards ALL changes since it.
@@ -1308,7 +1430,7 @@ def pve_rollback(vmid: str, snapname: str, kind: str = "lxc", node: str | None =
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_snapshot_delete(vmid: str, snapname: str, kind: str = "lxc", node: str | None = None,
                         force: bool = False, confirm: bool = False) -> dict:
     """MUTATION: delete a snapshot (removes a restore point). Dry-run by default; confirm=True to execute.
@@ -1323,7 +1445,7 @@ def pve_snapshot_delete(vmid: str, snapname: str, kind: str = "lxc", node: str |
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_task_status(upid: str, node: str | None = None) -> dict:
     """Status of an async Proxmox task (running/stopped + exit status) — poll snapshot/rollback ops (read)."""
     _, api, _, _ = _svc()
@@ -1332,7 +1454,7 @@ def pve_task_status(upid: str, node: str | None = None) -> dict:
 
 # --- In-container exec (ssh -> pct) — MUTATION-CAPABLE, confirm-gated ---
 
-@mcp.tool()
+@tool()
 def ct_exec(ctid: str, command: list[str], snapshot: bool = False, confirm: bool = False) -> dict:
     """Run a command inside an LXC (ssh -> pct exec). MUTATION-CAPABLE.
 
@@ -1376,7 +1498,7 @@ def ct_exec(ctid: str, command: list[str], snapshot: bool = False, confirm: bool
                     detail={**detail, "confirmed": True, "undo": bool(undo_point)})
 
 
-@mcp.tool()
+@tool()
 def ct_psql(ctid: str, sql: str, db: str = "postgres", snapshot: bool = False,
             confirm: bool = False) -> dict:
     """Run SQL via psql inside a container (as the db OS user). MUTATION-CAPABLE.
@@ -1421,7 +1543,7 @@ def ct_psql(ctid: str, sql: str, db: str = "postgres", snapshot: bool = False,
 
 # --- In-container (read) ---
 
-@mcp.tool()
+@tool()
 def ct_logs(ctid: str, unit: str, lines: int = 50) -> dict:
     """Tail journalctl for a systemd unit inside a container (read-only)."""
     cfg, _, exec_, _ = _svc()
@@ -1439,7 +1561,7 @@ def ct_logs(ctid: str, unit: str, lines: int = 50) -> dict:
     return _audited("ct_logs", str(ctid), _do, detail=detail)
 
 
-@mcp.tool()
+@tool()
 def ct_diagnose(ctid: str, kind: str = "lxc", node: str | None = None) -> dict:
     """READ-ONLY: gather 'what's broken' evidence for a container — API status + a fixed read-only
     in-container battery (failed units, disk, recent errors, memory, listening ports) + advisory flags.
@@ -1455,14 +1577,14 @@ def ct_diagnose(ctid: str, kind: str = "lxc", node: str | None = None) -> dict:
     return _audited("ct_diagnose", target, lambda: diagnose_container(api, use_exec, ctid, kind, node))
 
 
-@mcp.tool()
+@tool()
 def pve_diagnose(node: str | None = None) -> dict:
     """READ-ONLY: gather node health evidence — status + storage usage + recent failed tasks + flags."""
     _, api, _, _ = _svc()
     return _audited("pve_diagnose", node or "node", lambda: diagnose_node(api, node))
 
 
-@mcp.tool()
+@tool()
 def pve_doctor() -> dict:
     """READ-ONLY preflight: check API connectivity + the calling token's effective permissions, and
     report what this token CAN and CANNOT do — with the privilege + role to grant for each gap. Run
@@ -1471,6 +1593,9 @@ def pve_doctor() -> dict:
     return _audited("pve_doctor", "preflight", lambda: doctor_check(api), mutation=False)
 
 
+    # @mcp.tool() (not @tool()) ON PURPOSE: audit_verify is INSTANCE-level — it verifies
+    # THIS Proximo's one PROVE ledger chain, which has no remote box to target. It is the
+    # sole intentionally-bare tool; every other tool (incl. the ct_* exec tools) is @tool().
 @mcp.tool()
 def audit_verify(expected_head: str | None = None) -> dict:
     """Verify the tamper-evident audit ledger's hash chain — PROVE the log is intact.
@@ -1529,7 +1654,7 @@ def audit_verify(expected_head: str | None = None) -> dict:
 
 # --- Backup & restore (REST API, async -> UPID) ---
 
-@mcp.tool()
+@tool()
 def pve_backup(vmid: str, storage: str, mode: str = "snapshot", compress: str = "zstd",
                kind: str = "lxc", node: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: back up a guest with vzdump. Dry-run by default; confirm=True to execute.
@@ -1544,14 +1669,14 @@ def pve_backup(vmid: str, storage: str, mode: str = "snapshot", compress: str = 
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_backup_list(storage: str, node: str | None = None) -> list[dict]:
     """List backup archives in a storage (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_backup_list", storage, lambda: backup_list(api, storage, node))
 
 
-@mcp.tool()
+@tool()
 def pve_backup_delete(storage: str, volid: str, node: str | None = None,
                       confirm: bool = False) -> dict:
     """MUTATION: delete a backup archive (removes a recovery point). Dry-run by default; confirm=True.
@@ -1565,7 +1690,7 @@ def pve_backup_delete(storage: str, volid: str, node: str | None = None,
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_restore(vmid: str, archive: str, storage: str, kind: str = "lxc", node: str | None = None,
                 force: bool = False, pool: str | None = None, confirm: bool = False) -> dict:
     """MUTATION (DESTRUCTIVE if it overwrites an existing guest): restore a guest from a backup
@@ -1583,7 +1708,7 @@ def pve_restore(vmid: str, archive: str, storage: str, kind: str = "lxc", node: 
 
 # --- Provisioning (REST API, async). create/clone are additive; delete is DESTRUCTIVE. ---
 
-@mcp.tool()
+@tool()
 def pve_create_container(vmid: str, ostemplate: str, storage: str, node: str | None = None,
                          options: dict | None = None, confirm: bool = False) -> dict:
     """MUTATION: create a new LXC container. Dry-run by default; confirm=True. Async — returns a UPID.
@@ -1601,7 +1726,7 @@ def pve_create_container(vmid: str, ostemplate: str, storage: str, node: str | N
         mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_create_vm(vmid: str, node: str | None = None, options: dict | None = None,
                   confirm: bool = False) -> dict:
     """MUTATION: create a new QEMU VM. Dry-run by default; confirm=True. Async — returns a UPID.
@@ -1616,7 +1741,7 @@ def pve_create_vm(vmid: str, node: str | None = None, options: dict | None = Non
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_clone(vmid: str, newid: str, kind: str = "lxc", node: str | None = None,
               name: str | None = None, full: bool = False, pool: str | None = None,
               storage: str | None = None, confirm: bool = False) -> dict:
@@ -1635,7 +1760,7 @@ def pve_clone(vmid: str, newid: str, kind: str = "lxc", node: str | None = None,
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_delete_guest(vmid: str, kind: str = "lxc", node: str | None = None, purge: bool = False,
                      force: bool = False, confirm: bool = False) -> dict:
     """MUTATION (DESTRUCTIVE, IRREVERSIBLE): permanently destroy a guest and its disks. Dry-run by
@@ -1652,7 +1777,7 @@ def pve_delete_guest(vmid: str, kind: str = "lxc", node: str | None = None, purg
 
 # --- Storage / ISO / templates (REST API) ---
 
-@mcp.tool()
+@tool()
 def pve_storage_content(storage: str, node: str | None = None,
                         content: str | None = None) -> list[dict]:
     """List a storage's content, optionally filtered (content = iso | vztmpl | backup) (read)."""
@@ -1661,14 +1786,14 @@ def pve_storage_content(storage: str, node: str | None = None,
                     lambda: storage_content(api, storage, node, content))
 
 
-@mcp.tool()
+@tool()
 def pve_storage_status(storage: str, node: str | None = None) -> dict:
     """Status of a storage — total/used/avail/enabled (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_storage_status", storage, lambda: storage_status(api, storage, node))
 
 
-@mcp.tool()
+@tool()
 def pve_storage_download(storage: str, content: str, url: str, filename: str,
                          node: str | None = None, checksum: str | None = None,
                          checksum_algorithm: str | None = None, confirm: bool = False) -> dict:
@@ -1687,7 +1812,7 @@ def pve_storage_download(storage: str, content: str, url: str, filename: str,
         mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_storage_content_delete(storage: str, volid: str, node: str | None = None,
                                confirm: bool = False) -> dict:
     """MUTATION: delete a content volume (ISO / template / backup) from storage. Dry-run by default
@@ -1703,7 +1828,7 @@ def pve_storage_content_delete(storage: str, volid: str, node: str | None = None
 
 # --- Guest config edit (REST API). Config PUT is SYNCHRONOUS -> outcome="ok". ---
 
-@mcp.tool()
+@tool()
 def pve_guest_config_get(vmid: str, kind: str = "lxc", node: str | None = None) -> dict:
     """Read a guest's current config (kind = 'lxc' or 'qemu') (read)."""
     _, api, _, _ = _svc()
@@ -1711,7 +1836,7 @@ def pve_guest_config_get(vmid: str, kind: str = "lxc", node: str | None = None) 
                     lambda: guest_config_get(api, vmid, kind, node))
 
 
-@mcp.tool()
+@tool()
 def pve_guest_config_set(vmid: str, changes: dict, kind: str = "lxc", node: str | None = None,
                          confirm: bool = False) -> dict:
     """MUTATION: edit a guest's config (cores/memory/net/onboot/...). Dry-run by default — the PLAN
@@ -1728,7 +1853,7 @@ def pve_guest_config_set(vmid: str, changes: dict, kind: str = "lxc", node: str 
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_guest_config_revert(vmid: str, prior_config: dict, kind: str = "lxc",
                             node: str | None = None, confirm: bool = False) -> dict:
     """MUTATION (UNDO): re-apply a previously captured guest config (the prior_config returned by
@@ -1746,7 +1871,7 @@ def pve_guest_config_revert(vmid: str, prior_config: dict, kind: str = "lxc",
 
 # --- Disk ops (REST API). Resize/move are async -> task UPID -> outcome="submitted". ---
 
-@mcp.tool()
+@tool()
 def pve_disk_resize(vmid: str, disk: str, size: str, kind: str = "lxc", node: str | None = None,
                     confirm: bool = False) -> dict:
     """MUTATION: grow a guest disk (e.g. size='+10G'). GROW ONLY — a shrink is refused (destructive).
@@ -1762,7 +1887,7 @@ def pve_disk_resize(vmid: str, disk: str, size: str, kind: str = "lxc", node: st
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_disk_move(vmid: str, disk: str, target_storage: str, kind: str = "lxc",
                   node: str | None = None, delete_source: bool = False,
                   confirm: bool = False) -> dict:
@@ -1782,7 +1907,7 @@ def pve_disk_move(vmid: str, disk: str, target_storage: str, kind: str = "lxc",
 
 # --- Cloud-init + template (REST API, QEMU). Config POST is synchronous -> outcome="ok". ---
 
-@mcp.tool()
+@tool()
 def pve_cloudinit_get(vmid: str, node: str | None = None, kind: str = "qemu") -> dict:
     """Read a QEMU guest's cloud-init config (secret fields are masked) (read)."""
     _, api, _, _ = _svc()
@@ -1790,7 +1915,7 @@ def pve_cloudinit_get(vmid: str, node: str | None = None, kind: str = "qemu") ->
                     lambda: cloudinit_get(api, vmid, node, kind))
 
 
-@mcp.tool()
+@tool()
 def pve_cloudinit_set(vmid: str, changes: dict, node: str | None = None, kind: str = "qemu",
                       confirm: bool = False) -> dict:
     """MUTATION: set cloud-init fields (ciuser/sshkeys/ipconfigN/...) on a QEMU guest. Dry-run by
@@ -1819,7 +1944,7 @@ def pve_cloudinit_set(vmid: str, changes: dict, node: str | None = None, kind: s
     return envelope
 
 
-@mcp.tool()
+@tool()
 def pve_template_convert(vmid: str, node: str | None = None, kind: str = "qemu",
                          confirm: bool = False) -> dict:
     """MUTATION (IRREVERSIBLE): convert a guest into a template — effectively one-way. Dry-run by
@@ -1837,28 +1962,28 @@ def pve_template_convert(vmid: str, node: str | None = None, kind: str = "qemu",
 
 # --- Access governance (REST API, read) ---
 
-@mcp.tool()
+@tool()
 def pve_users_list() -> list[dict]:
     """List all Proxmox users (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_users_list", "access/users", lambda: access_users_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_roles_list() -> list[dict]:
     """List all Proxmox roles and their privileges (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_roles_list", "access/roles", lambda: access_roles_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_acl_list() -> list[dict]:
     """List all ACL entries on the Proxmox cluster (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_acl_list", "access/acl", lambda: access_acl_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_tokens_list(userid: str) -> list[dict]:
     """List API tokens for a specific user (read). userid: 'user@realm'."""
     _, api, _, _ = _svc()
@@ -1866,7 +1991,7 @@ def pve_tokens_list(userid: str) -> list[dict]:
                     lambda: access_tokens_list(api, userid))
 
 
-@mcp.tool()
+@tool()
 def pve_overbroad_grants() -> list[dict]:
     """Surface over-broad ACL grants (Administrator role or root '/' path) as a diagnostic (read)."""
     _, api, _, _ = _svc()
@@ -1876,7 +2001,7 @@ def pve_overbroad_grants() -> list[dict]:
 
 # --- Access governance (REST API, MUTATION — confirm-gated) ---
 
-@mcp.tool()
+@tool()
 def pve_acl_modify(
     path: str, roles: str, target: str, kind: str = "user",
     propagate: bool = True, delete: bool = False, confirm: bool = False,
@@ -1900,7 +2025,7 @@ def pve_acl_modify(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_token_create(
     userid: str, tokenid: str, privsep: bool = True,
     comment: str | None = None, expire: int | None = None,
@@ -1927,7 +2052,7 @@ def pve_token_create(
                     detail={"confirmed": True, "expire": expire, "privsep": privsep})
 
 
-@mcp.tool()
+@tool()
 def pve_token_revoke(userid: str, tokenid: str, confirm: bool = False) -> dict:
     """MUTATION (IRREVERSIBLE): permanently revoke an API token.
 
@@ -1946,7 +2071,7 @@ def pve_token_revoke(userid: str, tokenid: str, confirm: bool = False) -> dict:
 
 # --- Firewall (REST API, read) ---
 
-@mcp.tool()
+@tool()
 def pve_firewall_rules_list(
     scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -1958,7 +2083,7 @@ def pve_firewall_rules_list(
                     lambda: firewall_rules_list(api, scope, node, vmid, kind))
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_options_get(
     scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -1970,7 +2095,7 @@ def pve_firewall_options_get(
                     lambda: firewall_options_get(api, scope, node, vmid, kind))
 
 
-@mcp.tool()
+@tool()
 def pve_security_groups_list() -> list[dict]:
     """List cluster-wide firewall security groups (read)."""
     _, api, _, _ = _svc()
@@ -1978,7 +2103,7 @@ def pve_security_groups_list() -> list[dict]:
                     lambda: security_groups_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_ipset_list(
     scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -1992,7 +2117,7 @@ def pve_ipset_list(
 
 # --- Firewall (REST API, MUTATION — confirm-gated) ---
 
-@mcp.tool()
+@tool()
 def pve_firewall_rule_add(
     action: str, direction: str = "in", scope: str = "cluster",
     node: str | None = None, vmid: str | None = None, kind: str | None = None,
@@ -2019,7 +2144,7 @@ def pve_firewall_rule_add(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_rule_remove(
     pos: int, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None, confirm: bool = False,
@@ -2038,7 +2163,7 @@ def pve_firewall_rule_remove(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_rule_update(
     pos: int, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -2081,7 +2206,7 @@ def pve_firewall_rule_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_set_enabled(
     enabled: bool, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None, confirm: bool = False,
@@ -2101,7 +2226,7 @@ def pve_firewall_set_enabled(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_alias_list(
     scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -2112,7 +2237,7 @@ def pve_firewall_alias_list(
                     lambda: alias_list(api, scope, node, vmid, kind))
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_alias_create(
     name: str, cidr: str, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None, comment: str | None = None,
@@ -2132,7 +2257,7 @@ def pve_firewall_alias_create(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_alias_update(
     name: str, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -2153,7 +2278,7 @@ def pve_firewall_alias_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_alias_delete(
     name: str, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -2173,7 +2298,7 @@ def pve_firewall_alias_delete(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_ipset_create(
     name: str, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None, comment: str | None = None,
@@ -2193,7 +2318,7 @@ def pve_firewall_ipset_create(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_ipset_delete(
     name: str, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -2213,7 +2338,7 @@ def pve_firewall_ipset_delete(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_ipset_entry_add(
     name: str, cidr: str, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -2233,7 +2358,7 @@ def pve_firewall_ipset_entry_add(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_ipset_entry_remove(
     name: str, cidr: str, scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -2253,7 +2378,7 @@ def pve_firewall_ipset_entry_remove(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_security_group_create(
     group: str, comment: str | None = None, confirm: bool = False,
 ) -> dict:
@@ -2271,7 +2396,7 @@ def pve_firewall_security_group_create(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_security_group_delete(group: str, confirm: bool = False) -> dict:
     """MUTATION: delete a cluster security group. Dry-run by default — the PLAN shows how many rules
     the group holds. PVE refuses while the group is non-empty or still referenced by a rule.
@@ -2287,7 +2412,7 @@ def pve_firewall_security_group_delete(group: str, confirm: bool = False) -> dic
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_firewall_options_set(
     scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
@@ -2311,7 +2436,7 @@ def pve_firewall_options_set(
 
 # --- Network & SDN (REST API, read) ---
 
-@mcp.tool()
+@tool()
 def pve_network_list(node: str | None = None, iface_type: str | None = None) -> list[dict]:
     """List network interfaces on a node (bridges, bonds, VLANs, etc.) (read)."""
     cfg, api, _, _ = _svc()
@@ -2319,14 +2444,14 @@ def pve_network_list(node: str | None = None, iface_type: str | None = None) -> 
     return _audited("pve_network_list", tgt, lambda: network_list(api, node, iface_type))
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_zones_list() -> list[dict]:
     """List SDN zones (cluster-scoped) (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_sdn_zones_list", "cluster/sdn/zones", lambda: sdn_zones_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_vnets_list() -> list[dict]:
     """List SDN virtual networks (cluster-scoped) (read)."""
     _, api, _, _ = _svc()
@@ -2335,7 +2460,7 @@ def pve_sdn_vnets_list() -> list[dict]:
 
 # --- Network & SDN (REST API, MUTATION — confirm-gated) ---
 
-@mcp.tool()
+@tool()
 def pve_sdn_subnet_list(vnet: str) -> list[dict]:
     """List subnets in an SDN vnet (read)."""
     _, api, _, _ = _svc()
@@ -2343,7 +2468,7 @@ def pve_sdn_subnet_list(vnet: str) -> list[dict]:
                     lambda: sdn_subnet_list(api, vnet))
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_zone_create(
     zone: str, zone_type: str, options: dict | None = None,
     lock_token: str | None = None, confirm: bool = False,
@@ -2362,7 +2487,7 @@ def pve_sdn_zone_create(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_zone_update(
     zone: str, options: dict | None = None, delete: list[str] | None = None,
     digest: str | None = None, lock_token: str | None = None, confirm: bool = False,
@@ -2380,7 +2505,7 @@ def pve_sdn_zone_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_zone_delete(zone: str, lock_token: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: delete an SDN zone (PENDING). Dry-run by default — the PLAN shows the current zone.
     PVE refuses if a vnet still references it. RISK_MEDIUM (staging a removal an apply would enact).
@@ -2395,7 +2520,7 @@ def pve_sdn_zone_delete(zone: str, lock_token: str | None = None, confirm: bool 
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_vnet_create(
     vnet: str, zone: str, options: dict | None = None,
     lock_token: str | None = None, confirm: bool = False,
@@ -2413,7 +2538,7 @@ def pve_sdn_vnet_create(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_vnet_update(
     vnet: str, options: dict | None = None, delete: list[str] | None = None,
     digest: str | None = None, lock_token: str | None = None, confirm: bool = False,
@@ -2429,7 +2554,7 @@ def pve_sdn_vnet_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_vnet_delete(vnet: str, lock_token: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: delete an SDN vnet (PENDING). Dry-run by default — the PLAN shows the current vnet.
     PVE refuses if a subnet still references it. RISK_MEDIUM.
@@ -2444,7 +2569,7 @@ def pve_sdn_vnet_delete(vnet: str, lock_token: str | None = None, confirm: bool 
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_subnet_create(
     vnet: str, subnet: str, options: dict | None = None,
     lock_token: str | None = None, confirm: bool = False,
@@ -2462,7 +2587,7 @@ def pve_sdn_subnet_create(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_subnet_update(
     vnet: str, subnet: str, options: dict | None = None, delete: list[str] | None = None,
     digest: str | None = None, lock_token: str | None = None, confirm: bool = False,
@@ -2480,7 +2605,7 @@ def pve_sdn_subnet_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_subnet_delete(
     vnet: str, subnet: str, lock_token: str | None = None, confirm: bool = False,
 ) -> dict:
@@ -2497,7 +2622,7 @@ def pve_sdn_subnet_delete(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_network_iface_create(
     iface: str, iface_type: str, node: str | None = None,
     options: dict | None = None, confirm: bool = False,
@@ -2517,7 +2642,7 @@ def pve_network_iface_create(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_network_iface_update(
     iface: str, node: str | None = None,
     options: dict | None = None, confirm: bool = False,
@@ -2537,7 +2662,7 @@ def pve_network_iface_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_network_apply(node: str | None = None, confirm: bool = False) -> dict:
     """MUTATION (HIGH RISK): apply staged network config changes to the live network stack.
     Dry-run by default — the PLAN surfaces pending interfaces. confirm=True to execute.
@@ -2554,7 +2679,7 @@ def pve_network_apply(node: str | None = None, confirm: bool = False) -> dict:
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_sdn_apply(confirm: bool = False) -> dict:
     """MUTATION (HIGH RISK): apply pending SDN config changes (cluster-scoped).
     Dry-run by default — the PLAN surfaces pending zones/vnets. confirm=True to execute.
@@ -2572,14 +2697,14 @@ def pve_sdn_apply(confirm: bool = False) -> dict:
 
 # --- Cluster & HA (REST API, read) ---
 
-@mcp.tool()
+@tool()
 def pve_cluster_status() -> list[dict]:
     """Overall cluster status — nodes, quorum, version (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_cluster_status", "cluster/status", lambda: cluster_status(api))
 
 
-@mcp.tool()
+@tool()
 def pve_cluster_resources(resource_type: str | None = None) -> list[dict]:
     """List all resources across the cluster (VMs, nodes, storage, SDN).
     resource_type: optional filter — 'vm', 'storage', 'node', or 'sdn' (read)."""
@@ -2589,7 +2714,7 @@ def pve_cluster_resources(resource_type: str | None = None) -> list[dict]:
                     lambda: cluster_resources(api, resource_type))
 
 
-@mcp.tool()
+@tool()
 def pve_ha_groups_list() -> list[dict]:
     """List all HA resource groups (read). PVE-8 only — PVE 9 migrated groups to rules
     (use pve_ha_rules_list); on PVE 9 this raises a clear error pointing there."""
@@ -2597,14 +2722,14 @@ def pve_ha_groups_list() -> list[dict]:
     return _audited("pve_ha_groups_list", "cluster/ha/groups", lambda: ha_groups_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_ha_rules_list() -> list[dict]:
     """List HA rules (read) — the PVE 9 replacement for HA groups."""
     _, api, _, _ = _svc()
     return _audited("pve_ha_rules_list", "cluster/ha/rules", lambda: ha_rules_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_ha_resources_list() -> list[dict]:
     """List all HA resources (managed guests) (read)."""
     _, api, _, _ = _svc()
@@ -2614,7 +2739,7 @@ def pve_ha_resources_list() -> list[dict]:
 
 # --- Cluster & HA (REST API, MUTATION — confirm-gated) ---
 
-@mcp.tool()
+@tool()
 def pve_guest_migrate(
     vmid: str, target: str, kind: str = "lxc", node: str | None = None,
     online: bool = False, confirm: bool = False,
@@ -2635,7 +2760,7 @@ def pve_guest_migrate(
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_ha_resource_add(
     vmid: str, kind: str = "lxc", group: str | None = None,
     state: str | None = None, max_restart: int | None = None,
@@ -2656,7 +2781,7 @@ def pve_ha_resource_add(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_ha_resource_remove(vmid: str, kind: str = "lxc", confirm: bool = False) -> dict:
     """MUTATION: remove a guest from HA management. Dry-run by default — the PLAN shows the SID
     and that this loses automated failover protection (guest itself is NOT stopped).
@@ -2673,7 +2798,7 @@ def pve_ha_resource_remove(vmid: str, kind: str = "lxc", confirm: bool = False) 
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_ha_rule_create(
     rule: str, rule_type: str, resources: str, comment: str | None = None,
     disable: bool = False, nodes: str | None = None, strict: bool = False,
@@ -2696,7 +2821,7 @@ def pve_ha_rule_create(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_ha_rule_update(
     rule: str, comment: str | None = None, disable: bool | None = None,
     resources: str | None = None, rule_type: str | None = None, nodes: str | None = None,
@@ -2720,7 +2845,7 @@ def pve_ha_rule_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_ha_rule_delete(rule: str, confirm: bool = False) -> dict:
     """MUTATION: delete an HA rule. Dry-run by default — the PLAN shows the current rule and that
     its resources lose this placement constraint (CRM may migrate them). confirm=True to execute.
@@ -2738,7 +2863,7 @@ def pve_ha_rule_delete(rule: str, confirm: bool = False) -> dict:
 
 # --- Observability (REST API, read) ---
 
-@mcp.tool()
+@tool()
 def pve_node_services_list(node: str | None = None) -> list[dict]:
     """List all services on a PVE node, with state (read)."""
     cfg, api, _, _ = _svc()
@@ -2746,7 +2871,7 @@ def pve_node_services_list(node: str | None = None) -> list[dict]:
                     lambda: node_services_list(api, node))
 
 
-@mcp.tool()
+@tool()
 def pve_node_service_status(service: str, node: str | None = None) -> dict:
     """Get the current state of a single service on a PVE node (read)."""
     cfg, api, _, _ = _svc()
@@ -2754,7 +2879,7 @@ def pve_node_service_status(service: str, node: str | None = None) -> dict:
                     lambda: node_service_status(api, service, node))
 
 
-@mcp.tool()
+@tool()
 def pve_node_rrddata(node: str | None = None, timeframe: str = "hour",
                      cf: str | None = None) -> list[dict]:
     """Get RRD telemetry (time-series) for a PVE node (read). timeframe: hour/day/week/month/year."""
@@ -2763,7 +2888,7 @@ def pve_node_rrddata(node: str | None = None, timeframe: str = "hour",
                     lambda: node_rrddata(api, node, timeframe, cf))
 
 
-@mcp.tool()
+@tool()
 def pve_node_journal(node: str | None = None, lastentries: int = 100,
                      since: str | None = None, until: str | None = None) -> list[str]:
     """Fetch journal entries from a PVE node (read; returns log-line strings). lastentries capped at 5000."""
@@ -2772,7 +2897,7 @@ def pve_node_journal(node: str | None = None, lastentries: int = 100,
                     lambda: node_journal(api, node, lastentries, since, until))
 
 
-@mcp.tool()
+@tool()
 def pve_node_syslog(node: str | None = None, limit: int = 100) -> list[dict]:
     """Fetch syslog entries from a PVE node (read). limit capped at 5000."""
     cfg, api, _, _ = _svc()
@@ -2780,14 +2905,14 @@ def pve_node_syslog(node: str | None = None, limit: int = 100) -> list[dict]:
                     lambda: node_syslog(api, node, limit))
 
 
-@mcp.tool()
+@tool()
 def pve_node_dns(node: str | None = None) -> dict:
     """Get the DNS configuration of a PVE node (read)."""
     cfg, api, _, _ = _svc()
     return _audited("pve_node_dns", node or cfg.node, lambda: node_dns_get(api, node))
 
 
-@mcp.tool()
+@tool()
 def pve_node_subscription(node: str | None = None) -> dict:
     """Get the subscription status of a PVE node (read)."""
     cfg, api, _, _ = _svc()
@@ -2795,7 +2920,7 @@ def pve_node_subscription(node: str | None = None) -> dict:
                     lambda: node_subscription(api, node))
 
 
-@mcp.tool()
+@tool()
 def pve_node_certificates(node: str | None = None) -> list[dict]:
     """List TLS certificates configured on a PVE node (read)."""
     cfg, api, _, _ = _svc()
@@ -2805,7 +2930,7 @@ def pve_node_certificates(node: str | None = None) -> list[dict]:
 
 # --- Observability (mutation) ---
 
-@mcp.tool()
+@tool()
 def pve_node_service_control(service: str, action: str, node: str | None = None,
                              confirm: bool = False) -> dict:
     """MUTATION: start/stop/restart/reload a service on a PVE node. Dry-run by default — the
@@ -2826,7 +2951,7 @@ def pve_node_service_control(service: str, action: str, node: str | None = None,
 
 # --- Task control + resource pools (read) ---
 
-@mcp.tool()
+@tool()
 def pve_tasks_list(node: str | None = None, limit: int = 50, errors: bool = False,
                    vmid: str | None = None, typefilter: str | None = None,
                    statusfilter: str | None = None) -> list[dict]:
@@ -2836,7 +2961,7 @@ def pve_tasks_list(node: str | None = None, limit: int = 50, errors: bool = Fals
                     lambda: tasks_list(api, node, limit, errors, vmid, typefilter, statusfilter))
 
 
-@mcp.tool()
+@tool()
 def pve_task_log(upid: str, node: str | None = None, start: int = 0,
                  limit: int = 50) -> list[dict]:
     """Retrieve the log lines for a task (read)."""
@@ -2844,7 +2969,7 @@ def pve_task_log(upid: str, node: str | None = None, start: int = 0,
     return _audited("pve_task_log", upid, lambda: task_log(api, upid, node, start, limit))
 
 
-@mcp.tool()
+@tool()
 def pve_task_wait(upid: str, node: str | None = None, timeout: int = 120,
                   interval: int = 2) -> dict:
     """Block until an async Proxmox task reaches a terminal state — or the timeout — then report the
@@ -2869,14 +2994,14 @@ def pve_task_wait(upid: str, node: str | None = None, timeout: int = 120,
     return _audited("pve_task_wait", upid, _do)
 
 
-@mcp.tool()
+@tool()
 def pve_pools_list() -> list[dict]:
     """List all resource pools (cluster-scoped) (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_pools_list", "cluster/pools", lambda: pools_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_pool_get(poolid: str) -> dict:
     """Get a resource pool's config and member list (read)."""
     _, api, _, _ = _svc()
@@ -2885,7 +3010,7 @@ def pve_pool_get(poolid: str) -> dict:
 
 # --- Task control + resource pools (mutation) ---
 
-@mcp.tool()
+@tool()
 def pve_task_stop(upid: str, node: str | None = None, confirm: bool = False) -> dict:
     """MUTATION (HIGH): stop (cancel) a running task. Dry-run by default — the PLAN warns that
     stopping a backup/restore/migration/clone mid-flight can leave the target inconsistent, with
@@ -2899,7 +3024,7 @@ def pve_task_stop(upid: str, node: str | None = None, confirm: bool = False) -> 
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_pool_create(poolid: str, comment: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: create an (empty) resource pool. Dry-run by default (PLAN = additive, LOW).
     confirm=True to execute. Synchronous."""
@@ -2913,7 +3038,7 @@ def pve_pool_create(poolid: str, comment: str | None = None, confirm: bool = Fal
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_pool_update(poolid: str, vms: str | None = None, storage: str | None = None,
                     delete: bool = False, confirm: bool = False) -> dict:
     """MUTATION: add (delete=False) or remove (delete=True) pool members. Dry-run by default —
@@ -2930,7 +3055,7 @@ def pve_pool_update(poolid: str, vms: str | None = None, storage: str | None = N
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_pool_delete(poolid: str, confirm: bool = False) -> dict:
     """MUTATION: delete a resource pool. Dry-run by default — the PLAN warns ACLs on /pool/{poolid}
     are orphaned and the pool must be empty first (members are NOT deleted). confirm=True to
@@ -2947,7 +3072,7 @@ def pve_pool_delete(poolid: str, confirm: bool = False) -> dict:
 
 # --- PBS (Proxmox Backup Server) deep (read) ---
 
-@mcp.tool()
+@tool()
 def pbs_datastores_list() -> list[dict]:
     """List all datastores on the PBS server (read). Needs PROXIMO_PBS_* config."""
     _, pbs = _pbs()
@@ -2955,7 +3080,7 @@ def pbs_datastores_list() -> list[dict]:
                     lambda: pbs_datastore_list_op(pbs))
 
 
-@mcp.tool()
+@tool()
 def pbs_datastore_status(store: str) -> dict:
     """Get usage statistics for a PBS datastore (read)."""
     _, pbs = _pbs()
@@ -2963,14 +3088,14 @@ def pbs_datastore_status(store: str) -> dict:
                     lambda: pbs_datastore_status_op(pbs, store))
 
 
-@mcp.tool()
+@tool()
 def pbs_gc_status(store: str) -> dict:
     """Get garbage-collection status for a PBS datastore (read)."""
     _, pbs = _pbs()
     return _audited("pbs_gc_status", f"pbs/{store}/gc", lambda: pbs_gc_status_op(pbs, store))
 
 
-@mcp.tool()
+@tool()
 def pbs_snapshots_list(store: str, ns: str | None = None, backup_type: str | None = None,
                        backup_id: str | None = None) -> list[dict]:
     """List backup snapshots in a PBS datastore, with optional filters (read)."""
@@ -2979,7 +3104,7 @@ def pbs_snapshots_list(store: str, ns: str | None = None, backup_type: str | Non
                     lambda: pbs_snapshots_list_op(pbs, store, ns, backup_type, backup_id))
 
 
-@mcp.tool()
+@tool()
 def pbs_namespaces_list(store: str, parent: str | None = None,
                         max_depth: int | None = None) -> list[dict]:
     """List namespaces within a PBS datastore (read)."""
@@ -2988,7 +3113,7 @@ def pbs_namespaces_list(store: str, parent: str | None = None,
                     lambda: pbs_namespace_list_op(pbs, store, parent, max_depth))
 
 
-@mcp.tool()
+@tool()
 def pbs_remotes_list() -> list[dict]:
     """List all PBS remote sync-sources (read). Passwords are never returned by the PBS API.
     Needs PROXIMO_PBS_* config."""
@@ -2997,7 +3122,7 @@ def pbs_remotes_list() -> list[dict]:
                     lambda: pbs_cfg_remotes_list(pbs))
 
 
-@mcp.tool()
+@tool()
 def pbs_remote_get(name: str) -> dict:
     """Get the config of one PBS remote sync-source by name (read). No password returned.
     Needs PROXIMO_PBS_* config."""
@@ -3006,7 +3131,7 @@ def pbs_remote_get(name: str) -> dict:
                     lambda: pbs_cfg_remote_get(pbs, name))
 
 
-@mcp.tool()
+@tool()
 def pbs_traffic_controls_list() -> list[dict]:
     """List all PBS traffic-control bandwidth rules (read). Needs PROXIMO_PBS_* config."""
     _, pbs = _pbs()
@@ -3014,7 +3139,7 @@ def pbs_traffic_controls_list() -> list[dict]:
                     lambda: pbs_cfg_traffic_controls_list(pbs))
 
 
-@mcp.tool()
+@tool()
 def pbs_jobs_list(job_type: str) -> list[dict]:
     """List all PBS scheduled jobs of the given type (read). job_type = sync|verify|prune.
     Returns all jobs with their configs. Raises on invalid job_type. Needs PROXIMO_PBS_* config."""
@@ -3023,7 +3148,7 @@ def pbs_jobs_list(job_type: str) -> list[dict]:
                     lambda: pbs_scheduled_jobs_list(pbs, job_type))
 
 
-@mcp.tool()
+@tool()
 def pbs_tasks_list(node: str = "localhost", limit: int | None = None,
                    running: bool | None = None, errors: bool | None = None) -> list[dict]:
     """List PBS tasks on a node (read). Defaults to 'localhost' (standard single-node PBS name).
@@ -3034,7 +3159,7 @@ def pbs_tasks_list(node: str = "localhost", limit: int | None = None,
                     lambda: pbs_tasks_list_op(pbs, node, limit, running, errors))
 
 
-@mcp.tool()
+@tool()
 def pbs_datastore_get(name: str) -> dict:
     """Get full config of one PBS datastore by name (read). Returns path, gc-schedule, etc.
     For runtime usage stats use pbs_datastore_status instead. Needs PROXIMO_PBS_* config."""
@@ -3045,7 +3170,7 @@ def pbs_datastore_get(name: str) -> dict:
 
 # --- PBS deep (mutation) ---
 
-@mcp.tool()
+@tool()
 def pbs_gc_start(store: str, confirm: bool = False) -> dict:
     """MUTATION (HIGH): start garbage collection on a PBS datastore. Dry-run by default — GC
     permanently removes unreferenced chunks (no undo). confirm=True to execute. Async — UPID."""
@@ -3058,7 +3183,7 @@ def pbs_gc_start(store: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_verify_start(store: str, ns: str | None = None, backup_type: str | None = None,
                      backup_id: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: start an integrity verification run on a PBS datastore. Dry-run by default —
@@ -3074,7 +3199,7 @@ def pbs_verify_start(store: str, ns: str | None = None, backup_type: str | None 
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_prune(store: str, keep_last: int | None = None, keep_daily: int | None = None,
               keep_weekly: int | None = None, keep_monthly: int | None = None,
               keep_yearly: int | None = None, ns: str | None = None,
@@ -3100,7 +3225,7 @@ def pbs_prune(store: str, keep_last: int | None = None, keep_daily: int | None =
                     detail={"confirmed": True, "dry_run": dry_run})
 
 
-@mcp.tool()
+@tool()
 def pbs_snapshot_delete(store: str, backup_type: str, backup_id: str, backup_time: int,
                         ns: str | None = None, confirm: bool = False) -> dict:
     """MUTATION (HIGH): delete a specific backup snapshot (a recovery point) from a PBS
@@ -3116,7 +3241,7 @@ def pbs_snapshot_delete(store: str, backup_type: str, backup_id: str, backup_tim
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_namespace_create(store: str, name: str, parent: str | None = None,
                          confirm: bool = False) -> dict:
     """MUTATION: create a namespace within a PBS datastore. Dry-run by default (additive, LOW).
@@ -3132,7 +3257,7 @@ def pbs_namespace_create(store: str, name: str, parent: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_namespace_delete(store: str, ns: str, delete_groups: bool = False,
                          confirm: bool = False) -> dict:
     """MUTATION: delete a namespace from a PBS datastore. Dry-run by default — delete_groups=True
@@ -3151,7 +3276,7 @@ def pbs_namespace_delete(store: str, ns: str, delete_groups: bool = False,
 
 # --- PBS config + safety plane (Wave 5) ---
 
-@mcp.tool()
+@tool()
 def pbs_datastore_create(
     name: str,
     path: str,
@@ -3187,7 +3312,7 @@ def pbs_datastore_create(
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_datastore_update(
     name: str,
     gc_schedule: str | None = None,
@@ -3222,7 +3347,7 @@ def pbs_datastore_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_datastore_delete(
     name: str,
     destroy_data: bool = False,
@@ -3255,7 +3380,7 @@ def pbs_datastore_delete(
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_snapshot_protected_set(
     store: str,
     backup_type: str,
@@ -3289,7 +3414,7 @@ def pbs_snapshot_protected_set(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_snapshot_notes_set(
     store: str,
     backup_type: str,
@@ -3321,7 +3446,7 @@ def pbs_snapshot_notes_set(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_group_change_owner(
     store: str,
     backup_type: str,
@@ -3352,7 +3477,7 @@ def pbs_group_change_owner(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_remote_create(
     name: str,
     host: str,
@@ -3396,7 +3521,7 @@ def pbs_remote_create(
                     detail={**pw_detail, "confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_remote_update(
     name: str,
     host: str | None = None,
@@ -3443,7 +3568,7 @@ def pbs_remote_update(
                     detail={**pw_detail, "confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_remote_delete(
     name: str,
     confirm: bool = False,
@@ -3468,7 +3593,7 @@ def pbs_remote_delete(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_traffic_control_upsert(
     name: str,
     rate_in: int | None = None,
@@ -3509,7 +3634,7 @@ def pbs_traffic_control_upsert(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_traffic_control_delete(
     name: str,
     confirm: bool = False,
@@ -3535,7 +3660,7 @@ def pbs_traffic_control_delete(
 
 # --- Storage administration (storage.cfg CRUD) ---
 
-@mcp.tool()
+@tool()
 def pve_storage_config_list() -> list[dict]:
     """List the cluster storage definitions (storage.cfg) (read)."""
     _, api, _, _ = _svc()
@@ -3543,7 +3668,7 @@ def pve_storage_config_list() -> list[dict]:
                     lambda: storage_config_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_storage_config_get(storage: str) -> dict:
     """Get one storage definition (read)."""
     _, api, _, _ = _svc()
@@ -3551,7 +3676,7 @@ def pve_storage_config_get(storage: str) -> dict:
                     lambda: storage_config_get(api, storage))
 
 
-@mcp.tool()
+@tool()
 def pve_storage_create(storage: str, storage_type: str, content: str | None = None,
                        path: str | None = None, server: str | None = None,
                        export: str | None = None, nodes: str | None = None,
@@ -3571,7 +3696,7 @@ def pve_storage_create(storage: str, storage_type: str, content: str | None = No
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_storage_update(storage: str, content: str | None = None, nodes: str | None = None,
                        disable: bool | None = None, shared: bool | None = None,
                        delete: str | None = None, confirm: bool = False) -> dict:
@@ -3588,7 +3713,7 @@ def pve_storage_update(storage: str, content: str | None = None, nodes: str | No
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_storage_delete(storage: str, confirm: bool = False) -> dict:
     """MUTATION (HIGH): remove a storage definition cluster-wide. Dry-run by default — the PLAN
     warns guest disks/backups living only there become inaccessible (data not erased). confirm=True."""
@@ -3604,28 +3729,28 @@ def pve_storage_delete(storage: str, confirm: bool = False) -> dict:
 
 # --- Access governance: users & groups ---
 
-@mcp.tool()
+@tool()
 def pve_user_get(userid: str) -> dict:
     """Get a user's config, groups, and tokens (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_user_get", f"user/{userid}", lambda: user_get(api, userid))
 
 
-@mcp.tool()
+@tool()
 def pve_groups_list() -> list[dict]:
     """List all groups (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_groups_list", "access/groups", lambda: groups_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_group_get(groupid: str) -> dict:
     """Get a group's config and members (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_group_get", f"group/{groupid}", lambda: group_get(api, groupid))
 
 
-@mcp.tool()
+@tool()
 def pve_user_create(userid: str, comment: str | None = None, email: str | None = None,
                     enable: bool | None = None, expire: int | None = None,
                     groups: str | None = None, firstname: str | None = None,
@@ -3645,7 +3770,7 @@ def pve_user_create(userid: str, comment: str | None = None, email: str | None =
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_user_update(userid: str, comment: str | None = None, email: str | None = None,
                     enable: bool | None = None, expire: int | None = None,
                     groups: str | None = None, firstname: str | None = None,
@@ -3666,7 +3791,7 @@ def pve_user_update(userid: str, comment: str | None = None, email: str | None =
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_user_delete(userid: str, confirm: bool = False) -> dict:
     """MUTATION (HIGH): delete a user. Dry-run by default — the PLAN reads the user's ACLs/tokens
     to show what access vanishes (permanent, no undo; admin = lockout risk). confirm=True."""
@@ -3680,7 +3805,7 @@ def pve_user_delete(userid: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_group_create(groupid: str, comment: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: create an (empty) group. Dry-run by default (additive, LOW). confirm=True."""
     _, api, _, _ = _svc()
@@ -3693,7 +3818,7 @@ def pve_group_create(groupid: str, comment: str | None = None, confirm: bool = F
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_group_update(groupid: str, comment: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: update a group's comment. Dry-run by default. confirm=True."""
     _, api, _, _ = _svc()
@@ -3706,7 +3831,7 @@ def pve_group_update(groupid: str, comment: str | None = None, confirm: bool = F
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_group_delete(groupid: str, confirm: bool = False) -> dict:
     """MUTATION (HIGH): delete a group. Dry-run by default — the PLAN reads members and warns ACLs
     granted to/on the group are orphaned. confirm=True."""
@@ -3722,35 +3847,35 @@ def pve_group_delete(groupid: str, confirm: bool = False) -> dict:
 
 # --- Access governance: roles, realms, TFA ---
 
-@mcp.tool()
+@tool()
 def pve_realms_list() -> list[dict]:
     """List authentication realms/domains (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_realms_list", "access/domains", lambda: realms_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_realm_get(realm: str) -> dict:
     """Get a realm's config (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_realm_get", f"realm/{realm}", lambda: realm_get(api, realm))
 
 
-@mcp.tool()
+@tool()
 def pve_tfa_list() -> list[dict]:
     """List per-user TFA (two-factor) entries across the cluster (read)."""
     _, api, _, _ = _svc()
     return _audited("pve_tfa_list", "access/tfa", lambda: tfa_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_tfa_get(userid: str, tfa_id: str | None = None) -> object:
     """Read a user's TFA entries, or one entry (read). GET /access/tfa/{userid}[/{tfa_id}]."""
     _, api, _, _ = _svc()
     return _audited("pve_tfa_get", f"access/tfa/{userid}", lambda: tfa_get(api, userid, tfa_id))
 
 
-@mcp.tool()
+@tool()
 def pve_tfa_delete(
     userid: str, tfa_id: str, password: str | None = None, confirm: bool = False,
 ) -> dict:
@@ -3773,7 +3898,7 @@ def pve_tfa_delete(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_role_create(roleid: str, privs: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: create a custom role. Dry-run by default. confirm=True to execute."""
     _, api, _, _ = _svc()
@@ -3786,7 +3911,7 @@ def pve_role_create(roleid: str, privs: str | None = None, confirm: bool = False
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_role_update(roleid: str, privs: str | None = None, append: bool | None = None,
                     confirm: bool = False) -> dict:
     """MUTATION: change a role's privileges. Dry-run by default — built-in roles (Administrator,
@@ -3801,7 +3926,7 @@ def pve_role_update(roleid: str, privs: str | None = None, append: bool | None =
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_role_delete(roleid: str, confirm: bool = False) -> dict:
     """MUTATION (HIGH): delete a role. Dry-run by default — the PLAN reads ACLs to count grants
     that will break, and refuses built-in roles. confirm=True."""
@@ -3815,7 +3940,7 @@ def pve_role_delete(roleid: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_realm_create(realm: str, realm_type: str, comment: str | None = None,
                      options: dict | None = None, confirm: bool = False) -> dict:
     """MUTATION: create an auth realm. Dry-run by default; confirm=True to execute.
@@ -3832,7 +3957,7 @@ def pve_realm_create(realm: str, realm_type: str, comment: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_realm_update(realm: str, comment: str | None = None,
                      options: dict | None = None, confirm: bool = False) -> dict:
     """MUTATION: update a realm. Dry-run by default — built-in pam/pve realms are flagged HIGH
@@ -3848,7 +3973,7 @@ def pve_realm_update(realm: str, comment: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_realm_delete(realm: str, confirm: bool = False) -> dict:
     """MUTATION (HIGH, lockout-class): delete an auth realm. Dry-run by default — the PLAN reads
     users to count who can no longer log in, and refuses built-in pam/pve. confirm=True."""
@@ -3864,7 +3989,7 @@ def pve_realm_delete(realm: str, confirm: bool = False) -> dict:
 
 # --- Backup Schedules (Plane B) — PVE backup jobs, replication, PBS scheduled jobs ---
 
-@mcp.tool()
+@tool()
 def pve_backup_job_list() -> dict:
     """List all PVE cluster backup jobs and guests not covered by any job (read).
     Returns {jobs: [...], unprotected_guests: [...]}."""
@@ -3873,7 +3998,7 @@ def pve_backup_job_list() -> dict:
                     lambda: backup_job_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_backup_job_create(job_id: str, schedule: str, storage: str,
                           mode: str | None = None, compress: str | None = None,
                           vmid: str | None = None, all_guests: bool | None = None,
@@ -3903,7 +4028,7 @@ def pve_backup_job_create(job_id: str, schedule: str, storage: str,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_backup_job_update(job_id: str, schedule: str | None = None,
                           storage: str | None = None, mode: str | None = None,
                           compress: str | None = None, vmid: str | None = None,
@@ -3927,7 +4052,7 @@ def pve_backup_job_update(job_id: str, schedule: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_backup_job_delete(job_id: str, confirm: bool = False) -> dict:
     """MUTATION: delete a PVE cluster backup job. Dry-run by default — captures current config.
     confirm=True to execute. Schedule removed; existing backups are NOT deleted."""
@@ -3942,7 +4067,7 @@ def pve_backup_job_delete(job_id: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_replication_create(rep_id: str, rep_type: str, target: str,
                            schedule: str | None = None, rate: float | None = None,
                            disable: bool | None = None, comment: str | None = None,
@@ -3964,7 +4089,7 @@ def pve_replication_create(rep_id: str, rep_type: str, target: str,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_replication_update(rep_id: str, schedule: str | None = None,
                            rate: float | None = None, disable: bool | None = None,
                            comment: str | None = None, confirm: bool = False) -> dict:
@@ -3984,7 +4109,7 @@ def pve_replication_update(rep_id: str, schedule: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_replication_delete(rep_id: str, confirm: bool = False) -> dict:
     """MUTATION: delete a PVE replication job. Dry-run by default — captures current config.
     confirm=True to execute. Replication ceases; existing replicated data is NOT removed."""
@@ -3999,7 +4124,7 @@ def pve_replication_delete(rep_id: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_job_create(job_type: str, job_id: str, store: str | None = None,
                    schedule: str | None = None, ns: str | None = None,
                    comment: str | None = None, confirm: bool = False) -> dict:
@@ -4019,7 +4144,7 @@ def pbs_job_create(job_type: str, job_id: str, store: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_job_update(job_type: str, job_id: str, schedule: str | None = None,
                    ns: str | None = None, comment: str | None = None,
                    confirm: bool = False) -> dict:
@@ -4039,7 +4164,7 @@ def pbs_job_update(job_type: str, job_id: str, schedule: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_job_delete(job_type: str, job_id: str, confirm: bool = False) -> dict:
     """MUTATION: delete a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
     captures current config. confirm=True to execute. Schedule removed; backup data NOT deleted.
@@ -4055,7 +4180,7 @@ def pbs_job_delete(job_type: str, job_id: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_job_run(job_type: str, job_id: str, confirm: bool = False) -> dict:
     """MUTATION: trigger a PBS scheduled job immediately. job_type = sync|verify|prune.
     Dry-run by default. confirm=True to execute. Async — returns UPID.
@@ -4071,7 +4196,7 @@ def pbs_job_run(job_type: str, job_id: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="submitted", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pbs_realm_sync(realm: str, remove_vanished: bool | None = None,
                    dry_run: bool | None = None, scope: str | None = None,
                    confirm: bool = False) -> dict:
@@ -4095,7 +4220,7 @@ def pbs_realm_sync(realm: str, remove_vanished: bool | None = None,
 
 # --- Notifications & Metrics (Plane E) — PVE notification endpoints, matchers, metrics ---
 
-@mcp.tool()
+@tool()
 def pve_notification_endpoint_list() -> list[dict]:
     """List all PVE notification endpoints (gotify/smtp/sendmail/webhook) (read)."""
     _, api, _, _ = _svc()
@@ -4103,7 +4228,7 @@ def pve_notification_endpoint_list() -> list[dict]:
                     lambda: notification_endpoint_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_notification_endpoint_create(ep_type: str, name: str,
                                      comment: str | None = None,
                                      options: dict | None = None,
@@ -4123,7 +4248,7 @@ def pve_notification_endpoint_create(ep_type: str, name: str,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_notification_endpoint_update(ep_type: str, name: str,
                                      comment: str | None = None,
                                      options: dict | None = None,
@@ -4144,7 +4269,7 @@ def pve_notification_endpoint_update(ep_type: str, name: str,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_notification_endpoint_delete(ep_type: str, name: str, confirm: bool = False) -> dict:
     """MUTATION: delete a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
     Dry-run by default — captures current config. confirm=True to execute.
@@ -4160,7 +4285,7 @@ def pve_notification_endpoint_delete(ep_type: str, name: str, confirm: bool = Fa
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_notification_matcher_set(name: str, comment: str | None = None,
                                  confirm: bool = False) -> dict:
     """MUTATION: create-or-update a PVE notification matcher (alert routing rule).
@@ -4176,7 +4301,7 @@ def pve_notification_matcher_set(name: str, comment: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_notification_matcher_delete(name: str, confirm: bool = False) -> dict:
     """MUTATION: delete a PVE notification matcher. Dry-run by default.
     confirm=True to execute. WARN: alerts matching this filter go un-routed after deletion."""
@@ -4191,7 +4316,7 @@ def pve_notification_matcher_delete(name: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_notification_test(name: str, confirm: bool = False) -> dict:
     """MUTATION: send a test notification to a PVE notification target. Dry-run by default.
     confirm=True to execute. SENDS A REAL NOTIFICATION — recipients will receive it."""
@@ -4206,7 +4331,7 @@ def pve_notification_test(name: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_metrics_server_list() -> list[dict]:
     """List all PVE metrics server definitions (influxdb, graphite, etc.) (read)."""
     _, api, _, _ = _svc()
@@ -4214,7 +4339,7 @@ def pve_metrics_server_list() -> list[dict]:
                     lambda: metrics_server_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_metrics_server_set(metrics_id: str, metrics_type: str | None = None,
                            server: str | None = None, port: int | None = None,
                            disable: bool | None = None, comment: str | None = None,
@@ -4236,7 +4361,7 @@ def pve_metrics_server_set(metrics_id: str, metrics_type: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_metrics_server_delete(metrics_id: str, confirm: bool = False) -> dict:
     """MUTATION: delete a PVE metrics server definition. Dry-run by default.
     confirm=True to execute. Metrics forwarding to this server ceases; no data loss."""
@@ -4255,7 +4380,7 @@ def pve_metrics_server_delete(metrics_id: str, confirm: bool = False) -> dict:
 # Plane F — Hardware PCI/USB Mappings
 # ============================================================================
 
-@mcp.tool()
+@tool()
 def pve_hardware_list(node: str, hw_type: str = "pci") -> dict:
     """List physical PCI or USB devices on a PVE node (read).
     hw_type: 'pci' (default) or 'usb'."""
@@ -4264,7 +4389,7 @@ def pve_hardware_list(node: str, hw_type: str = "pci") -> dict:
                     lambda: hardware_list(api, node, hw_type))
 
 
-@mcp.tool()
+@tool()
 def pve_mapping_pci_list() -> list[dict]:
     """List all PCI cluster hardware mappings (read)."""
     _, api, _, _ = _svc()
@@ -4272,7 +4397,7 @@ def pve_mapping_pci_list() -> list[dict]:
                     lambda: mapping_pci_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_mapping_usb_list() -> list[dict]:
     """List all USB cluster hardware mappings (read)."""
     _, api, _, _ = _svc()
@@ -4280,7 +4405,7 @@ def pve_mapping_usb_list() -> list[dict]:
                     lambda: mapping_usb_list(api))
 
 
-@mcp.tool()
+@tool()
 def pve_mapping_pci_create(mapping_id: str, description: str | None = None,
                            map: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: create a PCI cluster passthrough mapping. Dry-run by default.
@@ -4296,7 +4421,7 @@ def pve_mapping_pci_create(mapping_id: str, description: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_mapping_pci_update(mapping_id: str, description: str | None = None,
                            map: str | None = None, digest: str | None = None,
                            confirm: bool = False) -> dict:
@@ -4315,7 +4440,7 @@ def pve_mapping_pci_update(mapping_id: str, description: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_mapping_pci_delete(mapping_id: str, confirm: bool = False) -> dict:
     """MUTATION: delete a PCI cluster mapping. Dry-run by default.
     confirm=True to execute. VMs referencing this mapping lose the device path."""
@@ -4330,7 +4455,7 @@ def pve_mapping_pci_delete(mapping_id: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_mapping_usb_create(mapping_id: str, description: str | None = None,
                            map: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: create a USB cluster passthrough mapping. Dry-run by default.
@@ -4346,7 +4471,7 @@ def pve_mapping_usb_create(mapping_id: str, description: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_mapping_usb_update(mapping_id: str, description: str | None = None,
                            map: str | None = None, digest: str | None = None,
                            confirm: bool = False) -> dict:
@@ -4365,7 +4490,7 @@ def pve_mapping_usb_update(mapping_id: str, description: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_mapping_usb_delete(mapping_id: str, confirm: bool = False) -> dict:
     """MUTATION: delete a USB cluster mapping. Dry-run by default.
     confirm=True to execute. VMs referencing this mapping lose the USB device path."""
@@ -4384,7 +4509,7 @@ def pve_mapping_usb_delete(mapping_id: str, confirm: bool = False) -> dict:
 # Plane G — ACME & TLS Certs
 # ============================================================================
 
-@mcp.tool()
+@tool()
 def pve_acme_account_create(name: str, contact: str, tos_url: str | None = None,
                             directory: str | None = None, confirm: bool = False) -> dict:
     """MUTATION: register a new ACME account with the CA. Dry-run by default.
@@ -4402,7 +4527,7 @@ def pve_acme_account_create(name: str, contact: str, tos_url: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_acme_account_update(name: str, contact: str | None = None,
                             confirm: bool = False) -> dict:
     """MUTATION: update ACME account contact info. Dry-run by default.
@@ -4418,7 +4543,7 @@ def pve_acme_account_update(name: str, contact: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_acme_account_delete(name: str, confirm: bool = False) -> dict:
     """MUTATION: IRREVERSIBLE — deactivate and delete an ACME account from the CA. Dry-run by default.
     confirm=True to execute. HIGH risk: TLS lockout at cert expiry if this is the only account."""
@@ -4433,7 +4558,7 @@ def pve_acme_account_delete(name: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_acme_plugin_create(plugin_id: str, plugin_type: str, dns_api: str | None = None,
                            data: str | None = None, disable: bool | None = None,
                            confirm: bool = False) -> dict:
@@ -4459,7 +4584,7 @@ def pve_acme_plugin_create(plugin_id: str, plugin_type: str, dns_api: str | None
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_acme_plugin_update(plugin_id: str, dns_api: str | None = None,
                            data: str | None = None, disable: bool | None = None,
                            digest: str | None = None, confirm: bool = False) -> dict:
@@ -4486,7 +4611,7 @@ def pve_acme_plugin_update(plugin_id: str, dns_api: str | None = None,
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_acme_plugin_delete(plugin_id: str, confirm: bool = False) -> dict:
     """MUTATION: delete an ACME DNS challenge plugin. Dry-run by default.
     confirm=True to execute. HIGH risk: cert auto-renewal breaks — TLS lockout at cert expiry."""
@@ -4502,6 +4627,92 @@ def pve_acme_plugin_delete(plugin_id: str, confirm: bool = False) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# ACME cert order plane — the node-side "what to issue" + "do it now"
+# (closes the gap: account+plugin existed, but nothing set node ACME domains nor ordered a cert)
+# ---------------------------------------------------------------------------
+
+@tool()
+def pve_node_acme_domains_set(account: str, domains: list[str], node: str | None = None,
+                              plugin: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: set a node's ACME account + domains (PUT /nodes/{node}/config). Dry-run by default.
+
+    The "what to issue" half of an ACME cert: pair with pve_acme_account_create +
+    pve_acme_plugin_create, then issue with pve_acme_cert_order. plugin=<id> uses a DNS-01
+    challenge (written as acmedomain0..N=domain=...,plugin=...); omit plugin for standalone
+    http-01 (domains ride in acme=...,domains=...). REPLACE semantics: stale acmedomainN entries
+    are removed, not merged. MEDIUM — config only, no cert is issued by this step. confirm=True
+    to execute. Smoke-confirm: node-config body shape against a live PVE instance."""
+    cfg, api, _, _ = _svc()
+    n = node or cfg.node
+    tgt = f"node/{n}/config:acme"
+    plan = _plan("pve_node_acme_domains_set", tgt,
+                 lambda: plan_node_acme_domains_set(api, n, account, domains, plugin))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_node_acme_domains_set", tgt,
+                    lambda: node_acme_config_set(api, n, account, domains, plugin),
+                    mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+@tool()
+def pve_acme_cert_order(node: str | None = None, force: bool = False,
+                        confirm: bool = False) -> dict:
+    """MUTATION: order a NEW ACME TLS certificate for the node's configured ACME domains. Dry-run
+    by default. Async — returns a task UPID (poll pve_task_status/pve_task_wait).
+
+    MEDIUM (lower than pve_node_cert_upload's HIGH): the cert is CA-validated and installed ONLY on
+    a successful challenge — a failed challenge leaves the existing cert untouched, so it cannot
+    lock you out. On success PVE reloads pveproxy. force=overwrite an existing custom cert.
+    Revert to self-signed with pve_node_cert_delete. confirm=True to execute.
+    Smoke-confirm: POST shape + async UPID against a live PVE instance."""
+    cfg, api, _, _ = _svc()
+    n = node or cfg.node
+    tgt = f"node/{n}/certificates/acme/certificate"
+    plan = _plan("pve_acme_cert_order", tgt, lambda: plan_acme_cert_order(n, force=force))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_cert_order", tgt,
+                    lambda: acme_cert_order(api, n, force=force),
+                    mutation=True, outcome="submitted", detail={"confirmed": True, "force": force})
+
+
+@tool()
+def pve_acme_cert_renew(node: str | None = None, force: bool = False,
+                        confirm: bool = False) -> dict:
+    """MUTATION: renew the node's existing ACME TLS certificate. Dry-run by default. Async — returns
+    a UPID. MEDIUM: CA-validated, installed only on success (a failure can't lock you out); reloads
+    pveproxy on success. force=renew even if more than 30 days to expiry. confirm=True to execute.
+    Smoke-confirm: PUT shape + async UPID against a live PVE instance."""
+    cfg, api, _, _ = _svc()
+    n = node or cfg.node
+    tgt = f"node/{n}/certificates/acme/certificate"
+    plan = _plan("pve_acme_cert_renew", tgt, lambda: plan_acme_cert_renew(n, force=force))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_cert_renew", tgt,
+                    lambda: acme_cert_renew(api, n, force=force),
+                    mutation=True, outcome="submitted", detail={"confirmed": True, "force": force})
+
+
+@tool()
+def pve_acme_cert_revoke(node: str | None = None, confirm: bool = False) -> dict:
+    """MUTATION: IRREVERSIBLE — revoke the node's ACME TLS certificate at the CA. Dry-run by default.
+    Async — returns a UPID. HIGH: a revoked cert cannot be un-revoked; only a NEW pve_acme_cert_order
+    restores trust. To fall back to PVE's self-signed cert WITHOUT revoking at the CA, use
+    pve_node_cert_delete instead. confirm=True to execute. Smoke-confirm: DELETE shape against a live
+    PVE instance."""
+    cfg, api, _, _ = _svc()
+    n = node or cfg.node
+    tgt = f"node/{n}/certificates/acme/certificate"
+    plan = _plan("pve_acme_cert_revoke", tgt, lambda: plan_acme_cert_revoke(api, n))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_acme_cert_revoke", tgt,
+                    lambda: acme_cert_revoke(api, n),
+                    mutation=True, outcome="submitted", detail={"confirmed": True})
+
+
+# ---------------------------------------------------------------------------
 # qemu-agent plane (Wave 3) — in-guest ops via the QEMU Guest Agent
 # ---------------------------------------------------------------------------
 
@@ -4509,7 +4720,7 @@ def pve_acme_plugin_delete(plugin_id: str, confirm: bool = False) -> dict:
 _AGENT_POLL_INTERVAL = 1.0
 
 
-@mcp.tool()
+@tool()
 def pve_agent_exec(
     vmid: str,
     command: list[str],
@@ -4568,24 +4779,25 @@ def pve_agent_exec(
                     "err-data": err_data,
                 }
                 audit.record("pve_agent_exec", target=f"qemu/{vmid}", mutation=True,
-                             outcome="ok", detail={**detail, "confirmed": True, "pid": pid})
+                             outcome="ok", detail={**detail, "confirmed": True, "pid": pid}, remote=ledger_remote())
                 return {"status": "ok", "result": result}
             if time.monotonic() >= deadline:
                 # Timeout BEFORE exit observed — honest "running" outcome, never "ok".
                 audit.record("pve_agent_exec", target=f"qemu/{vmid}", mutation=True,
                              outcome="running",
-                             detail={**detail, "confirmed": True, "pid": pid, "timeout": timeout})
+                             detail={**detail, "confirmed": True, "pid": pid, "timeout": timeout},
+                             remote=ledger_remote())
                 return {"status": "running", "pid": pid,
                         "message": f"command is still running (pid={pid}) — did not exit within {timeout}s; "
                                    "poll pve_agent_info with command='exec-status' and the returned pid."}
             time.sleep(_AGENT_POLL_INTERVAL)  # pace polls — do not hammer the PVE API
     except Exception as e:
         audit.record("pve_agent_exec", target=f"qemu/{vmid}", mutation=True,
-                     outcome="error", detail={"error": type(e).__name__, "confirmed": True})
+                     outcome="error", detail={"error": type(e).__name__, "confirmed": True}, remote=ledger_remote())
         raise
 
 
-@mcp.tool()
+@tool()
 def pve_agent_info(
     vmid: str,
     command: str = "info",
@@ -4619,7 +4831,7 @@ def pve_agent_info(
                     lambda: api.agent_simple(vmid, node, command))
 
 
-@mcp.tool()
+@tool()
 def pve_agent_file_read(
     vmid: str,
     file: str,
@@ -4645,7 +4857,7 @@ def pve_agent_file_read(
                     detail={"file": file})
 
 
-@mcp.tool()
+@tool()
 def pve_agent_file_write(
     vmid: str,
     file: str,
@@ -4681,7 +4893,7 @@ def pve_agent_file_write(
                     mutation=True, outcome="ok", detail={**detail, "confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_agent_fs(
     vmid: str,
     command: str,
@@ -4715,7 +4927,7 @@ def pve_agent_fs(
                     detail={"command": command, "confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_agent_set_password(
     vmid: str,
     username: str,
@@ -4755,7 +4967,7 @@ def pve_agent_set_password(
 
 # --- Disks (reads) ---
 
-@mcp.tool()
+@tool()
 def pve_node_disks_list(node: str | None = None) -> list:
     """List physical disks on a PVE node (read).
 
@@ -4767,7 +4979,7 @@ def pve_node_disks_list(node: str | None = None) -> list:
                     lambda: api.node_disks_list(node))
 
 
-@mcp.tool()
+@tool()
 def pve_node_disk_smart(disk: str, node: str | None = None) -> dict:
     """Get SMART health data for a disk on a PVE node (read).
 
@@ -4781,7 +4993,7 @@ def pve_node_disk_smart(disk: str, node: str | None = None) -> dict:
 
 # --- Disks (mutations) ---
 
-@mcp.tool()
+@tool()
 def pve_node_disk_wipe(disk: str, node: str | None = None,
                        confirm: bool = False) -> dict:
     """MUTATION: wipe ALL data and the partition table on a node disk.
@@ -4806,7 +5018,7 @@ def pve_node_disk_wipe(disk: str, node: str | None = None,
                     detail={"disk": disk, "confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_node_disk_initgpt(disk: str, node: str | None = None,
                           confirm: bool = False) -> dict:
     """MUTATION: initialize a GPT partition table on a node disk.
@@ -4831,7 +5043,7 @@ def pve_node_disk_initgpt(disk: str, node: str | None = None,
 
 # --- Storage backends (reads + mutations) ---
 
-@mcp.tool()
+@tool()
 def pve_node_storage_backend_list(backend: str, node: str | None = None) -> list:
     """List storage backends of a type on a PVE node (read).
 
@@ -4844,7 +5056,7 @@ def pve_node_storage_backend_list(backend: str, node: str | None = None) -> list
                     lambda: api.node_storage_backend_list(backend, node))
 
 
-@mcp.tool()
+@tool()
 def pve_node_storage_backend_create(
     backend: str,
     name: str,
@@ -4879,7 +5091,7 @@ def pve_node_storage_backend_create(
                     detail={"backend": backend, "name": name, "confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_node_storage_backend_delete(
     backend: str,
     name: str,
@@ -4914,7 +5126,7 @@ def pve_node_storage_backend_delete(
 
 # --- Node config (reads) ---
 
-@mcp.tool()
+@tool()
 def pve_node_time_get(node: str | None = None) -> dict:
     """Get the current time and timezone of a PVE node (read).
 
@@ -4926,7 +5138,7 @@ def pve_node_time_get(node: str | None = None) -> dict:
                     lambda: api.node_time_get(node))
 
 
-@mcp.tool()
+@tool()
 def pve_node_hosts_get(node: str | None = None) -> dict:
     """Get the /etc/hosts content of a PVE node (read).
 
@@ -4940,7 +5152,7 @@ def pve_node_hosts_get(node: str | None = None) -> dict:
 
 # --- Node config (mutations) ---
 
-@mcp.tool()
+@tool()
 def pve_node_time_set(timezone: str, node: str | None = None,
                       confirm: bool = False) -> dict:
     """MUTATION: set the timezone on a PVE node.
@@ -4963,7 +5175,7 @@ def pve_node_time_set(timezone: str, node: str | None = None,
                     detail={"timezone": timezone, "confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_node_hosts_set(
     data: str,
     node: str | None = None,
@@ -4991,7 +5203,7 @@ def pve_node_hosts_set(
                     detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_node_dns_set(
     search: str | None = None,
     dns1: str | None = None,
@@ -5021,7 +5233,7 @@ def pve_node_dns_set(
                     detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_node_cert_upload(
     certificates: str,
     key: str | None = None,
@@ -5063,7 +5275,7 @@ def pve_node_cert_upload(
                     detail={**key_detail, "confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pve_node_cert_delete(
     node: str | None = None,
     restart: bool = False,
@@ -5091,7 +5303,7 @@ def pve_node_cert_delete(
 
 # --- Bulk power (mutations) ---
 
-@mcp.tool()
+@tool()
 def pve_node_startall(
     node: str | None = None,
     vms: str | None = None,
@@ -5117,7 +5329,7 @@ def pve_node_startall(
                     detail={"confirmed": True, **({"vms": vms} if vms else {})})
 
 
-@mcp.tool()
+@tool()
 def pve_node_stopall(
     node: str | None = None,
     vms: str | None = None,
@@ -5143,7 +5355,7 @@ def pve_node_stopall(
                     detail={"confirmed": True, **({"vms": vms} if vms else {})})
 
 
-@mcp.tool()
+@tool()
 def pve_node_migrateall(
     target: str,
     node: str | None = None,
@@ -5174,7 +5386,7 @@ def pve_node_migrateall(
 
 # --- PMG (Proxmox Mail Gateway) ---
 
-@mcp.tool()
+@tool()
 def pmg_doctor(node: str | None = None) -> dict:
     """PMG connectivity + credential/permission preflight (read). Checks /nodes/{node}/version
     and /access/users. A successful /version call means ticket login also succeeded —
@@ -5192,7 +5404,7 @@ def pmg_doctor(node: str | None = None) -> dict:
                     })
 
 
-@mcp.tool()
+@tool()
 def pmg_node_status(node: str | None = None) -> dict:
     """Get PMG node cpu/mem/disk/uptime status (read). Needs PROXIMO_PMG_* config.
 
@@ -5205,7 +5417,7 @@ def pmg_node_status(node: str | None = None) -> dict:
                     lambda: pmg_node_status_op(pmg, n))
 
 
-@mcp.tool()
+@tool()
 def pmg_relay_config() -> dict:
     """Get PMG SMTP relay/smarthost configuration (read). Needs PROXIMO_PMG_* config.
 
@@ -5216,7 +5428,7 @@ def pmg_relay_config() -> dict:
                     lambda: pmg_relay_config_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_domains_list() -> list[dict]:
     """List PMG managed mail domains (read). Needs PROXIMO_PMG_* config.
 
@@ -5228,7 +5440,7 @@ def pmg_domains_list() -> list[dict]:
                     lambda: pmg_domains_list_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_statistics_mail() -> dict:
     """Get PMG mail delivery statistics (read). Needs PROXIMO_PMG_* config.
 
@@ -5241,7 +5453,7 @@ def pmg_statistics_mail() -> dict:
                     lambda: pmg_statistics_mail_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_spam() -> list[dict]:
     """List PMG quarantined spam messages (read). Needs PROXIMO_PMG_* config.
 
@@ -5255,7 +5467,7 @@ def pmg_quarantine_spam() -> list[dict]:
                     lambda: pmg_quarantine_spam_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_statistics_domains(start: int | None = None, end: int | None = None) -> list[dict]:
     """Get PMG per-domain mail statistics (read). Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
@@ -5268,7 +5480,7 @@ def pmg_statistics_domains(start: int | None = None, end: int | None = None) -> 
                     lambda: pmg_statistics_domains_op(pmg, start, end))
 
 
-@mcp.tool()
+@tool()
 def pmg_statistics_virus(start: int | None = None, end: int | None = None) -> list[dict]:
     """Get PMG virus statistics (read). Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
@@ -5281,7 +5493,7 @@ def pmg_statistics_virus(start: int | None = None, end: int | None = None) -> li
                     lambda: pmg_statistics_virus_op(pmg, start, end))
 
 
-@mcp.tool()
+@tool()
 def pmg_statistics_spamscores(start: int | None = None, end: int | None = None) -> list[dict]:
     """Get PMG spam score distribution statistics (read). Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
@@ -5294,7 +5506,7 @@ def pmg_statistics_spamscores(start: int | None = None, end: int | None = None) 
                     lambda: pmg_statistics_spamscores_op(pmg, start, end))
 
 
-@mcp.tool()
+@tool()
 def pmg_statistics_recent(hours: int = 1) -> list[dict]:
     """Get PMG recent mail statistics (read). hours: 1-24 window. Needs PROXIMO_PMG_* config.
 
@@ -5305,7 +5517,7 @@ def pmg_statistics_recent(hours: int = 1) -> list[dict]:
                     lambda: pmg_statistics_recent_op(pmg, hours))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_blocklist_list(pmail: str | None = None) -> list[dict]:
     """List PMG quarantine blocklist entries (read). Optional pmail to scope to one user.
     Needs PROXIMO_PMG_* config.
@@ -5318,7 +5530,7 @@ def pmg_quarantine_blocklist_list(pmail: str | None = None) -> list[dict]:
                     lambda: pmg_quarantine_blocklist_list_op(pmg, pmail))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_blocklist_add(
     address: str,
     pmail: str | None = None,
@@ -5341,7 +5553,7 @@ def pmg_quarantine_blocklist_add(
                     mutation=True, outcome="ok", detail={"confirmed": True, "address": address})
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_action(
     action: str,
     mail_ids: str,
@@ -5368,7 +5580,7 @@ def pmg_quarantine_action(
                     detail={"confirmed": True, "action": action, "mail_ids": mail_ids})
 
 
-@mcp.tool()
+@tool()
 def pmg_postfix_qshape(node: str | None = None) -> list[dict]:
     """Get PMG Postfix queue shape (read). Needs PROXIMO_PMG_* config.
 
@@ -5381,7 +5593,7 @@ def pmg_postfix_qshape(node: str | None = None) -> list[dict]:
                     lambda: pmg_postfix_qshape_op(pmg, n))
 
 
-@mcp.tool()
+@tool()
 def pmg_postfix_flush(node: str | None = None, confirm: bool = False) -> dict:
     """MUTATION (LOW): flush all Postfix queues (immediate re-delivery attempt). Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -5400,7 +5612,7 @@ def pmg_postfix_flush(node: str | None = None, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True, "node": n})
 
 
-@mcp.tool()
+@tool()
 def pmg_spam_config() -> dict:
     """Get PMG spam filter configuration (read). Needs PROXIMO_PMG_* config.
 
@@ -5411,7 +5623,7 @@ def pmg_spam_config() -> dict:
                     lambda: pmg_spam_config_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_service_status(service: str, node: str | None = None) -> dict:
     """Get the status of a PMG system service (read). Needs PROXIMO_PMG_* config.
 
@@ -5426,7 +5638,7 @@ def pmg_service_status(service: str, node: str | None = None) -> dict:
                     lambda: pmg_service_status_op(pmg, service, n))
 
 
-@mcp.tool()
+@tool()
 def pmg_domain_create(domain: str, comment: str | None = None, confirm: bool = False) -> dict:
     """MUTATION (LOW): create a managed mail domain. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -5445,7 +5657,7 @@ def pmg_domain_create(domain: str, comment: str | None = None, confirm: bool = F
                     mutation=True, outcome="ok", detail={"confirmed": True, "domain": domain})
 
 
-@mcp.tool()
+@tool()
 def pmg_domain_delete(domain: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete a managed mail domain. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -5464,7 +5676,7 @@ def pmg_domain_delete(domain: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True, "domain": domain})
 
 
-@mcp.tool()
+@tool()
 def pmg_transport_create(
     domain: str,
     host: str,
@@ -5494,7 +5706,7 @@ def pmg_transport_create(
                     detail={"confirmed": True, "domain": domain, "host": host})
 
 
-@mcp.tool()
+@tool()
 def pmg_transport_delete(domain: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete a mail transport rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -5513,7 +5725,7 @@ def pmg_transport_delete(domain: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True, "domain": domain})
 
 
-@mcp.tool()
+@tool()
 def pmg_mynetworks_add(cidr: str, comment: str | None = None, confirm: bool = False) -> dict:
     """MUTATION (LOW): add a CIDR to the PMG mynetworks trusted relay list. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -5532,7 +5744,7 @@ def pmg_mynetworks_add(cidr: str, comment: str | None = None, confirm: bool = Fa
                     mutation=True, outcome="ok", detail={"confirmed": True, "cidr": cidr})
 
 
-@mcp.tool()
+@tool()
 def pmg_mynetworks_remove(cidr: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): remove a CIDR from the PMG mynetworks trusted relay list. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -5551,7 +5763,7 @@ def pmg_mynetworks_remove(cidr: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True, "cidr": cidr})
 
 
-@mcp.tool()
+@tool()
 def pmg_spam_config_update(
     bounce_score: int | None = None,
     clamav_heuristic_score: int | None = None,
@@ -5599,7 +5811,7 @@ def pmg_spam_config_update(
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_welcomelist_list(pmail: str | None = None) -> list[dict]:
     """List PMG quarantine welcomelist entries (read). Optional pmail to scope to one user.
     Needs PROXIMO_PMG_* config.
@@ -5612,7 +5824,7 @@ def pmg_quarantine_welcomelist_list(pmail: str | None = None) -> list[dict]:
                     lambda: pmg_quarantine_welcomelist_list_op(pmg, pmail))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_welcomelist_add(
     address: str,
     pmail: str | None = None,
@@ -5635,7 +5847,7 @@ def pmg_quarantine_welcomelist_add(
                     mutation=True, outcome="ok", detail={"confirmed": True, "address": address})
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_welcomelist_remove(
     address: str,
     pmail: str | None = None,
@@ -5658,7 +5870,7 @@ def pmg_quarantine_welcomelist_remove(
                     mutation=True, outcome="ok", detail={"confirmed": True, "address": address})
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_blocklist_remove(
     address: str,
     pmail: str | None = None,
@@ -5681,7 +5893,7 @@ def pmg_quarantine_blocklist_remove(
                     mutation=True, outcome="ok", detail={"confirmed": True, "address": address})
 
 
-@mcp.tool()
+@tool()
 def pmg_service_control(
     service: str,
     action: str,
@@ -5710,7 +5922,7 @@ def pmg_service_control(
                     detail={"confirmed": True, "service": service, "action": action, "node": n})
 
 
-@mcp.tool()
+@tool()
 def pmg_tracker_list(
     node: str | None = None,
     start: int | None = None,
@@ -5737,7 +5949,7 @@ def pmg_tracker_list(
                                                 target, xfilter, ndr, greylist, limit))
 
 
-@mcp.tool()
+@tool()
 def pmg_tracker_detail(
     id_: str,
     node: str | None = None,
@@ -5756,7 +5968,7 @@ def pmg_tracker_detail(
                     lambda: pmg_tracker_detail_op(pmg, n, id_, start, end))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_virus(
     pmail: str | None = None,
     start: int | None = None,
@@ -5773,7 +5985,7 @@ def pmg_quarantine_virus(
                     lambda: pmg_quarantine_virus_op(pmg, pmail, start, end))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_attachment(
     pmail: str | None = None,
     start: int | None = None,
@@ -5790,7 +6002,7 @@ def pmg_quarantine_attachment(
                     lambda: pmg_quarantine_attachment_op(pmg, pmail, start, end))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_virusstatus() -> dict:
     """Get virus quarantine status summary (read). Needs PROXIMO_PMG_* config.
 
@@ -5801,7 +6013,7 @@ def pmg_quarantine_virusstatus() -> dict:
                     lambda: pmg_quarantine_virusstatus_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_spamstatus() -> dict:
     """Get spam quarantine status summary (read). Needs PROXIMO_PMG_* config.
 
@@ -5812,7 +6024,7 @@ def pmg_quarantine_spamstatus() -> dict:
                     lambda: pmg_quarantine_spamstatus_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_quarantine_spamusers(
     start: int | None = None,
     end: int | None = None,
@@ -5829,7 +6041,7 @@ def pmg_quarantine_spamusers(
                     lambda: pmg_quarantine_spamusers_op(pmg, start, end, quarantine_type))
 
 
-@mcp.tool()
+@tool()
 def pmg_statistics_mailcount(
     start: int | None = None,
     end: int | None = None,
@@ -5846,7 +6058,7 @@ def pmg_statistics_mailcount(
                     lambda: pmg_statistics_mailcount_op(pmg, start, end, timespan))
 
 
-@mcp.tool()
+@tool()
 def pmg_statistics_sender(
     start: int | None = None,
     end: int | None = None,
@@ -5864,7 +6076,7 @@ def pmg_statistics_sender(
                     lambda: pmg_statistics_sender_op(pmg, start, end, filter_, orderby))
 
 
-@mcp.tool()
+@tool()
 def pmg_statistics_receiver(
     start: int | None = None,
     end: int | None = None,
@@ -5882,7 +6094,7 @@ def pmg_statistics_receiver(
                     lambda: pmg_statistics_receiver_op(pmg, start, end, filter_, orderby))
 
 
-@mcp.tool()
+@tool()
 def pmg_node_syslog(
     node: str | None = None,
     limit: int | None = None,
@@ -5903,7 +6115,7 @@ def pmg_node_syslog(
                     lambda: pmg_node_syslog_op(pmg, n, limit, service, since, until, start))
 
 
-@mcp.tool()
+@tool()
 def pmg_node_rrddata(
     timeframe: str,
     node: str | None = None,
@@ -5921,7 +6133,7 @@ def pmg_node_rrddata(
                     lambda: pmg_node_rrddata_op(pmg, n, timeframe, cf))
 
 
-@mcp.tool()
+@tool()
 def pmg_tasks_list(
     node: str | None = None,
     start: int | None = None,
@@ -5946,7 +6158,7 @@ def pmg_tasks_list(
                                               errors, typefilter, since, until, statusfilter))
 
 
-@mcp.tool()
+@tool()
 def pmg_backup_create(
     node: str | None = None,
     notify: str = "never",
@@ -5974,7 +6186,7 @@ def pmg_backup_create(
                     detail={"confirmed": True, "node": n, "notify": notify})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rules_list() -> list[dict]:
     """List all PMG RuleDB rules (hydrated rule list) (read). Needs PROXIMO_PMG_* config.
 
@@ -5986,7 +6198,7 @@ def pmg_ruledb_rules_list() -> list[dict]:
                     lambda: pmg_ruledb_rules_list_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_get(id_: str) -> dict:
     """Get a PMG RuleDB rule's configuration (read). Needs PROXIMO_PMG_* config.
 
@@ -5998,7 +6210,7 @@ def pmg_ruledb_rule_get(id_: str) -> dict:
                     lambda: pmg_ruledb_rule_get_op(pmg, id_))
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_from_list(id_: str) -> list[dict]:
     """List the 'from' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
@@ -6010,7 +6222,7 @@ def pmg_ruledb_rule_from_list(id_: str) -> list[dict]:
                     lambda: pmg_ruledb_rule_from_list_op(pmg, id_))
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_to_list(id_: str) -> list[dict]:
     """List the 'to' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
@@ -6022,7 +6234,7 @@ def pmg_ruledb_rule_to_list(id_: str) -> list[dict]:
                     lambda: pmg_ruledb_rule_to_list_op(pmg, id_))
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_what_list(id_: str) -> list[dict]:
     """List the 'what' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
@@ -6034,7 +6246,7 @@ def pmg_ruledb_rule_what_list(id_: str) -> list[dict]:
                     lambda: pmg_ruledb_rule_what_list_op(pmg, id_))
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_when_list(id_: str) -> list[dict]:
     """List the 'when' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
@@ -6046,7 +6258,7 @@ def pmg_ruledb_rule_when_list(id_: str) -> list[dict]:
                     lambda: pmg_ruledb_rule_when_list_op(pmg, id_))
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_actions_list(id_: str) -> list[dict]:
     """List the 'actions' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
@@ -6058,7 +6270,7 @@ def pmg_ruledb_rule_actions_list(id_: str) -> list[dict]:
                     lambda: pmg_ruledb_rule_actions_list_op(pmg, id_))
 
 
-@mcp.tool()
+@tool()
 def pmg_who_groups_list() -> list[dict]:
     """List all PMG RuleDB 'who' object groups (read). Needs PROXIMO_PMG_* config.
 
@@ -6069,7 +6281,7 @@ def pmg_who_groups_list() -> list[dict]:
                     lambda: pmg_who_groups_list_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_who_group_get(ogroup: str) -> dict:
     """Get a PMG RuleDB 'who' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
@@ -6081,7 +6293,7 @@ def pmg_who_group_get(ogroup: str) -> dict:
                     lambda: pmg_who_group_get_op(pmg, ogroup))
 
 
-@mcp.tool()
+@tool()
 def pmg_who_group_objects(ogroup: str) -> list[dict]:
     """List the objects in a PMG RuleDB 'who' object group (read). Needs PROXIMO_PMG_* config.
 
@@ -6093,7 +6305,7 @@ def pmg_who_group_objects(ogroup: str) -> list[dict]:
                     lambda: pmg_who_group_objects_op(pmg, ogroup))
 
 
-@mcp.tool()
+@tool()
 def pmg_what_groups_list() -> list[dict]:
     """List all PMG RuleDB 'what' object groups (read). Needs PROXIMO_PMG_* config.
 
@@ -6104,7 +6316,7 @@ def pmg_what_groups_list() -> list[dict]:
                     lambda: pmg_what_groups_list_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_what_group_get(ogroup: str) -> dict:
     """Get a PMG RuleDB 'what' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
@@ -6116,7 +6328,7 @@ def pmg_what_group_get(ogroup: str) -> dict:
                     lambda: pmg_what_group_get_op(pmg, ogroup))
 
 
-@mcp.tool()
+@tool()
 def pmg_what_group_objects(ogroup: str) -> list[dict]:
     """List the objects in a PMG RuleDB 'what' object group (read). Needs PROXIMO_PMG_* config.
 
@@ -6128,7 +6340,7 @@ def pmg_what_group_objects(ogroup: str) -> list[dict]:
                     lambda: pmg_what_group_objects_op(pmg, ogroup))
 
 
-@mcp.tool()
+@tool()
 def pmg_when_groups_list() -> list[dict]:
     """List all PMG RuleDB 'when' object groups (read). Needs PROXIMO_PMG_* config.
 
@@ -6139,7 +6351,7 @@ def pmg_when_groups_list() -> list[dict]:
                     lambda: pmg_when_groups_list_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_when_group_get(ogroup: str) -> dict:
     """Get a PMG RuleDB 'when' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
@@ -6151,7 +6363,7 @@ def pmg_when_group_get(ogroup: str) -> dict:
                     lambda: pmg_when_group_get_op(pmg, ogroup))
 
 
-@mcp.tool()
+@tool()
 def pmg_when_group_objects(ogroup: str) -> list[dict]:
     """List the objects in a PMG RuleDB 'when' object group (read). Needs PROXIMO_PMG_* config.
 
@@ -6163,7 +6375,7 @@ def pmg_when_group_objects(ogroup: str) -> list[dict]:
                     lambda: pmg_when_group_objects_op(pmg, ogroup))
 
 
-@mcp.tool()
+@tool()
 def pmg_action_objects_list() -> list[dict]:
     """List all PMG RuleDB action objects including non-editable (read). Needs PROXIMO_PMG_* config.
 
@@ -6176,7 +6388,7 @@ def pmg_action_objects_list() -> list[dict]:
                     lambda: pmg_action_objects_list_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_digest() -> dict:
     """Get the PMG RuleDB digest (change-detection hash) (read). Needs PROXIMO_PMG_* config.
 
@@ -6189,7 +6401,7 @@ def pmg_ruledb_digest() -> dict:
                     lambda: pmg_ruledb_digest_op(pmg))
 
 
-@mcp.tool()
+@tool()
 def pmg_who_group_create(
     name: str,
     info: str | None = None,
@@ -6217,7 +6429,7 @@ def pmg_who_group_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_who_group_update(
     ogroup: str,
     name: str | None = None,
@@ -6243,7 +6455,7 @@ def pmg_who_group_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_who_group_delete(ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'who' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -6262,7 +6474,7 @@ def pmg_who_group_delete(ogroup: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_what_group_create(
     name: str,
     info: str | None = None,
@@ -6290,7 +6502,7 @@ def pmg_what_group_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_what_group_update(
     ogroup: str,
     name: str | None = None,
@@ -6316,7 +6528,7 @@ def pmg_what_group_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_what_group_delete(ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'what' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -6335,7 +6547,7 @@ def pmg_what_group_delete(ogroup: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_when_group_create(
     name: str,
     info: str | None = None,
@@ -6363,7 +6575,7 @@ def pmg_when_group_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_when_group_update(
     ogroup: str,
     name: str | None = None,
@@ -6389,7 +6601,7 @@ def pmg_when_group_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_when_group_delete(ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'when' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -6408,7 +6620,7 @@ def pmg_when_group_delete(ogroup: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_who_object_add(
     ogroup: str,
     type_: str,
@@ -6450,7 +6662,7 @@ def pmg_who_object_add(
                     detail={"confirmed": True, "ogroup": ogroup, "type": type_})
 
 
-@mcp.tool()
+@tool()
 def pmg_who_object_update(
     ogroup: str,
     type_: str,
@@ -6493,7 +6705,7 @@ def pmg_who_object_update(
                     detail={"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_who_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete an object from a PMG RuleDB 'who' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -6518,7 +6730,7 @@ def pmg_who_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
 # W5c: WHAT-object CRUD tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def pmg_what_object_add(
     ogroup: str,
     type_: str,
@@ -6562,7 +6774,7 @@ def pmg_what_object_add(
                     detail={"confirmed": True, "ogroup": ogroup, "type": type_})
 
 
-@mcp.tool()
+@tool()
 def pmg_what_object_update(
     ogroup: str,
     type_: str,
@@ -6607,7 +6819,7 @@ def pmg_what_object_update(
                     detail={"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_what_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete an object from a PMG RuleDB 'what' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -6632,7 +6844,7 @@ def pmg_what_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict
 # W5c: WHEN-object CRUD tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def pmg_when_object_add(
     ogroup: str,
     start: str,
@@ -6658,7 +6870,7 @@ def pmg_when_object_add(
                     detail={"confirmed": True, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_when_object_update(
     ogroup: str,
     id_: str,
@@ -6685,7 +6897,7 @@ def pmg_when_object_update(
                     detail={"confirmed": True, "ogroup": ogroup, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_when_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete a timeframe object from a PMG RuleDB 'when' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -6710,7 +6922,7 @@ def pmg_when_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict
 # W5c: ACTION CRUD tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def pmg_action_bcc_create(
     name: str,
     target: str,
@@ -6736,7 +6948,7 @@ def pmg_action_bcc_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_bcc_update(
     id_: str,
     name: str | None = None,
@@ -6763,7 +6975,7 @@ def pmg_action_bcc_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_field_create(
     name: str,
     field: str,
@@ -6789,7 +7001,7 @@ def pmg_action_field_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_field_update(
     id_: str,
     name: str,
@@ -6816,7 +7028,7 @@ def pmg_action_field_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_notification_create(
     name: str,
     to: str,
@@ -6846,7 +7058,7 @@ def pmg_action_notification_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_notification_update(
     id_: str,
     name: str,
@@ -6878,7 +7090,7 @@ def pmg_action_notification_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_disclaimer_create(
     name: str,
     disclaimer: str,
@@ -6907,7 +7119,7 @@ def pmg_action_disclaimer_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_disclaimer_update(
     id_: str,
     name: str | None = None,
@@ -6937,7 +7149,7 @@ def pmg_action_disclaimer_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_removeattachments_create(
     name: str,
     text: str,
@@ -6967,7 +7179,7 @@ def pmg_action_removeattachments_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_removeattachments_update(
     id_: str,
     name: str | None = None,
@@ -6997,7 +7209,7 @@ def pmg_action_removeattachments_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_action_delete(id_: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete an action object from the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7018,7 +7230,7 @@ def pmg_action_delete(id_: str, confirm: bool = False) -> dict:
                     detail={"confirmed": True, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_create(
     name: str,
     priority: int,
@@ -7064,7 +7276,7 @@ def pmg_ruledb_rule_create(
                     mutation=True, outcome="ok", detail={"confirmed": True, "name": name})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_update(
     id_: str,
     name: str | None = None,
@@ -7107,7 +7319,7 @@ def pmg_ruledb_rule_update(
                     mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_delete(id_: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7126,7 +7338,7 @@ def pmg_ruledb_rule_delete(id_: str, confirm: bool = False) -> dict:
                     mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_from_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): attach a 'from' (sender/who) group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7146,7 +7358,7 @@ def pmg_ruledb_rule_from_attach(id_: str, ogroup: str, confirm: bool = False) ->
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_from_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): detach a 'from' (sender/who) group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7166,7 +7378,7 @@ def pmg_ruledb_rule_from_detach(id_: str, ogroup: str, confirm: bool = False) ->
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_to_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): attach a 'to' (recipient/who) group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7186,7 +7398,7 @@ def pmg_ruledb_rule_to_attach(id_: str, ogroup: str, confirm: bool = False) -> d
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_to_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): detach a 'to' (recipient/who) group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7206,7 +7418,7 @@ def pmg_ruledb_rule_to_detach(id_: str, ogroup: str, confirm: bool = False) -> d
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_what_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): attach a 'what' (content) group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7226,7 +7438,7 @@ def pmg_ruledb_rule_what_attach(id_: str, ogroup: str, confirm: bool = False) ->
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_what_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): detach a 'what' (content) group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7246,7 +7458,7 @@ def pmg_ruledb_rule_what_detach(id_: str, ogroup: str, confirm: bool = False) ->
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_when_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): attach a 'when' (timeframe) group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7266,7 +7478,7 @@ def pmg_ruledb_rule_when_attach(id_: str, ogroup: str, confirm: bool = False) ->
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_when_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): detach a 'when' (timeframe) group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7286,7 +7498,7 @@ def pmg_ruledb_rule_when_detach(id_: str, ogroup: str, confirm: bool = False) ->
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_action_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): attach an action group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7306,7 +7518,7 @@ def pmg_ruledb_rule_action_attach(id_: str, ogroup: str, confirm: bool = False) 
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
 
 
-@mcp.tool()
+@tool()
 def pmg_ruledb_rule_action_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
     """MUTATION (MEDIUM): detach an action group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -7328,7 +7540,7 @@ def pmg_ruledb_rule_action_detach(id_: str, ogroup: str, confirm: bool = False) 
 
 # --- PDM (Proxmox Datacenter Manager) read-only ---
 
-@mcp.tool()
+@tool()
 def pdm_ping() -> str:
     """DIAGNOSE (LOW): health check the PDM appliance. Returns 'pong' on success.
     Needs PROXIMO_PDM_* config."""
@@ -7336,7 +7548,7 @@ def pdm_ping() -> str:
     return _audited("pdm_ping", "pdm/ping", lambda: pdm.ping())
 
 
-@mcp.tool()
+@tool()
 def pdm_version() -> dict:
     """DIAGNOSE (LOW): get PDM appliance version (release, repoid, version).
     Needs PROXIMO_PDM_* config."""
@@ -7344,7 +7556,7 @@ def pdm_version() -> dict:
     return _audited("pdm_version", "pdm/version", lambda: pdm.version())
 
 
-@mcp.tool()
+@tool()
 def pdm_node_status(node: str = "localhost") -> dict:
     """DIAGNOSE (LOW): get resource stats for a PDM node. Defaults to 'localhost'
     (PDM is a single-node appliance). Shape equals PVE node status;
@@ -7353,7 +7565,7 @@ def pdm_node_status(node: str = "localhost") -> dict:
     return _audited("pdm_node_status", f"pdm/nodes/{node}", lambda: pdm.node_status(node))
 
 
-@mcp.tool()
+@tool()
 def pdm_remotes_list() -> list[dict]:
     """DIAGNOSE (LOW): list all PVE/PBS remotes registered in PDM.
     Needs PROXIMO_PDM_* config."""
@@ -7361,7 +7573,7 @@ def pdm_remotes_list() -> list[dict]:
     return _audited("pdm_remotes_list", "pdm/remotes", lambda: pdm.remotes_list())
 
 
-@mcp.tool()
+@tool()
 def pdm_remote_version(remote_id: str) -> dict:
     """DIAGNOSE (LOW): get version info for one PDM-registered remote.
     remote_id: the remote name as shown in pdm_remotes_list.
@@ -7371,7 +7583,7 @@ def pdm_remote_version(remote_id: str) -> dict:
                     lambda: pdm.remote_version(remote_id))
 
 
-@mcp.tool()
+@tool()
 def pdm_remote_config_get(remote_id: str) -> dict:
     """DIAGNOSE (LOW): get configuration for one PDM-registered remote (no secrets returned).
     remote_id: the remote name as shown in pdm_remotes_list.
@@ -7381,7 +7593,7 @@ def pdm_remote_config_get(remote_id: str) -> dict:
                     lambda: pdm.remote_config_get(remote_id))
 
 
-@mcp.tool()
+@tool()
 def pdm_resources_list() -> list[dict]:
     """DIAGNOSE (LOW): list all fleet resources (VMs, LXCs, storage, etc.) across all remotes.
     Needs PROXIMO_PDM_* config."""
@@ -7389,7 +7601,7 @@ def pdm_resources_list() -> list[dict]:
     return _audited("pdm_resources_list", "pdm/resources/list", lambda: pdm.resources_list())
 
 
-@mcp.tool()
+@tool()
 def pdm_resources_status() -> dict:
     """DIAGNOSE (LOW): aggregated fleet status counters (running VMs, LXCs, failed remotes, etc.).
     Needs PROXIMO_PDM_* config."""
@@ -7398,7 +7610,7 @@ def pdm_resources_status() -> dict:
                     lambda: pdm.resources_status())
 
 
-@mcp.tool()
+@tool()
 def pdm_pve_resources(remote: str, kind: str | None = None) -> list[dict]:
     """DIAGNOSE (LOW): list resources on a PDM-registered PVE remote.
     remote: remote name from pdm_remotes_list.
@@ -7410,7 +7622,7 @@ def pdm_pve_resources(remote: str, kind: str | None = None) -> list[dict]:
                     lambda: pdm.pve_resources(remote, kind))
 
 
-@mcp.tool()
+@tool()
 def pdm_pve_cluster_status(remote: str) -> list[dict]:
     """DIAGNOSE (LOW): get cluster status for a PDM-registered PVE remote.
     remote: remote name from pdm_remotes_list.
@@ -7421,7 +7633,7 @@ def pdm_pve_cluster_status(remote: str) -> list[dict]:
                     lambda: pdm.pve_cluster_status(remote))
 
 
-@mcp.tool()
+@tool()
 def pdm_pve_node_list(remote: str) -> list[dict]:
     """DIAGNOSE (LOW): list nodes in a PDM-registered PVE remote.
     remote: remote name from pdm_remotes_list.
@@ -7432,7 +7644,7 @@ def pdm_pve_node_list(remote: str) -> list[dict]:
                     lambda: pdm.pve_node_list(remote))
 
 
-@mcp.tool()
+@tool()
 def pdm_pve_qemu_list(remote: str, node: str | None = None) -> list[dict]:
     """DIAGNOSE (LOW): list VMs across a PDM-registered PVE remote (cluster-wide).
     remote: remote name. node: OPTIONAL filter to one PVE node.
@@ -7443,7 +7655,7 @@ def pdm_pve_qemu_list(remote: str, node: str | None = None) -> list[dict]:
                     lambda: pdm.pve_qemu_list(remote, node))
 
 
-@mcp.tool()
+@tool()
 def pdm_pve_qemu_config(remote: str, vmid: str, node: str | None = None,
                         snapshot: str | None = None, state: str = "active") -> dict:
     """DIAGNOSE (LOW): get VM config from a PDM-registered PVE remote.
@@ -7456,7 +7668,7 @@ def pdm_pve_qemu_config(remote: str, vmid: str, node: str | None = None,
                     lambda: pdm.pve_qemu_config(remote, vmid, node, snapshot, state))
 
 
-@mcp.tool()
+@tool()
 def pdm_pve_lxc_list(remote: str, node: str | None = None) -> list[dict]:
     """DIAGNOSE (LOW): list LXC containers across a PDM-registered PVE remote (cluster-wide).
     remote: remote name. node: OPTIONAL filter to one PVE node.
@@ -7467,7 +7679,7 @@ def pdm_pve_lxc_list(remote: str, node: str | None = None) -> list[dict]:
                     lambda: pdm.pve_lxc_list(remote, node))
 
 
-@mcp.tool()
+@tool()
 def pdm_pve_lxc_config(remote: str, vmid: str, node: str | None = None,
                        snapshot: str | None = None, state: str = "active") -> dict:
     """DIAGNOSE (LOW): get LXC config from a PDM-registered PVE remote.
@@ -7480,7 +7692,7 @@ def pdm_pve_lxc_config(remote: str, vmid: str, node: str | None = None,
                     lambda: pdm.pve_lxc_config(remote, vmid, node, snapshot, state))
 
 
-@mcp.tool()
+@tool()
 def pdm_pbs_remote_status(remote: str) -> dict:
     """DIAGNOSE (LOW): get node status for a PDM-registered PBS remote.
     remote: remote name from pdm_remotes_list.
@@ -7491,7 +7703,7 @@ def pdm_pbs_remote_status(remote: str) -> dict:
                     lambda: pdm.pbs_remote_status(remote))
 
 
-@mcp.tool()
+@tool()
 def pdm_pbs_datastores_list(remote: str) -> list[dict]:
     """DIAGNOSE (LOW): list datastores on a PDM-registered PBS remote.
     remote: remote name from pdm_remotes_list.
@@ -7502,7 +7714,7 @@ def pdm_pbs_datastores_list(remote: str) -> list[dict]:
                     lambda: pdm.pbs_datastores_list(remote))
 
 
-@mcp.tool()
+@tool()
 def pdm_pbs_snapshots_list(remote: str, datastore: str,
                            ns: str | None = None) -> list[dict]:
     """DIAGNOSE (LOW): list backup snapshots in a datastore on a PDM-registered PBS remote.
@@ -7515,7 +7727,7 @@ def pdm_pbs_snapshots_list(remote: str, datastore: str,
                     lambda: pdm.pbs_snapshots_list(remote, datastore, ns))
 
 
-@mcp.tool()
+@tool()
 def pdm_tasks_list() -> list[dict]:
     """DIAGNOSE (LOW): list recent PDM tasks across all remotes.
     Needs PROXIMO_PDM_* config."""
@@ -7523,7 +7735,7 @@ def pdm_tasks_list() -> list[dict]:
     return _audited("pdm_tasks_list", "pdm/remotes/tasks", lambda: pdm.tasks_list())
 
 
-@mcp.tool()
+@tool()
 def pdm_acl_list(path: str | None = None, exact: bool = False) -> list[dict]:
     """DIAGNOSE (LOW): list PDM access control entries.
     path: optional ACL path filter (e.g. '/'). exact: if True, exact path only.
@@ -7533,7 +7745,7 @@ def pdm_acl_list(path: str | None = None, exact: bool = False) -> list[dict]:
                     lambda: pdm.acl_list(path, exact))
 
 
-@mcp.tool()
+@tool()
 def pdm_roles_list() -> list[dict]:
     """DIAGNOSE (LOW): list all roles and their privileges defined in PDM.
     Needs PROXIMO_PDM_* config."""
@@ -7541,7 +7753,7 @@ def pdm_roles_list() -> list[dict]:
     return _audited("pdm_roles_list", "pdm/access/roles", lambda: pdm.roles_list())
 
 
-@mcp.tool()
+@tool()
 def pdm_users_list(include_tokens: bool = False) -> list[dict]:
     """DIAGNOSE (LOW): list all PDM users.
     include_tokens: if True, include API token entries.

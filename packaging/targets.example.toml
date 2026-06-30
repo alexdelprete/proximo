@@ -1,0 +1,57 @@
+# Proximo target registry — copy to e.g. /etc/proximo/targets.toml (chmod 600) and point
+# PROXIMO_TARGETS at it. Then any tool can be aimed at a named remote with proximo_target="name".
+#
+#   - No proximo_target (or it's omitted) => the env-configured box (PROXIMO_* vars), unchanged.
+#   - Each [targets.<name>] is ONE remote of ONE kind: pve | pbs | pmg | pdm.
+#   - Secrets stay BY REFERENCE — token_path / password_path point at a chmod-600 file holding the
+#     secret. The registry NEVER contains a token or password value.
+#   - A tool checks kind: a pbs_* tool given a pve target errors (no silent cross-plane call).
+#   - Arming (read-only -> operator) stays out-of-band and per-target: it swaps the token at that
+#     target's token_path. Proximo's code only ever reads whatever token is there.
+#   - This file is runtime config, like the env — keep it untracked.
+#   - Audit/PROVE settings (audit_key_path, audit_keyed, audit_expected_head, audit_log) are
+#     INSTANCE-level — the PROVE ledger is ONE chain built from the env. They have NO effect
+#     inside a [targets.*] table; set them via PROXIMO_AUDIT_* env vars instead.
+
+# --- internal PVE (RFC1918, reached over the LAN) ---
+[targets.home-pve]
+kind       = "pve"
+base_url   = "https://pve.example.lan:8006/api2/json"
+node       = "pve"
+token_path = "/etc/proximo/home-pve.token"   # file holds: USER@REALM!TOKENID=SECRET
+verify_tls = true
+ca_bundle  = "/etc/proximo/home-pve-ca.pem"   # preferred over disabling TLS verify
+ssh_target = "pve"                            # exec half; "local" if Proximo runs ON the host
+
+# --- external PVE (public FQDN, e.g. a colocated or partner cluster) ---
+[targets.edge-pve]
+kind       = "pve"
+base_url   = "https://edge.example.com:8006/api2/json"
+node       = "edge"
+token_path = "/etc/proximo/edge-pve.token"
+verify_tls = true
+ca_bundle  = "/etc/proximo/edge-pve-ca.pem"
+
+# --- Proxmox Backup Server ---
+[targets.home-pbs]
+kind       = "pbs"
+base_url   = "https://pbs.example.lan:8007"
+token_path = "/etc/proximo/home-pbs.token"    # PBS token format: USER@REALM!TOKENID:SECRET
+verify_tls = true
+ca_bundle  = "/etc/proximo/home-pbs-ca.pem"
+
+# --- Proxmox Mail Gateway ---
+[targets.mail-pmg]
+kind          = "pmg"
+base_url      = "https://pmg.example.lan:8006"
+password_path = "/etc/proximo/pmg.pw"          # PMG uses ticket auth (username + password file)
+username      = "root@pam"
+node          = "pmg"
+verify_tls    = true
+
+# --- Proxmox Datacenter Manager ---
+[targets.dc]
+kind       = "pdm"
+base_url   = "https://pdm.example.lan:8443"     # /api2/json appended automatically if omitted
+token_path = "/etc/proximo/pdm.token"
+verify_tls = true

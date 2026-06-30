@@ -326,7 +326,8 @@ class AuditLedger:
         return prev
 
     def record(self, action: str, *, target: str, mutation: bool = False,
-               outcome: str = "ok", detail: dict[str, Any] | None = None) -> dict[str, Any]:
+               outcome: str = "ok", detail: dict[str, Any] | None = None,
+               remote: str | None = None) -> dict[str, Any]:
         target = _sanitize_target(target)
         body = {
             "ts": datetime.now(UTC).isoformat(),
@@ -336,6 +337,11 @@ class AuditLedger:
             "outcome": outcome,
             "detail": detail or {},
         }
+        # Multi-target: the box this op hit (None => the default/env box). Omitted on the default
+        # path so default-box entry bodies — and thus their hashes — are byte-identical to before.
+        # verify() rehashes from all non-_CHAIN_FIELDS keys, so a present `remote` is covered.
+        if remote is not None:
+            body["remote"] = _sanitize_target(remote)
         # Reject non-finite JSON (NaN/Infinity) at write time: they serialize to non-RFC8259 tokens
         # that strict external audit parsers (Go/Rust/jq) can't read. Caught loudly here rather than
         # silently corrupting the log; verify() stays lenient for any pre-existing entry.

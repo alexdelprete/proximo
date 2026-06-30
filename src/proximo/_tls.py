@@ -25,3 +25,13 @@ def httpx_verify(value: bool | str) -> bool | ssl.SSLContext:
     if isinstance(value, str):
         return ssl.create_default_context(cafile=value)
     return value
+
+
+_VTLS_FALSY = frozenset({"0", "false", "off", "no"})
+
+
+def parse_verify_tls(value: object) -> bool:
+    """True unless ``value`` is a recognized falsy form. Handles a TOML bool/int (False, 0),
+    a TOML/env string ("0", "false", "off", "no" — any case), and the env default. Everything
+    else => verification ON (fail-secure). Shared so PBS/PMG/PDM match PVE's falsy semantics."""
+    return str(value).strip().lower() not in _VTLS_FALSY

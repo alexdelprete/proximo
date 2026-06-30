@@ -86,7 +86,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from ._tls import httpx_verify
+from ._tls import httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
@@ -255,7 +255,7 @@ class PbsConfig:
                 "against a pbs-type storage (it goes through the PVE token you already have)."
             ) from e
 
-        verify_tls = os.environ.get("PROXIMO_PBS_VERIFY_TLS", "true").lower() != "false"
+        verify_tls = parse_verify_tls(os.environ.get("PROXIMO_PBS_VERIFY_TLS", "true"))
         ca_bundle = os.environ.get("PROXIMO_PBS_CA_BUNDLE") or None
         fingerprint = os.environ.get("PROXIMO_PBS_FINGERPRINT") or None
 
@@ -266,6 +266,33 @@ class PbsConfig:
                 stacklevel=2,
             )
 
+        return cls(
+            base_url=base_url.rstrip("/"),
+            token_path=token_path,
+            verify_tls=verify_tls,
+            ca_bundle=ca_bundle,
+            fingerprint=fingerprint,
+        )
+
+
+
+    @classmethod
+    def from_target(cls, fields: dict) -> PbsConfig:
+        """Build a PBS config from a named registry remote (see proximo.targets)."""
+        try:
+            base_url = fields["base_url"]
+            token_path = fields["token_path"]
+        except KeyError as e:
+            raise RuntimeError(f"target missing required field: {e.args[0]}") from e
+        verify_tls = parse_verify_tls(fields.get("verify_tls", "true"))
+        ca_bundle = fields.get("ca_bundle") or None
+        fingerprint = fields.get("fingerprint") or None
+        if not verify_tls and not ca_bundle:
+            warnings.warn(
+                "PBS target verify_tls=false with no CA bundle — "
+                "talking to the PBS API without cert validation.",
+                stacklevel=2,
+            )
         return cls(
             base_url=base_url.rstrip("/"),
             token_path=token_path,

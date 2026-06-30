@@ -297,3 +297,79 @@ def test_verify_tls_false_warning_says_fail_closed(monkeypatch):
     )
     # Must NOT claim the server is already running insecurely — that was the misleading old text
     assert "talking to the pve api without cert validation" not in combined
+
+
+# --- multi-target: ProximoConfig.from_target ---
+
+def test_from_target_builds_config():
+    cfg = ProximoConfig.from_target({
+        "kind": "pve",
+        "base_url": "https://192.0.2.20:8006/api2/json",
+        "node": "edge",
+        "token_path": "/etc/proximo/edge.token",
+        "ca_bundle": "/etc/proximo/edge-ca.pem",
+        "verify_tls": True,
+        "ssh_target": "edge-host",
+    })
+    assert cfg.api_base_url == "https://192.0.2.20:8006/api2/json"
+    assert cfg.node == "edge"
+    assert cfg.token_path == "/etc/proximo/edge.token"
+    assert cfg.ca_bundle == "/etc/proximo/edge-ca.pem"
+    assert cfg.ssh_target == "edge-host"
+
+
+def test_from_target_missing_required_field_raises():
+    with pytest.raises(RuntimeError, match="missing required field: node"):
+        ProximoConfig.from_target({"kind": "pve",
+                                   "base_url": "https://192.0.2.20:8006/api2/json",
+                                   "token_path": "/etc/proximo/edge.token"})
+
+
+def test_from_target_defaults_match_from_env_defaults():
+    cfg = ProximoConfig.from_target({
+        "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+        "node": "edge", "token_path": "/etc/proximo/edge.token",
+    })
+    assert cfg.verify_tls is True          # default on
+    assert cfg.ssh_target == "pve"         # same default as from_env
+    assert cfg.enable_exec is False        # safe default
+    assert cfg.api_base_url.endswith("/api2/json")  # rstrip('/') applied
+
+
+def test_from_target_verify_false_no_ca_warns():
+    with pytest.warns(UserWarning, match="refuse to"):
+        ProximoConfig.from_target({
+            "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+            "node": "edge", "token_path": "/etc/proximo/edge.token",
+            "verify_tls": False,
+        })
+
+
+def test_from_target_bad_ssh_target_raises():
+    with pytest.raises(RuntimeError, match="PROXIMO_SSH_TARGET must be"):
+        ProximoConfig.from_target({
+            "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+            "node": "edge", "token_path": "/etc/proximo/edge.token",
+            "ssh_target": "-oProxyCommand=evil",
+        })
+
+
+def test_from_target_integer_allowlist_does_not_crash():
+    # redteam LOW: TOML ct_allowlist = [100, 101] (integers) must not raise TypeError in _csv
+    cfg = ProximoConfig.from_target({
+        "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+        "node": "edge", "token_path": "/etc/proximo/edge.token",
+        "ct_allowlist": [100, 101],
+    })
+    assert cfg.ct_permitted("100") and cfg.ct_permitted("101")
+
+
+def test_from_target_verify_tls_falsy_forms():
+    # redteam LOW: verify_tls=0/off/no must disable TLS (PVE already does via _VTLS_FALSY)
+    for falsy in (0, "0", "off", "no", False, "false"):
+        cfg = ProximoConfig.from_target({
+            "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+            "node": "edge", "token_path": "/etc/proximo/edge.token",
+            "ca_bundle": "/etc/proximo/ca.pem", "verify_tls": falsy,
+        })
+        assert cfg.verify_tls is False, f"verify_tls={falsy!r} should be False"

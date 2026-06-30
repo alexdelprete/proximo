@@ -1013,3 +1013,20 @@ class TestNewPbsReadToolWiring:
         assert pbs.gets and "/config/datastore/mystore" in pbs.gets[0][0]
         assert any(e["action"] == "pbs_datastore_get" and not e["mutation"]
                    for e in _entries(log))
+
+
+def test_pbs_pmg_pdm_from_target_verify_tls_falsy():
+    # redteam LOW: non-PVE planes must treat 0/off/no as falsy too (was != 'false')
+    from proximo.pbs import PbsConfig
+    from proximo.pdm import PdmConfig
+    from proximo.pmg import PmgConfig
+    for falsy in (0, "0", "off", "no", False):
+        assert PbsConfig.from_target({"base_url": "https://192.0.2.7:8007",
+                                      "token_path": "/x", "ca_bundle": "/ca",
+                                      "verify_tls": falsy}).verify_tls is False
+        assert PmgConfig.from_target({"base_url": "https://192.0.2.9:8006",
+                                      "password_path": "/x", "ca_bundle": "/ca",
+                                      "verify_tls": falsy}).verify_tls is False
+        assert PdmConfig.from_target({"base_url": "https://192.0.2.11:8443",
+                                      "token_path": "/x", "ca_bundle": "/ca",
+                                      "verify_tls": falsy}).verify_tls is False

@@ -4,6 +4,62 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-06-30
+
+**Native multi-target + the ACME cert-order plane (347 → 351 tools).** One Proximo instance now
+reaches many Proxmox remotes (internal *and* external) via an explicit per-tool `proximo_target=`;
+omit it and behavior is byte-identical to before. Also closes the ACME gap (certs could be configured
+but never *issued* through Proximo). **Read "Changed" before upgrading** — the PBS/PMG/PDM `verify_tls`
+fix is fail-closed. Multi-target was adversarially redteamed (6 dimensions) and live-proven against two
+distinct real boxes (PVE + PBS).
+
+### Added
+- **ACME certificate *order* plane — closes the gap where Proxmox certs could be half-configured
+  but never issued through Proximo.** Account + DNS-challenge plugin tools already existed; nothing
+  set the node-side ACME config or triggered an order. Four new tools (**347 → 351**):
+  - `pve_node_acme_domains_set` — set a node's ACME `account=` + domains (`PUT /nodes/{node}/config`),
+    DNS-01 (`acmedomainN=domain=…,plugin=…`) or standalone http-01. REPLACE semantics: stale
+    `acmedomainN` indices are removed, not merged. Strict FQDN validation blocks config-property
+    injection through the `,`/`=` delimiters. MEDIUM — config only, no cert issued.
+  - `pve_acme_cert_order` — order a new cert (`POST …/certificates/acme/certificate`, async UPID).
+    MEDIUM, **not** HIGH like `pve_node_cert_upload`: CA-validated, installed only on a successful
+    challenge (a failure can't lock you out); reloads pveproxy on success.
+  - `pve_acme_cert_renew` — renew the existing cert (`PUT …`, `force`=renew even if >30d to expiry).
+  - `pve_acme_cert_revoke` — revoke at the CA (`DELETE …`). HIGH/irreversible; use
+    `pve_node_cert_delete` to fall back to self-signed *without* revoking.
+  - Endpoint shapes pinned against a live PVE 9.2.3 `pvesh usage` schema; carry `Smoke-confirm:`
+    until live-fired.
+- **Native multi-target — one Proximo instance can address many Proxmox remotes** (internal *and*
+  external; any of PVE/PBS/PMG/PDM), replacing the one-instance-per-box model.
+  - A TOML **target registry** (`PROXIMO_TARGETS`) of named remotes; each carries its connection
+    fields with the **secret by reference** (`token_path`/`password_path`), never inlined.
+  - Every tool gains an optional **`proximo_target="name"`** parameter. Omit it (the default) and
+    behavior is **byte-identical to before** — the env-configured box, every existing test unchanged.
+  - The target rides a per-call `ContextVar`, so **PLAN and EXECUTE always hit the same box**; PROVE
+    records a **`remote`** field per entry (one chain; omitted on the default path so default-box
+    entry hashes are unchanged). **Kind-checked:** a `pbs_*` tool given a `pve` target errors — no
+    silent cross-plane call, and a `pve_*` tool aimed at a non-pve target errors rather than silently
+    hitting the env box.
+  - **No new tools** — `proximo_target` is a parameter on the existing surface. Per-target arming
+    stays out-of-band (swaps the operator token at that target's `token_path`).
+  - In-container exec (`ct_exec`/`ct_psql`/`ct_logs`/`ct_diagnose`) is target-aware too, but runs
+    `pct exec` over SSH — a targeted call needs that box SSH-reachable (`enable_exec` + `ssh_target`);
+    an external API-only remote won't serve it.
+  - **Adversarially redteamed** (6-dimension review): the core invariants — contextvar isolation,
+    kind-safety, secret-by-reference, one-chain PROVE, default-path hash-stability — were confirmed
+    sound; the one real finding (the `ct_*` exec tools were not yet target-aware) is fixed above. A
+    structural test asserts every remote-acting tool advertises `proximo_target` (only `audit_verify`,
+    which verifies *this* instance's ledger, is exempt).
+  - See `packaging/targets.example.toml` and the README "Multiple targets" section.
+
+### Changed (review before upgrading)
+- **`PROXIMO_PBS_VERIFY_TLS` / `PROXIMO_PMG_VERIFY_TLS` / `PROXIMO_PDM_VERIFY_TLS` now honor the full
+  falsy set (`0`/`false`/`off`/`no`) like PVE — and the backend then refuses to start without a CA
+  bundle (fail-closed).** Previously only the literal `false` disabled TLS; `0`/`off`/`no` were
+  silently ignored and TLS stayed on. If you set one of these to `0`/`off`/`no` and relied on it
+  being ignored, **that plane will now fail to start** — remove it (TLS on) or set the matching
+  `…_CA_BUNDLE`. (Extends the 0.10.0 PVE `PROXIMO_VERIFY_TLS` fail-closed fix to the other planes.)
+
 ## [0.10.0] — 2026-06-29
 
 Security-hardening release. An adversarial multi-agent redteam of the full surface produced 32

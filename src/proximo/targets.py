@@ -1,0 +1,118 @@
+"""Native multi-target: a registry of named Proxmox remotes + per-call target selection.
+
+One Proximo instance can address many boxes (PVE/PBS/PMG/PDM, internal or external).
+A target is selected per call via the `proximo_target` tool parameter; the selection rides
+a ContextVar so the four plane resolvers — and every internal helper that re-resolves —
+auto-route to the same box. No target => the env-configured box (`from_env`), unchanged.
+"""
+from __future__ import annotations
+
+import contextvars
+import functools
+import inspect
+import os
+import tomllib
+from functools import lru_cache
+
+from .backends import ProximoError
+
+VALID_KINDS = frozenset({"pve", "pbs", "pmg", "pdm"})
+
+# Per-call active target. None => the env-configured default box.
+_active_target: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "proximo_active_target", default=None
+)
+
+
+def active_target() -> str | None:
+    return _active_target.get()
+
+
+def ledger_remote() -> str | None:
+    """The value recorded in the PROVE ledger's `remote` field (None on the default path)."""
+    return _active_target.get()
+
+
+@lru_cache(maxsize=16)
+def _parse_registry(path: str, mtime: float) -> dict[str, dict]:
+    """Parse + validate one registry file. Cached by (path, mtime) — re-reads when the file
+    changes. Exceptions are NOT cached, so a malformed file re-raises on each call."""
+    try:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ProximoError(f"PROXIMO_TARGETS is not valid TOML ({path}): {e}") from e
+    targets = data.get("targets", {})
+    if not isinstance(targets, dict):
+        raise ProximoError("PROXIMO_TARGETS: [targets] must be a table of named remotes")
+    for name, fields in targets.items():
+        if not isinstance(fields, dict):
+            raise ProximoError(f"PROXIMO_TARGETS: target {name!r} must be a table")
+        kind = fields.get("kind")
+        if kind not in VALID_KINDS:
+            raise ProximoError(
+                f"PROXIMO_TARGETS: target {name!r} has unknown kind {kind!r} "
+                f"(valid: {sorted(VALID_KINDS)})"
+            )
+    return targets
+
+
+def load_registry() -> dict[str, dict]:
+    """Parse PROXIMO_TARGETS into {name: fields}. Empty dict when unset. Fail-loud otherwise."""
+    path = os.environ.get("PROXIMO_TARGETS")
+    if not path:
+        return {}
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError as e:
+        raise ProximoError(f"PROXIMO_TARGETS points to a missing file: {path}") from e
+    return _parse_registry(path, mtime)
+
+
+def resolve_target_fields(name: str, expected_kind: str) -> dict:
+    """Look up `name`, asserting it is of `expected_kind`. Fail-loud on every miss."""
+    reg = load_registry()
+    if not reg:
+        raise ProximoError(
+            f"no target registry configured (set PROXIMO_TARGETS); cannot resolve target {name!r}"
+        )
+    if name not in reg:
+        raise ProximoError(f"unknown target {name!r}")  # don't enumerate the registry to callers
+    fields = reg[name]
+    kind = fields.get("kind")
+    if kind != expected_kind:
+        raise ProximoError(
+            f"target {name!r} is kind {kind!r}, not usable by a {expected_kind.upper()} tool"
+        )
+    return fields
+
+
+# Real type object (NOT a string) so FastMCP's inspect.signature(..., eval_str=True) is a no-op for it.
+_TARGET_PARAM = inspect.Parameter(
+    "proximo_target", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=str | None
+)
+
+
+def target_aware(fn):
+    """Wrap a tool so it advertises `proximo_target` and routes the call to that box.
+
+    The wrapped fn's body is untouched: it still calls `_svc()` etc., which read the contextvar.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, proximo_target: str | None = None, **kwargs):
+        token = _active_target.set(proximo_target)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _active_target.reset(token)
+
+    sig = inspect.signature(fn)
+    params = list(sig.parameters.values())
+    insert_at = len(params)
+    for i, p in enumerate(params):
+        if p.kind is inspect.Parameter.VAR_KEYWORD:
+            insert_at = i
+            break
+    params.insert(insert_at, _TARGET_PARAM)
+    wrapper.__signature__ = sig.replace(parameters=params)  # type: ignore[attr-defined]
+    return wrapper

@@ -24,14 +24,16 @@ from pathlib import Path
 
 import proximo.server as server
 
-EXPECTED_TOOL_COUNT = 347
+EXPECTED_TOOL_COUNT = 351
 
 _SERVER_SRC = Path(server.__file__).read_text(encoding="utf-8")
 # A real decorator: the line, after optional indentation, starts with `@mcp.tool(`. The
 # line-start anchor (not the parens) is what excludes the backtick-wrapped mention inside
 # the module docstring; matching `@mcp.tool(` rather than `@mcp.tool()` also stays correct
 # if a tool is ever registered with an explicit name= argument.
-_DECORATOR_RE = re.compile(r"^[ \t]*@mcp\.tool\(", re.MULTILINE)
+# Matches both the plain FastMCP decorator (@mcp.tool(...)) and the target-aware wrapper
+# (@tool(...)) that wraps it for multi-target — both register exactly one exposed tool.
+_DECORATOR_RE = re.compile(r"^[ \t]*@(?:mcp\.)?tool\(", re.MULTILINE)
 
 
 def _exposed_tools() -> list[str]:

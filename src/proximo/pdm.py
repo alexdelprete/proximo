@@ -62,7 +62,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from ._tls import httpx_verify
+from ._tls import httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .pbs import _check_namespace
 
@@ -214,7 +214,7 @@ class PdmConfig:
         if not url.endswith("/api2/json"):
             url = url + "/api2/json"
 
-        verify_tls = os.environ.get("PROXIMO_PDM_VERIFY_TLS", "true").lower() != "false"
+        verify_tls = parse_verify_tls(os.environ.get("PROXIMO_PDM_VERIFY_TLS", "true"))
         ca_bundle = os.environ.get("PROXIMO_PDM_CA_BUNDLE") or None
 
         if not verify_tls and not ca_bundle:
@@ -224,6 +224,34 @@ class PdmConfig:
                 stacklevel=2,
             )
 
+        return cls(
+            base_url=url,
+            token_path=token_path,
+            verify_tls=verify_tls,
+            ca_bundle=ca_bundle,
+        )
+
+
+
+    @classmethod
+    def from_target(cls, fields: dict) -> PdmConfig:
+        """Build a PDM config from a named registry remote (see proximo.targets)."""
+        try:
+            base_url = fields["base_url"]
+            token_path = fields["token_path"]
+        except KeyError as e:
+            raise RuntimeError(f"target missing required field: {e.args[0]}") from e
+        url = base_url.rstrip("/")
+        if not url.endswith("/api2/json"):
+            url = url + "/api2/json"
+        verify_tls = parse_verify_tls(fields.get("verify_tls", "true"))
+        ca_bundle = fields.get("ca_bundle") or None
+        if not verify_tls and not ca_bundle:
+            warnings.warn(
+                "PDM target verify_tls=false with no CA bundle — "
+                "talking to the PDM API without cert validation.",
+                stacklevel=2,
+            )
         return cls(
             base_url=url,
             token_path=token_path,

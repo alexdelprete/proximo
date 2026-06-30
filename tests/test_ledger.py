@@ -612,3 +612,27 @@ def test_audit_verify_pinned_has_no_hint(tmp_path, monkeypatch):
     led.record("a", target="t1")
     out = server.audit_verify(expected_head=led.head())
     assert out["hint"] is None
+
+
+# --- multi-target: the `remote` field (which box an op hit) ---
+
+def test_record_targeted_includes_remote(tmp_path):
+    led = _ledger(tmp_path)
+    entry = led.record("pve_guest_power", target="131", mutation=True, remote="edge")
+    assert entry["remote"] == "edge"
+    assert led.verify().ok
+
+
+def test_record_default_omits_remote_unchanged_body(tmp_path):
+    led = _ledger(tmp_path)
+    entry = led.record("pve_guest_power", target="131", mutation=True)  # no remote
+    assert "remote" not in entry
+    assert led.verify().ok
+
+
+def test_mixed_remote_and_default_entries_verify(tmp_path):
+    led = _ledger(tmp_path)
+    led.record("a", target="1")                    # default box
+    led.record("b", target="2", remote="edge")     # targeted
+    led.record("c", target="3")                    # default box
+    assert led.verify().ok

@@ -86,13 +86,13 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.10.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.10.0) (CI green), and
+> 📦 **`0.11.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.11.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
-> New in 0.10.0: a **security-hardening pass** — an adversarial redteam of the full surface, 30 fixes
-> (sealed credential leaks, fail-closed TLS, path-traversal guards, honest plan/risk labels, a hardened
-> PROVE ledger). Still 347 tools across all four Proxmox surfaces (PVE/PBS/PMG/PDM).
-> **A few fixes are fail-closed — read the [CHANGELOG](./CHANGELOG.md) "Changed" section before upgrading.**
+> New in 0.11.0: **native multi-target** — one instance reaches many Proxmox remotes (internal *or*
+> external) via a per-tool `proximo_target=`, with the default (no target) byte-identical to before —
+> plus the **ACME cert-order plane** (4 new tools, **347 → 351**) across all four surfaces (PVE/PBS/PMG/PDM).
+> **One fix is fail-closed — read the [CHANGELOG](./CHANGELOG.md) "Changed" section before upgrading.**
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -122,10 +122,41 @@ uv pip install -e .          # or: pip install -e .
 >
 > *(A Debian package is deferred/optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.)*
 
+## Multiple targets (one Proximo, many boxes)
+
+By default one Proximo talks to one box (the `PROXIMO_*` env). To reach **several** Proxmox
+remotes — internal *and* external, any of the four planes — register them in a TOML file and
+point `PROXIMO_TARGETS` at it (see `packaging/targets.example.toml`):
+
+```toml
+[targets.edge-pve]
+kind       = "pve"
+base_url   = "https://edge.example.com:8006/api2/json"
+node       = "edge"
+token_path = "/etc/proximo/edge-pve.token"   # secret BY REFERENCE — never inlined
+```
+
+Then aim any tool at a named remote with **`proximo_target`**:
+
+```
+pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
+```
+
+- **Omit `proximo_target`** (the default) and behavior is exactly as today — the env box, unchanged.
+- The target travels **with the call**, so PLAN and EXECUTE always hit the same box, and the PROVE
+  ledger records **which box** (`remote`) every op touched.
+- **Kind-checked:** a `pbs_*` tool given a `pve` target errors — no silent cross-plane call.
+- **Secrets stay by reference** (`token_path` / `password_path`); the registry holds no secret values.
+- **Arming is per-target and out-of-band** (your hand): it swaps the operator token at that target's
+  `token_path`. Proximo's code only ever reads whatever token is there.
+- **In-container exec (`ct_exec`/`ct_psql`/`ct_logs`/`ct_diagnose`) is target-aware too**, but it runs
+  `pct exec` over SSH — so a targeted call needs that target SSH-reachable with `enable_exec` + an
+  `ssh_target` set in its registry entry. An external, API-only box won't serve `pct exec`.
+
 ## Status — the arena record
 
-🩸 **0.10.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — a **security-hardening release** (adversarial redteam, 30 fixes) across all 4 surfaces (PVE/PBS/PMG/PDM); PDM remains the 4th surface from 0.9.0. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **347 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
+🩸 **0.11.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — **native multi-target** (one instance → many PVE/PBS/PMG/PDM remotes via a per-tool `proximo_target=`; default unchanged) + the **ACME cert-order plane** (347 → 351 tools); the multi-target change was adversarially redteamed and live-proven against two distinct real boxes. PDM remains the 4th surface from 0.9.0. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **351 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
 name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
 to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
 
@@ -149,7 +180,7 @@ to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
   rounds, including safe mutations with full create→verify→clean-up cycles.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
-**Not yet proven — said plainly:** the remaining 347-tool surface runs against mocks for shapes
+**Not yet proven — said plainly:** the remaining 351-tool surface runs against mocks for shapes
 the live smokes don't reach: real HA *fencing* (needs a hardware watchdog), *online*
 live-migration (needs shared storage), and behavior at production scale.
 

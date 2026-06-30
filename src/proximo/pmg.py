@@ -33,7 +33,7 @@ from urllib.parse import quote
 
 import httpx
 
-from ._tls import httpx_verify
+from ._tls import httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
@@ -217,7 +217,7 @@ class PmgConfig:
 
         username = os.environ.get("PROXIMO_PMG_USERNAME", "root@pam")
         node = os.environ.get("PROXIMO_PMG_NODE", "pmg")
-        verify_tls = os.environ.get("PROXIMO_PMG_VERIFY_TLS", "true").lower() != "false"
+        verify_tls = parse_verify_tls(os.environ.get("PROXIMO_PMG_VERIFY_TLS", "true"))
         ca_bundle = os.environ.get("PROXIMO_PMG_CA_BUNDLE") or None
 
         if not verify_tls and not ca_bundle:
@@ -227,6 +227,35 @@ class PmgConfig:
                 stacklevel=2,
             )
 
+        return cls(
+            base_url=base_url.rstrip("/"),
+            password_path=password_path,
+            username=username,
+            node=node,
+            verify_tls=verify_tls,
+            ca_bundle=ca_bundle,
+        )
+
+
+
+    @classmethod
+    def from_target(cls, fields: dict) -> PmgConfig:
+        """Build a PMG config from a named registry remote (see proximo.targets)."""
+        try:
+            base_url = fields["base_url"]
+            password_path = fields["password_path"]
+        except KeyError as e:
+            raise RuntimeError(f"target missing required field: {e.args[0]}") from e
+        username = fields.get("username", "root@pam")
+        node = fields.get("node", "pmg")
+        verify_tls = parse_verify_tls(fields.get("verify_tls", "true"))
+        ca_bundle = fields.get("ca_bundle") or None
+        if not verify_tls and not ca_bundle:
+            warnings.warn(
+                "PMG target verify_tls=false with no CA bundle — "
+                "talking to the PMG API without cert validation.",
+                stacklevel=2,
+            )
         return cls(
             base_url=base_url.rstrip("/"),
             password_path=password_path,

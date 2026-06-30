@@ -71,7 +71,7 @@ One container is the demo. A cluster is the point.
 
 Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster — offline guest migration, HA lifecycle, governance plane), **PBS 4.2** (datastores, snapshots, GC, namespaces, prune/verify, sync), **PMG 9.1** (auth, read shapes, CRUD cycles, service control, RuleDB, quarantine), and **PDM** (read-only federated fleet — remotes, aggregate resources, tasks/access, per-remote PVE/PBS reads — against a Datacenter Manager federating 3 PVE remotes + 1 PBS) — every step recorded and verified through PROVE.
 
-> **Honest scope:** Proximo is configured per endpoint, so "fleet" here means **a cluster and its nodes**, not a set of separate, independent clusters driven from one process. Point it at the cluster you operate.
+> **Honest scope:** The single-cluster view above (`pve_cluster_resources`, one ledger across its nodes) is per-endpoint — "fleet" there means **a cluster and its nodes**. To reach **separate, independent** clusters from one Proximo, use [native multi-target](#multiple-targets-one-proximo-many-boxes): each call names its box, so one process spans many clusters while every call still lands on exactly one.
 
 ## Principles (the mantra, baked in — not bolted on)
 
@@ -157,9 +157,7 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 🩸 **0.12.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — **`proximo doctor --target`** brings the CLI preflight onto the multi-target registry (the MCP tools were target-aware since 0.11.0) + a PMG login-concurrency fix. **No new tools (still 351)**; a drop-in over 0.11.0.
 🩸 **0.11.0** — **native multi-target** (one instance → many PVE/PBS/PMG/PDM remotes via a per-tool `proximo_target=`; default unchanged) + the **ACME cert-order plane** (347 → 351 tools); the multi-target change was adversarially redteamed and live-proven against two distinct real boxes. PDM remains the 4th surface from 0.9.0. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **351 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
-name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
-to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
+All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **351 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — but those tests are **mock/in-process** (no socket): they prove the *shapes*, not live behavior. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** The blast-radius engine carries the destructive surface — across eleven op-classes it names the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back to a bare confirm.
 
 **Proven against real Proxmox** (not mocks):
 - The trust spine end-to-end, the core provisioning/config mutate cycle, and PBS read shapes.
@@ -168,7 +166,7 @@ to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)
   dict) — full create→read→delete cycles against a real **PVE 9.2** API, PROVE ledger verified
   throughout. **(SDN/network *apply* — the host-network reload — is deliberately never fired live;
   it carries unrecoverable risk.)**
-- The **0.2.0 object planes** — firewall objects (aliases/IP-sets/security-groups/options), HA
+- The **object planes** — firewall objects (aliases/IP-sets/security-groups/options), HA
   **rules** (the PVE 9 replacement for HA groups), and SDN zones/VNets/subnets (pending, pre-apply) —
   create→read→delete live-proven against a real **PVE 9.2** node; TFA admin reads proven (TFA
   mutation is ticket-gated by PVE, not token-accessible).
@@ -211,8 +209,9 @@ Apache-2.0 — chosen for the patent grant that suits infrastructure tooling. Fu
 Built by **John Broadway** with **Claude** and **Maude** — a human–AI partnership, and the first thing we made on this box to give away to the world.
 
 Claude's contribution spans eras, credited honestly: **Claude Opus 4.8** built the trust pillars and the
-tool surface (2026-06-07 → 06-09); **Claude Fable 5** ran the 101-agent release audit and the publish
-(2026-06-10). Every commit carries its co-author trailer.
+original tool surface (June 2026) and has carried the work since — the Backup Server, Mail Gateway, and
+Datacenter Manager planes, native multi-target, and the security hardening; **Claude Fable 5** ran the
+101-agent release audit and the first publish. Every commit carries its co-author trailer.
 
 ---
 

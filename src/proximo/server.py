@@ -7767,9 +7767,14 @@ def main() -> None:
     # `proximo doctor` — verify your token/config (read-only preflight) BEFORE wiring Proximo into
     # an AI client. Prints what THIS token can and cannot do; never starts the server.
     if len(sys.argv) > 1 and sys.argv[1] == "doctor":
+        import argparse
         import json
+        parser = argparse.ArgumentParser(prog="proximo doctor", add_help=False)
+        parser.add_argument("--target", default=None,
+                            help="Named target from PROXIMO_TARGETS registry to probe.")
+        args = parser.parse_args(sys.argv[2:])
         try:
-            result = pve_doctor()
+            result = pve_doctor(proximo_target=args.target)
         except Exception as e:  # config/token/connectivity problem — give a plain message, not a trace
             print(f"proximo doctor: {e}", file=sys.stderr)
             raise SystemExit(1) from None

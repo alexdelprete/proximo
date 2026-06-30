@@ -86,13 +86,13 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.11.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.11.0) (CI green), and
+> 📦 **`0.12.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.12.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
-> New in 0.11.0: **native multi-target** — one instance reaches many Proxmox remotes (internal *or*
-> external) via a per-tool `proximo_target=`, with the default (no target) byte-identical to before —
-> plus the **ACME cert-order plane** (4 new tools, **347 → 351**) across all four surfaces (PVE/PBS/PMG/PDM).
-> **One fix is fail-closed — read the [CHANGELOG](./CHANGELOG.md) "Changed" section before upgrading.**
+> New in 0.12.0: **`proximo doctor --target`** — the `doctor` preflight is now multi-target-aware too
+> (the MCP tools already were, since 0.11.0), plus a PMG login-concurrency fix. No new tools (still 351);
+> a drop-in over 0.11.0. The flagship from 0.11.0 still stands: **native multi-target** — one instance
+> reaches many Proxmox remotes (internal *or* external) via a per-tool `proximo_target=`, default byte-identical.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -155,7 +155,8 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
-🩸 **0.11.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — **native multi-target** (one instance → many PVE/PBS/PMG/PDM remotes via a per-tool `proximo_target=`; default unchanged) + the **ACME cert-order plane** (347 → 351 tools); the multi-target change was adversarially redteamed and live-proven against two distinct real boxes. PDM remains the 4th surface from 0.9.0. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+🩸 **0.12.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — **`proximo doctor --target`** brings the CLI preflight onto the multi-target registry (the MCP tools were target-aware since 0.11.0) + a PMG login-concurrency fix. **No new tools (still 351)**; a drop-in over 0.11.0.
+🩸 **0.11.0** — **native multi-target** (one instance → many PVE/PBS/PMG/PDM remotes via a per-tool `proximo_target=`; default unchanged) + the **ACME cert-order plane** (347 → 351 tools); the multi-target change was adversarially redteamed and live-proven against two distinct real boxes. PDM remains the 4th surface from 0.9.0. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
 All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **351 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — these are **mock/in-process** (no socket); CI runs them on GitHub's runners. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** (the computed blast-radius engine covers the destructive tool surface — eleven op-classes that
 name the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back
 to a bare confirm. Atop 0.5.0's signed A2A cards + native async-task wait.)

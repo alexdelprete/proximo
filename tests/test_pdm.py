@@ -448,6 +448,31 @@ def test_pve_qemu_config_defaults_state_active():
     assert mock.get.call_args[1].get("params", {}).get("state") == "active"
 
 
+def test_pve_qemu_config_state_always_in_params():
+    """Regression guard: `state` must ALWAYS be included in params, never omitted.
+
+    PDM rejects requests without `state` (400 error). This test guards against
+    a future refactor that might make `state` conditionally included (e.g., "only
+    if explicitly passed"). Both the default and explicit cases must include it.
+    """
+    backend, mock = _mock_backend({})
+
+    # Case 1: state NOT explicitly passed — must default to "active"
+    backend.pve_qemu_config("pve-dc1", 101)
+    params_1 = mock.get.call_args[1].get("params", {})
+    assert "state" in params_1, "state must always be in params dict"
+    assert params_1["state"] == "active", "default state must be 'active'"
+
+    # Reset mock for second call
+    mock.reset_mock()
+
+    # Case 2: state explicitly passed as "current" — must use that value
+    backend.pve_qemu_config("pve-dc1", 101, state="current")
+    params_2 = mock.get.call_args[1].get("params", {})
+    assert "state" in params_2, "state must always be in params dict (even when explicit)"
+    assert params_2["state"] == "current", "explicit state value must be preserved"
+
+
 def test_pve_lxc_list_path_shape():
     backend, mock = _mock_backend([])
     backend.pve_lxc_list("pve-dc1")

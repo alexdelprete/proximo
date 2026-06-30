@@ -19,7 +19,8 @@ def test_main_doctor_subcommand_prints_json_and_skips_server(monkeypatch, capsys
     import proximo.server as srv
 
     monkeypatch.setattr(srv.sys, "argv", ["proximo", "doctor"])
-    monkeypatch.setattr(srv, "pve_doctor", lambda: {"reachable": True, "_marker": "DOCTORCLI"})
+    # stub matches the real (target-aware) pve_doctor signature: the CLI now passes proximo_target
+    monkeypatch.setattr(srv, "pve_doctor", lambda proximo_target=None: {"reachable": True, "_marker": "DOCTORCLI"})
     ran = {"server": False}
     monkeypatch.setattr(srv.mcp, "run", lambda *a, **k: ran.__setitem__("server", True))
 

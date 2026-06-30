@@ -7,9 +7,11 @@ never-overclaim posture as DIAGNOSE; routes through the ledger (mutation=False) 
 from __future__ import annotations
 
 import json
+import sys
 from types import SimpleNamespace
 
 import proximo.server as server
+from proximo import targets
 from proximo.audit import AuditLedger
 from proximo.config import ProximoConfig
 from proximo.doctor import doctor_check
@@ -140,3 +142,81 @@ def test_pve_doctor_records_read_to_ledger(tmp_path, monkeypatch):
         entries = [json.loads(line) for line in f if line.strip()]
     assert any(e["action"] == "pve_doctor" and e["outcome"] == "ok" and e["mutation"] is False
                for e in entries)
+
+
+# --- target routing: pve_doctor(proximo_target=...) sets the contextvar before _svc() fires ---
+# This is a characterization test — target_aware already wraps pve_doctor, so it is GREEN today.
+# It guards against regressions that would remove the target routing from this tool.
+
+def test_pve_doctor_routes_to_named_target(monkeypatch):
+    """pve_doctor(proximo_target="mybox") must set _active_target to "mybox" for the duration
+    of the call — captured here via a patched _svc() that reads the contextvar."""
+    captured = {}
+
+    class _FakeLedger:
+        def record(self, action, *, target, mutation=False, outcome="ok", detail=None, remote=None):
+            return {}
+
+    def _fake_svc():
+        captured["target"] = targets._active_target.get()
+        cfg = SimpleNamespace(node="pve", api_base_url="https://pve.example:8006/api2/json",
+                              enable_exec=False, verify_tls=True, ca_bundle=None,
+                              ct_allowlist=frozenset())
+        api = _DoctorApi(config=cfg)
+        return cfg, api, None, _FakeLedger()
+
+    monkeypatch.setattr(server, "_svc", _fake_svc)
+    server.pve_doctor(proximo_target="mybox")
+    assert captured["target"] == "mybox"
+
+
+def test_pve_doctor_default_target_is_none(monkeypatch):
+    """Calling pve_doctor() with no proximo_target must leave _active_target as None (default path)."""
+    captured = {}
+
+    class _FakeLedger:
+        def record(self, action, *, target, mutation=False, outcome="ok", detail=None, remote=None):
+            return {}
+
+    def _fake_svc():
+        captured["target"] = targets._active_target.get()
+        cfg = SimpleNamespace(node="pve", api_base_url="https://pve.example:8006/api2/json",
+                              enable_exec=False, verify_tls=True, ca_bundle=None,
+                              ct_allowlist=frozenset())
+        api = _DoctorApi(config=cfg)
+        return cfg, api, None, _FakeLedger()
+
+    monkeypatch.setattr(server, "_svc", _fake_svc)
+    server.pve_doctor()
+    assert captured["target"] is None
+
+
+# --- CLI: `proximo doctor --target <name>` passes proximo_target=<name> to pve_doctor ---
+
+def test_cli_doctor_passes_target_to_pve_doctor(monkeypatch, capsys):
+    """CLI: `proximo doctor --target mybox` must call pve_doctor(proximo_target="mybox").
+    RED before the server.py change (current main() calls pve_doctor() with no args)."""
+    called = {}
+
+    def _stub(**kw):
+        called.update(kw)
+        return {}
+
+    monkeypatch.setattr(server, "pve_doctor", _stub)
+    monkeypatch.setattr(sys, "argv", ["proximo", "doctor", "--target", "mybox"])
+    server.main()
+    assert called.get("proximo_target") == "mybox"
+
+
+def test_cli_doctor_no_target_defaults_to_none(monkeypatch, capsys):
+    """CLI: `proximo doctor` (no --target) must call pve_doctor(proximo_target=None)."""
+    called = {}
+
+    def _stub(**kw):
+        called.update(kw)
+        return {}
+
+    monkeypatch.setattr(server, "pve_doctor", _stub)
+    monkeypatch.setattr(sys, "argv", ["proximo", "doctor"])
+    server.main()
+    assert called.get("proximo_target") is None

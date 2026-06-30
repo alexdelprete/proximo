@@ -4,6 +4,24 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-06-30
+
+**The `doctor` preflight goes multi-target-aware, plus a PMG login-concurrency fix. No new tools
+(still 351 across PVE/PBS/PMG/PDM); no behavior change at the default.** A small, deliberate minor:
+0.11.0 made the MCP tools target-aware but left the `doctor` *CLI* pinned to the env-configured box;
+this closes that gap. Drop-in over 0.11.0 — nothing to read before upgrading.
+
+### Added
+- **`proximo doctor --target <name>`** — the `doctor` CLI preflight can now target a named remote from
+  the `PROXIMO_TARGETS` registry (the `pve_doctor` MCP tool was already target-aware; this wires the
+  CLI flag). Omit `--target` and behavior is byte-identical (the env-configured box).
+
+### Fixed
+- **PMG ticket-refresh race** — `PmgBackend` now serializes login under a lock (double-checked in
+  `_ensure_ticket`; the 401 re-login is locked, with the HTTP retry left *outside* the lock to avoid a
+  deadlock). Latent under the single-threaded stdio transport, but a real correctness gap if the
+  backend is ever driven from multiple threads/async tasks.
+
 ## [0.11.0] — 2026-06-30
 
 **Native multi-target + the ACME cert-order plane (347 → 351 tools).** One Proximo instance now

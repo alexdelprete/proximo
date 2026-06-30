@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import pathlib
 import tempfile
+import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -428,6 +430,52 @@ def test_ensure_ticket_calls_login_once(tmp_path):
     backend._ensure_ticket()  # second call — ticket already cached
 
     assert mock_client.post.call_count == 1
+
+
+def test_ensure_ticket_concurrent_login_called_once(tmp_path):
+    """Two threads racing on _ensure_ticket() must trigger _login() exactly once.
+
+    A Barrier forces both threads to the check point simultaneously; a sleep inside
+    the mocked _login widens the race window so the double-login is deterministic
+    without the fix (and reliably absent with it).
+    """
+    pw_file = tmp_path / "password"
+    pw_file.write_text("secret\n")
+
+    backend = PmgBackend(_cfg(password_path=str(pw_file)))
+
+    login_call_count = 0
+    barrier = threading.Barrier(2)
+
+    def slow_login() -> None:
+        nonlocal login_call_count
+        login_call_count += 1
+        time.sleep(0.05)  # widen the window: second thread sees _ticket is None
+        backend._ticket = "PMG:root@pam::ticket"
+        backend._csrf = "csrf-tok"
+
+    backend._login = slow_login  # type: ignore[method-assign]
+
+    errors: list[Exception] = []
+
+    def run() -> None:
+        try:
+            barrier.wait()  # both threads reach _ensure_ticket simultaneously
+            backend._ensure_ticket()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    t1 = threading.Thread(target=run)
+    t2 = threading.Thread(target=run)
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    assert not errors, f"thread error(s): {errors}"
+    assert login_call_count == 1, (
+        f"_login called {login_call_count} times — expected exactly once (race condition)"
+    )
 
 
 # ---------------------------------------------------------------------------

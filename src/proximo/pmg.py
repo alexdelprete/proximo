@@ -27,6 +27,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+import threading
 import warnings
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -304,6 +305,7 @@ class PmgBackend:
         self._client = httpx.Client(base_url=config.base_url, verify=httpx_verify(verify), timeout=60)
         self._ticket: str | None = None
         self._csrf: str | None = None
+        self._lock = threading.Lock()
 
     def _login(self) -> None:
         """POST /access/ticket to obtain a session ticket and CSRF token.
@@ -323,9 +325,16 @@ class PmgBackend:
         self._csrf = data["CSRFPreventionToken"]
 
     def _ensure_ticket(self) -> None:
-        """Lazy login — only calls _login() if no cached ticket exists."""
+        """Lazy login — only calls _login() if no cached ticket exists.
+
+        Uses double-checked locking so concurrent threads that both see
+        ``_ticket is None`` don't each trigger a separate login: the second
+        thread to acquire the lock re-checks and skips the call.
+        """
         if self._ticket is None:
-            self._login()
+            with self._lock:
+                if self._ticket is None:
+                    self._login()
 
     def _cookie_headers(self) -> dict[str, str]:
         """Headers for read (GET) requests — cookie only, no CSRF."""
@@ -342,9 +351,10 @@ class PmgBackend:
         self._ensure_ticket()
         r = self._client.get(path, headers=self._cookie_headers(), params=params or {})
         if r.status_code == 401:
-            self._ticket = None
-            self._csrf = None
-            self._login()
+            with self._lock:
+                self._ticket = None
+                self._csrf = None
+                self._login()
             r = self._client.get(path, headers=self._cookie_headers(), params=params or {})
         r.raise_for_status()
         return r.json().get("data")
@@ -359,9 +369,10 @@ class PmgBackend:
         self._ensure_ticket()
         r = self._client.post(path, headers=self._mutation_headers(), data=self._form(data))
         if r.status_code == 401:
-            self._ticket = None
-            self._csrf = None
-            self._login()
+            with self._lock:
+                self._ticket = None
+                self._csrf = None
+                self._login()
             r = self._client.post(path, headers=self._mutation_headers(), data=self._form(data))
         r.raise_for_status()
         return r.json().get("data")
@@ -370,9 +381,10 @@ class PmgBackend:
         self._ensure_ticket()
         r = self._client.put(path, headers=self._mutation_headers(), data=self._form(data))
         if r.status_code == 401:
-            self._ticket = None
-            self._csrf = None
-            self._login()
+            with self._lock:
+                self._ticket = None
+                self._csrf = None
+                self._login()
             r = self._client.put(path, headers=self._mutation_headers(), data=self._form(data))
         r.raise_for_status()
         return r.json().get("data")
@@ -381,9 +393,10 @@ class PmgBackend:
         self._ensure_ticket()
         r = self._client.delete(path, headers=self._mutation_headers(), params=params or {})
         if r.status_code == 401:
-            self._ticket = None
-            self._csrf = None
-            self._login()
+            with self._lock:
+                self._ticket = None
+                self._csrf = None
+                self._login()
             r = self._client.delete(path, headers=self._mutation_headers(), params=params or {})
         r.raise_for_status()
         return r.json().get("data")

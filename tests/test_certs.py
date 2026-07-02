@@ -234,10 +234,9 @@ class TestAcmePluginCreate:
     def test_posts_to_collection_with_id_in_body(self):
         """CREATE URL shape: POST /cluster/acme/plugins with id in body (Wave 1 lesson #2).
 
-        Note: PVE ACME plugins have an 'api' field (DNS provider name like 'cf', 'route53').
-        That field cannot be passed as api=... kwarg to this function because 'api' is the
-        backend parameter. The server layer maps dns_api -> {"api": dns_api} before calling.
-        Test uses 'data' kwarg to verify the body-building pattern.
+        Note: PVE ACME plugins have an 'api' body field (DNS provider name like 'cf', 'route53').
+        The backend param is named 'backend', so the 'api' field rides safely inside **kw — see
+        test_api_body_field_no_collision_with_backend below. This test uses 'data'.
         """
         api = _Api()
         acme_plugin_create(api, "dns-cf", "dns", data="CF_Token=abc")
@@ -262,6 +261,17 @@ class TestAcmePluginCreate:
         acme_plugin_create(api, "dns-cf", "dns")
         assert api.gets == []
 
+    def test_api_body_field_no_collision_with_backend(self):
+        # Regression: the DNS-provider 'api' body field must ride in **kw without colliding with
+        # the backend positional param. This is the confirm=True executor path the golden sweep
+        # can't reach (create's dry-run uses plan_acme_plugin_create, which has no backend param).
+        api = _Api()
+        acme_plugin_create(api, "dns-cf", "dns", **{"api": "cf", "data": "CF_Token=abc"})
+        assert api.posts == [(
+            "/cluster/acme/plugins",
+            {"id": "dns-cf", "type": "dns", "api": "cf", "data": "CF_Token=abc"},
+        )]
+
 
 class TestAcmePluginUpdate:
     def test_puts_to_item_path(self):
@@ -279,6 +289,12 @@ class TestAcmePluginUpdate:
         api = _Api()
         with pytest.raises(ProximoError, match="invalid ACME plugin ID"):
             acme_plugin_update(api, "bad/id")
+
+    def test_api_body_field_no_collision_with_backend(self):
+        # Regression: same dns_api↔backend collision on the update executor's confirm=True path.
+        api = _Api()
+        acme_plugin_update(api, "dns-cf", **{"api": "cf", "data": "CF_Token=abc"})
+        assert api.puts == [("/cluster/acme/plugins/dns-cf", {"api": "cf", "data": "CF_Token=abc"})]
 
 
 class TestAcmePluginDelete:

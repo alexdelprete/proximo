@@ -15,6 +15,11 @@ _EXTRA_MODULES = ("a2a", "uvicorn", "starlette")
 
 
 def main() -> None:
+    # Source proximo.env before the A2A app reads any config (same footgun + fail-dangerous shape as
+    # the stdio path — the A2A face routes through the same trust core, so a silently-inert
+    # PROXIMO_CONSENT_DIR would leave it ungated too). Real/inline env still wins.
+    from proximo.config import load_env_file
+    load_env_file()
     try:
         # app.main() imports uvicorn lazily at runtime — probe it HERE so a missing-uvicorn
         # install gets the hint below instead of a raw traceback out of the running app.

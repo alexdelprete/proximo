@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Check version consistency (pyproject == __init__ == CHANGELOG)
+      - name: Check version consistency (pyproject == __init__ == CHANGELOG == server.json)
         run: python scripts/version_tools.py check   # stdlib only, no install needed
 
   gitleaks:

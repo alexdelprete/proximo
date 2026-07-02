@@ -29,8 +29,8 @@ uv sync --extra dev
 Run the same checks CI runs — a PR that doesn't pass all three won't merge:
 
 ```bash
-uv run python -m pytest -q          # full suite — must be green, 0 skipped
-uv run ruff check src tests         # lint
+uv run python -m pytest -q          # full suite — must be green (only the 3 by-design wrapper-sweep skips)
+uv run ruff check .                 # lint — the full repo, exactly what CI runs
 uv run pyright                      # types (src is the typed scope)
 ```
 

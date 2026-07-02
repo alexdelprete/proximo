@@ -28,6 +28,7 @@ They live here (not under `tests/`) precisely so that pytest does not auto-colle
 | `backup-smoke.py` | **backup + backup_delete** (MUTATE→verify): PLAN backup (snapshot mode → asserts RISK_LOW) → vzdump `SMOKE_VMID` to `SMOKE_STORE` → assert a NEW archive for that VMID appears → `backup_delete` → assert it's gone | Yes — one vzdump archive on `SMOKE_STORE` (only the one this run creates is deleted); self-cleaning. Token needs `VM.Backup` on the VM + `Datastore.AllocateSpace` on `SMOKE_STORE`, and `SMOKE_STORE` must have `backup` content enabled |
 | `create-container-smoke.py` | **create_container + delete_guest** (MUTATE→verify): PLAN create → `create_container SMOKE_VMID` from `SMOKE_TEMPLATE` on `SMOKE_STORE` → wait for the create-lock to clear → assert the CT materialized → `delete_guest --purge` → assert gone | Yes — creates + destroys one throwaway LXC on `SMOKE_STORE`; self-cleaning. Needs `/vms/<SMOKE_VMID>` (VM.Allocate) + Datastore on `SMOKE_STORE` + `SDN.Use` on the bridge + an LXC template at `SMOKE_TEMPLATE`. **One-shot per grant** (destroy strips the `/vms/<id>` ACL) |
 | `prove-smoke.py` | **PROVE pillar + confirm-gate** (the headline): drives the real `pve_*` tools — `confirm=False` returns a PLAN and mutates nothing; `confirm=True` performs a real snapshot AND writes the tamper-evident audit ledger → asserts the ledger grew, still `verify()`s, recorded the mutation, and that a TAMPERED copy is detected (`entry_hash mismatch`); cleans up via `confirm=True` delete (also ledgered) | Yes — one snapshot on throwaway `SMOKE_VMID` via the full tool stack; self-cleaning. The tamper test runs on a COPY — never touches the real ledger. Bound the token to that VM |
+| `envelope-smoke.py` | **CONTAIN's autonomy envelope** (`envelope.py`'s FORBID + RATE walls, unit-proven in `tests/test_envelope.py` but previously ZERO live coverage): (1) sets `PROXIMO_FORBID=pve_snapshot_create` → asserts a real `pve_snapshot_create(confirm=True)` call is refused BEFORE it reaches PVE (no mutation, ledger records `blocked:forbidden`); (2) sets a small `PROXIMO_RATE_MAX` → fires more concurrent callers than the budget at a `threading.Barrier` (real simultaneous `pve_snapshot_create` calls, not stubbed) → asserts EXACTLY `rate_max` succeed and the rest are refused with `blocked:rate_budget`, then verifies the successful snapshots really exist | Yes — only the ALLOWED rate-budget slots create real (uniquely-named) scratch snapshots on throwaway `SMOKE_VMID`; the FORBID half never reaches the backend at all; self-cleaning. Clears its own box's rate-reservation file before the concurrency test for a deterministic re-run (see the script's CAVEAT docstring) — don't run it concurrently with other mutating traffic against the same `PROXIMO_API_BASE_URL` |
 
 ### `guest-lifecycle-smoke.py` additional variables
 
@@ -52,6 +53,16 @@ They live here (not under `tests/`) precisely so that pytest does not auto-colle
 | `SMOKE_STORE` | **Yes** | — | A test storage that supports `images` — isolate it from production; grant the token `Datastore.AllocateSpace` there and nowhere else |
 | `SMOKE_SLOT` | No | `scsi1` | Disk slot to allocate (must be free on the VM) |
 | `SMOKE_SIZE` | No | `1` | Scratch disk size in GiB |
+
+### `envelope-smoke.py` additional variables
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `SMOKE_VMID` | **Yes** | — | A throwaway VMID the token is scoped to (any existing guest; only snapshots are touched) |
+| `SMOKE_KIND` | No | `qemu` | `qemu` or `lxc` — snapshot create/delete works on either |
+| `SMOKE_ENVELOPE_RATE_MAX` | No | `2` | Rate budget configured for the concurrency test window |
+| `SMOKE_ENVELOPE_RATE_EXTRA` | No | `3` | Extra concurrent callers fired beyond the budget (total callers = `RATE_MAX + RATE_EXTRA`) |
+| `SMOKE_ENVELOPE_RATE_WINDOW` | No | `60` | Rate window in seconds |
 
 All mutating smokes clean up after themselves via `try/finally` and print a loud manual-cleanup fallback if cleanup fails.
 

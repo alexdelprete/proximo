@@ -84,6 +84,8 @@ REGISTRY: tuple[Smoke, ...] = (
           note="backup + backup_delete"),
     Smoke("prove", "prove-smoke.py", "mutate", needs=("SMOKE_VMID",),
           note="PROVE ledger + confirm-gate via the real pve_* tools + tamper detection"),
+    Smoke("envelope", "envelope-smoke.py", "mutate", needs=("SMOKE_VMID",),
+          note="autonomy-envelope FORBID block + concurrent RATE-budget barrier vs live PVE"),
     # cluster-level (firewall/HA) — need privs the VM/Datastore-scoped CI token does NOT carry; gated
     # behind SMOKE_CLUSTER_OPS so the default nightly (scoped token) SKIPs them instead of 403-failing.
     Smoke("fwobjects", "fwobjects-smoke.sh", "mutate", needs=("SMOKE_CLUSTER_OPS",),

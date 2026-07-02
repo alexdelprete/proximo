@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import warnings
 from dataclasses import dataclass
 
 from .audit import looks_like_head
+from .audit_anchor import AnchorError, AnchorSink, build_anchor_sink
 
 # Charset for PROXIMO_SSH_TARGET: hostname, SSH alias, or user@host.
 # Must start with alphanumeric to block option-injection (e.g. -oProxyCommand=...).
@@ -23,6 +25,58 @@ _SSH_TARGET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]*\Z")
 # Unrecognized values keep TLS on (safe default) and emit a diagnostic warning.
 _VTLS_FALSY = frozenset({"0", "false", "off", "no"})
 _VTLS_TRUTHY = frozenset({"1", "true", "on", "yes"})
+
+_DEFAULT_ENV_FILE = "~/.config/proximo/proximo.env"
+
+
+def load_env_file() -> list[str]:
+    """Source a ``proximo.env`` file into ``os.environ`` for the STDIO launch, then return the keys
+    it set. Call this ONCE at process entry, before any ``ProximoConfig.from_env()``.
+
+    Why this exists: daemon mode gets ``proximo.env`` via systemd's ``EnvironmentFile``, but a stdio
+    MCP server only sees the client's inline ``mcpServers.env`` block — so a ``PROXIMO_*`` var set in
+    the documented ``~/.config/proximo/proximo.env`` is silently ignored. That is a footgun, and
+    fail-DANGEROUS for a security gate like ``PROXIMO_CONSENT_DIR`` (silently inert => mutations
+    proceed ungated while the operator believes they need sign-off). See docs/known-issues.md.
+
+    Non-breaking by construction: fills ONLY ``PROXIMO_*`` keys that are NOT already in ``os.environ``,
+    so the real/inline env ALWAYS wins (an inline-config deployment is unaffected); only our namespace
+    is touched (never PATH etc.); a missing file is a silent no-op (most deployments). What it DID load
+    is printed to stderr so activation is legible, never silent. Path override: ``PROXIMO_ENV_FILE``."""
+    path = os.environ.get("PROXIMO_ENV_FILE") or os.path.expanduser(_DEFAULT_ENV_FILE)
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+        return []  # no file (or a bad path) => no-op; env-only deployments are unchanged
+    except OSError as e:
+        print(f"proximo: could not read env file {path!r}: {e}", file=sys.stderr)
+        return []
+
+    loaded: list[str] = []
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key, val = key.strip(), val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1]  # strip matching surrounding quotes
+        if not key.startswith("PROXIMO_"):
+            continue          # only our namespace — never let the file inject PATH/LD_*/etc.
+        if key in os.environ:
+            continue          # real/inline env always wins (no surprise for inline configs)
+        os.environ[key] = val
+        loaded.append(key)
+
+    if loaded:
+        print(f"proximo: loaded {len(loaded)} setting(s) from {path}: {', '.join(sorted(loaded))}",
+              file=sys.stderr)
+    return loaded
 
 
 @dataclass(frozen=True)
@@ -47,6 +101,7 @@ class ProximoConfig:
     audit_keyed: bool = True  # PROXIMO_AUDIT_KEYED — keyed (HMAC) PROVE by default; "off"/"0"/"false"/"no" disables
     redact_ledger: bool = False  # opt-in: store a fingerprint of ct_psql SQL / ct_exec argv, not the body
     expected_head: str | None = None  # PROXIMO_AUDIT_EXPECTED_HEAD — off-box-pinned head() for tail-attack detection
+    anchor_sink: AnchorSink | None = None  # PROXIMO_AUDIT_ANCHOR_* — off-box head-pinning sink (None=off)
 
     @classmethod
     def from_env(cls) -> ProximoConfig:
@@ -72,6 +127,8 @@ class ProximoConfig:
             redact_ledger=os.environ.get("PROXIMO_LEDGER_REDACT", "false").lower() in ("1", "true", "yes", "on"),
             expected_head_raw=os.environ.get("PROXIMO_AUDIT_EXPECTED_HEAD") or "",
             audit_log_path=os.environ.get("PROXIMO_AUDIT_LOG", cls.audit_log_path),
+            anchor_sink_raw=os.environ.get("PROXIMO_AUDIT_ANCHOR_SINK", "none"),
+            anchor_file_path=os.environ.get("PROXIMO_AUDIT_ANCHOR_FILE_PATH") or None,
         )
 
     @classmethod
@@ -109,6 +166,9 @@ class ProximoConfig:
             redact_ledger=bool(fields.get("redact_ledger", False)),
             expected_head_raw=str(fields.get("audit_expected_head") or ""),
             audit_log_path=fields.get("audit_log", cls.audit_log_path),
+            anchor_sink_raw=str(fields.get("audit_anchor_sink", "none")),
+            anchor_file_path=(str(fields["audit_anchor_file_path"])
+                              if fields.get("audit_anchor_file_path") else None),
         )
 
     @classmethod
@@ -130,6 +190,8 @@ class ProximoConfig:
         redact_ledger: bool,
         expected_head_raw: str,
         audit_log_path: str,
+        anchor_sink_raw: str = "none",
+        anchor_file_path: str | None = None,
     ) -> ProximoConfig:
         """Shared validation/normalization/warnings for from_env and from_target.
 
@@ -209,6 +271,52 @@ class ProximoConfig:
                 "to restore HMAC-SHA256 tamper-evidence.",
                 stacklevel=2,
             )
+        # Independent CONSENT (PROXIMO_CONSENT_DIR). Read from the process env directly: CONSENT is
+        # enforced env-side in consent.py (not per-target), so the precondition is about the process
+        # and applies whether config came from_env or from_target. This IS the load-bearing honesty
+        # note consent.py's docstring promises — the whole guarantee reduces to the boundary it names,
+        # so fire it loudly whenever the gate is active.
+        if os.environ.get("PROXIMO_CONSENT_DIR"):
+            warnings.warn(
+                "PROXIMO_CONSENT_DIR is set — Independent CONSENT is ACTIVE: every mutation now "
+                "requires a single-use, out-of-band grant for its exact plan. This only closes the "
+                "self-approval gap if the agent's OWN shell/user CANNOT write into that directory — "
+                "if it can, the agent mints its own grant and the gate is cosmetic. Put the grant "
+                "directory somewhere the agent cannot reach (a separate UID, or media/a host it lacks).",
+                stacklevel=2,
+            )
+
+        # Off-box PROVE anchor (PROXIMO_AUDIT_ANCHOR_*). build_anchor_sink raises RuntimeError on a
+        # misconfigured sink (unknown type / file sink with no path). When a sink IS configured, fetch
+        # its last pinned head so tail-attack detection turns on automatically:
+        #   - FAIL-CLOSED: an unreachable/corrupt sink (AnchorError) => refuse to start. A configured
+        #     anchor that can't be reached means the PROVE guarantee is silently gone — fail loud.
+        #   - No manual pin + a sink head => auto-pin expected_head to it.
+        #   - Manual pin that DIFFERS from the sink head => warn (drift), honor the manual pin (the
+        #     sink is advisory; the operator has explicit control).
+        #   - Sink reachable but empty (None) => first run; leave expected_head as-is.
+        anchor_sink = build_anchor_sink(anchor_sink_raw, anchor_file_path)
+        if anchor_sink is not None:
+            try:
+                pinned = anchor_sink.last_head()
+            except AnchorError as e:
+                raise RuntimeError(
+                    f"PROXIMO_AUDIT_ANCHOR_SINK is configured but the off-box anchor is "
+                    f"unreachable: {e}. Refusing to start without the PROVE tail-attack anchor "
+                    f"(fail-closed). Fix the sink, or set PROXIMO_AUDIT_ANCHOR_SINK=none to run "
+                    f"without it."
+                ) from e
+            if pinned is not None:
+                if expected_head is None:
+                    expected_head = pinned
+                elif expected_head != pinned:
+                    warnings.warn(
+                        "PROXIMO_AUDIT_EXPECTED_HEAD is set manually AND differs from the off-box "
+                        f"anchor's last pinned head ({pinned[:12]}...). Honoring the MANUAL pin; the "
+                        "anchor value is advisory. If you rotated/upgraded, re-pin the manual value "
+                        "or clear it to let the anchor pin automatically.",
+                        stacklevel=2,
+                    )
 
         return cls(
             api_base_url=api_base_url.rstrip("/"),
@@ -224,6 +332,7 @@ class ProximoConfig:
             audit_keyed=audit_keyed,
             redact_ledger=redact_ledger,
             expected_head=expected_head,
+            anchor_sink=anchor_sink,
             enable_agent=enable_agent,
             agent_allowlist=agent_allowlist,
         )

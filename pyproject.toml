@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "proximo-proxmox"
-version = "0.12.0"
+version = "0.13.0"
 description = "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway + Datacenter Manager on one clean surface: every dangerous op planned, undoable, and audited."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -60,7 +60,20 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 # S = flake8-bandit (security): we run a hypervisor tool, lint for it.
-select = ["E", "F", "I", "UP", "B", "S"]
+# C90 = mccabe cyclomatic complexity — a coarse readability gate, not a design verdict:
+# it's an early smell test that a function has too many branches to hold in your head at once
+# (2026-07-01: caught two ~200-line blast.py functions at complexity 32/28 before decomposition).
+select = ["E", "F", "I", "UP", "B", "S", "C90"]
+
+[tool.ruff.lint.mccabe]
+# 21 is a CEILING, not a target: it is set by the single worst pre-existing function on the
+# whole tree today (plan_prune_grant in access.py, complexity 21) — not by blast.py, whose worst
+# function is now 6 post-refactor. Lower this only after a follow-up pass brings down the other
+# ~30 functions currently sitting between 10-21 (see `access.py`, `pmg.py`, `cluster_ops.py`,
+# `envelope.py`, `diagnose.py`, `storage_admin.py`, `access_users.py`); until then, 21 stops NEW
+# regressions above today's worst offender without failing the build on pre-existing debt this
+# gate wasn't scoped to fix.
+max-complexity = 21
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]  # `assert` is how tests assert; placeholder passwords/token_path aren't secrets

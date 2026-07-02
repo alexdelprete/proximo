@@ -170,7 +170,7 @@ def acme_plugin_get(api, plugin_id: str) -> dict:
     return api._get(f"/cluster/acme/plugins/{plugin_id}") or {}
 
 
-def acme_plugin_create(api, plugin_id: str, plugin_type: str, **kw) -> None:
+def acme_plugin_create(backend, plugin_id: str, plugin_type: str, **kw) -> None:
     """Create an ACME DNS challenge plugin.
 
     POST /cluster/acme/plugins
@@ -181,10 +181,10 @@ def acme_plugin_create(api, plugin_id: str, plugin_type: str, **kw) -> None:
     _check_acme_plugin_id(plugin_id)
     data = {"id": plugin_id, "type": plugin_type, **kw}
     # MUTATION — confirm-gated + audited at the server layer.
-    api._post("/cluster/acme/plugins", {k: v for k, v in data.items() if v is not None})
+    backend._post("/cluster/acme/plugins", {k: v for k, v in data.items() if v is not None})
 
 
-def acme_plugin_update(api, plugin_id: str, **kw) -> None:
+def acme_plugin_update(backend, plugin_id: str, **kw) -> None:
     """Update an ACME DNS challenge plugin.
 
     PUT /cluster/acme/plugins/{id}
@@ -194,7 +194,7 @@ def acme_plugin_update(api, plugin_id: str, **kw) -> None:
     """
     _check_acme_plugin_id(plugin_id)
     # MUTATION — confirm-gated + audited at the server layer.
-    api._put(f"/cluster/acme/plugins/{plugin_id}", {k: v for k, v in kw.items() if v is not None})
+    backend._put(f"/cluster/acme/plugins/{plugin_id}", {k: v for k, v in kw.items() if v is not None})
 
 
 def acme_plugin_delete(api, plugin_id: str) -> None:
@@ -321,10 +321,10 @@ def plan_acme_plugin_create(plugin_id: str, plugin_type: str, **kw) -> Plan:
     )
 
 
-def plan_acme_plugin_update(api, plugin_id: str, **kw) -> Plan:
+def plan_acme_plugin_update(backend, plugin_id: str, **kw) -> Plan:
     """Plan an ACME plugin update. Reads current config for honesty."""
     _check_acme_plugin_id(plugin_id)
-    current = acme_plugin_get(api, plugin_id)
+    current = acme_plugin_get(backend, plugin_id)
     return Plan(
         action="pve_acme_plugin_update",
         target=f"cluster/acme/plugins/{plugin_id}",

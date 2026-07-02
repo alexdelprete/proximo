@@ -415,6 +415,107 @@ def _cotenants_on(target_storage: str, moved_resource: str, guests: list[dict],
     return out
 
 
+def _disk_move_capacity_verdict(
+    disk_size_bytes: int | None, target_avail: int | None, target_total: int | None,
+) -> tuple[str, str, str]:
+    """(cap, cap_sev, co_sev) verdict ladder for fitting `disk_size_bytes` onto a target with
+    `target_avail`/`target_total` free/total bytes:
+    - size or avail unknown → cannot assess fit → 'unknown'/'high' — NEVER 'safe'.
+    - size >= avail → 'wont_fit'/'high' (move fails / fills the storage).
+    - post-move free < the absolute floor OR < 10% of total → 'tight'/'medium'.
+    - total unreadable (won't-fit ruled out but fullness can't be assessed) → 'fits_total_unknown'.
+    - fits comfortably → 'fits'/'none'.
+    """
+    if disk_size_bytes is None or target_avail is None:
+        return "unknown", "high", "unknown"
+    if disk_size_bytes >= target_avail:
+        return "wont_fit", "high", "high"
+    post = target_avail - disk_size_bytes
+    tight_by_abs = post < _DISK_MOVE_MIN_FREE_BYTES                          # sound w/o total
+    tight_by_pct = bool(target_total) and post < _DISK_MOVE_TIGHT_FRACTION * target_total
+    if tight_by_abs or tight_by_pct:
+        return "tight", "medium", "medium"
+    if not target_total:
+        # Won't-fit is ruled out, but without total we cannot assess post-move fullness —
+        # disclose the unknown rather than reassure (capacity handled symmetrically: a missing
+        # `avail` forced HIGH above, a missing `total` must not produce a clean all-clear).
+        return "fits_total_unknown", "none", "none"
+    return "fits", "none", "none"
+
+
+def _disk_move_mark_cotenants(
+    cotenants: list[BlastEntry], cap: str, co_sev: str, target_storage: str,
+) -> list[BlastEntry]:
+    """Set severity/effect on each co-tenant when capacity is at risk (won't-fit/tight/unknown);
+    cry-wolf control — a comfortable fit leaves co-tenants unflagged (returns [])."""
+    if cap not in ("wont_fit", "tight", "unknown"):
+        return []
+    for e in cotenants:
+        e.severity = co_sev
+        e.effect = (f"shares target storage '{target_storage}' (disk slot(s) {', '.join(e.via)})"
+                    " — at risk if the move "
+                    + ("exhausts it" if cap != "unknown" else "fills it (capacity unknown)"))
+        if e.running:
+            e.effect += " — RUNNING: allocation/write failure can crash or corrupt it"
+    return list(cotenants)
+
+
+def _disk_move_verdict_lines(
+    cap: str, target_storage: str, disk_size_bytes: int | None, target_avail: int | None,
+    target_total: int | None, n_co: int, complete: bool,
+) -> list[str]:
+    """The capacity-verdict summary line(s) — phrasing + co-tenant-count disclosure per verdict."""
+    if cap == "unknown":
+        lines = [
+            f"could not assess target '{target_storage}' capacity (disk size or free space "
+            "unreadable) — cannot confirm the move fits; uncertainty is NOT a safety signal"
+        ]
+        if n_co:
+            lines.append(f"  {n_co} guest(s) share target '{target_storage}' — impact cannot be ruled out")
+        return lines
+    if cap == "wont_fit":
+        lines = [
+            f"WILL NOT FIT: disk ({_fmt_bytes(disk_size_bytes)}) ≥ free space on target "
+            f"'{target_storage}' ({_fmt_bytes(target_avail)}) — the move fails or fills the storage"
+        ]
+        if n_co:
+            lines.append(f"{n_co} co-tenant guest(s) share target '{target_storage}':")
+        return lines
+    if cap == "tight":
+        post = target_avail - disk_size_bytes        # type: ignore[operator]
+        if target_total:
+            why = f"< {int(_DISK_MOVE_TIGHT_FRACTION * 100)}% of {_fmt_bytes(target_total)} total"
+        else:
+            why = "below the safe-free floor; total capacity unreadable"
+        lines = [
+            f"TIGHT: the move leaves only {_fmt_bytes(post)} free on target '{target_storage}' "
+            f"({why}) — co-tenants risk allocation failure"
+        ]
+        if n_co:
+            lines.append(f"{n_co} co-tenant guest(s) share target '{target_storage}':")
+        return lines
+    if cap == "fits_total_unknown":
+        post = target_avail - disk_size_bytes        # type: ignore[operator]
+        msg = (f"fits available space: target '{target_storage}' has {_fmt_bytes(target_avail)} free; "
+               f"disk is {_fmt_bytes(disk_size_bytes)}; leaves {_fmt_bytes(post)} — but total capacity "
+               "is unreadable, so whether this leaves the target near-full cannot be assessed")
+        if n_co:
+            msg += (f". {n_co} guest(s) share this target — if it is near capacity they risk "
+                    "allocation pressure")
+        return [msg]
+    # cap == "fits"
+    post = target_avail - disk_size_bytes        # type: ignore[operator]
+    msg = (f"fits: target '{target_storage}' has {_fmt_bytes(target_avail)} free; disk is "
+           f"{_fmt_bytes(disk_size_bytes)}; leaves {_fmt_bytes(post)} free")
+    if n_co and complete:
+        msg += f". {n_co} other guest(s) share this target, with headroom remaining"
+    elif n_co:
+        # complete=False → the count is a FLOOR, not exhaustive — never reassure on it.
+        msg += (f". at least {n_co} co-tenant(s) share this target — co-tenant list INCOMPLETE, "
+                "not proof of safety")
+    return [msg]
+
+
 def compute_disk_move_blast(target_storage: str, disk_size_bytes: int | None,
                             target_avail: int | None, target_total: int | None,
                             moved_resource: str, guests: list[dict], configs: dict,
@@ -432,35 +533,8 @@ def compute_disk_move_blast(target_storage: str, disk_size_bytes: int | None,
     """
     cotenants = _cotenants_on(target_storage, moved_resource, guests, configs)
     n_co = len(cotenants)
-
-    if disk_size_bytes is None or target_avail is None:
-        cap, cap_sev, co_sev = "unknown", "high", "unknown"
-    elif disk_size_bytes >= target_avail:
-        cap, cap_sev, co_sev = "wont_fit", "high", "high"
-    else:
-        post = target_avail - disk_size_bytes
-        tight_by_abs = post < _DISK_MOVE_MIN_FREE_BYTES                          # sound w/o total
-        tight_by_pct = bool(target_total) and post < _DISK_MOVE_TIGHT_FRACTION * target_total
-        if tight_by_abs or tight_by_pct:
-            cap, cap_sev, co_sev = "tight", "medium", "medium"
-        elif not target_total:
-            # Won't-fit is ruled out, but without total we cannot assess post-move fullness —
-            # disclose the unknown rather than reassure (capacity handled symmetrically: a missing
-            # `avail` forced HIGH above, a missing `total` must not produce a clean all-clear).
-            cap, cap_sev, co_sev = "fits_total_unknown", "none", "none"
-        else:
-            cap, cap_sev, co_sev = "fits", "none", "none"
-
-    affected: list[BlastEntry] = []
-    if cap in ("wont_fit", "tight", "unknown"):
-        for e in cotenants:
-            e.severity = co_sev
-            e.effect = (f"shares target storage '{target_storage}' (disk slot(s) {', '.join(e.via)})"
-                        " — at risk if the move "
-                        + ("exhausts it" if cap != "unknown" else "fills it (capacity unknown)"))
-            if e.running:
-                e.effect += " — RUNNING: allocation/write failure can crash or corrupt it"
-        affected = list(cotenants)
+    cap, cap_sev, co_sev = _disk_move_capacity_verdict(disk_size_bytes, target_avail, target_total)
+    affected = _disk_move_mark_cotenants(cotenants, cap, co_sev, target_storage)
     affected.sort(key=lambda e: (_SEV_ORDER.get(e.severity, 9), e.vmid))
 
     lines: list[str] = []
@@ -472,52 +546,9 @@ def compute_disk_move_blast(target_storage: str, disk_size_bytes: int | None,
             f"⚠ INCOMPLETE: could not enumerate {miss} of {total} guests cluster-wide — "
             "do NOT treat this co-tenant list as exhaustive; absence here is not proof of safety"
         )
-    if cap == "unknown":
-        lines.append(
-            f"could not assess target '{target_storage}' capacity (disk size or free space "
-            "unreadable) — cannot confirm the move fits; uncertainty is NOT a safety signal"
-        )
-        if n_co:
-            lines.append(f"  {n_co} guest(s) share target '{target_storage}' — impact cannot be ruled out")
-    elif cap == "wont_fit":
-        lines.append(
-            f"WILL NOT FIT: disk ({_fmt_bytes(disk_size_bytes)}) ≥ free space on target "
-            f"'{target_storage}' ({_fmt_bytes(target_avail)}) — the move fails or fills the storage"
-        )
-        if n_co:
-            lines.append(f"{n_co} co-tenant guest(s) share target '{target_storage}':")
-    elif cap == "tight":
-        post = target_avail - disk_size_bytes        # type: ignore[operator]
-        if target_total:
-            why = f"< {int(_DISK_MOVE_TIGHT_FRACTION * 100)}% of {_fmt_bytes(target_total)} total"
-        else:
-            why = "below the safe-free floor; total capacity unreadable"
-        lines.append(
-            f"TIGHT: the move leaves only {_fmt_bytes(post)} free on target '{target_storage}' "
-            f"({why}) — co-tenants risk allocation failure"
-        )
-        if n_co:
-            lines.append(f"{n_co} co-tenant guest(s) share target '{target_storage}':")
-    elif cap == "fits_total_unknown":
-        post = target_avail - disk_size_bytes        # type: ignore[operator]
-        msg = (f"fits available space: target '{target_storage}' has {_fmt_bytes(target_avail)} free; "
-               f"disk is {_fmt_bytes(disk_size_bytes)}; leaves {_fmt_bytes(post)} — but total capacity "
-               "is unreadable, so whether this leaves the target near-full cannot be assessed")
-        if n_co:
-            msg += (f". {n_co} guest(s) share this target — if it is near capacity they risk "
-                    "allocation pressure")
-        lines.append(msg)
-    else:  # fits
-        post = target_avail - disk_size_bytes        # type: ignore[operator]
-        msg = (f"fits: target '{target_storage}' has {_fmt_bytes(target_avail)} free; disk is "
-               f"{_fmt_bytes(disk_size_bytes)}; leaves {_fmt_bytes(post)} free")
-        if n_co and complete:
-            msg += f". {n_co} other guest(s) share this target, with headroom remaining"
-        elif n_co:
-            # complete=False → the count is a FLOOR, not exhaustive — never reassure on it.
-            msg += (f". at least {n_co} co-tenant(s) share this target — co-tenant list INCOMPLETE, "
-                    "not proof of safety")
-        lines.append(msg)
+    lines.extend(_disk_move_verdict_lines(
+        cap, target_storage, disk_size_bytes, target_avail, target_total, n_co, complete,
+    ))
     for e in affected:
         if e.severity == "unknown" and e.resource == "?":
             continue
@@ -683,6 +714,211 @@ class AclBlastResult:
     complete: bool = True
 
 
+def _acl_split_direct_inherited(
+    path: str, target: str, entries: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Partition the target's own ACL entries into (direct-at-path, inherited-from-an-ancestor).
+    An entry counts as inherited only if it sits above `path` (trailing-slash boundary) AND
+    propagates."""
+    direct: list[dict] = []
+    inherited: list[dict] = []
+    for entry in entries:
+        if entry.get("ugid", "") != target:
+            continue
+        entry_path = entry.get("path", "")
+        if entry_path == path:
+            direct.append(entry)
+        elif path.startswith(entry_path.rstrip("/") + "/") and entry.get("propagate", True):
+            inherited.append(entry)
+    return direct, inherited
+
+
+def _acl_group_inherited_roles(
+    path: str,
+    entries: list[dict],
+    target_groups: list[str] | None,
+    extra_inherited: dict[str, str] | None,
+) -> dict[str, str]:
+    """roleid -> via-label for roles the target inherits through ITS OWN group memberships
+    (an ancestor, propagated group grant) — folded in with (privsep=0 token only) the owning
+    user's direct propagated grants, passed in by the caller as `extra_inherited`.
+    Empty if `target_groups` is None (group-membership resolution unavailable)."""
+    group_inherited: dict[str, str] = {}
+    if target_groups is not None:
+        gset = set(target_groups)
+        for entry in entries:
+            if entry.get("type") != "group" or entry.get("ugid", "") not in gset:
+                continue
+            entry_path = entry.get("path", "")
+            if path.startswith(entry_path.rstrip("/") + "/") and entry.get("propagate", True):
+                group_inherited[entry.get("roleid", "")] = entry.get("ugid", "")
+    if extra_inherited:
+        group_inherited.update(extra_inherited)
+    return group_inherited
+
+
+def _acl_effective_change(
+    new_roles: set[str], delete: bool, current_direct_roles: set[str], inherited_roles: set[str],
+) -> tuple[bool, set[str], set[str]]:
+    """(has_direct, shadowed_inherited, widened) for this grant/revoke, given the roles the target
+    holds directly vs. by inheritance, before and after the change."""
+    has_direct = bool(current_direct_roles)
+    effective_before = current_direct_roles if has_direct else inherited_roles
+    if not delete:
+        effective_after = new_roles
+    else:
+        remaining_direct = current_direct_roles - new_roles
+        effective_after = remaining_direct if remaining_direct else inherited_roles
+    shadowed_inherited = inherited_roles - new_roles if not has_direct and not delete else set()
+    widened = effective_after - effective_before
+    return has_direct, shadowed_inherited, widened
+
+
+def _acl_grant_lines(
+    path: str, roles: str, target: str, shadowed_inherited: set[str], widened: set[str],
+) -> tuple[list[str], list[str], str]:
+    """blast lines + risk reasons + risk for a GRANT (delete=False)."""
+    blast: list[str] = []
+    reasons: list[str] = []
+    risk = RISK_MEDIUM
+    if shadowed_inherited:
+        sr = ", ".join(sorted(shadowed_inherited))
+        blast.append(
+            f"SHADOW WARNING: granting {roles!r} at {path!r} will REPLACE {target!r}'s "
+            f"INHERITED grants — the following inherited roles will NO LONGER apply at "
+            f"{path!r}: {sr}. (The specific-path entry takes precedence over ancestor "
+            "propagated grants.)"
+        )
+        reasons.append(
+            "granting a specific-path ACL replaces ancestor inherited (propagated) grants — "
+            f"inherited roles {{{sr}}} are shadowed (lost) at {path!r}"
+        )
+        risk = _max_risk(risk, RISK_HIGH)
+    if widened:
+        wr = ", ".join(sorted(widened))
+        blast.append(f"NEW privileges at {path!r}: {target!r} gains {wr}")
+        reasons.append(f"target gains new roles: {wr}")
+    if not shadowed_inherited and not widened:
+        blast.append(
+            f"grants {roles!r} to {target!r} at {path!r} — "
+            "no inherited grants detected to shadow; no new privileges detected"
+        )
+        reasons.append("no inherited grants to shadow; grant is additive at this path")
+    return blast, reasons, risk
+
+
+def _acl_revoke_lines(
+    path: str, roles: str, target: str, widened: set[str],
+) -> tuple[list[str], list[str], str]:
+    """blast lines + risk reasons + risk for a REVOKE (delete=True)."""
+    blast: list[str] = []
+    reasons: list[str] = []
+    risk = RISK_MEDIUM
+    if widened:
+        wr = ", ".join(sorted(widened))
+        blast.append(
+            f"WIDEN WARNING: revoking the specific entry at {path!r} for {target!r} "
+            f"RESTORES inherited grants — {target!r} will gain back: {wr}"
+        )
+        reasons.append(
+            "revoking a specific-path ACL restores inherited grants — "
+            f"the following roles become effective again at {path!r}: {wr}"
+        )
+        risk = _max_risk(risk, RISK_HIGH)
+    else:
+        blast.append(
+            f"revokes {roles!r} from {target!r} at {path!r} — no inherited grants detected "
+            "that would widen access after revoke"
+        )
+        reasons.append("no inherited grants detected; revoke is straightforward")
+    return blast, reasons, risk
+
+
+def _acl_scope_escalation(new_roles: set[str], path: str) -> tuple[list[str], list[str], bool]:
+    """Universal risk escalations independent of grant/revoke: Administrator is the widest possible
+    role; '/' and '/storage' are cluster/storage-wide scopes. Returns (lines, reasons, escalate_hi)."""
+    lines: list[str] = []
+    reasons: list[str] = []
+    escalate = False
+    if "Administrator" in new_roles:
+        lines.append("Administrator role grants ALL Proxmox privileges — this is the widest possible role")
+        reasons.append("Administrator = super-role with full cluster privileges")
+        escalate = True
+    if path in ("/", "/storage"):
+        lines.append(f"ACL at {path!r} affects ALL resources at that scope on the cluster")
+        reasons.append(f"path {path!r} is a high-blast scope (root or storage-wide)")
+        escalate = True
+    return lines, reasons, escalate
+
+
+def _acl_current_entry(current_direct_entries: list[dict]) -> dict:
+    """The current-state summary dict: the target's first direct entry at this exact path, or {}."""
+    if not current_direct_entries:
+        return {}
+    first = current_direct_entries[0]
+    return {k: first[k] for k in ("path", "roleid", "ugid", "propagate") if k in first}
+
+
+def _acl_affected_direct(
+    target: str,
+    kind: str,
+    path: str,
+    shadowed_inherited: set[str],
+    group_inherited: dict[str, str],
+    widened: set[str],
+    sev: str,
+) -> list[dict]:
+    """affected entries for the TARGET's own gains/losses (never the who-else context rows)."""
+    affected: list[dict] = []
+    if shadowed_inherited:
+        for role in sorted(shadowed_inherited):
+            grp = group_inherited.get(role)
+            via = f"inherited via group {grp}" if grp else "inherited (shadowed by the new direct entry)"
+            affected.append({
+                "principal": target, "kind": kind, "via": via,
+                "change": "loses", "roles": [role], "at": path, "severity": "high",
+            })
+    if widened:
+        affected.append({
+            "principal": target, "kind": kind, "via": "direct",
+            "change": "gains", "roles": sorted(widened), "at": path, "severity": sev,
+        })
+    return affected
+
+
+def _acl_who_else_context(
+    path: str, group_members: dict[str, list | None] | None,
+) -> tuple[list[dict], list[str], bool]:
+    """#2: who ELSE can reach this path (members of in-scope group ACL entries). CONTEXT only —
+    their access is UNCHANGED by editing the target's entry. Returns (affected, lines, incomplete)."""
+    affected: list[dict] = []
+    lines: list[str] = []
+    incomplete = False
+    if not group_members:
+        return affected, lines, incomplete
+    named: list[str] = []
+    for grp, members in group_members.items():
+        if members is None:
+            incomplete = True
+            lines.append(
+                f"could not enumerate members of group {grp!r} — "
+                "who-else-can-reach is INCOMPLETE (not a safety signal)"
+            )
+            continue
+        for m in members:
+            affected.append({
+                "principal": m, "kind": "group-member", "via": f"group {grp}",
+                "change": "unchanged", "roles": [], "at": path, "severity": "medium",
+            })
+            named.append(m)
+    if named:
+        lines.append(
+            f"also has access at this path — UNCHANGED by this change: {', '.join(named)} "
+            "(via group membership; their access is computed independently of the target's entry)"
+        )
+    return affected, lines, incomplete
+
+
 def compute_acl_blast(
     path: str,
     roles: str,
@@ -711,58 +947,16 @@ def compute_acl_blast(
     # to a clean "additive / safe" plan on a failed read.
     check_error = (acl_error or "ACL read failed (no detail)") if acl_entries is None else None
     entries = acl_entries or []
-
-    current_direct_entries: list[dict] = []
-    inherited_entries: list[dict] = []
-    if check_error is None:
-        for entry in entries:
-            ugid = entry.get("ugid", "")
-            entry_path = entry.get("path", "")
-            entry_propagate = entry.get("propagate", True)
-            if ugid != target:
-                continue
-            if entry_path == path:
-                current_direct_entries.append(entry)
-            elif path.startswith(entry_path.rstrip("/") + "/") and entry_propagate:
-                inherited_entries.append(entry)
-
-    inherited_roles: set[str] = {e.get("roleid", "") for e in inherited_entries}
-
-    # #1: fold in roles the TARGET inherits via THEIR OWN group memberships (ancestor, propagated).
-    # target_groups None => resolution unavailable (user_get failed / privsep token) -> stay incomplete.
-    group_inherited: dict[str, str] = {}   # roleid -> the group it came from (for naming)
     groups_resolved = target_groups is not None
-    if check_error is None and groups_resolved:
-        gset = set(target_groups or [])
-        for entry in entries:
-            if entry.get("type") != "group" or entry.get("ugid", "") not in gset:
-                continue
-            ep = entry.get("path", "")
-            if path.startswith(ep.rstrip("/") + "/") and entry.get("propagate", True):
-                group_inherited[entry.get("roleid", "")] = entry.get("ugid", "")
-        inherited_roles |= set(group_inherited)
-
-    # privsep=0 token: the token IS the owner — also fold the owner's DIRECT propagated grants
-    # (resolved by the caller from the ACL list) so they are shadowed too. role -> via label.
-    if check_error is None and extra_inherited:
-        group_inherited.update(extra_inherited)
-        inherited_roles |= set(extra_inherited)
-
-    current_direct_roles: set[str] = {e.get("roleid", "") for e in current_direct_entries}
-    has_direct = bool(current_direct_entries)
-    effective_before: set[str] = current_direct_roles if has_direct else inherited_roles
-    if not delete:
-        effective_after = new_roles
-    else:
-        remaining_direct = current_direct_roles - new_roles
-        effective_after = remaining_direct if remaining_direct else inherited_roles
-    shadowed_inherited = inherited_roles - new_roles if not has_direct and not delete else set()
-    widened = effective_after - effective_before
 
     blast: list[str] = []
     reasons: list[str] = []
     risk = RISK_MEDIUM
     complete = True
+    current_direct_entries: list[dict] = []
+    shadowed_inherited: set[str] = set()
+    widened: set[str] = set()
+    group_inherited: dict[str, str] = {}
 
     if check_error is not None:
         blast.append(
@@ -772,9 +966,22 @@ def compute_acl_blast(
         reasons.append(
             "ACL read failed — shadow/widen analysis unavailable; absence of a warning is not a safety signal"
         )
-        risk = RISK_HIGH
+        risk = _max_risk(risk, RISK_HIGH)
         complete = False
     else:
+        current_direct_entries, inherited_entries = _acl_split_direct_inherited(path, target, entries)
+        inherited_roles = {e.get("roleid", "") for e in inherited_entries}
+
+        # #1: fold in roles the TARGET inherits via THEIR OWN group memberships (ancestor, propagated),
+        # plus (privsep=0 token) the owning user's direct propagated grants.
+        group_inherited = _acl_group_inherited_roles(path, entries, target_groups, extra_inherited)
+        inherited_roles |= set(group_inherited)
+
+        current_direct_roles = {e.get("roleid", "") for e in current_direct_entries}
+        _has_direct, shadowed_inherited, widened = _acl_effective_change(
+            new_roles, delete, current_direct_roles, inherited_roles,
+        )
+
         group_entries_present = any(
             e.get("type") == "group" and (
                 e.get("path") == path or path.startswith(e.get("path", "").rstrip("/") + "/")
@@ -794,105 +1001,35 @@ def compute_acl_blast(
             )
             # Honesty contract: uncertainty that could HIDE a widen/shadow forces risk UP (the
             # disclosure line alone under-reports via the structured risk field). Over-flag is safe.
-            risk = RISK_HIGH
-        if not delete:
-            if shadowed_inherited:
-                sr = ", ".join(sorted(shadowed_inherited))
-                blast.append(
-                    f"SHADOW WARNING: granting {roles!r} at {path!r} will REPLACE {target!r}'s "
-                    f"INHERITED grants — the following inherited roles will NO LONGER apply at "
-                    f"{path!r}: {sr}. (The specific-path entry takes precedence over ancestor "
-                    "propagated grants.)"
-                )
-                reasons.append(
-                    "granting a specific-path ACL replaces ancestor inherited (propagated) grants — "
-                    f"inherited roles {{{sr}}} are shadowed (lost) at {path!r}"
-                )
-                risk = RISK_HIGH
-            if widened:
-                wr = ", ".join(sorted(widened))
-                blast.append(f"NEW privileges at {path!r}: {target!r} gains {wr}")
-                reasons.append(f"target gains new roles: {wr}")
-            if not shadowed_inherited and not widened:
-                blast.append(
-                    f"grants {roles!r} to {target!r} at {path!r} — "
-                    "no inherited grants detected to shadow; no new privileges detected"
-                )
-                reasons.append("no inherited grants to shadow; grant is additive at this path")
-        else:
-            if widened:
-                wr = ", ".join(sorted(widened))
-                blast.append(
-                    f"WIDEN WARNING: revoking the specific entry at {path!r} for {target!r} "
-                    f"RESTORES inherited grants — {target!r} will gain back: {wr}"
-                )
-                reasons.append(
-                    "revoking a specific-path ACL restores inherited grants — "
-                    f"the following roles become effective again at {path!r}: {wr}"
-                )
-                risk = RISK_HIGH
-            if not widened:
-                blast.append(
-                    f"revokes {roles!r} from {target!r} at {path!r} — no inherited grants detected "
-                    "that would widen access after revoke"
-                )
-                reasons.append("no inherited grants detected; revoke is straightforward")
+            risk = _max_risk(risk, RISK_HIGH)
 
-    if "Administrator" in new_roles:
-        blast.append("Administrator role grants ALL Proxmox privileges — this is the widest possible role")
-        reasons.append("Administrator = super-role with full cluster privileges")
-        risk = RISK_HIGH
-    if path in ("/", "/storage"):
-        blast.append(f"ACL at {path!r} affects ALL resources at that scope on the cluster")
-        reasons.append(f"path {path!r} is a high-blast scope (root or storage-wide)")
-        risk = RISK_HIGH
+        change_lines, change_reasons, change_risk = (
+            _acl_revoke_lines(path, roles, target, widened) if delete
+            else _acl_grant_lines(path, roles, target, shadowed_inherited, widened)
+        )
+        blast.extend(change_lines)
+        reasons.extend(change_reasons)
+        risk = _max_risk(risk, change_risk)
 
-    if not current_direct_entries:
-        current: dict = {}
-    else:
-        first = current_direct_entries[0]
-        current = {k: first[k] for k in ("path", "roleid", "ugid", "propagate") if k in first}
+    scope_lines, scope_reasons, scope_escalate = _acl_scope_escalation(new_roles, path)
+    blast.extend(scope_lines)
+    reasons.extend(scope_reasons)
+    if scope_escalate:
+        risk = _max_risk(risk, RISK_HIGH)
+
+    current = _acl_current_entry(current_direct_entries)
 
     affected: list[dict] = []
-    sev = "high" if risk == RISK_HIGH else "medium"
     if check_error is None:
-        if shadowed_inherited:
-            for role in sorted(shadowed_inherited):
-                grp = group_inherited.get(role)
-                via = f"inherited via group {grp}" if grp else "inherited (shadowed by the new direct entry)"
-                affected.append({
-                    "principal": target, "kind": kind, "via": via,
-                    "change": "loses", "roles": [role], "at": path, "severity": "high",
-                })
-        if widened:
-            affected.append({
-                "principal": target, "kind": kind, "via": "direct",
-                "change": "gains", "roles": sorted(widened), "at": path, "severity": sev,
-            })
-
-    # #2: who-ELSE can reach this path (members of group-type ACL entries at/above). CONTEXT only —
-    # their access is UNCHANGED by editing the target's entry (per-principal model). NEVER gains/loses.
-    if check_error is None and group_members:
-        named: list[str] = []
-        for grp, members in group_members.items():
-            if members is None:
-                complete = False
-                blast.append(
-                    f"could not enumerate members of group {grp!r} — "
-                    "who-else-can-reach is INCOMPLETE (not a safety signal)"
-                )
-                continue
-            for m in members:
-                affected.append({
-                    "principal": m, "kind": "group-member", "via": f"group {grp}",
-                    "change": "unchanged", "roles": [], "at": path, "severity": "medium",
-                })
-                named.append(m)
-        if named:
-            blast.append(
-                f"also has access at this path — UNCHANGED by this change: {', '.join(named)} "
-                "(via group membership; their access is computed independently of the target's entry)"
-            )
+        sev = "high" if risk == RISK_HIGH else "medium"
+        affected = _acl_affected_direct(
+            target, kind, path, shadowed_inherited, group_inherited, widened, sev,
+        )
+        who_affected, who_lines, who_incomplete = _acl_who_else_context(path, group_members)
+        affected.extend(who_affected)
+        blast.extend(who_lines)
+        if who_incomplete:
+            complete = False
 
     return AclBlastResult(summary_lines=blast, risk=risk, risk_reasons=reasons,
                           current=current, affected=affected, complete=complete)
@@ -1714,205 +1851,280 @@ def _purge_effect(purge: bool, what: str) -> str:
     return f"left DANGLING (purge=false); remove this {what} manually after the destroy"
 
 
-def compute_guest_destroy_blast(inp: GuestDestroyInputs) -> GuestDestroyBlastResult:
-    """Pure, no I/O. Classify what destroying inp.vmid does, conditional on purge/force.
-    Risk is RISK_HIGH unconditional (destroy is irreversible) and only ever raised."""
-    res = f"{inp.kind}/{inp.vmid}"
-    affected: list[dict] = []
-    summary: list[str] = [_GUEST_DESTROY_DISCLAIMER]
-    reasons: list[str] = []
-    risk = RISK_HIGH
-    complete = True
+@dataclass
+class _DestroyCheck:
+    """One classification's contribution to the aggregate: entries to add to `affected`, lines to
+    add to `summary`, risk-reason lines to add, and whether this check found the plan INCOMPLETE."""
 
-    # --- INFORMATIONAL: disks + storages (from the target's own config) ---
+    affected: list[dict] = field(default_factory=list)
+    summary: list[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
+    incomplete: bool = False
+
+
+def _destroy_disk_summary(inp: GuestDestroyInputs, res: str) -> _DestroyCheck:
+    """INFORMATIONAL: disks + storages freed (from the target's own config)."""
     if inp.guest_config is None:
-        complete = False
-        summary.append(f"could NOT read {res} config — cannot enumerate its disks")
-    else:
-        slots = _disk_slots(inp.guest_config)
-        storages = sorted(set(slots.values()))
-        for st in storages:
-            via = sorted(s for s, sto in slots.items() if sto == st)
-            affected.append({
-                "category": "informational", "kind": "disk", "ref": st,
-                "effect": f"frees disk(s) {', '.join(via)} on storage {st}",
-                "severity": "info",
-            })
-
-    # --- WON'T PROCEED: protection=1 (force does NOT override) ---
-    if inp.guest_config is not None and str(inp.guest_config.get("protection", 0)) in ("1", "True", "true"):
+        return _DestroyCheck(
+            summary=[f"could NOT read {res} config — cannot enumerate its disks"], incomplete=True,
+        )
+    slots = _disk_slots(inp.guest_config)
+    affected = []
+    for st in sorted(set(slots.values())):
+        via = sorted(s for s, sto in slots.items() if sto == st)
         affected.append({
+            "category": "informational", "kind": "disk", "ref": st,
+            "effect": f"frees disk(s) {', '.join(via)} on storage {st}",
+            "severity": "info",
+        })
+    return _DestroyCheck(affected=affected)
+
+
+def _destroy_protection_guard(inp: GuestDestroyInputs, res: str) -> _DestroyCheck:
+    """WON'T PROCEED: protection=1 (force does NOT override)."""
+    if inp.guest_config is None or str(inp.guest_config.get("protection", 0)) not in ("1", "True", "true"):
+        return _DestroyCheck()
+    return _DestroyCheck(
+        affected=[{
             "category": "wont_proceed", "kind": "protection", "ref": res,
             "effect": "PVE will REFUSE: protection=1 is set; force does NOT override — "
                       "unset protection first",
             "severity": "high",
-        })
-        reasons.append("would be REFUSED: protection=1 (force does not override)")
+        }],
+        reasons=["would be REFUSED: protection=1 (force does not override)"],
+    )
 
-    # --- WON'T PROCEED: running + force=False (force=True overrides this guard ONLY) ---
+
+def _destroy_running_guard(inp: GuestDestroyInputs, res: str) -> _DestroyCheck:
+    """WON'T PROCEED: running + force=False (force=True overrides ONLY this guard). status="unknown"
+    (the run-state re-read itself failed) with force=False is the ONE input that would otherwise
+    silently read as safe — the running guard never fires, so flag it incomplete instead of a false
+    "go". With force=True the running guard is overridden anyway, so an unknown status is moot."""
     if inp.status == "running" and not inp.force:
-        affected.append({
-            "category": "wont_proceed", "kind": "running", "ref": res,
-            "effect": "PVE will REFUSE: the guest is running; re-call with force=true to "
-                      "override the running guard (force does NOT override protection or "
-                      "template-with-clones)",
-            "severity": "high",
-        })
-        reasons.append("would be REFUSED: guest is running and force=false")
-    elif inp.status not in ("running", "stopped") and not inp.force:
-        # status="unknown" is the ONE input where unknown silently reads as safe — the running
-        # guard above never fires, so a clean complete=True "go" would be a FALSE pass on a guest
-        # that may actually be running. With force=True the running guard is overridden anyway, so
-        # an unknown run-state is irrelevant — only flag when force=False.
-        complete = False
-        summary.append(
-            f"could NOT confirm run-state of {res} (got {inp.status!r}); if it is running and "
-            "force=false, PVE will REFUSE the destroy."
+        return _DestroyCheck(
+            affected=[{
+                "category": "wont_proceed", "kind": "running", "ref": res,
+                "effect": "PVE will REFUSE: the guest is running; re-call with force=true to "
+                          "override the running guard (force does NOT override protection or "
+                          "template-with-clones)",
+                "severity": "high",
+            }],
+            reasons=["would be REFUSED: guest is running and force=false"],
         )
+    if inp.status not in ("running", "stopped") and not inp.force:
+        return _DestroyCheck(
+            summary=[
+                f"could NOT confirm run-state of {res} (got {inp.status!r}); if it is running and "
+                "force=false, PVE will REFUSE the destroy."
+            ],
+            incomplete=True,
+        )
+    return _DestroyCheck()
 
-    # --- WON'T PROCEED: template with linked clones (force does NOT override) ---
-    if inp.guest_config is not None and str(inp.guest_config.get("template", 0)) in ("1", "True", "true"):
-        if inp.clone_configs is None:
-            complete = False
-            summary.append(
+
+def _destroy_template_clone_guard(inp: GuestDestroyInputs, res: str) -> _DestroyCheck:
+    """WON'T PROCEED: template with linked clones (force does NOT override)."""
+    if inp.guest_config is None or str(inp.guest_config.get("template", 0)) not in ("1", "True", "true"):
+        return _DestroyCheck()
+    if inp.clone_configs is None:
+        return _DestroyCheck(
+            summary=[
                 f"{res} is a TEMPLATE but could NOT scan for linked clones — if any exist, "
                 "the destroy will be REFUSED"
-            )
-        else:
-            clones = sorted(
-                v for v, cfg in inp.clone_configs.items() if _is_linked_clone_of(cfg, str(inp.vmid))
-            )
-            if clones:
-                affected.append({
-                    "category": "wont_proceed", "kind": "template_clones",
-                    "ref": ", ".join(clones),
-                    "effect": f"PVE will REFUSE: this template has {len(clones)} linked clone(s) "
-                              f"({', '.join(clones)}); destroying it would corrupt them; force does "
-                              "NOT override",
-                    "severity": "high",
-                })
-                reasons.append(f"would be REFUSED: template has linked clone(s) {', '.join(clones)}")
-            # Even on a clean scan, name the blind spot: linked clones on directory/qcow2 storage
-            # record their backing chain in the qcow2 file, NOT the PVE config, so they are invisible
-            # to a config scan. Documented limitation (not a failed read) — caveat, never incomplete.
-            summary.append(
-                f"{res} is a TEMPLATE — linked-clone detection is config-based (covers "
-                "LVM-thin/ZFS/RBD backing); directory/qcow2 backing chains are not visible in "
-                "config and are NOT detected."
-            )
+            ],
+            incomplete=True,
+        )
+    affected: list[dict] = []
+    reasons: list[str] = []
+    clones = sorted(v for v, cfg in inp.clone_configs.items() if _is_linked_clone_of(cfg, str(inp.vmid)))
+    if clones:
+        affected.append({
+            "category": "wont_proceed", "kind": "template_clones",
+            "ref": ", ".join(clones),
+            "effect": f"PVE will REFUSE: this template has {len(clones)} linked clone(s) "
+                      f"({', '.join(clones)}); destroying it would corrupt them; force does "
+                      "NOT override",
+            "severity": "high",
+        })
+        reasons.append(f"would be REFUSED: template has linked clone(s) {', '.join(clones)}")
+    # Even on a clean scan, name the blind spot: linked clones on directory/qcow2 storage record
+    # their backing chain in the qcow2 file, NOT the PVE config, so they are invisible to a config
+    # scan. Documented limitation (not a failed read) — caveat, never incomplete.
+    summary = [
+        f"{res} is a TEMPLATE — linked-clone detection is config-based (covers "
+        "LVM-thin/ZFS/RBD backing); directory/qcow2 backing chains are not visible in "
+        "config and are NOT detected."
+    ]
+    return _DestroyCheck(affected=affected, summary=summary, reasons=reasons)
 
-    sid = f"{'vm' if inp.kind == 'qemu' else 'ct'}:{inp.vmid}"
 
-    # --- REFERENCE: HA resource (conditional on purge) ---
+def _destroy_ha_reference(inp: GuestDestroyInputs, sid: str) -> _DestroyCheck:
+    """REFERENCE: HA resource (conditional on purge)."""
     if inp.ha_resources is None:
-        complete = False
-        summary.append("could NOT read HA resources — cannot determine HA references")
-    else:
-        for hr in inp.ha_resources:
-            if str(hr.get("sid")) == sid:
-                affected.append({
-                    "category": "reference", "kind": "ha", "ref": sid,
-                    "effect": _purge_effect(inp.purge, "HA resource"),
-                    "severity": "info" if inp.purge else "medium",
-                })
+        return _DestroyCheck(
+            summary=["could NOT read HA resources — cannot determine HA references"], incomplete=True,
+        )
+    affected = [
+        {
+            "category": "reference", "kind": "ha", "ref": sid,
+            "effect": _purge_effect(inp.purge, "HA resource"),
+            "severity": "info" if inp.purge else "medium",
+        }
+        for hr in inp.ha_resources if str(hr.get("sid")) == sid
+    ]
+    return _DestroyCheck(affected=affected)
 
-    # --- REFERENCE: replication jobs (id == "<vmid>-N", exact vmid segment) ---
+
+def _destroy_replication_reference(inp: GuestDestroyInputs) -> _DestroyCheck:
+    """REFERENCE: replication jobs (id == "<vmid>-N", exact vmid segment)."""
     if inp.replication_jobs is None:
-        complete = False
-        summary.append("could NOT read replication jobs — cannot determine replication references")
-    else:
-        for job in inp.replication_jobs:
-            jid = str(job.get("id", ""))
-            head, _, tail = jid.partition("-")
-            if head == str(inp.vmid) and tail.isdigit():
-                affected.append({
-                    "category": "reference", "kind": "replication", "ref": jid,
-                    "effect": _purge_effect(inp.purge, "replication job"),
-                    "severity": "info" if inp.purge else "medium",
-                })
-
-    # --- REFERENCE: backup jobs (resolve per selection mode; only unrecognizable stays incomplete) ---
-    if inp.backup_jobs is None:
-        complete = False
-        summary.append("could NOT read backup jobs — cannot determine backup-job references")
-    else:
-        for job in inp.backup_jobs:
-            jid = str(job.get("id", "?"))
-            # PVE may serialize all=0/pool=""/exclude="" on explicit-vmid jobs; value-coercion
-            # (not key presence) is required to distinguish an active mode from a falsy default.
-            all_mode = str(job.get("all", 0)) in ("1", "True", "true")
-            pool_val = str(job.get("pool", "")).strip()
-            pool_mode = bool(pool_val)
-            exclude_set = {v.strip() for v in str(job.get("exclude", "")).split(",") if v.strip()}
-            vmid_set = {v.strip() for v in str(job.get("vmid", "")).split(",") if v.strip()}
-
-            # Tri-state coverage: True=covered, False=not covered, None=unresolvable.
-            if all_mode:
-                # all=1: every guest is covered UNLESS in the exclude list.
-                covered: bool | None = str(inp.vmid) not in exclude_set
-            elif pool_mode:
-                # pool=X: covered iff target is a member of that pool AND not excluded.
-                if inp.pools is None:
-                    covered = None  # pool data unreadable — cannot resolve
-                else:
-                    target_pools = {
-                        str(p.get("poolid", ""))
-                        for p in inp.pools
-                        if any(str(m.get("vmid")) == str(inp.vmid) for m in (p.get("members") or []))
-                    }
-                    covered = (pool_val in target_pools) and (str(inp.vmid) not in exclude_set)
-            elif vmid_set:
-                # Explicit vmid list (all=0/falsy, no pool): direct membership check.
-                covered = str(inp.vmid) in vmid_set
-            else:
-                # Unrecognizable selection (e.g. all=0, no pool, no vmid).
-                covered = None
-
-            if covered is None:
-                complete = False
-                summary.append(
-                    f"backup job {jid} uses an unresolvable selection — could NOT confirm whether "
-                    f"{inp.vmid} is covered"
-                )
-            elif covered:
-                affected.append({
-                    "category": "reference", "kind": "backup_job", "ref": jid,
-                    "effect": _purge_effect(inp.purge, "backup-job membership"),
-                    "severity": "info" if inp.purge else "medium",
-                })
-            # covered is False → resolved, not covered → no entry, no incomplete flag
-
-    # --- INFORMATIONAL: snapshots ---
-    if inp.snapshots is None:
-        complete = False
-        summary.append(f"could NOT read snapshots for {res} — cannot confirm what is removed")
-    else:
-        # PVE's snapshot endpoint always includes a synthetic {"name": "current"} entry (the live
-        # state, a reserved name) — it is NOT a real snapshot. Exclude it from the count/emit.
-        real = [s for s in inp.snapshots if s.get("name") != "current"]
-        if real:
+        return _DestroyCheck(
+            summary=["could NOT read replication jobs — cannot determine replication references"],
+            incomplete=True,
+        )
+    affected: list[dict] = []
+    for job in inp.replication_jobs:
+        jid = str(job.get("id", ""))
+        head, _, tail = jid.partition("-")
+        if head == str(inp.vmid) and tail.isdigit():
             affected.append({
-                "category": "informational", "kind": "snapshots", "ref": str(len(real)),
-                "effect": f"removes {len(real)} snapshot(s) with the guest",
+                "category": "reference", "kind": "replication", "ref": jid,
+                "effect": _purge_effect(inp.purge, "replication job"),
+                "severity": "info" if inp.purge else "medium",
+            })
+    return _DestroyCheck(affected=affected)
+
+
+def _backup_job_coverage(job: dict, vmid: str, pools: list[dict] | None) -> bool | None:
+    """Tri-state coverage of `vmid` by one backup job's selection: True=covered, False=not covered,
+    None=unresolvable. PVE may serialize all=0/pool=""/exclude="" on explicit-vmid jobs; value-
+    coercion (not key presence) is required to distinguish an active mode from a falsy default."""
+    all_mode = str(job.get("all", 0)) in ("1", "True", "true")
+    pool_val = str(job.get("pool", "")).strip()
+    exclude_set = {v.strip() for v in str(job.get("exclude", "")).split(",") if v.strip()}
+    vmid_set = {v.strip() for v in str(job.get("vmid", "")).split(",") if v.strip()}
+
+    if all_mode:
+        # all=1: every guest is covered UNLESS in the exclude list.
+        return vmid not in exclude_set
+    if pool_val:
+        # pool=X: covered iff target is a member of that pool AND not excluded.
+        if pools is None:
+            return None  # pool data unreadable — cannot resolve
+        target_pools = {
+            str(p.get("poolid", ""))
+            for p in pools
+            if any(str(m.get("vmid")) == vmid for m in (p.get("members") or []))
+        }
+        return (pool_val in target_pools) and (vmid not in exclude_set)
+    if vmid_set:
+        # Explicit vmid list (all=0/falsy, no pool): direct membership check.
+        return vmid in vmid_set
+    return None  # unrecognizable selection (e.g. all=0, no pool, no vmid)
+
+
+def _destroy_backup_reference(inp: GuestDestroyInputs) -> _DestroyCheck:
+    """REFERENCE: backup jobs (resolved per selection mode; only an unresolvable selection stays
+    incomplete)."""
+    if inp.backup_jobs is None:
+        return _DestroyCheck(
+            summary=["could NOT read backup jobs — cannot determine backup-job references"],
+            incomplete=True,
+        )
+    vmid = str(inp.vmid)
+    affected: list[dict] = []
+    summary: list[str] = []
+    incomplete = False
+    for job in inp.backup_jobs:
+        jid = str(job.get("id", "?"))
+        covered = _backup_job_coverage(job, vmid, inp.pools)
+        if covered is None:
+            incomplete = True
+            summary.append(
+                f"backup job {jid} uses an unresolvable selection — could NOT confirm whether "
+                f"{vmid} is covered"
+            )
+        elif covered:
+            affected.append({
+                "category": "reference", "kind": "backup_job", "ref": jid,
+                "effect": _purge_effect(inp.purge, "backup-job membership"),
+                "severity": "info" if inp.purge else "medium",
+            })
+        # covered is False → resolved, not covered → no entry, no incomplete flag
+    return _DestroyCheck(affected=affected, summary=summary, incomplete=incomplete)
+
+
+def _destroy_snapshot_summary(inp: GuestDestroyInputs, res: str) -> _DestroyCheck:
+    """INFORMATIONAL: snapshots removed with the guest. PVE's snapshot endpoint always includes a
+    synthetic {"name": "current"} entry (the live state) — it is NOT a real snapshot and is excluded
+    from the count/emit."""
+    if inp.snapshots is None:
+        return _DestroyCheck(
+            summary=[f"could NOT read snapshots for {res} — cannot confirm what is removed"],
+            incomplete=True,
+        )
+    real = [s for s in inp.snapshots if s.get("name") != "current"]
+    if not real:
+        return _DestroyCheck()
+    return _DestroyCheck(affected=[{
+        "category": "informational", "kind": "snapshots", "ref": str(len(real)),
+        "effect": f"removes {len(real)} snapshot(s) with the guest",
+        "severity": "info",
+    }])
+
+
+def _destroy_pool_summary(inp: GuestDestroyInputs, res: str) -> _DestroyCheck:
+    """INFORMATIONAL: pool membership removed with the guest."""
+    if inp.pools is None:
+        return _DestroyCheck(
+            summary=[f"could NOT read pools — cannot confirm {res} pool membership"], incomplete=True,
+        )
+    affected = []
+    for p in inp.pools:
+        members = p.get("members") or []
+        if any(str(m.get("vmid")) == str(inp.vmid) for m in members):
+            affected.append({
+                "category": "informational", "kind": "pool", "ref": str(p.get("poolid", "")),
+                "effect": f"removes {res} from pool {p.get('poolid')}",
                 "severity": "info",
             })
+    return _DestroyCheck(affected=affected)
 
-    # --- INFORMATIONAL: pool membership ---
-    if inp.pools is None:
-        complete = False
-        summary.append(f"could NOT read pools — cannot confirm {res} pool membership")
-    else:
-        for p in inp.pools:
-            members = p.get("members") or []
-            if any(str(m.get("vmid")) == str(inp.vmid) for m in members):
-                affected.append({
-                    "category": "informational", "kind": "pool", "ref": str(p.get("poolid", "")),
-                    "effect": f"removes {res} from pool {p.get('poolid')}",
-                    "severity": "info",
-                })
+
+def compute_guest_destroy_blast(inp: GuestDestroyInputs) -> GuestDestroyBlastResult:
+    """Pure, no I/O. Classify what destroying inp.vmid does, conditional on purge/force.
+    Risk is RISK_HIGH unconditional (destroy is irreversible) and only ever raised.
+
+    Three outcome categories, each its own check below: WON'T PROCEED (PVE will refuse — protection,
+    running+force=false, template-with-clones), REFERENCE (HA / replication / backup — conditional on
+    purge), INFORMATIONAL (disks, snapshots, pool). Each check reports independently; this function
+    only aggregates (never raises risk beyond the unconditional HIGH, never lowers `complete`)."""
+    res = f"{inp.kind}/{inp.vmid}"
+    sid = f"{'vm' if inp.kind == 'qemu' else 'ct'}:{inp.vmid}"
+    affected: list[dict] = []
+    summary: list[str] = [_GUEST_DESTROY_DISCLAIMER]
+    reasons: list[str] = []
+    complete = True
+
+    for check in (
+        _destroy_disk_summary(inp, res),
+        _destroy_protection_guard(inp, res),
+        _destroy_running_guard(inp, res),
+        _destroy_template_clone_guard(inp, res),
+        _destroy_ha_reference(inp, sid),
+        _destroy_replication_reference(inp),
+        _destroy_backup_reference(inp),
+        _destroy_snapshot_summary(inp, res),
+        _destroy_pool_summary(inp, res),
+    ):
+        affected.extend(check.affected)
+        summary.extend(check.summary)
+        reasons.extend(check.reasons)
+        if check.incomplete:
+            complete = False
 
     return GuestDestroyBlastResult(
-        summary_lines=summary, affected=affected, risk=risk,
+        summary_lines=summary, affected=affected, risk=RISK_HIGH,
         risk_reasons=reasons, complete=complete,
     )
 

@@ -4,6 +4,159 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-02
+
+**Zero-trust arc — a CONTAIN kill-switch and its siblings, a prompt-injection TAINT control, plus an
+automated PROVE anchor.** Six new opt-in, out-of-band controls (a **CONTAIN** kill-switch, independent
+**CONSENT**, an arm-time **SCOPE** gate, an arm-**LEASE** TTL, a two-commit per-surface **ENVELOPE**,
+and a content-trust **TAINT** control), each wired at the 5 mutation seams with the same fail-closed,
+out-of-band discipline. Also automates the off-box PROVE head-pin, closes a config-loading footgun
+that could leave CONSENT silently inert, adds one enforcement tool, and (review follow-ups) hardens
+the PROVE ledger against symlink redirection, reorders the rate wall after consent, and truth-sizes
+the security docs. **+1 tool (351 → 352).** Full suite 5068 green (3 skipped),
+ruff + pyright clean. Every new gate is **opt-in and inert until its env var is set** — these are
+independent controls, not a bundled "pillar" system; see `SECURITY.md` "The two-deployment trust
+model" and its controls-and-defaults table for what each one honestly holds.
+
+### Added
+- **TAINT control — prompt-injection mitigation** (`taint.py`; `PROXIMO_TAINT_TRACK` /
+  `PROXIMO_TAINT_FORBID` / `PROXIMO_TAINT_REQUIRE_CONSENT` / `PROXIMO_TAINT_FENCE`) — opt-in, off by
+  default, a **minor** capability when released. Classifies every tool whose return carries
+  guest/external-authored bytes (`ADVERSARIAL_TOOLS` — logs, quarantine/tracker, config free-text, and
+  the exec-output tools `ct_exec`/`ct_psql`/`pve_agent_exec` + in-guest `pve_agent_file_read`), pinned
+  by a completeness test that fails CI on an unclassified new tool. Reading adversarial content sets a
+  **sticky, file-backed** taint marker beside the ledger (fail-closed, fresh-stat, out-of-band clear
+  only; survives restart; a consumed CONSENT grant never clears it) and stamps `untrusted:true` on the
+  ledger entry. Once tainted, `PROXIMO_TAINT_FORBID` refuses a pre-declared action set outright
+  (`blocked:taint_forbidden`, the primary — no consent escape, before consent at every seam) and
+  `PROXIMO_TAINT_REQUIRE_CONSENT` makes CONSENT mandatory for the in-domain residue (fail-closed as
+  `blocked:taint_consent_unconfigured` if the consent dir is unset). A marker-write failure fails
+  closed (`blocked:taint_mark_failed`) rather than serving untracked output. `PROXIMO_TAINT_FENCE` adds
+  an advisory content-fence (result-field only; never a guarantee). Inert until an env var is set —
+  zero behavior change by default. `SECURITY.md` "Prompt injection" rewritten with the tiered mitigation
+  + the two-instance-split headline recommendation + honest limits; 3-lens redteam (self + correctness
+  + injection), all findings closed. No tool-count change (352). ~180 tests.
+- **CONTAIN kill-switch** (`contain.py`; `PROXIMO_CONTAIN_TRIP_PATH`) — the out-of-band emergency stop
+  the rest of the arc is built around: while the trip file exists, every mutation is refused before the
+  backend call and audited (outcome `contained`), checked FIRST at all 5 mutation seams so it overrides
+  every other gate. The trip is read FRESH each call; fail-closed on a perm/garbled trip path (an
+  unreadable trip denies rather than assuming clear); reads and dry-run PLAN stay ungated so DIAGNOSE
+  still works while contained. The operator's real velocity backstop against a hijacked agent — the
+  lever that still holds even though the rate wall is not tamper-evident. Opt-in, inert when unset. 10 tests.
+- **Off-box PROVE anchor** (`audit_anchor.py`) — automates the "pin the ledger head off-box" strong
+  guarantee: a `FileSink` pins `head()` to a file (an NFS/object-store path the box can write but not
+  rewrite), auto-pinned at startup and exportable on-demand from `audit_verify`. Anti-poisoning
+  invariant: the on-demand export advances the pin only on first run or an unchanged head — it never
+  re-pins to a moved head, so a verify run that *detects* a truncation can't overwrite the good pin
+  with the tampered one; a moved head instead surfaces as a directional `anchor_hint`. Fail-closed: an
+  unreachable/corrupt sink refuses the call rather than pass a stale pin off as clean. 25 tests
+  including the RED-proven invariant "never re-pins to a head other than the previously-pinned one."
+- **Independent CONSENT** (`consent.py`; `PROXIMO_CONSENT_DIR` / `PROXIMO_CONSENT_TTL_SECONDS`) —
+  closes two trust holes: self-asserted authorization (`confirm=` is only the agent's own bool) and
+  session-not-per-request trust (an armed session otherwise opens an unlimited mutation window). A
+  mutation now proceeds only if an unexpired grant file for *this exact plan* exists in the consent
+  dir, placed by a human out-of-band — never an MCP tool — and consuming it is single-use
+  (`consent_id` hashes the plan's stable decision-relevant fields, not volatile telemetry). Wired
+  beside CONTAIN at all 5 mutation seams; opt-in, inert when unset. **Known limit**
+  (`docs/known-issues.md`): this only closes the gap if the agent's own shell cannot write the grant
+  dir. 19 tests, including 4 exec-family bypass proofs and interleaved-context isolation.
+- **`pve_acl_prune`** (gap #6) — the enforcement counterpart to `pve_overbroad_grants`, which detected
+  accreting Administrator/root grants but never removed them. Revokes a flagged over-broad grant and
+  optionally re-grants a narrower one, routed through the full spine: dual blast-radius (revoke leg +
+  re-grant leg, merged, risk never lowered), PROVE, confirm-gated, per-grant — no bulk-prune.
+  `pve_acl_modify` / `plan_acl_modify` gain `kind="group"` support. **Tool count 351 → 352.** 30 tests
+  + a 3-lens adversarial redteam (gating / disclosure-merge / secret-validation) that caught and fixed
+  one HIGH: the re-grant leg used a stale revoke-path shadow context, under-reporting risk for
+  `privsep=0` tokens.
+- **Arm-time target-scope gate** (`provenance.py`; `PROXIMO_SCOPE_PATH`) — an out-of-band JSON scope
+  file (`{"targets": [...]}`) declares which guests/targets an armed session may mutate; an
+  instruction targeting a guest outside the declared scope is refused before the backend call and
+  audited (`blocked:out_of_scope`), and a garbled/unreadable/empty scope file refuses all mutations
+  (`blocked:scope_unreadable`). Guest-identity targets normalize (`lxc/N:action` → `lxc/N`) but never
+  cross kind or plane; the gate takes no caller-supplied parameter — scope is file-only, closing the
+  self-authorization path. **Honest ceiling:** an in-scope action is still unauthenticated as-to-intent
+  (max-risk ceiling, scope expiry, and a signed task-token are deferred fast-follows). 46 tests + a
+  3-lens redteam (coverage / matching-rule / fail-closed) that caught one Med-High (a snapshot-plan
+  false-authorize).
+- **Auto-expiring arm TTL** (`lease.py`; `PROXIMO_ARM_TTL` + `PROXIMO_TOKEN_PATH`) — closes
+  fail-open-over-time: armed write-authority previously survived session-end/crash/reboot indefinitely,
+  reverting only on a manual `disarm`. Authority now auto-expires N seconds after the arm token's
+  mtime (the arm step stamps it via `install -m 600`). Fail-closed on a garbled/non-positive TTL, an
+  unset/missing token path, a non-regular-file path, or a future mtime (clock skew — never "assume
+  fresh"). Reads and dry-run PLAN stay ungated, so an expired lease auto-downgrades arm to read-only.
+  16 tests, including 2 redteam regressions (future-mtime and directory-token-path fail-opens).
+- **Per-surface autonomy envelope — FORBID + RATE/BUDGET walls** (`envelope.py`; `PROXIMO_FORBID` /
+  `PROXIMO_RATE_MAX` / `PROXIMO_RATE_WINDOW`, shipped as two commits). The operator declares limits
+  once per surface; the agent runs autonomously inside them; the system enforces by construction; the
+  human is on-exception — not a per-action human-in-the-loop lever.
+  - **FORBID** (commit 1/2) — a deterministic per-target/per-action denylist, resolved
+    kind-agnostically so it gates every plane uniformly. Composite matching (action + target +
+    `detail["action"]`, not tool name) closes sub-action holes in `pve_guest_power`,
+    `node_service_control`, and `pmg_quarantine_action`; a global floor (`PROXIMO_FORBID`) applies to
+    every mutation regardless of target and cannot be escaped; an unregistered active target fails
+    closed rather than going silently inert. 18 tests.
+  - **RATE/BUDGET** (commit 2/2) — a per-box, `flock`-guarded, sliding-window mutation-rate limiter,
+    the answer to velocity-under-hijack: an atomic reservation file (temp + `os.replace`, crash-safe)
+    keyed by `base_url` (physical box identity), capped at the *tightest* limit across every
+    name/env config for that box so a caller can't dodge it by omitting or swapping
+    `proximo_target`. Per-operation de-dup so a multi-seam mutation reserves exactly one slot.
+    Replaces a naive whole-ledger-count design from the WIP, refuted by a 3-lens redteam for
+    concurrency races and per-instance undercounting. That same redteam found and fixed 7 further
+    hardening gaps: `rate_window<=0` fail-open, NaN/±inf slot values slipping the fail-closed branch,
+    an unaudited reservation-read crash, a followable lock-sidecar symlink, a window-blind tie-break,
+    and unbounded reservation-file growth. **Honest limit** (stated in the module docstring): the
+    reservation file is **not tamper-evident** — a co-located agent with write access to the
+    reservation dir can reset its own budget; CONTAIN's out-of-band kill is the real velocity
+    backstop. 18 more tests (39 total in `test_envelope.py`); a 20-thread concurrency barrier
+    confirmed exactly-k (3) reservations and per-box isolation.
+
+### Security
+- **`proximo.env` now actually loads at startup**, closing a footgun that left the new gates above
+  silently inert. Under stdio the server previously saw only the MCP client's inline env block, so a
+  `PROXIMO_*` var set in the documented `~/.config/proximo/proximo.env` was ignored without warning —
+  **fail-dangerous for CONSENT**: `PROXIMO_CONSENT_DIR` set there left the gate silently off while the
+  operator believed every mutation needed sign-off. `load_env_file()` now sources the file first thing
+  in `server.main()` / `proximo-a2a`, filling only unset `PROXIMO_*` keys (real/inline env always
+  wins), touching only that namespace (no `PATH`/`LD_*` injection); a missing file is a no-op, and a
+  loaded file announces itself on stderr. Also fixes the identical pre-existing gap for
+  `PROXIMO_ENABLE_EXEC` and its siblings. 8 tests, including namespace isolation and an
+  env-wins-over-file precedence check.
+- **PROVE ledger hardened against symlink redirection** — the audit append and both rotation
+  sidecar-lock opens now use `O_NOFOLLOW`, and the ledger/key **directories** refuse a symlinked path
+  (`islink` guard) before `makedirs`. Closes a co-located-writer escape on the flagship pillar: a
+  planted symlink at the ledger path — or its parent dir — could previously redirect tamper-evident
+  appends onto an arbitrary target the service can write. Brings PROVE to parity with the ENVELOPE
+  rate-lock's existing guard. 7 symlink/concurrency tests, including real-`flock` barrier proofs the
+  ledger had lacked.
+- **Rate wall now evaluated AFTER consent** — the per-surface RATE reservation was split out of the
+  envelope check and moved below `enforce_consent` at all 5 seams, so a consent-refused mutation no
+  longer spends a slot from the box's budget. Closes an operator-DoS lever: a looping/hijacked agent
+  could otherwise burn the whole window's budget on attempts consent would refuse, denying the human's
+  own approved mutations. FORBID stays an early hard wall (spends nothing); fail-closed semantics and
+  the one-slot-per-operation de-dup are unchanged.
+
+### Changed
+- **Docs truth-sized to shipped defaults.** `SECURITY.md` gains a "two-deployment trust model" (the
+  Proxmox token is the hard floor, enforced by server-side RBAC; the in-process gates are a boundary
+  only when their state paths sit outside the agent's reach), a controls-and-defaults table (which
+  gates are on-by-default vs opt-in, with their env vars), and a prompt-injection / untrusted-tool-
+  output section. `README.md` and the dev docs reframed off "four pillars" → "four on by default +
+  opt-in controls" (explicitly not marketed as a bundled "pillar" system).
+- **Release / CI hygiene.** `server.json`'s version fields are now covered by the version-consistency
+  gate (`scripts/version_tools.py` check/set/release); the Trivy image scan and the internal-mirror
+  CI's `pip-audit` are now blocking (both verified clean first). PMG who/what/when group CRUD collapsed to shared generics
+  (public API unchanged); `blast.py`'s two largest functions decomposed and an mccabe complexity gate
+  added; a CONTAIN/envelope live-smoke script added (FORBID + concurrent RATE barrier vs a real host).
+
+### Fixed
+- **`pve_acme_plugin_create` / `pve_acme_plugin_update` crashed whenever `dns_api` was set.** The
+  wrappers map `dns_api` onto PVE's `api` body field via `kw["api"]`, but the acme_certs.py helpers'
+  own first positional parameter (the backend) was also named `api`, so `**kw` collided
+  (`TypeError: got multiple values for argument 'api'`). Because `dns_api` (the DNS provider) is the
+  primary real use of these tools, both were unusable — update crashed on dry-run *and* execute,
+  create on execute. Renamed the backend param to `backend`. Surfaced by the new per-wrapper
+  request-shape sweep; regression-tested on the confirm=True executor path the sweep can't reach.
+
 ## [0.12.0] — 2026-06-30
 
 **The `doctor` preflight goes multi-target-aware, plus a PMG login-concurrency fix. No new tools

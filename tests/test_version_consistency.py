@@ -12,6 +12,22 @@ def test_live_repo_is_version_consistent():
     assert problems == [], "version drift:\n" + "\n".join(problems)
 
 
+def _server_json(version: str) -> str:
+    return (
+        "{\n"
+        '  "name": "io.github.x/x",\n'
+        f'  "version": "{version}",\n'
+        '  "packages": [\n'
+        "    {\n"
+        '      "registryType": "pypi",\n'
+        '      "identifier": "x",\n'
+        f'      "version": "{version}"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+    )
+
+
 def test_checker_flags_a_mismatch(tmp_path):
     # Build a tiny fake repo with a deliberate pyproject/__init__ mismatch.
     (tmp_path / "pyproject.toml").write_text(
@@ -21,6 +37,7 @@ def test_checker_flags_a_mismatch(tmp_path):
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text('__version__ = "9.9.9"\n', encoding="utf-8")
     (tmp_path / "CHANGELOG.md").write_text("## [1.2.3]\n", encoding="utf-8")
+    (tmp_path / "server.json").write_text(_server_json("1.2.3"), encoding="utf-8")
     problems = version_tools.check_consistency(tmp_path)
     assert any("!=" in p for p in problems)
 
@@ -33,8 +50,45 @@ def test_checker_flags_missing_changelog_entry(tmp_path):
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
     (tmp_path / "CHANGELOG.md").write_text("## [Unreleased]\n", encoding="utf-8")
+    (tmp_path / "server.json").write_text(_server_json("1.2.3"), encoding="utf-8")
     problems = version_tools.check_consistency(tmp_path)
     assert any("CHANGELOG" in p for p in problems)
+
+
+def test_checker_flags_server_json_top_level_mismatch(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.2.3"\n', encoding="utf-8"
+    )
+    pkg = tmp_path / "src" / "proximo"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("## [1.2.3]\n", encoding="utf-8")
+    (tmp_path / "server.json").write_text(_server_json("1.2.3"), encoding="utf-8")
+    # Drift the top-level version only, leaving packages[0].version aligned.
+    drifted = (tmp_path / "server.json").read_text(encoding="utf-8").replace(
+        '"version": "1.2.3",\n', '"version": "9.9.9",\n', 1
+    )
+    (tmp_path / "server.json").write_text(drifted, encoding="utf-8")
+    problems = version_tools.check_consistency(tmp_path)
+    assert any("server.json top-level version" in p for p in problems)
+
+
+def test_checker_flags_server_json_package_version_mismatch(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.2.3"\n', encoding="utf-8"
+    )
+    pkg = tmp_path / "src" / "proximo"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("## [1.2.3]\n", encoding="utf-8")
+    (tmp_path / "server.json").write_text(_server_json("1.2.3"), encoding="utf-8")
+    # Drift the packages[0].version only, leaving the top-level version aligned.
+    drifted = (tmp_path / "server.json").read_text(encoding="utf-8").replace(
+        '"version": "1.2.3"\n', '"version": "9.9.9"\n', 1
+    )
+    (tmp_path / "server.json").write_text(drifted, encoding="utf-8")
+    problems = version_tools.check_consistency(tmp_path)
+    assert any("server.json packages[0]" in p for p in problems)
 
 
 def _release_repo(tmp_path: Path, pyproj_ver: str, top_changelog_ver: str | None = None) -> Path:
@@ -48,6 +102,7 @@ def _release_repo(tmp_path: Path, pyproj_ver: str, top_changelog_ver: str | None
     (tmp_path / "CHANGELOG.md").write_text(
         f"## [Unreleased]\n\n## [{top}]\n", encoding="utf-8"
     )
+    (tmp_path / "server.json").write_text(_server_json(pyproj_ver), encoding="utf-8")
     return tmp_path
 
 

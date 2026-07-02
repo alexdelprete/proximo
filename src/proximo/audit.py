@@ -7,6 +7,8 @@ HMAC-SHA256 under an operator key. Altering, inserting, reordering, or removing
 any *interior* entry breaks the chain, and verify() pinpoints the first break. **Tail operations** —
 deleting the last entry, appending a forged entry, or wiping the file — are NOT caught by a forward
 walk alone; pass `verify(expected_head=...)` with a head() value you pinned off-box to detect them.
+The off-box pin can be automated: see ``audit_anchor.py`` (the FileSink anchor auto-pins head() and
+audit_verify() re-exports it), but the guarantee still rests on the sink being off-box, not the code.
 
 Keyed mode (default — controlled by ``PROXIMO_AUDIT_KEYED``, opt out with ``off``/``0``/``false``/``no``):
     With a key, entry_hash = HMAC-SHA256(key, prev_hash + canonical(body)) and each entry carries
@@ -113,6 +115,12 @@ def load_or_create_key(path: str) -> bytes:
     """
     path = os.path.expanduser(path)
     directory = os.path.dirname(path) or "."
+    if os.path.islink(directory):
+        # A symlinked key directory could redirect the audit key (and its atomic-link publish) onto a
+        # path chosen by whoever planted the link. O_NOFOLLOW on the file open only catches a symlinked
+        # FILE, not a symlinked parent dir — refuse rather than create through it (mirrors
+        # envelope._rate_reserve's reservation-dir guard).
+        raise OSError(f"refusing to use a symlinked audit-key directory: {directory!r}")
     os.makedirs(directory, exist_ok=True)
     if not os.path.exists(path):
         # Generate + publish ATOMICALLY: write a 0600 temp in the same dir, then os.link it into place.
@@ -196,8 +204,11 @@ def seal_and_rotate(log_path: str, key: bytes) -> tuple[str, str]:
     old log.
     """
     lock_path = log_path + ".lock"
+    # O_NOFOLLOW: a co-located writer that plants `<log>.lock` as a symlink must not have the
+    # flock silently redirected onto (and, via O_CREAT, potentially create) an arbitrary target
+    # path — that's a containment escape. Opening a symlinked lock path raises OSError (ELOOP).
     with open(lock_path, "a+", encoding="utf-8",
-              opener=lambda p, flags: os.open(p, flags, 0o600)) as lf:
+              opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
         try:
             if detect_mode(log_path) != "unkeyed":
@@ -246,8 +257,11 @@ def seal_keyed_and_rotate(log_path: str) -> tuple[str, str]:
     process already handled it. NEVER deletes the old log.
     """
     lock_path = log_path + ".lock"
+    # O_NOFOLLOW: a co-located writer that plants `<log>.lock` as a symlink must not have the
+    # flock silently redirected onto (and, via O_CREAT, potentially create) an arbitrary target
+    # path — that's a containment escape. Opening a symlinked lock path raises OSError (ELOOP).
     with open(lock_path, "a+", encoding="utf-8",
-              opener=lambda p, flags: os.open(p, flags, 0o600)) as lf:
+              opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
         try:
             if detect_mode(log_path) != "keyed":
@@ -298,6 +312,12 @@ class AuditLedger:
         self.key = key
         directory = os.path.dirname(path)
         if directory:
+            if os.path.islink(directory):
+                # A symlinked ledger directory redirects every ledger write onto an attacker-chosen
+                # path; the per-file O_NOFOLLOW on record()'s append can't catch a symlinked PARENT.
+                # Refuse rather than write the tamper-evident ledger through it (mirrors
+                # envelope._rate_reserve's reservation-dir guard).
+                raise OSError(f"refusing to use a symlinked audit-ledger directory: {directory!r}")
             os.makedirs(directory, exist_ok=True)
 
     @property
@@ -352,8 +372,12 @@ class AuditLedger:
         # Hold an exclusive lock across read-prev + append so the chain stays consistent under concurrency.
         # Owner-only on creation: entries carry command/SQL detail, so the umask default is too open.
         # (Applies at creation only — an existing file keeps whatever mode the operator set.)
+        # O_NOFOLLOW: a co-located writer that plants the ledger path itself as a symlink must not
+        # have appends silently redirected onto (and, via O_CREAT, potentially created at) an
+        # arbitrary target the service can write — that's a containment escape on the PROVE
+        # ledger. Opening a symlinked ledger path raises OSError (ELOOP) instead of following it.
         with open(self.path, "a+", encoding="utf-8",
-                  opener=lambda p, flags: os.open(p, flags, 0o600)) as f:
+                  opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as f:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             try:
                 f.seek(0)

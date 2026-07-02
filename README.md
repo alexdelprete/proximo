@@ -50,16 +50,30 @@ Those backends are deliberately boring — anyone can call them. **The product i
 
 ## The trust layer — what makes Proximo different
 
-Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the **trust layer for AI-driven infrastructure** — four pillars:
+Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the **trust layer for AI-driven infrastructure** — four controls on by default, plus additional controls you opt into:
 
-| Pillar | What it does | Status |
+| Control | What it does | Status |
 |---|---|---|
-| **PLAN** | Dry-run by default: every mutation first returns a preview — the exact change, the guest's live state, blast radius, and an honest (advisory, heuristic) risk rating — recorded to the ledger. A mutation can't run without its plan being built and recorded first. (It's a recorded *preview*, not a separate human approval step: one `confirm=true` call records the plan **and** performs the change — so in an agent loop, review the preview yourself.) | ✅ built + redteamed |
-| **PROVE** | Hash-chained audit ledger; plans and confirmations both land in it. `audit_verify` is tamper-**evident** — it catches edits, reordering, and insertion. The ledger is **keyed (HMAC-SHA256) by default** (`PROXIMO_AUDIT_KEYED`; opt out with `off`). Catching tail truncation / forged append / full wipe requires an off-box head anchor: pin `audit_verify`'s `"head"` value somewhere the box can't rewrite it and pass it as `expected_head` (or set `PROXIMO_AUDIT_EXPECTED_HEAD`) — that is the strong guarantee. See the honesty note below. | ✅ built + redteamed |
-| **UNDO** | Heterogeneous by plane, fail-closed where present: opt-in auto-snapshot before a risky `ct_exec`/`ct_psql` (waited-on, fail-closed if storage can't snapshot); config-revert for guest config; `pve_rollback` + full snapshot lifecycle for guests. Not every PVE plane is snapshottable — firewall/SDN/ACL/token have no rollback primitive — so UNDO covers the snapshottable surface, not every mutation. Undo points aren't auto-pruned — delete with `pve_snapshot_delete`. (Snapshot/rollback are async — poll with `pve_task_status`.) | ✅ built + redteamed |
-| **DIAGNOSE** | Read-only evidence battery (failed units, disk, errors, memory, listening ports) + node health (storage/tasks) → advisory flags. Flags surface *incompleteness* too, so an empty list never reads as a false clean bill. | ✅ built + redteamed |
+| **PLAN** | Dry-run by default: every mutation first returns a preview — the exact change, the guest's live state, blast radius, and an honest (advisory, heuristic) risk rating — recorded to the ledger. A mutation can't run without its plan being built and recorded first. (It's a recorded *preview*, not a separate human approval step: one `confirm=true` call records the plan **and** performs the change — so in an agent loop, review the preview yourself.) | ✅ on by default |
+| **PROVE** | Hash-chained audit ledger; plans and confirmations both land in it. `audit_verify` is tamper-**evident** — it catches edits, reordering, and insertion. The ledger is **keyed (HMAC-SHA256) by default** (`PROXIMO_AUDIT_KEYED`; opt out with `off`). Catching tail truncation / forged append / full wipe requires an off-box head anchor: pin `audit_verify`'s `"head"` value somewhere the box can't rewrite it and pass it as `expected_head` (or set `PROXIMO_AUDIT_EXPECTED_HEAD`) — that is the strong guarantee, and it's opt-in. See the honesty note below. | ✅ on by default |
+| **UNDO** | Heterogeneous by plane, fail-closed where present: opt-in auto-snapshot before a risky `ct_exec`/`ct_psql` (waited-on, fail-closed if storage can't snapshot); config-revert for guest config; `pve_rollback` + full snapshot lifecycle for guests. Not every PVE plane is snapshottable — firewall/SDN/ACL/token have no rollback primitive — so UNDO covers the snapshottable surface, not every mutation. Undo points aren't auto-pruned — delete with `pve_snapshot_delete`. (Snapshot/rollback are async — poll with `pve_task_status`.) | ✅ on by default (for the planes it covers) |
+| **DIAGNOSE** | Read-only evidence battery (failed units, disk, errors, memory, listening ports) + node health (storage/tasks) → advisory flags. Flags surface *incompleteness* too, so an empty list never reads as a false clean bill. | ✅ on by default |
+
+Beyond those four, a second set of controls exists but ships **off** until you configure
+them: independent per-plan **CONSENT**, a **CONTAIN** kill-switch, an arm-**LEASE** TTL, an
+arm-time target **SCOPE**, a per-surface FORBID/RATE **ENVELOPE**, and a content-trust **TAINT**
+control (the prompt-injection mitigation — once a session reads adversarial content, forbid a
+pre-declared action set outright or require out-of-band consent). They're inert with no
+env var set — full defaults table and what each one actually defends against: **[SECURITY.md](SECURITY.md)**.
 
 > **Honesty note (load-bearing):** PLAN's risk ratings are an *advisory heuristic*, not a sandbox. `LOW` means "does not change state," **not** "safe" — a read can still exfiltrate. The absence of a `HIGH` flag is **not** a safety signal; the destructive-pattern signatures are curated, not exhaustive. Review every change yourself.
+>
+> **The floor beneath all of the above: the token you mint.** Every control in this table
+> operates *inside* Proximo's own process — real protection, but bounded by what that process
+> can do. The Proxmox RBAC token you hand Proximo is enforced by Proxmox itself, so it holds
+> even if Proximo's process is fully compromised — scope it to read-only, or to exactly the
+> write surface you mean to grant. That's a different, stronger guarantee than anything
+> Proximo's own code provides. Full breakdown: **[SECURITY.md](SECURITY.md)**.
 
 ## At scale
 
@@ -86,13 +100,15 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.12.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.12.0) (CI green), and
+> 📦 **`0.13.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.13.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
-> New in 0.12.0: **`proximo doctor --target`** — the `doctor` preflight is now multi-target-aware too
-> (the MCP tools already were, since 0.11.0), plus a PMG login-concurrency fix. No new tools (still 351);
-> a drop-in over 0.11.0. The flagship from 0.11.0 still stands: **native multi-target** — one instance
-> reaches many Proxmox remotes (internal *or* external) via a per-tool `proximo_target=`, default byte-identical.
+> New in 0.13.0: the **zero-trust arc** — six opt-in, out-of-band controls (**CONTAIN** kill-switch,
+> independent **CONSENT**, arm-time **SCOPE**, arm-**LEASE** TTL, per-surface **ENVELOPE**, and a
+> content-trust **TAINT** control — the prompt-injection mitigation), all fail-closed at the 5 mutation
+> seams and all **off until configured**, plus an automated off-box PROVE anchor and `pve_acl_prune`
+> (351 → 352 tools). See [SECURITY.md](SECURITY.md) for which controls are on by default and what each
+> one honestly does and doesn't hold.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -120,7 +136,9 @@ uv pip install -e .          # or: pip install -e .
 >
 > The default path never touches the hypervisor host — management goes over the Proxmox **API** (scoped token). The two opt-in edges are the exceptions: exec uses your existing **ssh** to PVE to run `pct exec` as root on the host; the qemu-agent edge runs in-guest ops via the API. Both are off by default, each scoped by its own fail-closed allowlist (`PROXIMO_CT_ALLOWLIST` / `PROXIMO_AGENT_ALLOWLIST`), and say so loudly.
 >
-> *(A Debian package is deferred/optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.)*
+> *(A Debian package is deferred/optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.
+> Status: `debian/` is a packaging **scaffold, not yet installable** — `dpkg-buildpackage` won't
+> produce a working `.deb` until the bundled-venv step is finished; see `debian/README.Debian`.)*
 
 ## Multiple targets (one Proximo, many boxes)
 
@@ -155,9 +173,10 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
-🩸 **0.12.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — **`proximo doctor --target`** brings the CLI preflight onto the multi-target registry (the MCP tools were target-aware since 0.11.0) + a PMG login-concurrency fix. **No new tools (still 351)**; a drop-in over 0.11.0.
+🩸 **0.13.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT (prompt-injection mitigation), all opt-in and fail-closed, + the off-box PROVE anchor + `pve_acl_prune` (**351 → 352 tools**).
+🩸 **0.12.0** — **`proximo doctor --target`** brings the CLI preflight onto the multi-target registry (the MCP tools were target-aware since 0.11.0) + a PMG login-concurrency fix. No new tools (still 351); a drop-in over 0.11.0.
 🩸 **0.11.0** — **native multi-target** (one instance → many PVE/PBS/PMG/PDM remotes via a per-tool `proximo_target=`; default unchanged) + the **ACME cert-order plane** (347 → 351 tools); the multi-target change was adversarially redteamed and live-proven against two distinct real boxes. PDM remains the 4th surface from 0.9.0. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. **351 MCP tools. 4,100+ tests, 0 skipped, ruff + pyright clean** — but those tests are **mock/in-process** (no socket): they prove the *shapes*, not live behavior. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** The blast-radius engine carries the destructive surface — across eleven op-classes it names the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back to a bare confirm.
+The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed; the opt-in controls (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md)) exist but ship off until configured. **352 MCP tools. 5,000+ tests (3 by-design skips in the golden wrapper sweep), ruff + pyright clean** — but those tests are **mock/in-process** (no socket): they prove the *shapes*, not live behavior. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** The blast-radius engine carries the destructive surface — across eleven op-classes it names the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back to a bare confirm.
 
 **Proven against real Proxmox** (not mocks):
 - The trust spine end-to-end, the core provisioning/config mutate cycle, and PBS read shapes.
@@ -179,7 +198,7 @@ All four trust pillars (PLAN · PROVE · UNDO · DIAGNOSE) built and redteamed. 
   rounds, including safe mutations with full create→verify→clean-up cycles.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
-**Not yet proven — said plainly:** the remaining 351-tool surface runs against mocks for shapes
+**Not yet proven — said plainly:** the remaining 352-tool surface runs against mocks for shapes
 the live smokes don't reach: real HA *fencing* (needs a hardware watchdog), *online*
 live-migration (needs shared storage), and behavior at production scale.
 

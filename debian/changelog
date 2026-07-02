@@ -3,5 +3,24 @@ proximo (0.1.0) UNRELEASED; urgency=medium
   * Initial packaging scaffold for the foundation release ("Spaniard").
   * Two backends (REST API + ssh->pct), full MCP tool surface, audit log,
     confirm-gated mutations, fail-closed CTID allowlist.
+  * STATUS (still UNRELEASED, still a scaffold, not a working build): this
+    entry is intentionally pinned at 0.1.0 while upstream proximo has moved
+    on to 0.12.0+ on PyPI/GitHub/GHCR. The Debian package version tracks
+    the packaging's own readiness, not upstream's release cadence -- it
+    will be bumped (and a real distribution + urgency set) only once
+    `dpkg-buildpackage` actually produces an installable .deb, not per
+    upstream tag.
+  * Two blockers tracked (see debian/README.Debian for the full writeup):
+    - Python runtime deps (mcp, httpx) are not packaged for Debian.
+      DECIDED direction: bundle a self-contained venv via dh-virtualenv
+      (sovereign, no host clutter) so debian/control's Depends can stay
+      stdlib+ssh-only. Not yet implemented -- debian/rules still drives
+      plain dh/pybuild, which will fail to resolve those imports at build
+      or run time until the dh-virtualenv step is written.
+    - Transport is DECIDED (stdio, on-demand, no always-on daemon; see the
+      optional packaging/optional-daemon-mode.service.example for anyone
+      who wants a daemon anyway) -- this one is resolved, not a blocker.
+  * Net: do not build/upload this package expecting a working .deb yet --
+    it is scaffold-only until the dh-virtualenv bundling lands.
 
- -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Sun, 07 Jun 2026 12:00:00 +0000
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Wed, 01 Jul 2026 12:00:00 +0000

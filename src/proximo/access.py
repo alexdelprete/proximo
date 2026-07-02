@@ -32,7 +32,7 @@ import re
 
 from . import blast
 from .backends import ProximoError
-from .planning import RISK_HIGH, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_MEDIUM, Plan, _max_risk
 
 # ---------------------------------------------------------------------------
 # Validators (module-local)
@@ -48,6 +48,10 @@ _TOKENID_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
 
 # roleid: e.g. "PVEVMAdmin", "Administrator", custom names.
 _ROLEID_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
+
+# groupid: PVE group names — alnum, dot, underscore, hyphen. No "@" (that's a userid),
+# no "/" (that's a path separator). \Z anchors past any trailing newline.
+_GROUPID_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
 
 # ACL path: "/"  or  "/" + slash-separated segments (no "..", no trailing slash, no spaces).
 # An ACL path of "/" alone is the root (highest blast — all resources).
@@ -81,6 +85,23 @@ def _check_tokenid(tokenid: str) -> str:
             f"invalid tokenid: {tokenid!r} — expected letters/digits/._- only"
         )
     _reject_dot_traversal(s, "tokenid")
+    return s
+
+
+def _check_groupid(groupid: str) -> str:
+    """Validate a PVE group name for use as an ACL 'groups' target.
+
+    Note: `access_users.py` has its OWN `_check_groupid` (a stricter regex used for
+    /access/groups CRUD). This is a separate, module-local validator for the ACL surface
+    (mirrors `_check_roleid`'s style) — the two are deliberately not shared to avoid a
+    circular import (access_users.py already imports `_check_userid` from this module).
+    """
+    s = str(groupid).strip()
+    if not _GROUPID_RE.match(s):
+        raise ProximoError(
+            f"invalid groupid: {groupid!r} — expected letters/digits/._- only"
+        )
+    _reject_dot_traversal(s, "groupid")
     return s
 
 
@@ -248,9 +269,9 @@ def acl_modify(
     """Grant or revoke an ACL entry.
 
     PUT /access/acl
-    Body: {path, roles, users|tokens, propagate, delete}
+    Body: {path, roles, users|groups|tokens, propagate, delete}
 
-    kind must be 'user' or 'token'.
+    kind must be 'user', 'group', or 'token'.
     delete=False: grant; delete=True: revoke the entry.
 
     Proxmox uses a single PUT /access/acl for BOTH grant and revoke — there is
@@ -261,6 +282,7 @@ def acl_modify(
     Endpoint shape notes (confirm at live smoke):
     - PUT /access/acl is the documented PVE API endpoint for all ACL writes.
     - The 'users' body param accepts a comma-separated list of user@realm strings.
+    - The 'groups' body param accepts a comma-separated list of group names.
     - The 'tokens' body param accepts a comma-separated list of user@realm!tokenid strings.
     - 'propagate' applies the entry recursively down the path hierarchy if True.
 
@@ -268,11 +290,13 @@ def acl_modify(
     """
     path = _check_acl_path(path)
     roles = _check_roles(roles)
-    if kind not in ("user", "token"):
-        raise ProximoError(f"invalid kind: {kind!r} (expected 'user' or 'token')")
+    if kind not in ("user", "token", "group"):
+        raise ProximoError(f"invalid kind: {kind!r} (expected 'user', 'token', or 'group')")
     # Validate the target according to kind.
     if kind == "user":
         target = _check_userid(target)
+    elif kind == "group":
+        target = _check_groupid(target)
     else:
         # token kind: expected format "user@realm!tokenid"
         if "!" not in target:
@@ -280,8 +304,7 @@ def acl_modify(
                 f"invalid token target: {target!r} — expected 'user@realm!tokenid'"
             )
         user_part, _, token_part = target.partition("!")
-        _check_userid(user_part)
-        _check_tokenid(token_part)
+        target = f"{_check_userid(user_part)}!{_check_tokenid(token_part)}"
 
     data: dict = {
         "path": path,
@@ -291,11 +314,50 @@ def acl_modify(
     }
     if kind == "user":
         data["users"] = target
+    elif kind == "group":
+        data["groups"] = target
     else:
         data["tokens"] = target
 
     # MUTATION — confirm-gated + audited at the server layer.
     return api._put("/access/acl", data)
+
+
+def acl_prune(
+    api,
+    path: str,
+    target: str,
+    kind: str,
+    roleid: str,
+    narrow_role: str | None = None,
+    narrow_path: str | None = None,
+) -> None:
+    """Revoke an over-broad ACL grant, then optionally re-grant a narrower one.
+
+    Two synchronous PUT /access/acl calls (revoke, then re-grant). Returns None.
+
+    Revoke FIRST, re-grant SECOND: a revoke-then-grant sequence briefly narrows access
+    (the safe direction) rather than briefly widening it. Each call is validated and
+    executed by `acl_modify` — no bulk here: exactly one principal, one roleid, per call.
+
+    NON-ATOMIC (documented limit, safe-direction — mirrors the L16 audit-window NOTE in
+    server._audited): these are two separate PUTs. If the revoke succeeds and the re-grant
+    then raises, the ledger records one outcome="error" for the whole pve_acl_prune action —
+    it does NOT distinguish "nothing happened" from "revoke landed, re-grant failed". The
+    direction is safe (revoke-first leaves the target MORE restricted, never wider), so a
+    partial failure never widens access; but an auditor reading only the ledger cannot tell
+    the revoke already applied. A distinct partial-outcome state (a named
+    PruneRegrantFailedError, or a "partial:revoke_only" outcome) is a deliberate follow-up —
+    it ripples into audit_verify + the ledger outcome-state suite, the same reason the L16
+    window fix was deferred — not a one-liner; tracked as a known limit, not a stop-ship.
+
+    MUTATION — confirm-gated + audited at the server layer (see plan_prune_grant for the
+    matching dry-run preview).
+    """
+    acl_modify(api, path, roleid, target, kind, delete=True)
+    if narrow_role is not None or narrow_path is not None:
+        acl_modify(api, narrow_path or path, narrow_role or roleid, target, kind, delete=False)
+    return None
 
 
 def token_create(
@@ -392,18 +454,19 @@ def plan_acl_modify(
     """
     path = _check_acl_path(path)
     roles = _check_roles(roles)
-    if kind not in ("user", "token"):
-        raise ProximoError(f"invalid kind: {kind!r} (expected 'user' or 'token')")
+    if kind not in ("user", "token", "group"):
+        raise ProximoError(f"invalid kind: {kind!r} (expected 'user', 'token', or 'group')")
     if kind == "user":
         target = _check_userid(target)
+    elif kind == "group":
+        target = _check_groupid(target)
     else:
         if "!" not in target:
             raise ProximoError(
                 f"invalid token target: {target!r} — expected 'user@realm!tokenid'"
             )
         user_part, _, token_part = target.partition("!")
-        _check_userid(user_part)
-        _check_tokenid(token_part)
+        target = f"{_check_userid(user_part)}!{_check_tokenid(token_part)}"
 
     # ONE SAFE READ: current ACL state (fail-closed — None signals the read failed).
     acl_entries: list[dict] | None
@@ -425,6 +488,11 @@ def plan_acl_modify(
                 target_groups = list(user_get(api, target).get("groups") or [])
             except Exception:
                 target_groups = None
+        elif kind == "group":
+            # A group has no own-memberships to inherit through; [] (not None) makes
+            # groups_resolved=True in the engine, so it does NOT emit the misleading
+            # "target's group membership could not be resolved" line for a group target.
+            target_groups = []
         else:  # token "owner@realm!tokenid" inherits owner groups ONLY if privsep == 0
             owner = target.split("!", 1)[0]
             try:
@@ -480,6 +548,214 @@ def plan_acl_modify(
         risk_reasons=result.risk_reasons,
         complete=result.complete,
     )
+
+
+def plan_prune_grant(
+    api,
+    path: str,
+    target: str,
+    kind: str,
+    roleid: str,
+    narrow_role: str | None = None,
+    narrow_path: str | None = None,
+) -> Plan:
+    """Preview pruning (revoking, and optionally re-granting narrower) an over-broad ACL grant.
+
+    Least-privilege companion to `plan_acl_modify`: `access_overbroad_grants` flags a grant,
+    this previews REMOVING it. Two legs, merged into one honest plan:
+      - REVOKE leg: `roleid` is removed from `target` at `path` (via `compute_acl_blast(delete=True)`).
+      - RE-GRANT leg (only if `narrow_role` and/or `narrow_path` is given): a narrower
+        replacement is granted — effective role `narrow_role or roleid`, effective path
+        `narrow_path or path`. Neither given => PURE REVOKE, no re-grant leg.
+
+    `compute_acl_blast(delete=True)` never names the primary revoked grant as a "loses" entry
+    (it only reports restored/widened inherited grants) — pruning's whole point is naming the
+    removal, so this function SYNTHESIZES an explicit primary-loss entry and prepends it.
+
+    The re-grant leg's blast is computed against a POST-revoke view of the ACL (the just-revoked
+    entry filtered out) so it never spuriously warns about shadowing the role being deleted in
+    the same operation.
+
+    Risk never goes down across the merge: `risk = max(revoke.risk, regrant.risk)`.
+
+    Validates inputs even on the plan path — same as all other plan functions.
+    """
+    path = _check_acl_path(path)
+    if kind == "user":
+        target = _check_userid(target)
+    elif kind == "group":
+        target = _check_groupid(target)
+    elif kind == "token":
+        if "!" not in target:
+            raise ProximoError(
+                f"invalid token target: {target!r} — expected 'user@realm!tokenid'"
+            )
+        user_part, _, token_part = target.partition("!")
+        target = f"{_check_userid(user_part)}!{_check_tokenid(token_part)}"
+    else:
+        raise ProximoError(f"invalid kind: {kind!r} (expected 'user', 'token', or 'group')")
+    roleid = _check_roleid(roleid)
+    if narrow_role is not None:
+        narrow_role = _check_roleid(narrow_role)
+    if narrow_path is not None:
+        narrow_path = _check_acl_path(narrow_path)
+
+    # ONE SAFE READ + group resolution — copy of plan_acl_modify's block (lines ~460–515),
+    # with ONE change for kind=="group": target_groups=[] (see docstring above).
+    # Local import — access_users imports access (._check_userid), so a top-level import would cycle.
+    from .access_users import group_get, user_get
+    acl_entries: list[dict] | None
+    acl_error: str | None = None
+    try:
+        acl_entries = access_acl_list(api) or []
+    except Exception as e:
+        acl_entries = None
+        acl_error = type(e).__name__
+
+    # Path-INDEPENDENT resolution — computed ONCE and shared by both legs: target_groups, and
+    # (token kind only) the owner id + whether the token is privsep=0. compute_acl_blast
+    # re-derives group-inheritance-AT-PATH itself from target_groups, so this part carries no
+    # path dependency.
+    target_groups: list[str] | None = None
+    owner: str | None = None
+    is_privsep0 = False
+    if acl_entries is not None:
+        if kind == "user":
+            try:
+                target_groups = list(user_get(api, target).get("groups") or [])
+            except Exception:
+                target_groups = None
+        elif kind == "group":
+            target_groups = []
+        else:  # token "owner@realm!tokenid" inherits owner groups ONLY if privsep == 0
+            owner = target.split("!", 1)[0]
+            try:
+                tid = target.split("!", 1)[1]
+                tok = next((t for t in access_tokens_list(api, owner) if t.get("tokenid") == tid), None)
+                privsep = tok.get("privsep", 1) if tok else 1
+                if str(privsep) in ("0", "False"):
+                    # is_privsep0 flips True only AFTER user_get succeeds — mirrors the original
+                    # coupling (a user_get failure here must leave BOTH legs' extra_inherited
+                    # None, same as before the fix; see _leg_ctx docstring below).
+                    target_groups = list(user_get(api, owner).get("groups") or [])
+                    is_privsep0 = True
+                else:
+                    target_groups = None
+            except Exception:
+                target_groups = None
+
+    def _leg_ctx(
+        entries: list[dict] | None, leg_path: str,
+    ) -> tuple[dict[str, str] | None, dict[str, list | None]]:
+        """Path-DEPENDENT resolution for ONE leg, evaluated AT `leg_path` against `entries`:
+        (extra_inherited, group_members) — mirrors plan_acl_modify's matching block. Both
+        extra_inherited (a privsep=0 token owner's direct grants that propagate onto leg_path)
+        and group_members (in-scope groups at/above leg_path) depend on the path being
+        evaluated. FINDING 1 fix: the revoke leg (path) and the re-grant leg (effective_path,
+        against a post-revoke `entries` view) MUST call this separately — sharing one stale
+        result silently under-reports shadow/context at a re-grant path that differs from path.
+        """
+        ei: dict[str, str] | None = None
+        if entries is not None and is_privsep0 and owner is not None:
+            ei = {
+                e.get("roleid", ""): f"token owner {owner} (direct)"
+                for e in entries
+                if e.get("type") == "user" and e.get("ugid") == owner
+                and leg_path.startswith(e.get("path", "").rstrip("/") + "/")
+                and e.get("propagate", True)
+            }
+        gm: dict[str, list | None] = {}
+        if entries is not None:
+            in_scope_groups = {
+                e.get("ugid", "") for e in entries
+                if e.get("type") == "group" and (
+                    e.get("path") == leg_path
+                    or leg_path.startswith(e.get("path", "").rstrip("/") + "/")
+                )
+            }
+            for grp in sorted(g for g in in_scope_groups if g):
+                try:
+                    gm[grp] = list(group_get(api, grp).get("members") or [])
+                except Exception:
+                    gm[grp] = None
+        return ei, gm
+
+    # REVOKE leg's path-dependent context, evaluated at `path` — byte-identical to the
+    # pre-fix single computation (which was also implicitly evaluated at `path`).
+    ei_rev, gm_rev = _leg_ctx(acl_entries, path)
+
+    # REVOKE leg.
+    revoke = blast.compute_acl_blast(path, roleid, target, kind, True, acl_entries, acl_error,
+                                     target_groups=target_groups, group_members=gm_rev or None,
+                                     extra_inherited=ei_rev)
+
+    # SYNTHESIZE THE PRIMARY LOSS ENTRY — compute_acl_blast(delete=True) forces
+    # shadowed_inherited=set() (it only reports restored/widened inherited grants), so it never
+    # names the grant actually being removed. Add it ALWAYS, even on ACL-read failure (the
+    # primary revoke target is known regardless of whether the read succeeded).
+    primary_sev = "high" if (path in ("/", "/storage") or roleid == "Administrator"
+                             or revoke.risk == RISK_HIGH) else "medium"
+    primary_loss = {"principal": target, "kind": kind, "via": "direct grant removed",
+                    "change": "loses", "roles": [roleid], "at": path, "severity": primary_sev}
+
+    do_regrant = narrow_role is not None or narrow_path is not None
+    if do_regrant:
+        effective_role = narrow_role or roleid
+        effective_path = narrow_path or path
+        # ORDERING FIX: build a post-revoke view of the ACL so the re-grant leg does not emit
+        # a spurious "shadows inherited {roleid}" warning for the role being deleted in this
+        # same operation.
+        regrant_entries = None if acl_entries is None else [
+            e for e in acl_entries
+            if not (e.get("path") == path and e.get("ugid") == target and e.get("roleid") == roleid)
+        ]
+        # RE-GRANT leg's path-dependent context, re-derived at `effective_path` against the
+        # POST-revoke view (FINDING 1 fix — see _leg_ctx docstring above).
+        ei_re, gm_re = _leg_ctx(regrant_entries, effective_path)
+        regrant = blast.compute_acl_blast(effective_path, effective_role, target, kind, False,
+                                          regrant_entries, acl_error,
+                                          target_groups=target_groups, group_members=gm_re or None,
+                                          extra_inherited=ei_re)
+        risk = _max_risk(revoke.risk, regrant.risk)
+        blast_radius = revoke.summary_lines + regrant.summary_lines
+        affected = [primary_loss, *revoke.affected, *regrant.affected]
+        risk_reasons = revoke.risk_reasons + regrant.risk_reasons
+        complete = revoke.complete and regrant.complete
+        change = (
+            f"revoke {roleid!r} from {target!r} at {path!r}; "
+            f"re-grant {effective_role!r} at {effective_path!r}"
+        )
+    else:
+        risk = revoke.risk
+        blast_radius = revoke.summary_lines
+        affected = [primary_loss, *revoke.affected]
+        risk_reasons = revoke.risk_reasons
+        complete = revoke.complete
+        change = f"revoke {roleid!r} from {target!r} at {path!r}"
+
+    # Honesty escalation (plan_prune_grant's own, after the merge): pruning a group whose OWN
+    # members we could not enumerate is uncertain about who loses what — force HIGH + incomplete.
+    # Do NOT escalate for an incidental who-else group failing elsewhere (that stays best-effort
+    # complete=False per the engine's existing restraint). The target group always has an entry
+    # at `path` (that IS the grant being pruned), so `.get(target) is None` cleanly means its
+    # own read failed, not "absent". Always checked against the REVOKE-leg's group_members
+    # (gm_rev) — the pruned group's entry is at `path`, unchanged by the re-grant leg's context.
+    if kind == "group" and gm_rev.get(target) is None:
+        risk = _max_risk(risk, RISK_HIGH)
+        complete = False
+
+    return Plan(
+        action="pve_acl_prune",
+        target=f"acl:prune:{path}:{target}",
+        change=change,
+        current=revoke.current,
+        blast_radius=blast_radius,
+        affected=affected,
+        risk=risk,
+        risk_reasons=risk_reasons,
+        complete=complete,
+    )
+
 
 def plan_token_create(
     userid: str,

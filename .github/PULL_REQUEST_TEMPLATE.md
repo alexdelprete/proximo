@@ -6,8 +6,8 @@
 
 ## Checks
 
-- [ ] `uv run python -m pytest -q` is green (0 skipped)
-- [ ] `uv run ruff check src tests` is clean
+- [ ] `uv run python -m pytest -q` is green (the only skips are the 3 by-design wrapper-sweep skips)
+- [ ] `uv run ruff check .` is clean
 - [ ] `uv run pyright` is clean
 - [ ] New behavior has a test; a bug fix has a test that fails before / passes after
 - [ ] `CHANGELOG.md` updated under `## [Unreleased]` (or N/A — say why)

@@ -16,6 +16,20 @@ def _sandbox(tmp_path: Path, version: str) -> Path:
     pkg = tmp_path / "src" / "proximo"
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text(f'__version__ = "{version}"\n', encoding="utf-8")
+    (tmp_path / "server.json").write_text(
+        "{\n"
+        f'  "name": "io.github.x/proximo-proxmox",\n'
+        f'  "version": "{version}",\n'
+        '  "packages": [\n'
+        "    {\n"
+        '      "registryType": "pypi",\n'
+        '      "identifier": "proximo-proxmox",\n'
+        f'      "version": "{version}"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n",
+        encoding="utf-8",
+    )
     return tmp_path
 
 
@@ -26,7 +40,16 @@ def test_set_version_updates_both_files(tmp_path):
     assert version_tools.read_init_version(root) == "0.7.0"
 
 
+def test_set_version_updates_server_json(tmp_path):
+    root = _sandbox(tmp_path, "0.6.0")
+    version_tools.set_version(root, "0.7.0")
+    versions = version_tools.read_server_json_versions(root)
+    assert versions, "expected at least one version field in server.json"
+    assert all(v == "0.7.0" for _label, v in versions)
+
+
 def test_set_version_is_idempotent(tmp_path):
     root = _sandbox(tmp_path, "0.7.0")
     version_tools.set_version(root, "0.7.0")
     assert version_tools.read_pyproject_version(root) == "0.7.0"
+    assert all(v == "0.7.0" for _label, v in version_tools.read_server_json_versions(root))

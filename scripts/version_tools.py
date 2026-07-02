@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Single source of truth for "where proximo's version lives" + a drift checker.
 
+Version locations kept in sync: pyproject.toml, src/proximo/__init__.py,
+CHANGELOG.md (has a release heading), and server.json (the MCP registry
+manifest — its top-level `version` plus every `packages[].version`).
+
 Consumed by:
   - tests/test_version_consistency.py  (the always-on gate)
+  - tests/test_version_tools.py        (set_version unit tests)
   - scripts/release.sh                 (set_version on release)
-  - .github/workflows                  (python scripts/version_tools.py check)
+  - .github/workflows, .gitea/workflows (python scripts/version_tools.py check)
 
 Stdlib only — tomllib ships on the project's Python floor (>=3.12).
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 import tomllib
@@ -19,9 +25,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = "pyproject.toml"
 INIT = "src/proximo/__init__.py"
 CHANGELOG = "CHANGELOG.md"
+SERVER_JSON = "server.json"
 
 _INIT_RE = re.compile(r'(?m)^__version__\s*=\s*"([^"]+)"')
 _HEADING_RE = re.compile(r'(?m)^##\s*\[([^\]]+)\]')
+_SERVER_JSON_VERSION_RE = re.compile(r'"version"\s*:\s*"[^"]*"')
 
 
 def read_pyproject_version(root: Path) -> str:
@@ -34,6 +42,21 @@ def read_init_version(root: Path) -> str:
     if not m:
         raise ValueError(f"no __version__ found in {INIT}")
     return m.group(1)
+
+
+def read_server_json_versions(root: Path) -> list[tuple[str, str]]:
+    """Return (label, version) for every version field in server.json (the MCP
+    registry manifest): the top-level `version` plus each `packages[].version`.
+    """
+    data = json.loads((root / SERVER_JSON).read_text(encoding="utf-8"))
+    versions: list[tuple[str, str]] = []
+    if "version" in data:
+        versions.append((f"{SERVER_JSON} top-level version", data["version"]))
+    for i, pkg in enumerate(data.get("packages", [])):
+        if "version" in pkg:
+            ident = pkg.get("identifier", f"packages[{i}]")
+            versions.append((f"{SERVER_JSON} packages[{i}] ({ident}) version", pkg["version"]))
+    return versions
 
 
 def read_changelog_headings(root: Path) -> list[str]:
@@ -55,6 +78,9 @@ def check_consistency(root: Path) -> list[str]:
     init = read_init_version(root)
     if py != init:
         problems.append(f"pyproject version {py!r} != __init__ __version__ {init!r}")
+    for label, v in read_server_json_versions(root):
+        if v != py:
+            problems.append(f"{label} {v!r} != pyproject version {py!r}")
     if py not in set(read_changelog_headings(root)):
         problems.append(
             f"CHANGELOG has no '## [{py}]' heading for version {py!r} "
@@ -80,7 +106,8 @@ def check_release(root: Path, tag_version: str) -> list[str]:
 
 
 def set_version(root: Path, version: str) -> None:
-    """Rewrite the version in pyproject.toml and src/proximo/__init__.py."""
+    """Rewrite the version in pyproject.toml, src/proximo/__init__.py, and every
+    version field in server.json (top-level + each packages[] entry)."""
     pp = root / PYPROJECT
     pp_new, n = re.subn(
         r'(?m)^version\s*=\s*"[^"]*"', f'version = "{version}"',
@@ -98,6 +125,13 @@ def set_version(root: Path, version: str) -> None:
     if n != 1:
         raise ValueError(f"expected exactly one __version__= in {INIT}, found {n}")
     init.write_text(init_new, encoding="utf-8")
+
+    sj = root / SERVER_JSON
+    sj_text = sj.read_text(encoding="utf-8")
+    sj_new, n = _SERVER_JSON_VERSION_RE.subn(f'"version": "{version}"', sj_text)
+    if n == 0:
+        raise ValueError(f'expected at least one "version": ... field in {SERVER_JSON}, found 0')
+    sj.write_text(sj_new, encoding="utf-8")
 
 
 def _main(argv: list[str]) -> int:

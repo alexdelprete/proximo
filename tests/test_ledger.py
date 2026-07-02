@@ -6,6 +6,7 @@ import json
 import os
 import re as _re
 import stat
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -636,3 +637,170 @@ def test_mixed_remote_and_default_entries_verify(tmp_path):
     led.record("b", target="2", remote="edge")     # targeted
     led.record("c", target="3")                    # default box
     assert led.verify().ok
+
+
+# --- symlink containment: a co-located writer must not redirect ledger/lock opens --------------
+#
+# Mirrors test_envelope.py's `test_symlinked_lock_refused_not_followed` (Fix 6): the ledger and its
+# rotation sidecar-locks must open with O_NOFOLLOW so a planted symlink at the ledger/lock path is
+# refused (OSError, ELOOP) rather than silently followed into an arbitrary target the service can
+# write — a containment escape on the flagship tamper-evident PROVE pillar.
+
+
+def test_record_refuses_symlinked_ledger_path(tmp_path):
+    """A symlink planted AT the ledger path itself must not have appends redirected through it."""
+    log = tmp_path / "audit.log"
+    evil_target = tmp_path / "evil-target"
+    log.symlink_to(evil_target)
+
+    led = AuditLedger(str(log))
+    with pytest.raises(OSError):
+        led.record("a", target="t1")
+    assert not evil_target.exists()  # never followed/created through the symlink
+
+
+def test_seal_and_rotate_refuses_symlinked_lock_file(tmp_path):
+    """seal_and_rotate's sidecar `<log>.lock` open must reject a symlinked lock path."""
+    log = tmp_path / "audit.log"
+    AuditLedger(str(log)).record("a", target="t1")  # a real unkeyed log to rotate
+    lock_path = tmp_path / "audit.log.lock"
+    evil_target = tmp_path / "evil-target"
+    lock_path.symlink_to(evil_target)
+
+    with pytest.raises(OSError):
+        seal_and_rotate(str(log), _KEY)
+    assert not evil_target.exists()  # never followed/created through the symlink
+    # the log itself must be untouched — no rotation happened through the refused lock
+    assert AuditLedger(str(log)).verify().ok
+    assert not list(tmp_path.glob("audit.log.unkeyed-*"))
+
+
+def test_seal_keyed_and_rotate_refuses_symlinked_lock_file(tmp_path):
+    """seal_keyed_and_rotate's sidecar `<log>.lock` open must reject a symlinked lock path."""
+    log = tmp_path / "audit.log"
+    key = load_or_create_key(str(tmp_path / "audit.key"))
+    AuditLedger(str(log), key=key).record("a", target="t1")  # a real keyed log to rotate
+    lock_path = tmp_path / "audit.log.lock"
+    evil_target = tmp_path / "evil-target"
+    lock_path.symlink_to(evil_target)
+
+    with pytest.raises(OSError):
+        seal_keyed_and_rotate(str(log))
+    assert not evil_target.exists()  # never followed/created through the symlink
+    assert AuditLedger(str(log), key=key).verify().ok
+    assert not list(tmp_path.glob("audit.log.keyed-*"))
+
+
+def test_ledger_refuses_symlinked_directory(tmp_path):
+    """A symlinked ledger PARENT dir redirects every append onto an attacker-chosen path — the
+    per-file O_NOFOLLOW can't catch a symlinked parent, so AuditLedger must refuse at construction."""
+    evil = tmp_path / "evil"
+    evil.mkdir()
+    link_dir = tmp_path / "ledgerdir"
+    link_dir.symlink_to(evil)  # a symlink whose target is a real dir
+
+    with pytest.raises(OSError):
+        AuditLedger(str(link_dir / "audit.log"))
+    assert not (evil / "audit.log").exists()  # nothing created through the symlinked dir
+
+
+def test_load_or_create_key_refuses_symlinked_directory(tmp_path):
+    """load_or_create_key's key dir gets the same guard — a symlinked key dir could redirect the
+    HMAC key (and its atomic-link publish) onto an attacker path."""
+    evil = tmp_path / "evil"
+    evil.mkdir()
+    link_dir = tmp_path / "keydir"
+    link_dir.symlink_to(evil)
+
+    with pytest.raises(OSError):
+        load_or_create_key(str(link_dir / "audit.key"))
+    assert not (evil / "audit.key").exists()  # key never created through the symlinked dir
+
+
+# --- concurrency: real threads, real fcntl.flock, no mocking -----------------------------------
+#
+# Mirrors test_envelope.py's `test_rate_concurrency_barrier` pattern: real threading.Barrier so
+# every thread genuinely races into record() at the same instant, real flock serialization (no
+# mocked locks), proving the read-prev + append critical section is atomic under concurrency.
+
+
+def test_concurrent_appends_serialize_no_gaps_no_dupes(tmp_path):
+    """N threads call record() on the SAME ledger simultaneously. flock around the read-prev +
+    append critical section must fully serialize them: every thread's append must land, no two
+    entries may share a prev_hash (a gap/interleave), no entry_hash may repeat (a dupe), the
+    resulting file must contain exactly N lines forming one unbroken chain from GENESIS, and
+    verify() must pass afterward."""
+    led = _ledger(tmp_path)
+    n = 40
+    barrier = threading.Barrier(n)
+    errors: list[BaseException] = []
+    errors_lock = threading.Lock()
+
+    def worker(i: int) -> None:
+        barrier.wait()
+        try:
+            led.record("concurrent", target=f"t{i}")
+        except BaseException as e:  # noqa: BLE001 - surface ANY escaping exception as a test failure
+            with errors_lock:
+                errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []  # no thread's record() call raised
+
+    lines = [json.loads(ln) for ln in (tmp_path / "audit.log").read_text().splitlines() if ln.strip()]
+    assert len(lines) == n  # no dropped append, no extra/duplicated line
+
+    entry_hashes = [e["entry_hash"] for e in lines]
+    assert len(set(entry_hashes)) == n  # no duplicate entry_hash (no clobbered/duplicated append)
+
+    targets_seen = {e["target"] for e in lines}
+    assert targets_seen == {f"t{i}" for i in range(n)}  # every thread's own entry actually landed
+
+    prev_hashes = [e["prev_hash"] for e in lines]
+    assert prev_hashes[0] == GENESIS_HASH
+    assert prev_hashes[1:] == entry_hashes[:-1]  # each entry chains off the immediately-prior one
+
+    v = led.verify()
+    assert v.ok and v.entries == n  # the hash chain is fully valid end-to-end
+
+
+def test_concurrent_appends_keyed_serialize_and_verify(tmp_path):
+    """Same concurrency proof, keyed (HMAC) mode — the more security-relevant path in practice
+    since PROXIMO_AUDIT_KEYED defaults on."""
+    led = _keyed(tmp_path)
+    n = 30
+    barrier = threading.Barrier(n)
+    errors: list[BaseException] = []
+    errors_lock = threading.Lock()
+
+    def worker(i: int) -> None:
+        barrier.wait()
+        try:
+            led.record("concurrent", target=f"t{i}", mutation=True)
+        except BaseException as e:  # noqa: BLE001
+            with errors_lock:
+                errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    v = led.verify()
+    assert v.ok and v.entries == n
+
+    lines = [json.loads(ln) for ln in (tmp_path / "audit.log").read_text().splitlines() if ln.strip()]
+    assert len(lines) == n
+    assert all(e["alg"] == _KEY_ALG for e in lines)
+    entry_hashes = [e["entry_hash"] for e in lines]
+    assert len(set(entry_hashes)) == n
+    prev_hashes = [e["prev_hash"] for e in lines]
+    assert prev_hashes[0] == GENESIS_HASH
+    assert prev_hashes[1:] == entry_hashes[:-1]

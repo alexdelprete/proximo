@@ -48,12 +48,15 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true   # only actionable findings (an upstream fix exists)
-          # ON-RAMP: report-first. The SARIF still uploads to the Security tab, but this
-          # does not red CI yet — the base-image CVE state can't be verified in the
-          # dev env (no docker), so the first blocking run has to prove out on CI.
-          # Flip exit-code to '1' once a green run confirms the baseline — the same
-          # on-ramp pip-audit graduated from.
-          exit-code: '0'
+          # BLOCKING (graduated 2026-07-01, the same on-ramp pip-audit graduated from).
+          # Baseline confirmed clean via the Security tab's own history, not local
+          # reasoning: every Trivy analysis on `main` since this job's first run
+          # (17/17, 2026-06-24 -> 2026-06-30, `results_count: 0` each time per
+          # `gh api repos/.../code-scanning/analyses?tool_name=Trivy`) found zero
+          # fixable CRITICAL/HIGH findings, across multiple pulls of the unpinned
+          # python:3.13-slim base — so this isn't one lucky scan. A new CVE now
+          # reds CI until patched, which is the point of the gate.
+          exit-code: '1'
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v4

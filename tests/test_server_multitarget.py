@@ -74,9 +74,22 @@ def test_svc_pbs_target_on_pve_resolver_raises(monkeypatch, tmp_path):
         targets._active_target.reset(token)
 
 
-def test_audited_records_active_target_as_remote(monkeypatch):
+def test_audited_records_active_target_as_remote(monkeypatch, tmp_path):
     """A targeted, audited mutation must record remote=<target> — proving PROVE saw the right box.
-    This is the wrong-box regression guard from the design."""
+    This is the wrong-box regression guard from the design.
+
+    `edge` is registered in PROXIMO_TARGETS so the mutation clears the per-surface envelope: an
+    active target that is NOT in the registry now fails closed (forbid-all) — the stale-cache
+    guard from the envelope spec §11.A. In production an active target only reaches `_audited`
+    when it IS registered (else `_svc()`/`resolve_target_fields` raises first), so registering it
+    here makes the fixture faithful to production rather than relying on the old permissive path."""
+    _registry(monkeypatch, tmp_path, """
+        [targets.edge]
+        kind = "pve"
+        base_url = "https://198.51.100.20:8006/api2/json"
+        node = "edge"
+        token_path = "/etc/proximo/edge.token"
+    """)
     recorded = {}
 
     class _FakeLedger:

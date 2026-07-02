@@ -869,3 +869,103 @@ async def test_every_mutating_tool_is_confirm_gated():
         "Tool(s) in _READ_ONLY_TOOLS that now HAVE a confirm gate (or were removed). Update the set:\n"
         f"  {sorted(stale)}"
     )
+
+
+async def test_no_tool_clears_or_sets_the_contain_trip():
+    """The containment trip is armed/cleared OUT-OF-BAND only (exactly like arm/disarm). Proximo must
+    expose NO MCP tool that reads/writes it, so the tool surface cannot clear its own containment.
+    Two checks: (1) no tool name references containment/trip state, (2) the contain module exposes no
+    trip-writing callable (the trip is only ever READ from inside Proximo, never written)."""
+    import re
+
+    tools = await server.mcp.list_tools()
+    # \b so "pve_create_container" doesn't false-positive on "contain".
+    suspect_re = re.compile(r"\bcontain\b|\btrip\b")
+    suspect_tools = sorted(t.name for t in tools if suspect_re.search(t.name.lower()))
+    assert not suspect_tools, (
+        "Tool(s) reference containment/trip state — re-arm must stay out-of-band, never a tool:\n"
+        f"  {suspect_tools}"
+    )
+
+    from proximo import contain
+
+    writer_like = [
+        name for name in dir(contain)
+        if not name.startswith("_")
+        and callable(getattr(contain, name))
+        and any(kw in name.lower() for kw in ("set", "clear", "arm", "resume", "uncontain", "reset"))
+    ]
+    assert not writer_like, (
+        f"contain.py exposes a trip-writing-looking callable: {writer_like} — "
+        "the trip must only ever be READ from inside Proximo, never written"
+    )
+
+
+def test_every_manual_audit_path_tool_reaches_containment_gate():
+    """Structural regression for Finding 3 (root cause of the F1 pve_agent_exec bypass): the OLD
+    coverage only checked that a tool takes `confirm=`, never that its mutation path actually
+    reaches the containment gate — so a tool with its own manual audit path (records outcomes via
+    `audit.record(...)` directly, bypassing `_audited()`'s built-in gate — the pattern used when an
+    honest async outcome like "running" vs "ok" can't fit `_audited`'s single-envelope shape) could
+    mutate a real backend while contained and no test would notice.
+
+    Static AST sweep, no execution: for every `@tool()`-decorated function, walk its own body
+    (nested defs/lambdas included — e.g. a tool's inner `_do()`). If that body calls
+    `audit.record(...)` directly, it MUST also call `contain_state(...)` or
+    `enforce_containment(...)` somewhere in the same body — proving the manual-audit-path tool
+    gates itself instead of relying on a funnel it never passes through.
+
+    Pre-fix this flags exactly `pve_agent_exec`. A future manual-audit-path tool that forgets the
+    gate fails this test the same way.
+
+    Boundary (what this does NOT lock — deliberately deferred to a Slice-2 ordering-aware sweep):
+    it checks *presence* of a containment call in the tool body, keyed on an in-body
+    `audit.record(...)`. It therefore does NOT catch (A) a tool that causes a mutation via a
+    separately-defined helper it delegates recording to (the `_auto_undo` shape — guarded instead
+    by that helper self-calling `enforce_containment`), nor (B) a tool that calls the primitive
+    *after* the mutation fires (presence, not order). The live surface is provably clean of both
+    today (see the F2 dynamic tests + `_auto_undo`'s own guard); this is a future-regression net,
+    not a proof of ordering.
+    """
+    import ast
+    import inspect
+
+    source = inspect.getsource(server)
+    tree = ast.parse(source)
+
+    def _calls_audit_record(node: ast.AST) -> bool:
+        return any(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "record" and isinstance(n.func.value, ast.Name)
+            and n.func.value.id == "audit"
+            for n in ast.walk(node)
+        )
+
+    def _calls_containment_primitive(node: ast.AST) -> bool:
+        primitive_names = {"contain_state", "enforce_containment"}
+        for n in ast.walk(node):
+            if isinstance(n, ast.Call):
+                func = n.func
+                name = func.id if isinstance(func, ast.Name) else (
+                    func.attr if isinstance(func, ast.Attribute) else None)
+                if name in primitive_names:
+                    return True
+        return False
+
+    def _is_tool_decorated(fn: ast.FunctionDef) -> bool:
+        return any(
+            isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name) and dec.func.id == "tool"
+            for dec in fn.decorator_list
+        )
+
+    offenders = [
+        node.name for node in tree.body
+        if isinstance(node, ast.FunctionDef) and _is_tool_decorated(node)
+        and _calls_audit_record(node) and not _calls_containment_primitive(node)
+    ]
+
+    assert offenders == [], (
+        "Tool(s) record ledger outcomes directly (a manual audit path that bypasses _audited's "
+        "built-in containment gate) WITHOUT reaching the containment primitive on that path:\n"
+        f"  {sorted(offenders)}"
+    )

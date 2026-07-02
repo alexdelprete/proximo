@@ -2125,6 +2125,29 @@ def ruledb_rule_actions_list(api: PmgBackend, id_: str) -> list[dict]:
     return cfg.get("action") or []
 
 
+# ---------------------------------------------------------------------------
+# Generic ruledb group-kind CRUD helpers — who/what/when object groups are
+# byte-for-byte identical PMG RuleDB endpoints save for the "who"/"what"/"when"
+# URL path segment. The public who_*/what_*/when_* functions below are thin
+# shims over these so every call site's URL/params/method/return shape stays
+# exactly what it was before the collapse.
+# ---------------------------------------------------------------------------
+
+
+def _ruledb_groups_list(api: PmgBackend, kind: str) -> list[dict]:
+    return api._get(f"/config/ruledb/{kind}") or []
+
+
+def _ruledb_group_get(api: PmgBackend, kind: str, ogroup: str) -> dict:
+    ogroup = _check_ruledb_id(ogroup)
+    return api._get(f"/config/ruledb/{kind}/{ogroup}/config") or {}
+
+
+def _ruledb_group_objects(api: PmgBackend, kind: str, ogroup: str) -> list[dict]:
+    ogroup = _check_ruledb_id(ogroup)
+    return api._get(f"/config/ruledb/{kind}/{ogroup}/objects") or []
+
+
 def who_groups_list(api: PmgBackend) -> list[dict]:
     """List all PMG RuleDB 'who' object groups.
 
@@ -2132,7 +2155,7 @@ def who_groups_list(api: PmgBackend) -> list[dict]:
 
     PMG 9.1 pmgsh-verified path.
     """
-    return api._get("/config/ruledb/who") or []
+    return _ruledb_groups_list(api, "who")
 
 
 def who_group_get(api: PmgBackend, ogroup: str) -> dict:
@@ -2145,8 +2168,7 @@ def who_group_get(api: PmgBackend, ogroup: str) -> dict:
     Passing a name causes PMG to return HTTP 400 Parameter verification failed.
     ogroup: numeric ID string (e.g. '2') from who_groups_list response.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._get(f"/config/ruledb/who/{ogroup}/config") or {}
+    return _ruledb_group_get(api, "who", ogroup)
 
 
 def who_group_objects(api: PmgBackend, ogroup: str) -> list[dict]:
@@ -2158,8 +2180,7 @@ def who_group_objects(api: PmgBackend, ogroup: str) -> list[dict]:
     who_groups_list (e.g. '2'), NOT the group name (e.g. 'Blocklist').
     ogroup: numeric ID string (e.g. '2') from who_groups_list response.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._get(f"/config/ruledb/who/{ogroup}/objects") or []
+    return _ruledb_group_objects(api, "who", ogroup)
 
 
 def what_groups_list(api: PmgBackend) -> list[dict]:
@@ -2169,7 +2190,7 @@ def what_groups_list(api: PmgBackend) -> list[dict]:
 
     PMG 9.1 pmgsh-verified path.
     """
-    return api._get("/config/ruledb/what") or []
+    return _ruledb_groups_list(api, "what")
 
 
 def what_group_get(api: PmgBackend, ogroup: str) -> dict:
@@ -2182,8 +2203,7 @@ def what_group_get(api: PmgBackend, ogroup: str) -> dict:
     Passing a name causes PMG to return HTTP 400 Parameter verification failed.
     ogroup: numeric ID string (e.g. '8') from what_groups_list response.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._get(f"/config/ruledb/what/{ogroup}/config") or {}
+    return _ruledb_group_get(api, "what", ogroup)
 
 
 def what_group_objects(api: PmgBackend, ogroup: str) -> list[dict]:
@@ -2195,8 +2215,7 @@ def what_group_objects(api: PmgBackend, ogroup: str) -> list[dict]:
     what_groups_list (e.g. '8'), NOT the group name.
     ogroup: numeric ID string (e.g. '8') from what_groups_list response.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._get(f"/config/ruledb/what/{ogroup}/objects") or []
+    return _ruledb_group_objects(api, "what", ogroup)
 
 
 def when_groups_list(api: PmgBackend) -> list[dict]:
@@ -2206,7 +2225,7 @@ def when_groups_list(api: PmgBackend) -> list[dict]:
 
     PMG 9.1 pmgsh-verified path.
     """
-    return api._get("/config/ruledb/when") or []
+    return _ruledb_groups_list(api, "when")
 
 
 def when_group_get(api: PmgBackend, ogroup: str) -> dict:
@@ -2219,8 +2238,7 @@ def when_group_get(api: PmgBackend, ogroup: str) -> dict:
     Passing a name causes PMG to return HTTP 400 Parameter verification failed.
     ogroup: numeric ID string (e.g. '4') from when_groups_list response.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._get(f"/config/ruledb/when/{ogroup}/config") or {}
+    return _ruledb_group_get(api, "when", ogroup)
 
 
 def when_group_objects(api: PmgBackend, ogroup: str) -> list[dict]:
@@ -2232,8 +2250,7 @@ def when_group_objects(api: PmgBackend, ogroup: str) -> list[dict]:
     when_groups_list (e.g. '4'), NOT the group name.
     ogroup: numeric ID string (e.g. '4') from when_groups_list response.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._get(f"/config/ruledb/when/{ogroup}/objects") or []
+    return _ruledb_group_objects(api, "when", ogroup)
 
 
 def action_objects_list(api: PmgBackend) -> list[dict]:
@@ -2282,6 +2299,51 @@ def _check_who_object_type(type_: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _ruledb_group_create(
+    api: PmgBackend,
+    kind: str,
+    name: str,
+    info: str | None = None,
+    and_: bool | None = None,
+    invert: bool | None = None,
+) -> object:
+    body: dict = {"name": name}
+    if info is not None:
+        body["info"] = info
+    if and_ is not None:
+        body["and"] = and_
+    if invert is not None:
+        body["invert"] = invert
+    return api._post(f"/config/ruledb/{kind}", data=body)
+
+
+def _ruledb_group_update(
+    api: PmgBackend,
+    kind: str,
+    ogroup: str,
+    name: str | None = None,
+    info: str | None = None,
+    and_: bool | None = None,
+    invert: bool | None = None,
+) -> object:
+    ogroup = _check_ruledb_id(ogroup)
+    body: dict = {}
+    if name is not None:
+        body["name"] = name
+    if info is not None:
+        body["info"] = info
+    if and_ is not None:
+        body["and"] = and_
+    if invert is not None:
+        body["invert"] = invert
+    return api._put(f"/config/ruledb/{kind}/{ogroup}/config", data=body)
+
+
+def _ruledb_group_delete(api: PmgBackend, kind: str, ogroup: str) -> object:
+    ogroup = _check_ruledb_id(ogroup)
+    return api._delete(f"/config/ruledb/{kind}/{ogroup}")
+
+
 def who_group_create(
     api: PmgBackend,
     name: str,
@@ -2302,14 +2364,7 @@ def who_group_create(
     invert: if True, the group match is inverted.
     Returns the numeric ogroup ID assigned by PMG.
     """
-    body: dict = {"name": name}
-    if info is not None:
-        body["info"] = info
-    if and_ is not None:
-        body["and"] = and_
-    if invert is not None:
-        body["invert"] = invert
-    return api._post("/config/ruledb/who", data=body)
+    return _ruledb_group_create(api, "who", name, info, and_, invert)
 
 
 def who_group_update(
@@ -2330,17 +2385,7 @@ def who_group_update(
     ogroup: numeric ID string (e.g. '2') from who_groups_list response.
     Only non-None fields are sent; omitted fields keep their current values.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    body: dict = {}
-    if name is not None:
-        body["name"] = name
-    if info is not None:
-        body["info"] = info
-    if and_ is not None:
-        body["and"] = and_
-    if invert is not None:
-        body["invert"] = invert
-    return api._put(f"/config/ruledb/who/{ogroup}/config", data=body)
+    return _ruledb_group_update(api, "who", ogroup, name, info, and_, invert)
 
 
 def who_group_delete(api: PmgBackend, ogroup: str) -> object:
@@ -2354,8 +2399,7 @@ def who_group_delete(api: PmgBackend, ogroup: str) -> object:
     ogroup: numeric ID string (e.g. '2') from who_groups_list response.
     WARNING: also removes all objects within the group.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._delete(f"/config/ruledb/who/{ogroup}")
+    return _ruledb_group_delete(api, "who", ogroup)
 
 
 def what_group_create(
@@ -2378,14 +2422,7 @@ def what_group_create(
     invert: if True, the group match is inverted.
     Returns the numeric ogroup ID assigned by PMG.
     """
-    body: dict = {"name": name}
-    if info is not None:
-        body["info"] = info
-    if and_ is not None:
-        body["and"] = and_
-    if invert is not None:
-        body["invert"] = invert
-    return api._post("/config/ruledb/what", data=body)
+    return _ruledb_group_create(api, "what", name, info, and_, invert)
 
 
 def what_group_update(
@@ -2406,17 +2443,7 @@ def what_group_update(
     ogroup: numeric ID string (e.g. '8') from what_groups_list response.
     Only non-None fields are sent; omitted fields keep their current values.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    body: dict = {}
-    if name is not None:
-        body["name"] = name
-    if info is not None:
-        body["info"] = info
-    if and_ is not None:
-        body["and"] = and_
-    if invert is not None:
-        body["invert"] = invert
-    return api._put(f"/config/ruledb/what/{ogroup}/config", data=body)
+    return _ruledb_group_update(api, "what", ogroup, name, info, and_, invert)
 
 
 def what_group_delete(api: PmgBackend, ogroup: str) -> object:
@@ -2430,8 +2457,7 @@ def what_group_delete(api: PmgBackend, ogroup: str) -> object:
     ogroup: numeric ID string (e.g. '8') from what_groups_list response.
     WARNING: also removes all objects within the group.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._delete(f"/config/ruledb/what/{ogroup}")
+    return _ruledb_group_delete(api, "what", ogroup)
 
 
 def when_group_create(
@@ -2454,14 +2480,7 @@ def when_group_create(
     invert: if True, the group match is inverted.
     Returns the numeric ogroup ID assigned by PMG.
     """
-    body: dict = {"name": name}
-    if info is not None:
-        body["info"] = info
-    if and_ is not None:
-        body["and"] = and_
-    if invert is not None:
-        body["invert"] = invert
-    return api._post("/config/ruledb/when", data=body)
+    return _ruledb_group_create(api, "when", name, info, and_, invert)
 
 
 def when_group_update(
@@ -2482,17 +2501,7 @@ def when_group_update(
     ogroup: numeric ID string (e.g. '4') from when_groups_list response.
     Only non-None fields are sent; omitted fields keep their current values.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    body: dict = {}
-    if name is not None:
-        body["name"] = name
-    if info is not None:
-        body["info"] = info
-    if and_ is not None:
-        body["and"] = and_
-    if invert is not None:
-        body["invert"] = invert
-    return api._put(f"/config/ruledb/when/{ogroup}/config", data=body)
+    return _ruledb_group_update(api, "when", ogroup, name, info, and_, invert)
 
 
 def when_group_delete(api: PmgBackend, ogroup: str) -> object:
@@ -2506,8 +2515,7 @@ def when_group_delete(api: PmgBackend, ogroup: str) -> object:
     ogroup: numeric ID string (e.g. '4') from when_groups_list response.
     WARNING: also removes all objects within the group.
     """
-    ogroup = _check_ruledb_id(ogroup)
-    return api._delete(f"/config/ruledb/when/{ogroup}")
+    return _ruledb_group_delete(api, "when", ogroup)
 
 
 def who_object_add(

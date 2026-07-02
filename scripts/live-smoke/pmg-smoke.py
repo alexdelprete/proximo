@@ -182,38 +182,11 @@ def rec(step: str, status: str, detail: str = "") -> None:
 def hr(title: str) -> None:
     print(f"\n=== {title} ===")
 
-
-def main() -> int:
-    required = (
-        "PROXIMO_PMG_BASE_URL",
-        "PROXIMO_PMG_USERNAME",
-        "PROXIMO_PMG_PASSWORD_PATH",
-        "PROXIMO_PMG_NODE",
-        "PROXIMO_PMG_VERIFY_TLS",
-        "PROXIMO_PMG_CA_BUNDLE",
-    )
-    missing = [v for v in required if v not in os.environ]
-    if missing:
-        print(f"ERROR: missing env vars: {missing}", file=sys.stderr)
-        return 2
-
-    try:
-        cfg = PmgConfig.from_env()
-    except Exception as e:
-        print(f"ERROR: PmgConfig.from_env() failed: {e}", file=sys.stderr)
-        return 2
-
-    print(f"PMG live-prove | node={cfg.node} | url={cfg.base_url}")
-    print("(read-only + plan-only; no mail is delivered)")
-
-    try:
-        backend = PmgBackend(cfg)
-    except Exception as e:
-        print(f"ERROR: PmgBackend() construction failed: {e}", file=sys.stderr)
-        return 2
-
-    node = cfg.node
-
+def _doctor_reads(backend, node) -> None:
+    """
+    W1 doctor proxy + core reads: node_version, access_permissions, node_status, relay_config, domains_list,
+    statistics_mail, quarantine_spam.
+    """
     # -------------------------------------------------------------------------
     # pmg_doctor proxy: node_version + access_permissions
     # (server.pmg_doctor calls these two functions)
@@ -301,6 +274,13 @@ def main() -> int:
     except Exception as e:
         rec("quarantine_spam", "FAIL", repr(e))
 
+
+def _w2_reads(backend, node) -> None:
+    """
+    W2 read operations: statistics_domains (+ start/end params), statistics_virus, statistics_spamscores,
+    statistics_recent, quarantine_blocklist_list(pre-add), spam_config, service_status(pmgproxy/postfix),
+    postfix_qshape.
+    """
     # =========================================================================
     # W2 READ operations
     # =========================================================================
@@ -419,6 +399,15 @@ def main() -> int:
     except Exception as e:
         rec("postfix_qshape", "FAIL", repr(e))
 
+
+def phase_doctor_and_readonly(backend, node) -> None:
+    """Doctor proxy + all read-only W1/W2 checks."""
+    _doctor_reads(backend, node)
+    _w2_reads(backend, node)
+
+
+def _w2_mutations_plan(backend, node) -> None:
+    """W2 mutations (blocklist add/verify/cleanup, postfix_flush) + W2 plan-only plan_quarantine_action."""
     # =========================================================================
     # W2 MUTATIONS — safe live-fire with cleanup
     # =========================================================================
@@ -512,6 +501,9 @@ def main() -> int:
     except Exception as e:
         rec("plan_quarantine_action(deliver)", "FAIL", repr(e))
 
+
+def _w3a_domain_transport(backend) -> None:
+    """W3: domain_create/delete and transport_create/delete cycles."""
     # =========================================================================
     # W3 CRUD/control cycles — 12 new tools, live-proven against PMG 9.1
     # =========================================================================
@@ -625,6 +617,9 @@ def main() -> int:
     else:
         rec("transport_delete", "SKIP", "create failed, nothing to delete")
 
+
+def _w3b_mynetworks_spam(backend) -> None:
+    """W3: mynetworks_add/remove cycle + spam_config_update (flip use_awl, verify, revert)."""
     # -------------------------------------------------------------------------
     # pmg_mynetworks_add / pmg_mynetworks_remove — POST /config/mynetworks +
     # DELETE /config/mynetworks/{cidr} where / is %2F-encoded in the path
@@ -751,6 +746,9 @@ def main() -> int:
     else:
         rec("spam_config_update(revert)", "SKIP", "no mutation applied")
 
+
+def _w3c_welcomelist_blocklist(backend) -> None:
+    """W3: quarantine_welcomelist_add/remove cycle + W3-promoted quarantine_blocklist_remove."""
     # -------------------------------------------------------------------------
     # pmg_quarantine_welcomelist_add / _remove — POST + DELETE /quarantine/welcomelist
     # -------------------------------------------------------------------------
@@ -844,6 +842,9 @@ def main() -> int:
     else:
         rec("blocklist_remove(W3-promoted)", "SKIP", "add failed, nothing to remove")
 
+
+def _w3d_service_control(backend, node) -> None:
+    """W3: service_control restart+poll cycle for pmg-smtp-filter + plan_service_control(stop)."""
     # -------------------------------------------------------------------------
     # pmg_service_control — service_status → restart pmg-smtp-filter → poll → plan(stop) pure
     # -------------------------------------------------------------------------
@@ -901,6 +902,20 @@ def main() -> int:
     except Exception as e:
         rec("plan_service_control(stop)", "FAIL", repr(e))
 
+
+def phase_plan_and_config(backend, node) -> None:
+    """W2 mutations/plan-path + W3 CRUD/control cycles."""
+    _w2_mutations_plan(backend, node)
+    _w3a_domain_transport(backend)
+    _w3b_mynetworks_spam(backend)
+    _w3c_welcomelist_blocklist(backend)
+    _w3d_service_control(backend, node)
+
+
+def _w4_reads_a(backend, node, cfg) -> None:
+    """
+    W4 reads: tracker_list/tracker_detail, quarantine_virus/attachment/virusstatus/spamstatus/spamusers(spam,virus).
+    """
     # =========================================================================
     # W4 READ operations — 13 new tools live-proven against PMG 9.1
     # =========================================================================
@@ -1003,6 +1018,9 @@ def main() -> int:
     except Exception as e:
         rec("quarantine_spamusers(virus)", "FAIL", repr(e))
 
+
+def _w4_reads_b(backend, node) -> None:
+    """W4 reads: statistics_mailcount/sender(+orderby-dropped)/receiver, node_syslog, node_rrddata, tasks_list."""
     # -------------------------------------------------------------------------
     # pmg_statistics_mailcount — GET /statistics/mailcount?timespan=3600
     # -------------------------------------------------------------------------
@@ -1087,6 +1105,9 @@ def main() -> int:
     except Exception as e:
         rec("tasks_list", "FAIL", repr(e))
 
+
+def _w4_backup(backend, node) -> None:
+    """W4 mutation: plan_backup_create (plan-only) then backup_create (live) + task-verify poll."""
     # =========================================================================
     # W4 MUTATION — pmg_backup_create (safe: lab-only, statistic=False)
     # =========================================================================
@@ -1167,6 +1188,16 @@ def main() -> int:
         "\n  and:      ssh pve 'pct exec 31337 -- rm /var/lib/pmg/backup/<file>'"
     )
 
+
+def phase_w4_reads_and_backup(backend, node, cfg) -> None:
+    """W4 read operations + backup_create mutation cycle."""
+    _w4_reads_a(backend, node, cfg)
+    _w4_reads_b(backend, node)
+    _w4_backup(backend, node)
+
+
+def _w5a_rules(backend) -> None:
+    """W5a: ruledb_rules_list + per-rule reads (get/from/to/what/when/actions_list)."""
     # =========================================================================
     # W5a READ operations — 18 RuleDB tools, all read-only
     # Strategy: call rules_list first → pick a real rule id → feed to per-rule reads
@@ -1308,6 +1339,9 @@ def main() -> int:
     else:
         rec("ruledb_rule_actions_list", "SKIP", "no rule_id")
 
+
+def _w5a_who_what(backend) -> None:
+    """W5a: who_groups_list/get/objects + what_groups_list/get/objects."""
     # =========================================================================
     # W5a: who/what/when group operations — all require numeric ogroup IDs
     # W5a-BUG-2 FIX: ogroup must be the numeric ID (e.g. '2'), NOT the name.
@@ -1409,6 +1443,9 @@ def main() -> int:
     else:
         rec("what_group_objects", "SKIP", "no what_ogroup_id")
 
+
+def _w5a_when_action(backend) -> None:
+    """W5a: when_groups_list/get/objects + action_objects_list + ruledb_digest."""
     # -------------------------------------------------------------------------
     # when_groups_list — GET /config/ruledb/when
     # -------------------------------------------------------------------------
@@ -1502,6 +1539,16 @@ def main() -> int:
     except Exception as e:
         rec("ruledb_digest", "FAIL", repr(e))
 
+
+def phase_w5a_ruledb_reads(backend) -> None:
+    """W5a: all RuleDB read-only tools (rules, who/what/when groups, actions, digest)."""
+    _w5a_rules(backend)
+    _w5a_who_what(backend)
+    _w5a_when_action(backend)
+
+
+def _w5b_baseline(backend):
+    """W5b: capture who/what/when group counts before mutations."""
     # =========================================================================
     # W5b CRUD operations — group CRUD (who/what/when) + who-object CRUD
     # Live-prove against real PMG 9.1:
@@ -1531,6 +1578,11 @@ def main() -> int:
         when_pre_count = -1
         rec("W5b_baseline_counts", "FAIL", repr(e))
 
+    return who_pre_count, what_pre_count, when_pre_count
+
+
+def _w5b_who_group_crud(backend):
+    """W5b: who group create -> get(verify) -> update(info, verify)."""
     # =========================================================================
     # WHO group full CRUD cycle
     # =========================================================================
@@ -1581,6 +1633,11 @@ def main() -> int:
     else:
         rec("W5b_who_group_update", "SKIP", "create failed")
 
+    return w5b_who_id, w5b_who_created
+
+
+def _w5b_who_email_crud(backend, w5b_who_id, w5b_who_created) -> None:
+    """W5b: who-group email object add -> verify -> update -> verify -> delete -> verify."""
     # -------------------------------------------------------------------------
     # WHO objects: email type — add → verify → update → verify → delete → verify
     # -------------------------------------------------------------------------
@@ -1657,6 +1714,9 @@ def main() -> int:
     else:
         rec("W5b_who_object_delete(email)", "SKIP", "add failed")
 
+
+def _w5b_who_domain_crud(backend, w5b_who_id, w5b_who_created) -> None:
+    """W5b: who-group domain object add -> verify -> delete -> verify."""
     # -------------------------------------------------------------------------
     # WHO objects: domain type — add → verify → delete (catches per-type path bugs)
     # -------------------------------------------------------------------------
@@ -1711,6 +1771,9 @@ def main() -> int:
     else:
         rec("W5b_who_object_delete(domain)", "SKIP", "domain add failed")
 
+
+def _w5b_who_delete_verify(backend, w5b_who_id, w5b_who_created, who_pre_count) -> None:
+    """W5b: who_group_delete + verify WHO group count restored to baseline."""
     # -------------------------------------------------------------------------
     # WHO group delete + verify count restored
     # -------------------------------------------------------------------------
@@ -1747,6 +1810,9 @@ def main() -> int:
     except Exception as e:
         rec("W5b_who_count_restored", "FAIL", repr(e))
 
+
+def _w5b_what_group_crud(backend, what_pre_count) -> None:
+    """W5b: what group create -> get(verify) -> update(info, verify) -> delete -> verify count restored."""
     # =========================================================================
     # WHAT group full CRUD cycle (create → get → update → delete)
     # =========================================================================
@@ -1824,6 +1890,9 @@ def main() -> int:
     except Exception as e:
         rec("W5b_what_count_restored", "FAIL", repr(e))
 
+
+def _w5b_when_group_crud(backend, when_pre_count) -> None:
+    """W5b: when group create -> get(verify) -> update(info, verify) -> delete -> verify count restored."""
     # =========================================================================
     # WHEN group full CRUD cycle (create → get → update → delete)
     # =========================================================================
@@ -1901,6 +1970,9 @@ def main() -> int:
     except Exception as e:
         rec("W5b_when_count_restored", "FAIL", repr(e))
 
+
+def _w5b_pristine(backend, who_pre_count, what_pre_count, when_pre_count) -> None:
+    """W5b: pristine check — final group counts vs baseline."""
     # =========================================================================
     # W5b PRISTINE CHECK — confirm lab group counts match baseline
     # =========================================================================
@@ -1924,6 +1996,28 @@ def main() -> int:
     except Exception as e:
         rec("W5b_lab_pristine", "FAIL", repr(e))
 
+
+def phase_w5b_group_crud(backend):
+    """
+    W5b: WHO/WHAT/WHEN group CRUD cycles, baseline capture, and pristine check. Returns (what_pre_count,
+    when_pre_count) for W5c's pristine check.
+    """
+    who_pre_count, what_pre_count, when_pre_count = _w5b_baseline(backend)
+    w5b_who_id, w5b_who_created = _w5b_who_group_crud(backend)
+    _w5b_who_email_crud(backend, w5b_who_id, w5b_who_created)
+    _w5b_who_domain_crud(backend, w5b_who_id, w5b_who_created)
+    _w5b_who_delete_verify(backend, w5b_who_id, w5b_who_created, who_pre_count)
+    _w5b_what_group_crud(backend, what_pre_count)
+    _w5b_when_group_crud(backend, when_pre_count)
+    _w5b_pristine(backend, who_pre_count, what_pre_count, when_pre_count)
+    return what_pre_count, when_pre_count
+
+
+def _w5c_what_create_adds(backend):
+    """
+    W5c: what group create + add 5 object types (spamfilter/contenttype/matchfield/filenamefilter/virusfilter), each
+    verified.
+    """
     # =========================================================================
     # W5c CRUD — WHAT-object CRUD (5 types), WHEN-object CRUD, ACTION CRUD (5 types)
     # Live-proved against real PMG 9.1.
@@ -2078,6 +2172,11 @@ def main() -> int:
     else:
         rec("W5c_what_object_add(virusfilter)", "SKIP", "group create failed")
 
+    return w5c_what_id, w5c_what_created, w5c_what_obj_ids
+
+
+def _w5c_what_update_delete(backend, w5c_what_id, w5c_what_created, w5c_what_obj_ids) -> None:
+    """W5c: update spamfilter object, delete all what-objects, delete the what group."""
     # ---- update spamfilter: spamlevel 99 → 50 ----
     spam_obj_id = w5c_what_obj_ids.get("spamfilter")
     hr(
@@ -2136,6 +2235,11 @@ def main() -> int:
     else:
         rec("W5c_what_group_delete", "SKIP", "group create failed")
 
+
+def _w5c_when_object_crud(backend) -> None:
+    """
+    W5c: when group create -> add timeframe object -> verify -> update -> verify -> delete object -> delete group.
+    """
     # =========================================================================
     # W5c: WHEN-object CRUD cycle
     # when group create → add timeframe → verify → update → verify → delete obj → delete group
@@ -2238,6 +2342,12 @@ def main() -> int:
     else:
         rec("W5c_when_group_delete", "SKIP", "group create failed")
 
+
+def _w5c_action_baseline(backend):
+    """
+    W5c: action_objects_list baseline count + locate a system (editable=0) action id for the later delete-guard
+    test.
+    """
     # =========================================================================
     # W5c: ACTION CRUD cycle
     # For each action type: create → find compound id in action_objects_list → update → delete
@@ -2247,11 +2357,14 @@ def main() -> int:
     # Baseline count
     hr("W5c: action_objects_list — baseline before action creates")
     action_baseline_count = 0
+    # Pre-declared BEFORE the try: if action_objects_list() throws, the `return ..., system_action_id`
+    # below must not hit an UnboundLocalError — a baseline failure returns (0, None) and the later
+    # guard test skips cleanly on a falsy id, instead of crashing the whole W5c phase.
+    system_action_id: str | None = None
     try:
         al_pre = action_objects_list(backend)
         action_baseline_count = len(al_pre)
         # Locate a system action (editable=0) for the guard test
-        system_action_id: str | None = None
         for a in al_pre:
             if a.get("editable") == 0:
                 system_action_id = str(a.get("id", ""))
@@ -2261,16 +2374,11 @@ def main() -> int:
             f"system_action_id={system_action_id!r} (will test guard)")
     except Exception as e:
         rec("W5c_action_baseline", "FAIL", repr(e))
+    return action_baseline_count, system_action_id
 
-    # Track compound IDs for each action we create (returned directly from create)
-    w5c_action_ids: dict[str, str | None] = {
-        "bcc": None,
-        "field": None,
-        "notification": None,
-        "disclaimer": None,
-        "removeattachments": None,
-    }
 
+def _w5c_action_bcc_field(backend, w5c_action_ids) -> None:
+    """W5c: action_bcc_create/update + action_field_create/update."""
     # ---- bcc ----
     hr("W5c: action_bcc_create — POST /config/ruledb/action/bcc")
     try:
@@ -2330,6 +2438,9 @@ def main() -> int:
     else:
         rec("W5c_action_field_update", "SKIP", "create failed")
 
+
+def _w5c_action_notif_disc(backend, w5c_action_ids) -> None:
+    """W5c: action_notification_create/update + action_disclaimer_create/update."""
     # ---- notification ----
     hr("W5c: action_notification_create — POST /config/ruledb/action/notification")
     try:
@@ -2397,6 +2508,9 @@ def main() -> int:
     else:
         rec("W5c_action_disclaimer_update", "SKIP", "create failed")
 
+
+def _w5c_action_removeattach(backend, w5c_action_ids) -> None:
+    """W5c: action_removeattachments_create/update."""
     # ---- removeattachments ----
     hr("W5c: action_removeattachments_create — POST /config/ruledb/action/removeattachments")
     try:
@@ -2429,6 +2543,9 @@ def main() -> int:
     else:
         rec("W5c_action_removeattachments_update", "SKIP", "create failed")
 
+
+def _w5c_action_guard(backend, system_action_id) -> None:
+    """W5c: delete-guard test — try to DELETE a system (editable=0) action, must error."""
     # ---- guard test: try to delete a system action (editable=0) ----
     hr(f"W5c: action_delete GUARD — try DELETE on system action {system_action_id!r} (editable=0, must error)")
     if system_action_id:
@@ -2447,6 +2564,9 @@ def main() -> int:
         rec("W5c_action_delete_guard", "SKIP",
             "no system action found in action_objects_list (unexpected)")
 
+
+def _w5c_action_cleanup(backend, w5c_action_ids, action_baseline_count) -> None:
+    """W5c: delete all created action objects (cleanup) + verify action count restored."""
     # ---- delete all created action objects (cleanup) ----
     hr("W5c: action_delete all created actions (cleanup)")
     for atype, aid in w5c_action_ids.items():
@@ -2477,6 +2597,33 @@ def main() -> int:
     except Exception as e:
         rec("W5c_action_count_restored", "FAIL", repr(e))
 
+
+def _w5c_action_crud(backend):
+    """
+    W5c: ACTION CRUD coordinator — baseline, 5 action-type create/update cycles, system-action delete guard,
+    cleanup, verify restored. Returns action_baseline_count for the pristine check.
+    """
+    action_baseline_count, system_action_id = _w5c_action_baseline(backend)
+
+    # Track compound IDs for each action we create (returned directly from create)
+    w5c_action_ids: dict[str, str | None] = {
+        "bcc": None,
+        "field": None,
+        "notification": None,
+        "disclaimer": None,
+        "removeattachments": None,
+    }
+
+    _w5c_action_bcc_field(backend, w5c_action_ids)
+    _w5c_action_notif_disc(backend, w5c_action_ids)
+    _w5c_action_removeattach(backend, w5c_action_ids)
+    _w5c_action_guard(backend, system_action_id)
+    _w5c_action_cleanup(backend, w5c_action_ids, action_baseline_count)
+    return action_baseline_count
+
+
+def _w5c_pristine(backend, what_pre_count, when_pre_count, action_baseline_count) -> None:
+    """W5c: pristine check — final what/when group counts + action count vs W5b/W5c baselines."""
     # =========================================================================
     # W5c PRISTINE CHECK — confirm what/when group counts and action count match baseline
     # =========================================================================
@@ -2501,6 +2648,21 @@ def main() -> int:
     except Exception as e:
         rec("W5c_lab_pristine", "FAIL", repr(e))
 
+
+def phase_w5c_what_when_action(backend, what_pre_count, when_pre_count) -> None:
+    """
+    W5c: WHAT-object CRUD, WHEN-object CRUD, ACTION CRUD cycles, then pristine check against the W5b group-count
+    baselines threaded in from phase_w5b_group_crud.
+    """
+    w5c_what_id, w5c_what_created, w5c_what_obj_ids = _w5c_what_create_adds(backend)
+    _w5c_what_update_delete(backend, w5c_what_id, w5c_what_created, w5c_what_obj_ids)
+    _w5c_when_object_crud(backend)
+    action_baseline_count = _w5c_action_crud(backend)
+    _w5c_pristine(backend, what_pre_count, when_pre_count, action_baseline_count)
+
+
+def _w5d_baseline(backend):
+    """W5d: capture rule/who/what/when/action counts before any W5d mutation."""
     # =========================================================================
     # W5d: RULE CRUD + RULE↔GROUP ATTACH/DETACH
     # Live-prove all 13 rule-plane tools against real PMG 9.1.
@@ -2528,437 +2690,506 @@ def main() -> int:
             f"actions={w5d_action_pre_count}")
     except Exception as e:
         rec("W5d_baselines", "FAIL", repr(e))
+    return (
+        w5d_rule_pre_count, w5d_who_pre_count, w5d_what_pre_count,
+        w5d_when_pre_count, w5d_action_pre_count,
+    )
 
-    # Track all created objects for teardown (always in finally)
-    w5d_rule_id: str | None = None
-    w5d_who_id: str | None = None
-    w5d_what_id: str | None = None
-    w5d_when_id: str | None = None
-    w5d_bcc_compound_id: str | None = None   # e.g. "13_26" — for action_delete
-    w5d_action_ogroup: str | None = None     # e.g. "13" — for ruledb_rule_action_attach
 
+def _w5d_create_groups(backend):
+    """W5d: create test who/what/when groups for the rule slot."""
+    # ---- create helper groups (reuse W5b/W5c group create functions) ----
+    hr("W5d: who_group_create — create test who-group for rule slot")
     try:
-        # ---- create helper groups (reuse W5b/W5c group create functions) ----
-        hr("W5d: who_group_create — create test who-group for rule slot")
-        try:
-            result = who_group_create(backend, "proximo-w5d-who")
-            w5d_who_id = str(result)
-            rec("W5d_who_group_create", "PASS",
-                f"raw_return={result!r} type={type(result).__name__} → id={w5d_who_id!r}")
-        except Exception as e:
-            rec("W5d_who_group_create", "FAIL", repr(e))
+        result = who_group_create(backend, "proximo-w5d-who")
+        w5d_who_id = str(result)
+        rec("W5d_who_group_create", "PASS",
+            f"raw_return={result!r} type={type(result).__name__} → id={w5d_who_id!r}")
+    except Exception as e:
+        rec("W5d_who_group_create", "FAIL", repr(e))
 
-        hr("W5d: what_group_create — create test what-group for rule slot")
-        try:
-            result = what_group_create(backend, "proximo-w5d-what")
-            w5d_what_id = str(result)
-            rec("W5d_what_group_create", "PASS",
-                f"raw_return={result!r} type={type(result).__name__} → id={w5d_what_id!r}")
-        except Exception as e:
-            rec("W5d_what_group_create", "FAIL", repr(e))
+    hr("W5d: what_group_create — create test what-group for rule slot")
+    try:
+        result = what_group_create(backend, "proximo-w5d-what")
+        w5d_what_id = str(result)
+        rec("W5d_what_group_create", "PASS",
+            f"raw_return={result!r} type={type(result).__name__} → id={w5d_what_id!r}")
+    except Exception as e:
+        rec("W5d_what_group_create", "FAIL", repr(e))
 
-        hr("W5d: when_group_create — create test when-group for rule slot")
-        try:
-            result = when_group_create(backend, "proximo-w5d-when")
-            w5d_when_id = str(result)
-            rec("W5d_when_group_create", "PASS",
-                f"raw_return={result!r} type={type(result).__name__} → id={w5d_when_id!r}")
-        except Exception as e:
-            rec("W5d_when_group_create", "FAIL", repr(e))
+    hr("W5d: when_group_create — create test when-group for rule slot")
+    try:
+        result = when_group_create(backend, "proximo-w5d-when")
+        w5d_when_id = str(result)
+        rec("W5d_when_group_create", "PASS",
+            f"raw_return={result!r} type={type(result).__name__} → id={w5d_when_id!r}")
+    except Exception as e:
+        rec("W5d_when_group_create", "FAIL", repr(e))
+    return w5d_who_id, w5d_what_id, w5d_when_id
 
-        hr("W5d: action_bcc_create + action_objects_list — create test action + extract group_id")
+
+def _w5d_create_action(backend):
+    """W5d: create test bcc action, extract its ogroup id (with action_objects_list fallback lookup)."""
+    hr("W5d: action_bcc_create + action_objects_list — create test action + extract group_id")
+    try:
+        result = action_bcc_create(backend, name="w5d-bcc", target="bcc@example.com")
+        w5d_bcc_compound_id = str(result)
+        # compound id format: "{group_id}_{obj_id}"; action_attach needs the group_id (digit-only)
+        parts = w5d_bcc_compound_id.split("_")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            w5d_action_ogroup = parts[0]
+            rec("W5d_action_bcc_create", "PASS",
+                f"compound_id={w5d_bcc_compound_id!r} → action_ogroup={w5d_action_ogroup!r}")
+        else:
+            # Fallback: find by name in action_objects_list
+            al = action_objects_list(backend)
+            match = next((a for a in al
+                          if str(a.get("id")) == w5d_bcc_compound_id
+                          or a.get("name") == "w5d-bcc"), None)
+            raw_compound = str(match.get("id", "")) if match else w5d_bcc_compound_id
+            p2 = raw_compound.split("_")
+            w5d_action_ogroup = p2[0] if (len(p2) == 2 and p2[0].isdigit()) else None
+            rec("W5d_action_bcc_create", "PASS" if w5d_action_ogroup else "FAIL",
+                f"raw_return={result!r} compound_id={w5d_bcc_compound_id!r} "
+                f"action_ogroup={w5d_action_ogroup!r}")
+    except Exception as e:
+        rec("W5d_action_bcc_create", "FAIL", repr(e))
+    return w5d_bcc_compound_id, w5d_action_ogroup
+
+
+def _w5d_create_rule(backend):
+    """
+    W5d: create the test rule (active=False, priority=100). w5d_rule_id is freshly pre-declared None here (mirrors
+    the outer pre-declare in the original script — always safely bound either way) since this is now its own
+    function scope.
+    """
+    w5d_rule_id: str | None = None
+    # ---- create the test rule ----
+    hr("W5d: ruledb_rule_create — POST /config/ruledb/rules (active=False, priority=100)")
+    try:
+        result = ruledb_rule_create(
+            backend, name="proximo-w5d-test", priority=100,
+            active=False, direction=0,
+        )
+        # Print raw return for shape discovery
+        print(f"  [SHAPE] ruledb_rule_create raw_return={result!r} type={type(result).__name__}")
+        w5d_rule_id = str(result)
+        rec("W5d_rule_create", "PASS",
+            f"raw_return={result!r} type={type(result).__name__} → rule_id={w5d_rule_id!r}")
+    except Exception as e:
+        rec("W5d_rule_create", "FAIL", repr(e))
+    return w5d_rule_id
+
+
+def _w5d_safety_gate(backend, w5d_rule_id) -> None:
+    """
+    W5d: SAFETY GATE — verify active=0 before any attach; raises RuntimeError to abort (propagates to the caller's
+    try/finally) if the rule is unexpectedly active.
+    """
+    # ---- SAFETY GATE: assert active=False before any attach ----
+    hr(f"W5d: ruledb_rule_get — SAFETY GATE: verify active=0 before any attach (rule_id={w5d_rule_id!r})")
+    if w5d_rule_id:
         try:
-            result = action_bcc_create(backend, name="w5d-bcc", target="bcc@example.com")
-            w5d_bcc_compound_id = str(result)
-            # compound id format: "{group_id}_{obj_id}"; action_attach needs the group_id (digit-only)
-            parts = w5d_bcc_compound_id.split("_")
-            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-                w5d_action_ogroup = parts[0]
-                rec("W5d_action_bcc_create", "PASS",
-                    f"compound_id={w5d_bcc_compound_id!r} → action_ogroup={w5d_action_ogroup!r}")
+            cfg = ruledb_rule_get(backend, w5d_rule_id)
+            print(f"  [SHAPE] ruledb_rule_get raw={cfg!r}")
+            active_val = cfg.get("active") if isinstance(cfg, dict) else None
+            # PMG returns active as int 0/1 (or may omit if false)
+            # Treat absent-or-0 as inactive; treat 1 or True as active (ABORT)
+            is_active = active_val in (1, True, "1")
+            if is_active:
+                rec("W5d_rule_active_gate", "FAIL",
+                    f"ABORT — rule_id={w5d_rule_id!r} shows active={active_val!r}. "
+                    f"HARD STOP: will not attach groups to an active rule. "
+                    f"Lab may be in unexpected state — manual inspection required.")
+                # re-raise to jump to finally
+                raise RuntimeError(
+                    f"W5d safety abort: rule {w5d_rule_id!r} shows active={active_val!r}"
+                )
             else:
-                # Fallback: find by name in action_objects_list
-                al = action_objects_list(backend)
-                match = next((a for a in al
-                              if str(a.get("id")) == w5d_bcc_compound_id
-                              or a.get("name") == "w5d-bcc"), None)
-                raw_compound = str(match.get("id", "")) if match else w5d_bcc_compound_id
-                p2 = raw_compound.split("_")
-                w5d_action_ogroup = p2[0] if (len(p2) == 2 and p2[0].isdigit()) else None
-                rec("W5d_action_bcc_create", "PASS" if w5d_action_ogroup else "FAIL",
-                    f"raw_return={result!r} compound_id={w5d_bcc_compound_id!r} "
-                    f"action_ogroup={w5d_action_ogroup!r}")
+                rec("W5d_rule_active_gate", "PASS",
+                    f"active={active_val!r} (falsy) — rule is INACTIVE — safe to proceed")
+        except RuntimeError:
+            raise   # propagate the abort
         except Exception as e:
-            rec("W5d_action_bcc_create", "FAIL", repr(e))
+            rec("W5d_rule_active_gate", "FAIL", repr(e))
+            raise RuntimeError(f"W5d safety abort: could not verify active state: {e}") from e
 
-        # ---- create the test rule ----
-        hr("W5d: ruledb_rule_create — POST /config/ruledb/rules (active=False, priority=100)")
+
+def _w5d_attach_from_to(backend, w5d_rule_id, w5d_who_id):
+    """W5d: attach cycle — ruledb_rule_from_attach + ruledb_rule_to_attach, each verified."""
+    # =========================================================================
+    # Attach cycle — from, to, what, when, action
+    # Each: attach → verify via the corresponding list read → detach → verify gone
+    # (We run all attaches first, then update, then all detaches, to exercise update
+    # on a fully-armed rule.)
+    # =========================================================================
+
+    # ---- from_attach ----
+    hr(f"W5d: ruledb_rule_from_attach — POST /config/ruledb/rules/{w5d_rule_id}/from")
+    w5d_from_attached = False
+    if w5d_rule_id and w5d_who_id:
         try:
-            result = ruledb_rule_create(
-                backend, name="proximo-w5d-test", priority=100,
-                active=False, direction=0,
-            )
-            # Print raw return for shape discovery
-            print(f"  [SHAPE] ruledb_rule_create raw_return={result!r} type={type(result).__name__}")
-            w5d_rule_id = str(result)
-            rec("W5d_rule_create", "PASS",
-                f"raw_return={result!r} type={type(result).__name__} → rule_id={w5d_rule_id!r}")
+            result = ruledb_rule_from_attach(backend, w5d_rule_id, w5d_who_id)
+            print(f"  [SHAPE] from_attach raw_return={result!r}")
+            # Verify: ruledb_rule_from_list should show the group
+            slots = ruledb_rule_from_list(backend, w5d_rule_id)
+            print(f"  [SHAPE] from_list after attach={slots!r}")
+            found = any(str(s.get("ogroup", s.get("id", ""))) == w5d_who_id for s in (slots or []))
+            if found:
+                w5d_from_attached = True
+                rec("W5d_rule_from_attach", "PASS",
+                    f"ogroup={w5d_who_id!r} confirmed in from_list")
+            else:
+                rec("W5d_rule_from_attach", "FAIL",
+                    f"ogroup={w5d_who_id!r} NOT found in from_list={slots!r}")
         except Exception as e:
-            rec("W5d_rule_create", "FAIL", repr(e))
+            rec("W5d_rule_from_attach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_from_attach", "SKIP", "rule or who group create failed")
 
-        # ---- SAFETY GATE: assert active=False before any attach ----
-        hr(f"W5d: ruledb_rule_get — SAFETY GATE: verify active=0 before any attach (rule_id={w5d_rule_id!r})")
-        if w5d_rule_id:
-            try:
-                cfg = ruledb_rule_get(backend, w5d_rule_id)
-                print(f"  [SHAPE] ruledb_rule_get raw={cfg!r}")
-                active_val = cfg.get("active") if isinstance(cfg, dict) else None
-                # PMG returns active as int 0/1 (or may omit if false)
-                # Treat absent-or-0 as inactive; treat 1 or True as active (ABORT)
-                is_active = active_val in (1, True, "1")
-                if is_active:
-                    rec("W5d_rule_active_gate", "FAIL",
-                        f"ABORT — rule_id={w5d_rule_id!r} shows active={active_val!r}. "
-                        f"HARD STOP: will not attach groups to an active rule. "
-                        f"Lab may be in unexpected state — manual inspection required.")
-                    # re-raise to jump to finally
-                    raise RuntimeError(
-                        f"W5d safety abort: rule {w5d_rule_id!r} shows active={active_val!r}"
-                    )
-                else:
-                    rec("W5d_rule_active_gate", "PASS",
-                        f"active={active_val!r} (falsy) — rule is INACTIVE — safe to proceed")
-            except RuntimeError:
-                raise   # propagate the abort
-            except Exception as e:
-                rec("W5d_rule_active_gate", "FAIL", repr(e))
-                raise RuntimeError(f"W5d safety abort: could not verify active state: {e}") from e
+    # ---- to_attach (reuse who group — valid slot type) ----
+    hr(f"W5d: ruledb_rule_to_attach — POST /config/ruledb/rules/{w5d_rule_id}/to")
+    w5d_to_attached = False
+    if w5d_rule_id and w5d_who_id:
+        try:
+            result = ruledb_rule_to_attach(backend, w5d_rule_id, w5d_who_id)
+            print(f"  [SHAPE] to_attach raw_return={result!r}")
+            slots = ruledb_rule_to_list(backend, w5d_rule_id)
+            print(f"  [SHAPE] to_list after attach={slots!r}")
+            found = any(str(s.get("ogroup", s.get("id", ""))) == w5d_who_id for s in (slots or []))
+            if found:
+                w5d_to_attached = True
+                rec("W5d_rule_to_attach", "PASS",
+                    f"ogroup={w5d_who_id!r} confirmed in to_list")
+            else:
+                rec("W5d_rule_to_attach", "FAIL",
+                    f"ogroup={w5d_who_id!r} NOT found in to_list={slots!r}")
+        except Exception as e:
+            rec("W5d_rule_to_attach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_to_attach", "SKIP", "rule or who group create failed")
+    return w5d_from_attached, w5d_to_attached
 
-        # =========================================================================
-        # Attach cycle — from, to, what, when, action
-        # Each: attach → verify via the corresponding list read → detach → verify gone
-        # (We run all attaches first, then update, then all detaches, to exercise update
-        # on a fully-armed rule.)
-        # =========================================================================
 
-        # ---- from_attach ----
-        hr(f"W5d: ruledb_rule_from_attach — POST /config/ruledb/rules/{w5d_rule_id}/from")
-        w5d_from_attached = False
-        if w5d_rule_id and w5d_who_id:
-            try:
-                result = ruledb_rule_from_attach(backend, w5d_rule_id, w5d_who_id)
-                print(f"  [SHAPE] from_attach raw_return={result!r}")
-                # Verify: ruledb_rule_from_list should show the group
-                slots = ruledb_rule_from_list(backend, w5d_rule_id)
-                print(f"  [SHAPE] from_list after attach={slots!r}")
-                found = any(str(s.get("ogroup", s.get("id", ""))) == w5d_who_id for s in (slots or []))
-                if found:
-                    w5d_from_attached = True
-                    rec("W5d_rule_from_attach", "PASS",
-                        f"ogroup={w5d_who_id!r} confirmed in from_list")
-                else:
-                    rec("W5d_rule_from_attach", "FAIL",
-                        f"ogroup={w5d_who_id!r} NOT found in from_list={slots!r}")
-            except Exception as e:
-                rec("W5d_rule_from_attach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_from_attach", "SKIP", "rule or who group create failed")
+def _w5d_attach_what_when_action(backend, w5d_rule_id, w5d_what_id, w5d_when_id, w5d_action_ogroup):
+    """W5d: attach cycle — ruledb_rule_what_attach + when_attach + action_attach, each verified."""
+    # ---- what_attach ----
+    hr(f"W5d: ruledb_rule_what_attach — POST /config/ruledb/rules/{w5d_rule_id}/what")
+    w5d_what_attached = False
+    if w5d_rule_id and w5d_what_id:
+        try:
+            result = ruledb_rule_what_attach(backend, w5d_rule_id, w5d_what_id)
+            print(f"  [SHAPE] what_attach raw_return={result!r}")
+            slots = ruledb_rule_what_list(backend, w5d_rule_id)
+            print(f"  [SHAPE] what_list after attach={slots!r}")
+            found = any(str(s.get("ogroup", s.get("id", ""))) == w5d_what_id for s in (slots or []))
+            if found:
+                w5d_what_attached = True
+                rec("W5d_rule_what_attach", "PASS",
+                    f"ogroup={w5d_what_id!r} confirmed in what_list")
+            else:
+                rec("W5d_rule_what_attach", "FAIL",
+                    f"ogroup={w5d_what_id!r} NOT found in what_list={slots!r}")
+        except Exception as e:
+            rec("W5d_rule_what_attach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_what_attach", "SKIP", "rule or what group create failed")
 
-        # ---- to_attach (reuse who group — valid slot type) ----
-        hr(f"W5d: ruledb_rule_to_attach — POST /config/ruledb/rules/{w5d_rule_id}/to")
-        w5d_to_attached = False
-        if w5d_rule_id and w5d_who_id:
-            try:
-                result = ruledb_rule_to_attach(backend, w5d_rule_id, w5d_who_id)
-                print(f"  [SHAPE] to_attach raw_return={result!r}")
-                slots = ruledb_rule_to_list(backend, w5d_rule_id)
-                print(f"  [SHAPE] to_list after attach={slots!r}")
-                found = any(str(s.get("ogroup", s.get("id", ""))) == w5d_who_id for s in (slots or []))
-                if found:
-                    w5d_to_attached = True
-                    rec("W5d_rule_to_attach", "PASS",
-                        f"ogroup={w5d_who_id!r} confirmed in to_list")
-                else:
-                    rec("W5d_rule_to_attach", "FAIL",
-                        f"ogroup={w5d_who_id!r} NOT found in to_list={slots!r}")
-            except Exception as e:
-                rec("W5d_rule_to_attach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_to_attach", "SKIP", "rule or who group create failed")
+    # ---- when_attach ----
+    hr(f"W5d: ruledb_rule_when_attach — POST /config/ruledb/rules/{w5d_rule_id}/when")
+    w5d_when_attached = False
+    if w5d_rule_id and w5d_when_id:
+        try:
+            result = ruledb_rule_when_attach(backend, w5d_rule_id, w5d_when_id)
+            print(f"  [SHAPE] when_attach raw_return={result!r}")
+            slots = ruledb_rule_when_list(backend, w5d_rule_id)
+            print(f"  [SHAPE] when_list after attach={slots!r}")
+            found = any(str(s.get("ogroup", s.get("id", ""))) == w5d_when_id for s in (slots or []))
+            if found:
+                w5d_when_attached = True
+                rec("W5d_rule_when_attach", "PASS",
+                    f"ogroup={w5d_when_id!r} confirmed in when_list")
+            else:
+                rec("W5d_rule_when_attach", "FAIL",
+                    f"ogroup={w5d_when_id!r} NOT found in when_list={slots!r}")
+        except Exception as e:
+            rec("W5d_rule_when_attach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_when_attach", "SKIP", "rule or when group create failed")
 
-        # ---- what_attach ----
-        hr(f"W5d: ruledb_rule_what_attach — POST /config/ruledb/rules/{w5d_rule_id}/what")
-        w5d_what_attached = False
-        if w5d_rule_id and w5d_what_id:
-            try:
-                result = ruledb_rule_what_attach(backend, w5d_rule_id, w5d_what_id)
-                print(f"  [SHAPE] what_attach raw_return={result!r}")
-                slots = ruledb_rule_what_list(backend, w5d_rule_id)
-                print(f"  [SHAPE] what_list after attach={slots!r}")
-                found = any(str(s.get("ogroup", s.get("id", ""))) == w5d_what_id for s in (slots or []))
-                if found:
-                    w5d_what_attached = True
-                    rec("W5d_rule_what_attach", "PASS",
-                        f"ogroup={w5d_what_id!r} confirmed in what_list")
-                else:
-                    rec("W5d_rule_what_attach", "FAIL",
-                        f"ogroup={w5d_what_id!r} NOT found in what_list={slots!r}")
-            except Exception as e:
-                rec("W5d_rule_what_attach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_what_attach", "SKIP", "rule or what group create failed")
+    # ---- action_attach ----
+    hr(f"W5d: ruledb_rule_action_attach — POST /config/ruledb/rules/{w5d_rule_id}/actions")
+    w5d_action_attached = False
+    if w5d_rule_id and w5d_action_ogroup:
+        try:
+            result = ruledb_rule_action_attach(backend, w5d_rule_id, w5d_action_ogroup)
+            print(f"  [SHAPE] action_attach raw_return={result!r}")
+            # Verify via ruledb_rule_get (actions embedded in config.action field)
+            cfg = ruledb_rule_get(backend, w5d_rule_id)
+            print(f"  [SHAPE] rule_get after action_attach={cfg!r}")
+            actions = ruledb_rule_actions_list(backend, w5d_rule_id)
+            print(f"  [SHAPE] actions_list after action_attach={actions!r}")
+            found = any(
+                str(a.get("ogroup", a.get("id", ""))) == w5d_action_ogroup
+                for a in (actions or [])
+            )
+            if found:
+                w5d_action_attached = True
+                rec("W5d_rule_action_attach", "PASS",
+                    f"action_ogroup={w5d_action_ogroup!r} confirmed in actions_list")
+            else:
+                rec("W5d_rule_action_attach", "FAIL",
+                    f"action_ogroup={w5d_action_ogroup!r} NOT found in actions_list={actions!r}")
+        except Exception as e:
+            rec("W5d_rule_action_attach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_action_attach", "SKIP",
+            f"rule={w5d_rule_id!r} or action_ogroup={w5d_action_ogroup!r} missing")
+    return w5d_what_attached, w5d_when_attached, w5d_action_attached
 
-        # ---- when_attach ----
-        hr(f"W5d: ruledb_rule_when_attach — POST /config/ruledb/rules/{w5d_rule_id}/when")
-        w5d_when_attached = False
-        if w5d_rule_id and w5d_when_id:
-            try:
-                result = ruledb_rule_when_attach(backend, w5d_rule_id, w5d_when_id)
-                print(f"  [SHAPE] when_attach raw_return={result!r}")
-                slots = ruledb_rule_when_list(backend, w5d_rule_id)
-                print(f"  [SHAPE] when_list after attach={slots!r}")
-                found = any(str(s.get("ogroup", s.get("id", ""))) == w5d_when_id for s in (slots or []))
-                if found:
-                    w5d_when_attached = True
-                    rec("W5d_rule_when_attach", "PASS",
-                        f"ogroup={w5d_when_id!r} confirmed in when_list")
-                else:
-                    rec("W5d_rule_when_attach", "FAIL",
-                        f"ogroup={w5d_when_id!r} NOT found in when_list={slots!r}")
-            except Exception as e:
-                rec("W5d_rule_when_attach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_when_attach", "SKIP", "rule or when group create failed")
 
-        # ---- action_attach ----
-        hr(f"W5d: ruledb_rule_action_attach — POST /config/ruledb/rules/{w5d_rule_id}/actions")
-        w5d_action_attached = False
-        if w5d_rule_id and w5d_action_ogroup:
-            try:
-                result = ruledb_rule_action_attach(backend, w5d_rule_id, w5d_action_ogroup)
-                print(f"  [SHAPE] action_attach raw_return={result!r}")
-                # Verify via ruledb_rule_get (actions embedded in config.action field)
-                cfg = ruledb_rule_get(backend, w5d_rule_id)
-                print(f"  [SHAPE] rule_get after action_attach={cfg!r}")
-                actions = ruledb_rule_actions_list(backend, w5d_rule_id)
-                print(f"  [SHAPE] actions_list after action_attach={actions!r}")
-                found = any(
-                    str(a.get("ogroup", a.get("id", ""))) == w5d_action_ogroup
-                    for a in (actions or [])
-                )
-                if found:
-                    w5d_action_attached = True
-                    rec("W5d_rule_action_attach", "PASS",
-                        f"action_ogroup={w5d_action_ogroup!r} confirmed in actions_list")
-                else:
-                    rec("W5d_rule_action_attach", "FAIL",
-                        f"action_ogroup={w5d_action_ogroup!r} NOT found in actions_list={actions!r}")
-            except Exception as e:
-                rec("W5d_rule_action_attach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_action_attach", "SKIP",
-                f"rule={w5d_rule_id!r} or action_ogroup={w5d_action_ogroup!r} missing")
+def _w5d_update_rule(backend, w5d_rule_id) -> None:
+    """W5d: ruledb_rule_update (name change only) + verify still inactive."""
+    # =========================================================================
+    # Update the rule name (keep active=False — DO NOT set active=True)
+    # =========================================================================
+    hr(f"W5d: ruledb_rule_update — PUT /config/ruledb/rules/{w5d_rule_id}/config (name change only)")
+    if w5d_rule_id:
+        try:
+            result = ruledb_rule_update(backend, w5d_rule_id, name="proximo-w5d-test2")
+            print(f"  [SHAPE] rule_update raw_return={result!r}")
+            cfg = ruledb_rule_get(backend, w5d_rule_id)
+            print(f"  [SHAPE] rule_get after update={cfg!r}")
+            new_name = cfg.get("name") if isinstance(cfg, dict) else None
+            # SAFETY: verify still inactive after update
+            active_val = cfg.get("active") if isinstance(cfg, dict) else None
+            still_inactive = active_val not in (1, True, "1")
+            if new_name == "proximo-w5d-test2" and still_inactive:
+                rec("W5d_rule_update", "PASS",
+                    f"name='proximo-w5d-test2' confirmed; active={active_val!r} (still inactive)")
+            elif not still_inactive:
+                rec("W5d_rule_update", "FAIL",
+                    f"UPDATE MADE RULE ACTIVE — active={active_val!r} — unexpected; inspect lab")
+            else:
+                rec("W5d_rule_update", "FAIL",
+                    f"name not updated: cfg={cfg!r}")
+        except Exception as e:
+            rec("W5d_rule_update", "FAIL", repr(e))
 
-        # =========================================================================
-        # Update the rule name (keep active=False — DO NOT set active=True)
-        # =========================================================================
-        hr(f"W5d: ruledb_rule_update — PUT /config/ruledb/rules/{w5d_rule_id}/config (name change only)")
-        if w5d_rule_id:
-            try:
-                result = ruledb_rule_update(backend, w5d_rule_id, name="proximo-w5d-test2")
-                print(f"  [SHAPE] rule_update raw_return={result!r}")
-                cfg = ruledb_rule_get(backend, w5d_rule_id)
-                print(f"  [SHAPE] rule_get after update={cfg!r}")
-                new_name = cfg.get("name") if isinstance(cfg, dict) else None
-                # SAFETY: verify still inactive after update
-                active_val = cfg.get("active") if isinstance(cfg, dict) else None
-                still_inactive = active_val not in (1, True, "1")
-                if new_name == "proximo-w5d-test2" and still_inactive:
-                    rec("W5d_rule_update", "PASS",
-                        f"name='proximo-w5d-test2' confirmed; active={active_val!r} (still inactive)")
-                elif not still_inactive:
-                    rec("W5d_rule_update", "FAIL",
-                        f"UPDATE MADE RULE ACTIVE — active={active_val!r} — unexpected; inspect lab")
-                else:
-                    rec("W5d_rule_update", "FAIL",
-                        f"name not updated: cfg={cfg!r}")
-            except Exception as e:
-                rec("W5d_rule_update", "FAIL", repr(e))
 
-        # =========================================================================
-        # Detach cycle — action, when, what, to, from (reverse attach order)
-        # Each: detach → verify gone via the list read
-        # =========================================================================
+def _w5d_detach_action_when(
+    backend,
+    w5d_rule_id,
+    w5d_action_ogroup,
+    w5d_action_attached,
+    w5d_when_id,
+    w5d_when_attached,
+) -> None:
+    """W5d: detach cycle — ruledb_rule_action_detach + when_detach, each verified gone."""
+    # =========================================================================
+    # Detach cycle — action, when, what, to, from (reverse attach order)
+    # Each: detach → verify gone via the list read
+    # =========================================================================
 
-        # ---- action_detach ----
-        hr(f"W5d: ruledb_rule_action_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/actions/{w5d_action_ogroup}")
-        if w5d_rule_id and w5d_action_ogroup and w5d_action_attached:
-            try:
-                result = ruledb_rule_action_detach(backend, w5d_rule_id, w5d_action_ogroup)
-                print(f"  [SHAPE] action_detach raw_return={result!r}")
-                actions = ruledb_rule_actions_list(backend, w5d_rule_id)
-                still = any(
-                    str(a.get("ogroup", a.get("id", ""))) == w5d_action_ogroup
-                    for a in (actions or [])
-                )
-                if not still:
-                    rec("W5d_rule_action_detach", "PASS",
-                        f"action_ogroup={w5d_action_ogroup!r} gone from actions_list")
-                else:
-                    rec("W5d_rule_action_detach", "FAIL",
-                        f"action_ogroup={w5d_action_ogroup!r} STILL in actions_list={actions!r}")
-            except Exception as e:
-                rec("W5d_rule_action_detach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_action_detach", "SKIP", "attach failed or missing ids")
+    # ---- action_detach ----
+    hr(f"W5d: ruledb_rule_action_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/actions/{w5d_action_ogroup}")
+    if w5d_rule_id and w5d_action_ogroup and w5d_action_attached:
+        try:
+            result = ruledb_rule_action_detach(backend, w5d_rule_id, w5d_action_ogroup)
+            print(f"  [SHAPE] action_detach raw_return={result!r}")
+            actions = ruledb_rule_actions_list(backend, w5d_rule_id)
+            still = any(
+                str(a.get("ogroup", a.get("id", ""))) == w5d_action_ogroup
+                for a in (actions or [])
+            )
+            if not still:
+                rec("W5d_rule_action_detach", "PASS",
+                    f"action_ogroup={w5d_action_ogroup!r} gone from actions_list")
+            else:
+                rec("W5d_rule_action_detach", "FAIL",
+                    f"action_ogroup={w5d_action_ogroup!r} STILL in actions_list={actions!r}")
+        except Exception as e:
+            rec("W5d_rule_action_detach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_action_detach", "SKIP", "attach failed or missing ids")
 
-        # ---- when_detach ----
-        hr(f"W5d: ruledb_rule_when_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/when/{w5d_when_id}")
-        if w5d_rule_id and w5d_when_id and w5d_when_attached:
-            try:
-                result = ruledb_rule_when_detach(backend, w5d_rule_id, w5d_when_id)
-                print(f"  [SHAPE] when_detach raw_return={result!r}")
-                slots = ruledb_rule_when_list(backend, w5d_rule_id)
-                still = any(str(s.get("ogroup", s.get("id", ""))) == w5d_when_id for s in (slots or []))
-                if not still:
-                    rec("W5d_rule_when_detach", "PASS",
-                        f"ogroup={w5d_when_id!r} gone from when_list")
-                else:
-                    rec("W5d_rule_when_detach", "FAIL",
-                        f"ogroup={w5d_when_id!r} STILL in when_list={slots!r}")
-            except Exception as e:
-                rec("W5d_rule_when_detach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_when_detach", "SKIP", "attach failed or missing ids")
+    # ---- when_detach ----
+    hr(f"W5d: ruledb_rule_when_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/when/{w5d_when_id}")
+    if w5d_rule_id and w5d_when_id and w5d_when_attached:
+        try:
+            result = ruledb_rule_when_detach(backend, w5d_rule_id, w5d_when_id)
+            print(f"  [SHAPE] when_detach raw_return={result!r}")
+            slots = ruledb_rule_when_list(backend, w5d_rule_id)
+            still = any(str(s.get("ogroup", s.get("id", ""))) == w5d_when_id for s in (slots or []))
+            if not still:
+                rec("W5d_rule_when_detach", "PASS",
+                    f"ogroup={w5d_when_id!r} gone from when_list")
+            else:
+                rec("W5d_rule_when_detach", "FAIL",
+                    f"ogroup={w5d_when_id!r} STILL in when_list={slots!r}")
+        except Exception as e:
+            rec("W5d_rule_when_detach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_when_detach", "SKIP", "attach failed or missing ids")
 
-        # ---- what_detach ----
-        hr(f"W5d: ruledb_rule_what_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/what/{w5d_what_id}")
-        if w5d_rule_id and w5d_what_id and w5d_what_attached:
-            try:
-                result = ruledb_rule_what_detach(backend, w5d_rule_id, w5d_what_id)
-                print(f"  [SHAPE] what_detach raw_return={result!r}")
-                slots = ruledb_rule_what_list(backend, w5d_rule_id)
-                still = any(str(s.get("ogroup", s.get("id", ""))) == w5d_what_id for s in (slots or []))
-                if not still:
-                    rec("W5d_rule_what_detach", "PASS",
-                        f"ogroup={w5d_what_id!r} gone from what_list")
-                else:
-                    rec("W5d_rule_what_detach", "FAIL",
-                        f"ogroup={w5d_what_id!r} STILL in what_list={slots!r}")
-            except Exception as e:
-                rec("W5d_rule_what_detach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_what_detach", "SKIP", "attach failed or missing ids")
 
-        # ---- to_detach ----
-        hr(f"W5d: ruledb_rule_to_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/to/{w5d_who_id}")
-        if w5d_rule_id and w5d_who_id and w5d_to_attached:
-            try:
-                result = ruledb_rule_to_detach(backend, w5d_rule_id, w5d_who_id)
-                print(f"  [SHAPE] to_detach raw_return={result!r}")
-                slots = ruledb_rule_to_list(backend, w5d_rule_id)
-                still = any(str(s.get("ogroup", s.get("id", ""))) == w5d_who_id for s in (slots or []))
-                if not still:
-                    rec("W5d_rule_to_detach", "PASS",
-                        f"ogroup={w5d_who_id!r} gone from to_list")
-                else:
-                    rec("W5d_rule_to_detach", "FAIL",
-                        f"ogroup={w5d_who_id!r} STILL in to_list={slots!r}")
-            except Exception as e:
-                rec("W5d_rule_to_detach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_to_detach", "SKIP", "attach failed or missing ids")
+def _w5d_detach_what_to_from(
+    backend,
+    w5d_rule_id,
+    w5d_what_id,
+    w5d_who_id,
+    w5d_what_attached,
+    w5d_to_attached,
+    w5d_from_attached,
+) -> None:
+    """W5d: detach cycle — ruledb_rule_what_detach + to_detach + from_detach, each verified gone."""
+    # ---- what_detach ----
+    hr(f"W5d: ruledb_rule_what_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/what/{w5d_what_id}")
+    if w5d_rule_id and w5d_what_id and w5d_what_attached:
+        try:
+            result = ruledb_rule_what_detach(backend, w5d_rule_id, w5d_what_id)
+            print(f"  [SHAPE] what_detach raw_return={result!r}")
+            slots = ruledb_rule_what_list(backend, w5d_rule_id)
+            still = any(str(s.get("ogroup", s.get("id", ""))) == w5d_what_id for s in (slots or []))
+            if not still:
+                rec("W5d_rule_what_detach", "PASS",
+                    f"ogroup={w5d_what_id!r} gone from what_list")
+            else:
+                rec("W5d_rule_what_detach", "FAIL",
+                    f"ogroup={w5d_what_id!r} STILL in what_list={slots!r}")
+        except Exception as e:
+            rec("W5d_rule_what_detach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_what_detach", "SKIP", "attach failed or missing ids")
 
-        # ---- from_detach ----
-        hr(f"W5d: ruledb_rule_from_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/from/{w5d_who_id}")
-        if w5d_rule_id and w5d_who_id and w5d_from_attached:
-            try:
-                result = ruledb_rule_from_detach(backend, w5d_rule_id, w5d_who_id)
-                print(f"  [SHAPE] from_detach raw_return={result!r}")
-                slots = ruledb_rule_from_list(backend, w5d_rule_id)
-                still = any(str(s.get("ogroup", s.get("id", ""))) == w5d_who_id for s in (slots or []))
-                if not still:
-                    rec("W5d_rule_from_detach", "PASS",
-                        f"ogroup={w5d_who_id!r} gone from from_list")
-                else:
-                    rec("W5d_rule_from_detach", "FAIL",
-                        f"ogroup={w5d_who_id!r} STILL in from_list={slots!r}")
-            except Exception as e:
-                rec("W5d_rule_from_detach", "FAIL", repr(e))
-        else:
-            rec("W5d_rule_from_detach", "SKIP", "attach failed or missing ids")
+    # ---- to_detach ----
+    hr(f"W5d: ruledb_rule_to_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/to/{w5d_who_id}")
+    if w5d_rule_id and w5d_who_id and w5d_to_attached:
+        try:
+            result = ruledb_rule_to_detach(backend, w5d_rule_id, w5d_who_id)
+            print(f"  [SHAPE] to_detach raw_return={result!r}")
+            slots = ruledb_rule_to_list(backend, w5d_rule_id)
+            still = any(str(s.get("ogroup", s.get("id", ""))) == w5d_who_id for s in (slots or []))
+            if not still:
+                rec("W5d_rule_to_detach", "PASS",
+                    f"ogroup={w5d_who_id!r} gone from to_list")
+            else:
+                rec("W5d_rule_to_detach", "FAIL",
+                    f"ogroup={w5d_who_id!r} STILL in to_list={slots!r}")
+        except Exception as e:
+            rec("W5d_rule_to_detach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_to_detach", "SKIP", "attach failed or missing ids")
 
-        # ---- rule_delete ----
-        hr(f"W5d: ruledb_rule_delete — DELETE /config/ruledb/rules/{w5d_rule_id}")
-        if w5d_rule_id:
-            try:
-                result = ruledb_rule_delete(backend, w5d_rule_id)
-                print(f"  [SHAPE] rule_delete raw_return={result!r}")
-                # Verify: rule gone from rules_list
-                rules_after = ruledb_rules_list(backend)
-                still = any(str(r.get("id", "")) == w5d_rule_id for r in rules_after)
-                if not still:
-                    w5d_rule_id = None   # mark cleaned — suppress finally re-delete
-                    rec("W5d_rule_delete", "PASS",
-                        f"rule gone from rules_list; count now={len(rules_after)}")
-                else:
-                    rec("W5d_rule_delete", "FAIL",
-                        f"rule {w5d_rule_id!r} STILL in rules_list after delete")
-            except Exception as e:
-                rec("W5d_rule_delete", "FAIL", repr(e))
+    # ---- from_detach ----
+    hr(f"W5d: ruledb_rule_from_detach — DELETE /config/ruledb/rules/{w5d_rule_id}/from/{w5d_who_id}")
+    if w5d_rule_id and w5d_who_id and w5d_from_attached:
+        try:
+            result = ruledb_rule_from_detach(backend, w5d_rule_id, w5d_who_id)
+            print(f"  [SHAPE] from_detach raw_return={result!r}")
+            slots = ruledb_rule_from_list(backend, w5d_rule_id)
+            still = any(str(s.get("ogroup", s.get("id", ""))) == w5d_who_id for s in (slots or []))
+            if not still:
+                rec("W5d_rule_from_detach", "PASS",
+                    f"ogroup={w5d_who_id!r} gone from from_list")
+            else:
+                rec("W5d_rule_from_detach", "FAIL",
+                    f"ogroup={w5d_who_id!r} STILL in from_list={slots!r}")
+        except Exception as e:
+            rec("W5d_rule_from_detach", "FAIL", repr(e))
+    else:
+        rec("W5d_rule_from_detach", "SKIP", "attach failed or missing ids")
 
-    finally:
-        # =========================================================================
-        # TEARDOWN — runs even if an exception aborted the try block
-        # Order: rule first (if still alive), then action, then groups
-        # Rule delete auto-detaches all slot groups — safe to call even if some
-        # attach steps failed.
-        # =========================================================================
-        hr("W5d: TEARDOWN (finally)")
 
-        if w5d_rule_id:
-            # Rule was not deleted in the main try block — clean it up now
-            try:
-                ruledb_rule_delete(backend, w5d_rule_id)
-                rec("W5d_teardown_rule_delete", "PASS",
-                    f"rule {w5d_rule_id!r} deleted in teardown")
-            except Exception as e:
-                rec("W5d_teardown_rule_delete", "FAIL",
-                    f"MANUAL CLEANUP NEEDED — rule {w5d_rule_id!r}: {repr(e)}")
+def _w5d_delete_rule(backend, w5d_rule_id):
+    """
+    W5d: ruledb_rule_delete + verify gone from rules_list; returns the updated w5d_rule_id (None on confirmed
+    delete, unchanged otherwise) so the caller's finally-teardown does not try to re-delete it.
+    """
+    # ---- rule_delete ----
+    hr(f"W5d: ruledb_rule_delete — DELETE /config/ruledb/rules/{w5d_rule_id}")
+    if w5d_rule_id:
+        try:
+            result = ruledb_rule_delete(backend, w5d_rule_id)
+            print(f"  [SHAPE] rule_delete raw_return={result!r}")
+            # Verify: rule gone from rules_list
+            rules_after = ruledb_rules_list(backend)
+            still = any(str(r.get("id", "")) == w5d_rule_id for r in rules_after)
+            if not still:
+                w5d_rule_id = None   # mark cleaned — suppress finally re-delete
+                rec("W5d_rule_delete", "PASS",
+                    f"rule gone from rules_list; count now={len(rules_after)}")
+            else:
+                rec("W5d_rule_delete", "FAIL",
+                    f"rule {w5d_rule_id!r} STILL in rules_list after delete")
+        except Exception as e:
+            rec("W5d_rule_delete", "FAIL", repr(e))
+    return w5d_rule_id
 
-        if w5d_bcc_compound_id:
-            try:
-                action_delete(backend, w5d_bcc_compound_id)
-                rec("W5d_teardown_action_delete", "PASS",
-                    f"action {w5d_bcc_compound_id!r} deleted")
-            except Exception as e:
-                rec("W5d_teardown_action_delete", "FAIL",
-                    f"MANUAL CLEANUP NEEDED — action {w5d_bcc_compound_id!r}: {repr(e)}")
 
-        if w5d_who_id:
-            try:
-                who_group_delete(backend, w5d_who_id)
-                rec("W5d_teardown_who_delete", "PASS", f"who group {w5d_who_id!r} deleted")
-            except Exception as e:
-                rec("W5d_teardown_who_delete", "FAIL",
-                    f"MANUAL CLEANUP NEEDED — who group {w5d_who_id!r}: {repr(e)}")
+def _w5d_teardown(backend, w5d_rule_id, w5d_bcc_compound_id, w5d_who_id, w5d_what_id, w5d_when_id) -> None:
+    """W5d: TEARDOWN (finally) — best-effort delete of rule/action/who/what/when if still present."""
+    # =========================================================================
+    # TEARDOWN — runs even if an exception aborted the try block
+    # Order: rule first (if still alive), then action, then groups
+    # Rule delete auto-detaches all slot groups — safe to call even if some
+    # attach steps failed.
+    # =========================================================================
+    hr("W5d: TEARDOWN (finally)")
 
-        if w5d_what_id:
-            try:
-                what_group_delete(backend, w5d_what_id)
-                rec("W5d_teardown_what_delete", "PASS", f"what group {w5d_what_id!r} deleted")
-            except Exception as e:
-                rec("W5d_teardown_what_delete", "FAIL",
-                    f"MANUAL CLEANUP NEEDED — what group {w5d_what_id!r}: {repr(e)}")
+    if w5d_rule_id:
+        # Rule was not deleted in the main try block — clean it up now
+        try:
+            ruledb_rule_delete(backend, w5d_rule_id)
+            rec("W5d_teardown_rule_delete", "PASS",
+                f"rule {w5d_rule_id!r} deleted in teardown")
+        except Exception as e:
+            rec("W5d_teardown_rule_delete", "FAIL",
+                f"MANUAL CLEANUP NEEDED — rule {w5d_rule_id!r}: {repr(e)}")
 
-        if w5d_when_id:
-            try:
-                when_group_delete(backend, w5d_when_id)
-                rec("W5d_teardown_when_delete", "PASS", f"when group {w5d_when_id!r} deleted")
-            except Exception as e:
-                rec("W5d_teardown_when_delete", "FAIL",
-                    f"MANUAL CLEANUP NEEDED — when group {w5d_when_id!r}: {repr(e)}")
+    if w5d_bcc_compound_id:
+        try:
+            action_delete(backend, w5d_bcc_compound_id)
+            rec("W5d_teardown_action_delete", "PASS",
+                f"action {w5d_bcc_compound_id!r} deleted")
+        except Exception as e:
+            rec("W5d_teardown_action_delete", "FAIL",
+                f"MANUAL CLEANUP NEEDED — action {w5d_bcc_compound_id!r}: {repr(e)}")
 
+    if w5d_who_id:
+        try:
+            who_group_delete(backend, w5d_who_id)
+            rec("W5d_teardown_who_delete", "PASS", f"who group {w5d_who_id!r} deleted")
+        except Exception as e:
+            rec("W5d_teardown_who_delete", "FAIL",
+                f"MANUAL CLEANUP NEEDED — who group {w5d_who_id!r}: {repr(e)}")
+
+    if w5d_what_id:
+        try:
+            what_group_delete(backend, w5d_what_id)
+            rec("W5d_teardown_what_delete", "PASS", f"what group {w5d_what_id!r} deleted")
+        except Exception as e:
+            rec("W5d_teardown_what_delete", "FAIL",
+                f"MANUAL CLEANUP NEEDED — what group {w5d_what_id!r}: {repr(e)}")
+
+    if w5d_when_id:
+        try:
+            when_group_delete(backend, w5d_when_id)
+            rec("W5d_teardown_when_delete", "PASS", f"when group {w5d_when_id!r} deleted")
+        except Exception as e:
+            rec("W5d_teardown_when_delete", "FAIL",
+                f"MANUAL CLEANUP NEEDED — when group {w5d_when_id!r}: {repr(e)}")
+
+
+def _w5d_pristine_check(
+    backend,
+    w5d_rule_pre_count,
+    w5d_who_pre_count,
+    w5d_what_pre_count,
+    w5d_when_pre_count,
+    w5d_action_pre_count,
+) -> None:
+    """W5d: pristine check — final counts vs pre-W5d baselines."""
     # =========================================================================
     # W5d PRISTINE CHECK — all surfaces must match pre-W5d baselines
     # =========================================================================
@@ -2989,6 +3220,105 @@ def main() -> int:
             + ("— LAB PRISTINE" if ok else "— RESIDUE DETECTED"))
     except Exception as e:
         rec("W5d_lab_pristine", "FAIL", repr(e))
+
+
+def phase_w5d_rule_lifecycle(backend) -> None:
+    """
+    W5d: rule lifecycle coordinator — baseline, create/attach/update/detach cycle (via helpers, in call order),
+    teardown, pristine check.
+    """
+    (
+        w5d_rule_pre_count, w5d_who_pre_count, w5d_what_pre_count,
+        w5d_when_pre_count, w5d_action_pre_count,
+    ) = _w5d_baseline(backend)
+
+    # Track all created objects for teardown (always in finally)
+    w5d_rule_id: str | None = None
+    w5d_who_id: str | None = None
+    w5d_what_id: str | None = None
+    w5d_when_id: str | None = None
+    w5d_bcc_compound_id: str | None = None   # e.g. "13_26" — for action_delete
+    w5d_action_ogroup: str | None = None     # e.g. "13" — for ruledb_rule_action_attach
+
+    try:
+        w5d_who_id, w5d_what_id, w5d_when_id = _w5d_create_groups(backend)
+        w5d_bcc_compound_id, w5d_action_ogroup = _w5d_create_action(backend)
+        w5d_rule_id = _w5d_create_rule(backend)
+        _w5d_safety_gate(backend, w5d_rule_id)
+
+        w5d_from_attached, w5d_to_attached = _w5d_attach_from_to(
+            backend, w5d_rule_id, w5d_who_id
+        )
+        w5d_what_attached, w5d_when_attached, w5d_action_attached = (
+            _w5d_attach_what_when_action(
+                backend, w5d_rule_id, w5d_what_id, w5d_when_id, w5d_action_ogroup
+            )
+        )
+
+        _w5d_update_rule(backend, w5d_rule_id)
+
+        _w5d_detach_action_when(
+            backend, w5d_rule_id, w5d_action_ogroup, w5d_action_attached,
+            w5d_when_id, w5d_when_attached,
+        )
+        _w5d_detach_what_to_from(
+            backend, w5d_rule_id, w5d_what_id, w5d_who_id, w5d_what_attached,
+            w5d_to_attached, w5d_from_attached,
+        )
+
+        w5d_rule_id = _w5d_delete_rule(backend, w5d_rule_id)
+
+    finally:
+        _w5d_teardown(
+            backend, w5d_rule_id, w5d_bcc_compound_id, w5d_who_id, w5d_what_id,
+            w5d_when_id,
+        )
+
+    _w5d_pristine_check(
+        backend, w5d_rule_pre_count, w5d_who_pre_count, w5d_what_pre_count,
+        w5d_when_pre_count, w5d_action_pre_count,
+    )
+
+
+def main() -> int:
+    required = (
+        "PROXIMO_PMG_BASE_URL",
+        "PROXIMO_PMG_USERNAME",
+        "PROXIMO_PMG_PASSWORD_PATH",
+        "PROXIMO_PMG_NODE",
+        "PROXIMO_PMG_VERIFY_TLS",
+        "PROXIMO_PMG_CA_BUNDLE",
+    )
+    missing = [v for v in required if v not in os.environ]
+    if missing:
+        print(f"ERROR: missing env vars: {missing}", file=sys.stderr)
+        return 2
+
+    try:
+        cfg = PmgConfig.from_env()
+    except Exception as e:
+        print(f"ERROR: PmgConfig.from_env() failed: {e}", file=sys.stderr)
+        return 2
+
+    print(f"PMG live-prove | node={cfg.node} | url={cfg.base_url}")
+    print("(read-only + plan-only; no mail is delivered)")
+
+    try:
+        backend = PmgBackend(cfg)
+    except Exception as e:
+        print(f"ERROR: PmgBackend() construction failed: {e}", file=sys.stderr)
+        return 2
+
+    node = cfg.node
+
+
+    phase_doctor_and_readonly(backend, node)
+    phase_plan_and_config(backend, node)
+    phase_w4_reads_and_backup(backend, node, cfg)
+    phase_w5a_ruledb_reads(backend)
+    what_pre_count, when_pre_count = phase_w5b_group_crud(backend)
+    phase_w5c_what_when_action(backend, what_pre_count, when_pre_count)
+    phase_w5d_rule_lifecycle(backend)
 
     # -------------------------------------------------------------------------
     # SUMMARY

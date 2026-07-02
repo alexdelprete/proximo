@@ -14,6 +14,14 @@ line-start, which excludes docstring/comment mentions) and require them to equal
 exposed surface. The equality also proves no decorator is env-gated (e.g. an exec-mode
 tool behind a flag) — a conditional one would make the unconditional source count exceed
 the runtime count.
+
+Decorator lines are counted across server.py AND every per-plane submodule under
+`proximo/tools/` (2026-07-02 split): server.py keeps the mutation funnel (mcp, tool, the
+5-gate wiring) plus the three manual-audit-path exec tools, while the ~348 thin per-plane
+wrappers now live in `proximo/tools/*.py` and are re-imported into server.py by name for
+registration + `server.<tool>` surface parity. The registry is still the single source of
+truth for the exposed count; this just widens WHERE we look for the source-level decorator
+count it's compared against.
 """
 
 from __future__ import annotations
@@ -24,9 +32,11 @@ from pathlib import Path
 
 import proximo.server as server
 
-EXPECTED_TOOL_COUNT = 351
+EXPECTED_TOOL_COUNT = 352
 
-_SERVER_SRC = Path(server.__file__).read_text(encoding="utf-8")
+_TOOLS_DIR = Path(__file__).resolve().parent.parent / "src" / "proximo" / "tools"
+_SOURCE_FILES = [Path(server.__file__), *sorted(_TOOLS_DIR.glob("*.py"))]
+_SERVER_SRC = "\n".join(p.read_text(encoding="utf-8") for p in _SOURCE_FILES)
 # A real decorator: the line, after optional indentation, starts with `@mcp.tool(`. The
 # line-start anchor (not the parens) is what excludes the backtick-wrapped mention inside
 # the module docstring; matching `@mcp.tool(` rather than `@mcp.tool()` also stays correct

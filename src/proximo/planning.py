@@ -22,6 +22,8 @@ import shlex
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from .backends import _check_kind, _check_vmid
+
 # --- risk levels (plain strings, matching the codebase style) ---
 RISK_NONE = "none"
 RISK_LOW = "low"
@@ -89,6 +91,8 @@ def _fmt_uptime(secs) -> str:
 
 def plan_power(api, vmid: str, action: str, kind: str = "lxc", node: str | None = None) -> Plan:
     """Preview a power action. Reads live guest_status (a safe read) for facts + no-op detection."""
+    _check_vmid(vmid)
+    _check_kind(kind)
     cur = api.guest_status(vmid, kind, node)
     status = str(cur.get("status", "unknown"))
     running = status == "running"
@@ -382,6 +386,8 @@ def undo_snapname() -> str:
 def plan_rollback(api, vmid: str, snapname: str, kind: str = "lxc", node: str | None = None) -> Plan:
     """Preview a rollback. DESTRUCTIVE: discards everything since the snapshot. Reads the snapshot
     list (a safe read) to confirm the target exists and to surface when it was taken."""
+    _check_vmid(vmid)
+    _check_kind(kind)
     snaps = api.snapshot_list(vmid, kind, node) or []
     found = next((s for s in snaps if s.get("name") == snapname), None)
     current: dict = {}
@@ -405,6 +411,8 @@ def plan_rollback(api, vmid: str, snapname: str, kind: str = "lxc", node: str | 
 
 
 def plan_snapshot_create(vmid: str, snapname: str, kind: str = "lxc") -> Plan:
+    _check_vmid(vmid)
+    _check_kind(kind)
     return Plan(
         action="pve_snapshot_create", target=f"{kind}/{vmid}:{snapname}",
         change=f"create snapshot {snapname} of {kind} {vmid}",
@@ -416,6 +424,8 @@ def plan_snapshot_create(vmid: str, snapname: str, kind: str = "lxc") -> Plan:
 
 
 def plan_snapshot_delete(vmid: str, snapname: str, kind: str = "lxc") -> Plan:
+    _check_vmid(vmid)
+    _check_kind(kind)
     return Plan(
         action="pve_snapshot_delete", target=f"{kind}/{vmid}:{snapname}",
         change=f"delete snapshot {snapname} of {kind} {vmid}",

@@ -4,6 +4,10 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+- docs(readme): restructure for the arriving reader — live demo recording up top
+  (`docs/demo/demo.svg`, recorded against a real PVE 9.2 host with a read-only token via
+  `scripts/demo/demo.py`, reproducible), "What it does" + a Quickstart (MCP client config +
+  `doctor`) above the fold; the lanista naming note moved to Credits. No claims changed.
 - test(doctor): pin the no-secret-material invariant on the `proximo doctor` report — sentinel
   secrets planted on every secret-bearing seam must never appear in the printed report (regression
   guard for CodeQL alert #75, assessed a false positive: object-level taint from the backend that

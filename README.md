@@ -13,11 +13,49 @@
 >
 > The others make you choose: a read-only inspector that's safe because it can't touch anything — or a loaded gun aimed at a cluster you care about. Proximo refuses the trade. Every dangerous move is **planned** (see the blast radius first) and **proven** (a tamper-evident record of every move), and **undoable wherever the platform can snapshot** (it snapshots *before* it acts) — trust built into the substrate, not bolted on after. **Hand an AI agent the keys; keep the receipts.**
 
-*Named for Proximo, the lanista of* Gladiator *— the man who armed the fighter with exactly what he needed, never more, and answered for every move in the arena. That is the whole design: give the operator — human or agent — the reach to act, never the run of the house, accountable for all of it.*
-
-> *"Win the crowd and you will win your freedom."*
-
 ---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/demo/demo.svg" alt="Proximo demo: doctor preflight, a destructive delete returning a PLAN with blast radius instead of acting, and the tamper-evident audit ledger verifying clean" width="860">
+</p>
+
+<p align="center"><sub>Recorded live against a real PVE 9.2 host with a <b>read-only token</b> — real output, nothing staged, nothing touched.
+Reproduce it yourself: <a href="./scripts/demo/demo.py"><code>scripts/demo/demo.py</code></a>.</sub></p>
+
+## What it does
+
+Ask, in plain English, *"why is ct 105 thrashing?"* — and an AI agent pulls node and guest status, tails the logs, and runs a diagnostic *inside* the container to find out. If there's a fix, it shows you the plan before it touches anything, snapshots first, applies, and hands you a signed receipt of exactly what changed.
+
+That's the product: **a hypervisor an AI can operate without being able to wreck it.** Read-only by default. No mutation without a plan first, and the plan refuses destructive ops. It snapshots before any state change, wherever the platform can snapshot. A tamper-evident receipt for every change. The comparison isn't Proximo vs. the GUI — it's **Proximo vs. handing an LLM your root token and hoping.**
+
+## Quickstart
+
+```jsonc
+// your MCP client config (Claude Desktop / Claude Code / Cursor / …)
+{
+  "mcpServers": {
+    "proximo": {
+      "command": "uvx",
+      "args": ["proximo-proxmox"],
+      "env": {
+        "PROXIMO_API_BASE_URL": "https://your-pve:8006/api2/json",
+        "PROXIMO_NODE": "your-node",
+        "PROXIMO_TOKEN_PATH": "/path/to/token-file"   // USER@REALM!TOKENID=SECRET — by reference, never inlined
+      }
+    }
+  }
+}
+```
+
+Before wiring in an agent, check what your token can actually do (read-only preflight):
+
+```
+uvx proximo-proxmox doctor
+```
+
+Start with a **read-only token** — Proximo is useful long before you grant it write. Full token-first
+walkthrough (create the least-privilege token, verify, widen deliberately): **[SETUP.md](SETUP.md)**.
+More install paths (pip, Docker/GHCR, from source): [Install & run](#install--run).
 
 ## Why Proximo exists
 
@@ -30,13 +68,7 @@ Proxmox VE has a full REST API and a terse, powerful CLI — but the MCP landsca
 
 There is **no official Proxmox MCP** (and likely won't be soon — Proxmox ships the API+CLI and leaves integrations to the community, the same way there's no official Terraform provider). Proximo is a community project, standing on its own.
 
-## What it does
-
-Ask, in plain English, *"why is ct 105 thrashing?"* — and an AI agent pulls node and guest status, tails the logs, and runs a diagnostic *inside* the container to find out. If there's a fix, it shows you the plan before it touches anything, snapshots first, applies, and hands you a signed receipt of exactly what changed.
-
-That's the product: **a hypervisor an AI can operate without being able to wreck it.** Read-only by default. No mutation without a plan first, and the plan refuses destructive ops. It snapshots before any state change, wherever the platform can snapshot. A tamper-evident receipt for every change. The comparison isn't Proximo vs. the GUI — it's **Proximo vs. handing an LLM your root token and hoping.**
-
-Four Proxmox surfaces — one control plane:
+## Four surfaces — one control plane
 
 | Surface | Backend | For |
 |---|---|---|
@@ -224,6 +256,10 @@ The full build history — every pillar, every redteam, every fix — lives in [
 Apache-2.0 — chosen for the patent grant that suits infrastructure tooling. Full text in [`LICENSE`](./LICENSE).
 
 ## Credits
+
+*Named for Proximo, the lanista of* Gladiator *— the man who armed the fighter with exactly what he needed, never more, and answered for every move in the arena. That is the whole design: give the operator — human or agent — the reach to act, never the run of the house, accountable for all of it.*
+
+> *"Win the crowd and you will win your freedom."*
 
 Built by **John Broadway** with **Claude** and **Maude** — a human–AI partnership, and the first thing we made on this box to give away to the world.
 

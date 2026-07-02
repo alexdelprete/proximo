@@ -37,6 +37,20 @@ uv run python scripts/version_tools.py check || RC=1
 uv run ruff check . || RC=1   # full repo — match CI's `ruff check .` (src+tests+scripts), not a subset
 uv run python -m pytest tests/test_version_consistency.py -q || RC=1
 uv run python scripts/release_leak_audit.py audit || RC=1   # model the public tree; refuse internal-infra leaks
+# Public CI also runs gitleaks (entropy rules our leak-audit doesn't model — a mixed-case test
+# sentinel failed CI on v0.13.0). Run the same scan over the modeled public tree when available.
+if command -v gitleaks >/dev/null 2>&1; then
+  GLTMP="$(mktemp -d)"
+  if T="$(uv run python scripts/release_leak_audit.py build-tree 2>/dev/null | tail -1)" \
+     && git archive "$T" | tar -x -C "$GLTMP"; then
+    gitleaks detect --no-git --source "$GLTMP" --exit-code=2 || RC=1
+  else
+    printf 'release: could not model the public tree for gitleaks\n' >&2; RC=1
+  fi
+  rm -rf "$GLTMP"
+else
+  printf 'release: WARNING — gitleaks not installed; public CI runs it and WILL fail on entropy hits this gate never saw.\n' >&2
+fi
 
 printf '\n----------------------------------------\n'
 if [ "$RC" -eq 0 ]; then

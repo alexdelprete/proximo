@@ -4,6 +4,14 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+- test(doctor): pin the no-secret-material invariant on the `proximo doctor` report — sentinel
+  secrets planted on every secret-bearing seam must never appear in the printed report (regression
+  guard for CodeQL alert #75, assessed a false positive: object-level taint from the backend that
+  read the token; the report itself carries only booleans, paths, and privilege names).
+- deps: raise floors to the versions the suite actually tests against — `starlette>=1.3.1`,
+  `cryptography>=49.0.0` (a2a + dev extras), `pytest-asyncio>=1.4.0` (dev); bump
+  `actions/attest-build-provenance` pin to v4.1.1 (dependabot #17, #15, #13, #12).
+
 ## [0.13.0] - 2026-07-02
 
 **Zero-trust arc — a CONTAIN kill-switch and its siblings, a prompt-injection TAINT control, plus an

@@ -220,3 +220,29 @@ def test_cli_doctor_no_target_defaults_to_none(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["proximo", "doctor"])
     server.main()
     assert called.get("proximo_target") is None
+
+
+# --- No-secret-material invariant (CodeQL alert #75 guard) ---
+
+def test_doctor_report_carries_no_secret_material(tmp_path):
+    """`proximo doctor` prints its report as clear text (server.main json.dumps) — the report
+    must never carry secret VALUES, even though the backend object it is built from has read
+    them (that object-level flow is exactly what CodeQL py/clear-text-logging flags). Secrets
+    stay by-reference (paths) end to end; this test pins that invariant with sentinels planted
+    on every secret-bearing seam. Sentinels are low-entropy by design (gitleaks entropy rules)."""
+    token_secret = "sentinel-doctor-token-secret-value"
+    pmg_password = "sentinel-doctor-pmg-password-value"
+    token_file = tmp_path / "token"
+    token_file.write_text(f"root@pam!proximo={token_secret}\n")
+    cfg = _cfg(token_path=str(token_file))
+    api = _DoctorApi(config=cfg)
+    # Simulate a backend that has ALREADY read its secrets — the taint source in the alert.
+    api.auth_header = f"PVEAPIToken=root@pam!proximo={token_secret}"
+    api.pmg_password = pmg_password
+
+    rendered = json.dumps(doctor_check(api))  # exactly what the CLI prints
+
+    assert token_secret not in rendered
+    assert pmg_password not in rendered
+    assert "PVEAPIToken" not in rendered
+    assert token_file.read_text().strip() not in rendered

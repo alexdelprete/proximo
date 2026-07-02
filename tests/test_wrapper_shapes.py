@@ -325,7 +325,7 @@ SENTINELS: dict[str, Any] = {
     "changes": {},
     "options": {},
     "prior_config": {},
-    "password": "SentinelPlaceholderPass1",  # noqa: S105 (test sentinel, not a real credential)
+    "password": "sentinel-placeholder-pass",  # noqa: S105 (test sentinel, not a real credential)
     "username": "sentineluser",
     "command": ["true"],
     "sql": "SELECT 1",

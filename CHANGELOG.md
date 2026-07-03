@@ -4,6 +4,14 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+- feat(doctor): the **spine report** — `proximo doctor` now shows the trust spine: the four
+  structural pillars (PLAN·PROVE·UNDO·DIAGNOSE, standing in every configuration) and the two
+  sockets only the operator can fill (CONSENT · CONTAIN), each with the exact out-of-band
+  recipe to erect it. Configured state is reported yes/no only — the doctor never echoes the
+  configured paths (a hijacked session must not learn where the operator placed the consent
+  drop or the kill-switch). Doctrine stated in SECURITY.md: four ship standing, two are yours
+  to erect — a pillar Proximo raised for you would be a pillar the agent could lower for itself.
+
 ## [0.14.0] - 2026-07-03
 
 **Scoped registration (`PROXIMO_SURFACES`) + the demo-led README.** Load only the planes you

@@ -222,6 +222,53 @@ def test_cli_doctor_no_target_defaults_to_none(monkeypatch, capsys):
     assert called.get("proximo_target") is None
 
 
+# --- The spine section: four pillars standing, two sockets yours to erect ---
+
+def test_spine_reports_four_standing_pillars(monkeypatch):
+    monkeypatch.delenv("PROXIMO_CONSENT_DIR", raising=False)
+    monkeypatch.delenv("PROXIMO_CONTAIN_TRIP_PATH", raising=False)
+    out = doctor_check(_DoctorApi())
+    standing = " ".join(out["spine"]["standing"])
+    for pillar in ("PLAN", "PROVE", "UNDO", "DIAGNOSE"):
+        assert pillar in standing
+    assert len(out["spine"]["standing"]) == 4
+
+
+def test_spine_sockets_unconfigured_hand_over_the_tools(monkeypatch):
+    """Unset CONSENT/CONTAIN must read as an empty socket WITH the erection recipe —
+    surface the incompleteness and hand the operator the stone, never a false clean bill."""
+    monkeypatch.delenv("PROXIMO_CONSENT_DIR", raising=False)
+    monkeypatch.delenv("PROXIMO_CONTAIN_TRIP_PATH", raising=False)
+    out = doctor_check(_DoctorApi())
+    yours = out["spine"]["yours_to_erect"]
+    for name, env in (("CONSENT", "PROXIMO_CONSENT_DIR"), ("CONTAIN", "PROXIMO_CONTAIN_TRIP_PATH")):
+        assert yours[name]["configured"] is False
+        assert env in yours[name]["erect_with"]
+        assert "out" in yours[name]["erect_with"].lower()  # names the out-of-band requirement
+    assert "outside" in out["spine"]["note"].lower()  # the note states the out-of-band doctrine
+
+
+def test_spine_sockets_configured_report_standing(monkeypatch):
+    monkeypatch.setenv("PROXIMO_CONSENT_DIR", "/run/operator/consent")
+    monkeypatch.setenv("PROXIMO_CONTAIN_TRIP_PATH", "/run/operator/contain.trip")
+    out = doctor_check(_DoctorApi())
+    yours = out["spine"]["yours_to_erect"]
+    assert yours["CONSENT"]["configured"] is True
+    assert yours["CONTAIN"]["configured"] is True
+
+
+def test_spine_carries_no_secret_material_and_no_socket_values(monkeypatch):
+    """The spine section reports configured yes/no — never the configured PATHS themselves
+    (a consent-dir/trip-path location is exactly what a hijacked session shouldn't learn
+    from a doctor call; the operator knows where they put their own switch)."""
+    monkeypatch.setenv("PROXIMO_CONSENT_DIR", "/run/operator/secret-consent-location")
+    monkeypatch.setenv("PROXIMO_CONTAIN_TRIP_PATH", "/run/operator/secret-trip-location")
+    out = doctor_check(_DoctorApi())
+    rendered = json.dumps(out["spine"])
+    assert "secret-consent-location" not in rendered
+    assert "secret-trip-location" not in rendered
+
+
 # --- No-secret-material invariant (CodeQL alert #75 guard) ---
 
 def test_doctor_report_carries_no_secret_material(tmp_path):

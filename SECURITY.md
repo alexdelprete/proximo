@@ -49,6 +49,14 @@ Every control below either ships **on** by default or is **fully inert** until i
 var is set — there's no partial-on state. Don't assume a name in this table is protecting
 you unless you've configured it.
 
+The way to read the table: the trust spine is **six pillars — four ship standing, two are
+yours to erect.** PLAN·PROVE·UNDO·DIAGNOSE are structural (no configuration removes them).
+CONSENT and CONTAIN can only ever be raised by *you*, because their entire value is that
+their state paths sit **outside the agent's reach** — a pillar Proximo raised for you would
+be a pillar the agent could lower for itself. `proximo doctor` now reports the spine:
+which pillars stand, which sockets are empty, and exactly how to fill them (it never echoes
+the configured paths back — a hijacked session shouldn't learn where you put your switch).
+
 | Control | Defends against | Default | Turn on with |
 |---|---|---|---|
 | **PLAN** | A mutation landing with no preview, no blast-radius accounting, no chance to review first | **On**, always | n/a — not optional |

@@ -10,6 +10,8 @@ mutation, no exec. Routed through the PROVE ledger as a read by the server layer
 
 from __future__ import annotations
 
+import os
+
 _DOCTOR_NOTE = (
     "DOCTOR is a read-only preflight: it checks API reachability + the token's effective permissions "
     "and reports what this token CAN/CANNOT do. Capability gaps list the privilege + a role to grant. "
@@ -149,6 +151,44 @@ def doctor_check(api) -> dict:
             flags.append("TLS verification is OFF with no CA bundle — API traffic is not cert-validated.")
         if getattr(cfg, "enable_exec", False) and not allow:
             flags.append("exec is ENABLED but the CT allowlist is empty (deny-all) — no container is reachable.")
+
+    # 4) The trust spine — four pillars standing, two sockets only the OPERATOR can fill.
+    # Configured state is reported yes/no ONLY — never the paths: a doctor call from a
+    # hijacked session must not learn where the operator placed the consent drop or the
+    # kill-switch. The operator knows where they put their own switch.
+    def _socket(env: str, build: str) -> dict:
+        return {
+            "configured": bool(os.environ.get(env, "").strip()),
+            "erect_with": build,
+        }
+
+    report["spine"] = {
+        "standing": [
+            "PLAN — every mutation dry-runs to a preview first; no configuration removes it",
+            "PROVE — hash-chained (keyed) audit ledger records plans and confirmations; structural",
+            "UNDO — snapshot/config-revert/rollback wherever the platform holds a primitive; structural",
+            "DIAGNOSE — read-only evidence battery, always available; structural",
+        ],
+        "yours_to_erect": {
+            "CONSENT": _socket(
+                "PROXIMO_CONSENT_DIR",
+                "from YOUR shell (not the agent's): create a directory OUTSIDE the agent's write "
+                "reach, then set PROXIMO_CONSENT_DIR to it — every mutation then needs a grant file "
+                "only your hand can drop. TTL via PROXIMO_CONSENT_TTL_SECONDS.",
+            ),
+            "CONTAIN": _socket(
+                "PROXIMO_CONTAIN_TRIP_PATH",
+                "from YOUR shell (not the agent's): choose a path OUTSIDE the agent's write reach "
+                "and set PROXIMO_CONTAIN_TRIP_PATH to it — touching that file halts every mutation "
+                "mid-incident, no restart needed.",
+            ),
+        },
+        "note": (
+            "Four pillars ship standing. CONSENT and CONTAIN only count when their paths sit "
+            "OUTSIDE the agent's reach — a pillar Proximo raised for you would be a pillar the "
+            "agent could lower for itself. See SECURITY.md, 'The two-deployment trust model'."
+        ),
+    }
 
     report["flags"] = flags
     report["complete"] = complete

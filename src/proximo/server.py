@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from functools import cache, lru_cache
 from typing import Any
@@ -849,11 +849,64 @@ def pve_agent_exec(
         raise
 
 
+# --- PROXIMO_SURFACES — opt-in registration scoping (context hygiene + surface reduction). ---
+# Unset/empty => all tools, zero behavior change. Set (e.g. "pve,exec") => tools of unpicked
+# planes are REMOVED from the registry before serving, so they never reach the client's context
+# at all — a structural gate, not a runtime refusal. Applied in main() AFTER load_env_file()
+# (registration happens at import, before the env file is read — pruning post-load is what makes
+# a file-set PROXIMO_SURFACES actually work; same footgun CONSENT hit in 0.13). audit_verify is
+# always kept: PROVE is never scopeable away.
+SURFACES: dict[str, tuple[str, ...]] = {
+    "pve": ("pve_",),   # Proxmox VE (includes the pve_agent_* qemu-agent edge)
+    "pbs": ("pbs_",),   # Proxmox Backup Server
+    "pmg": ("pmg_",),   # Proxmox Mail Gateway
+    "pdm": ("pdm_",),   # Proxmox Datacenter Manager (read-only plane)
+    "exec": ("ct_",),   # in-container exec/psql/logs/diagnose (ssh -> pct)
+}
+_ALWAYS_REGISTERED = frozenset({"audit_verify"})
+
+
+def surface_keep(names: Iterable[str], spec: str | None) -> set[str]:
+    """Pure filter: which tool names stay registered under a PROXIMO_SURFACES spec.
+    None/blank => everything (inert). Unknown surface name => ValueError — a typo must
+    refuse startup, never silently serve a different surface than the operator believes."""
+    names = set(names)
+    if spec is None or not spec.strip():
+        return names
+    picked = [t.strip().lower() for t in spec.split(",") if t.strip()]
+    unknown = sorted(set(picked) - set(SURFACES))
+    if unknown:
+        raise ValueError(
+            f"PROXIMO_SURFACES: unknown surface(s) {unknown} — valid: {sorted(SURFACES)} "
+            "(refusing to start rather than serve a surface you didn't pick)")
+    prefixes = tuple(p for t in picked for p in SURFACES[t])
+    return {n for n in names if n.startswith(prefixes) or n in _ALWAYS_REGISTERED}
+
+
+def _apply_surfaces(server_mcp=mcp) -> None:
+    """Prune the live registry to the configured surfaces. ValueError propagates to main()."""
+    spec = os.environ.get("PROXIMO_SURFACES")
+    if spec is None or not spec.strip():
+        return
+    registry = server_mcp._tool_manager._tools
+    total = len(registry)
+    keep = surface_keep(registry.keys(), spec)
+    for name in [n for n in registry if n not in keep]:
+        server_mcp.remove_tool(name)
+    print(f"proximo: PROXIMO_SURFACES={spec.strip()} — {len(keep)} of {total} tools registered",
+          file=sys.stderr)
+
+
 def main() -> None:
     # Source ~/.config/proximo/proximo.env FIRST (before doctor or any from_env) so a PROXIMO_* var
     # set in the documented file actually reaches the stdio server — otherwise it is silently ignored,
     # which is fail-dangerous for a security gate like PROXIMO_CONSENT_DIR. Real/inline env still wins.
     load_env_file()
+    try:
+        _apply_surfaces()
+    except ValueError as e:
+        print(f"proximo: {e}", file=sys.stderr)
+        raise SystemExit(1) from None
     # `proximo doctor` — verify your token/config (read-only preflight) BEFORE wiring Proximo into
     # an AI client. Prints what THIS token can and cannot do; never starts the server.
     if len(sys.argv) > 1 and sys.argv[1] == "doctor":

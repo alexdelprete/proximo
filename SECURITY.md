@@ -68,6 +68,14 @@ doing — don't confuse them with the gates above: `PROXIMO_ENABLE_EXEC` (near-r
 off by default and, once on, are each bounded by their own fail-closed CTID/VMID
 allowlist.
 
+One flag *narrows* what Proximo even offers: `PROXIMO_SURFACES` (e.g. `pve,exec`)
+registers only the named planes' tools — everything else is removed from the MCP
+registry before serving, so unpicked planes never reach the client's context at all
+(a structural gate, not a runtime refusal; `audit_verify` is always kept). Unset =
+all tools, unchanged. An unknown surface name refuses startup rather than silently
+serving a surface you didn't pick. This is context hygiene and attack-surface
+reduction, not an authorization control — the token's ACL remains the real boundary.
+
 *Status note: CONSENT/CONTAIN/LEASE/SCOPE/ENVELOPE are present in this repository's
 current source. Check `CHANGELOG.md` against the version you actually installed — a
 published package can lag the tree you're reading; these gates land in a release only

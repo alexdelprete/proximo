@@ -4,6 +4,23 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-03
+
+**Scoped registration (`PROXIMO_SURFACES`) + the demo-led README.** Load only the planes you
+use: `PROXIMO_SURFACES=pve,exec` registers just those surfaces' tools (that pair = 194 of 352;
+`pbs,exec` = 38) — unpicked planes are pruned from the MCP registry before serving, so they
+never reach the client's context window. Structural gate, not a runtime refusal; applied after
+the env file loads (the CONSENT-footgun lesson); `audit_verify` is never scopeable away; an
+unknown surface name refuses startup loudly instead of silently serving the wrong set. Unset =
+all 352, zero behavior change — the house opt-in contract. A completeness test fails CI if a
+future tool falls outside every surface. Default tool count unchanged (352). Full suite
+**5,079 green** (3 by-design skips), ruff + pyright clean.
+
+- feat(surfaces): `PROXIMO_SURFACES` registration scoping — `pve` / `pbs` / `pmg` / `pdm` /
+  `exec`, comma-separated, case-insensitive; live-verified end-user (scoped registry + typo
+  refusal, exit 1). Documented in README ("Big surface, scoped context") and SECURITY.md
+  (explicitly framed as context hygiene / surface reduction, **not** an authorization control —
+  the token's ACL remains the real boundary).
 - docs(readme): restructure for the arriving reader — live demo recording up top
   (`docs/demo/demo.svg`, recorded against a real PVE 9.2 host with a read-only token via
   `scripts/demo/demo.py`, reproducible), "What it does" + a Quickstart (MCP client config +

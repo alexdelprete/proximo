@@ -132,15 +132,15 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.13.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.13.0) (CI green), and
+> 📦 **`0.14.0`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
+> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.14.0) (CI green), and
 > [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
-> New in 0.13.0: the **zero-trust arc** — six opt-in, out-of-band controls (**CONTAIN** kill-switch,
-> independent **CONSENT**, arm-time **SCOPE**, arm-**LEASE** TTL, per-surface **ENVELOPE**, and a
-> content-trust **TAINT** control — the prompt-injection mitigation), all fail-closed at the 5 mutation
-> seams and all **off until configured**, plus an automated off-box PROVE anchor and `pve_acl_prune`
-> (351 → 352 tools). See [SECURITY.md](SECURITY.md) for which controls are on by default and what each
-> one honestly does and doesn't hold.
+> New in 0.14.0: **scoped registration** — `PROXIMO_SURFACES=pve,exec` registers only the planes you
+> use, so unpicked surfaces never touch your context window (unset = all 352, unchanged; see
+> "Big surface, scoped context" below). 0.13.0 brought the **zero-trust arc** — six opt-in, out-of-band
+> controls (**CONTAIN** · **CONSENT** · **SCOPE** · **LEASE** · **ENVELOPE** · **TAINT**), all fail-closed
+> at the 5 mutation seams and all **off until configured**, plus the off-box PROVE anchor. See
+> [SECURITY.md](SECURITY.md) for which controls are on by default and what each honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -165,6 +165,11 @@ uv pip install -e .          # or: pip install -e .
 **Docker (GHCR):** `docker run -i --rm … ghcr.io/john-broadway/proximo:latest` runs the stdio MCP server on demand — no daemon, no open port. Multi-arch (amd64 + arm64), shipped with an SBOM and a sigstore-signed build-provenance attestation (`gh attestation verify oci://ghcr.io/john-broadway/proximo --owner john-broadway`).
 
 > **Safe by default:** Proximo is **API-only** out of the box. The near-root edges are **opt-in** and say so plainly: the LXC exec edge (`PROXIMO_ENABLE_EXEC=1`) grants near-root on the host, and the VM qemu-guest-agent edge (`PROXIMO_ENABLE_AGENT=1`) grants near-root inside a guest.
+>
+> **Big surface, scoped context:** 352 tools is the whole estate — you don't have to load it.
+> `PROXIMO_SURFACES=pve,exec` registers **only those planes** (e.g. that pair = 194 tools; `pbs,exec` = 38) —
+> unpicked planes are removed from the registry before serving, so they never touch your context window.
+> `audit_verify` always stays; a typo'd surface name refuses startup instead of silently serving the wrong set.
 >
 > The default path never touches the hypervisor host — management goes over the Proxmox **API** (scoped token). The two opt-in edges are the exceptions: exec uses your existing **ssh** to PVE to run `pct exec` as root on the host; the qemu-agent edge runs in-guest ops via the API. Both are off by default, each scoped by its own fail-closed allowlist (`PROXIMO_CT_ALLOWLIST` / `PROXIMO_AGENT_ALLOWLIST`), and say so loudly.
 >
@@ -205,7 +210,8 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
-🩸 **0.13.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/) (`pip install proximo-proxmox`), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image) — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT (prompt-injection mitigation), all opt-in and fail-closed, + the off-box PROVE anchor + `pve_acl_prune` (**351 → 352 tools**).
+🩸 **0.14.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) — **scoped registration** (`PROXIMO_SURFACES`: load only the planes you use; a structural registry gate, not a runtime refusal) + the demo-led README (live recording, reproducible via `scripts/demo/demo.py`) + a mutation-checked doctor no-secret-material guard. Tool count unchanged (352).
+🩸 **0.13.0** — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT (prompt-injection mitigation), all opt-in and fail-closed, + the off-box PROVE anchor + `pve_acl_prune` (**351 → 352 tools**).
 🩸 **0.12.0** — **`proximo doctor --target`** brings the CLI preflight onto the multi-target registry (the MCP tools were target-aware since 0.11.0) + a PMG login-concurrency fix. No new tools (still 351); a drop-in over 0.11.0.
 🩸 **0.11.0** — **native multi-target** (one instance → many PVE/PBS/PMG/PDM remotes via a per-tool `proximo_target=`; default unchanged) + the **ACME cert-order plane** (347 → 351 tools); the multi-target change was adversarially redteamed and live-proven against two distinct real boxes. PDM remains the 4th surface from 0.9.0. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
 The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed; the opt-in controls (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md)) exist but ship off until configured. **352 MCP tools. 5,000+ tests (3 by-design skips in the golden wrapper sweep), ruff + pyright clean** — but those tests are **mock/in-process** (no socket): they prove the *shapes*, not live behavior. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** The blast-radius engine carries the destructive surface — across eleven op-classes it names the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back to a bare confirm.

@@ -270,9 +270,12 @@ complete audit trail; set `PROXIMO_LEDGER_REDACT=1` to record a fingerprint (sha
 instead, when the SQL/command may carry secrets/PII. The PVE API token is never written to the ledger.
 
 ### What's next
-- [ ] HA fencing + online migration once the hardware exists
-- [ ] PBS certificate-fingerprint wire-enforcement
-- [ ] _(optional)_ Debian package for the Debian-native crowd
+- [ ] HA fencing (softdog) + online live-migration over shared storage — queued for the
+  nested-cluster lab. Real hardware-watchdog fencing still waits on real hardware.
+- [ ] Debian package polish: a man page + archive-quality gates (autopkgtest, `lintian
+  --pedantic`). The package itself now builds and installs — see `debian/README.Debian`.
+- [x] PBS certificate-fingerprint wire-enforcement — done: the pin is checked on the
+  handshake; a mismatch refuses before the token is sent.
 
 The full build history — every pillar, every redteam, every fix — lives in [`CHANGELOG.md`](./CHANGELOG.md).
 

@@ -1,5 +1,52 @@
 #!/usr/bin/make -f
 export PYBUILD_NAME=proximo
 
+# Proximo's runtime deps (mcp, httpx) aren't packaged for Debian, so the
+# package is self-contained: dh-virtualenv bundles a private venv at
+# /opt/venvs/proximo via `pip install .` (build-isolated, so pip also
+# fetches the hatchling build backend) instead of installing to the
+# system site-packages. See debian/README.Debian for the full rationale.
+#
+# --buildsystem=pybuild is kept only for dh_auto_configure's sanity check
+# (validates the tree is pyproject-buildable); the python-virtualenv
+# sequence removes dh_auto_build/install/test/clean outright, since
+# dh_virtualenv (inserted before dh_installinit) does the real build:
+# create venv -> pip install . into it -> fix shebangs/activate paths.
+export DH_VIRTUALENV_INSTALL_ROOT = /opt/venvs
+
+DEB_VENV_BUILDDIR := debian/proximo/opt/venvs/proximo
+DEB_VENV_FINALDIR := /opt/venvs/proximo
+
 %:
-	dh $@ --with python3 --buildsystem=pybuild
+	dh $@ --with python-virtualenv --buildsystem=pybuild
+
+# --builtin-venv (python3 -m venv) writes a build-tree absolute path into
+# pyvenv.cfg's `command` line and into bin/activate's `export VIRTUAL_ENV=`
+# line (no quotes) -- dh-virtualenv's own fix_activate_path() only matches
+# the classic `virtualenv` tool's quoted activate-script format, so with
+# --builtin-venv that substitution silently no-ops and the build path
+# (e.g. the CI workdir or a throwaway git worktree) leaks into the .deb.
+# Likewise pip/CPython bake the absolute build path into every .pyc's
+# co_filename, and pip's direct_url.json records the local source checkout
+# path used for `pip install .`. None of that is fit to ship. Fix by hand
+# after dh_virtualenv runs.
+override_dh_virtualenv:
+	dh_virtualenv --builtin-venv --python=/usr/bin/python3
+	sed -i "s#$(CURDIR)/$(DEB_VENV_BUILDDIR)#$(DEB_VENV_FINALDIR)#g" \
+		$(DEB_VENV_BUILDDIR)/bin/activate \
+		$(DEB_VENV_BUILDDIR)/pyvenv.cfg
+	rm -f $(DEB_VENV_BUILDDIR)/lib/python3*/site-packages/proximo_proxmox-*.dist-info/direct_url.json
+	find $(DEB_VENV_BUILDDIR) -name '__pycache__' -type d -prune -exec rm -rf {} +
+	find $(DEB_VENV_BUILDDIR) -name '*.pyc' -delete
+	# `python3 -m venv` drops a "everything in here" .gitignore -- meaningless
+	# (and a lintian vcs-control-file flag) in a shipped binary package.
+	rm -f $(DEB_VENV_BUILDDIR)/.gitignore
+	# pip ships inside every venv by default (ensurepip), but nobody should
+	# be installing packages into this frozen production venv at runtime --
+	# drop pip's own console-script wrappers (pip/pip3/pip3.X). Their
+	# shebang points at the venv's own python3, which lintian's interpreter
+	# check doesn't expect to see for a bundled dh-virtualenv package;
+	# removing them also shrinks the attack surface a bit. The pip library
+	# itself stays under site-packages (harmless, and `python3 -m pip` still
+	# works there if anyone ever needs to debug the venv by hand).
+	rm -f $(DEB_VENV_BUILDDIR)/bin/pip $(DEB_VENV_BUILDDIR)/bin/pip3 $(DEB_VENV_BUILDDIR)/bin/pip3.*

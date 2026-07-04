@@ -2,6 +2,22 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
+## [Unreleased]
+
+- feat(pbs): **`PROXIMO_PBS_FINGERPRINT` is now wire-enforced.** When set, the PBS server
+  certificate's SHA-256 must match the pin exactly — checked on the TLS handshake itself,
+  and a mismatch closes the socket before the token header is ever sent. The pin replaces
+  CA/hostname validation (the `proxmox-backup-client --fingerprint` idiom), so a pin alone
+  is now sufficient verification for a self-signed PBS box, while a garbled fingerprint
+  refuses loudly at startup. Accepts the colon-separated form the PBS GUI displays.
+  Proven in tests against a real TLS handshake (self-signed cert + live socket), not mocks.
+  Closes the long-standing "stored; not yet wire-enforced" honesty note.
+- packaging(debian): **first working .deb** — dh-virtualenv, self-contained venv under
+  `/opt/venvs/proximo`, `/usr/bin/proximo` entry point. Built with `dpkg-buildpackage`,
+  verified end-user (install → `proximo doctor` → clean purge, zero files left). Not yet
+  distributed anywhere — build your own from `debian/`; honest-rough items (no man page,
+  no autopkgtest) are listed in `debian/README.Debian`.
+
 ## [0.14.1] - 2026-07-04
 
 **The trim + harden patch: PLAN previews and the PROVE ledger now tell the whole truth — and

@@ -1,3 +1,65 @@
+proximo (0.14.1-1) UNRELEASED; urgency=medium
+
+  * First working build: the dh-virtualenv step landed. debian/rules now
+    drives `dh $@ --with python-virtualenv --buildsystem=pybuild` with an
+    override_dh_virtualenv calling `dh_virtualenv --builtin-venv
+    --python=/usr/bin/python3` -- this bundles a private venv at
+    /opt/venvs/proximo (via `pip install .`, build-isolated so pip also
+    fetches the hatchling backend) carrying the mcp and httpx runtime deps
+    that Debian doesn't package. debian/control's Depends dropped the
+    ${python3:Depends} substvar (no dh-python addon runs now) in favor of
+    a plain `python3 (>= 3.12)` dependency, and gained
+    Build-Depends: dh-virtualenv, python3-venv.
+  * debian/proximo.links symlinks /usr/bin/proximo -> the venv's bundled
+    `proximo` console script (the MCP stdio entry point).
+  * Fixed two build-time gotchas specific to `--builtin-venv`, both
+    verified by extracting the built .deb and grepping for leak shapes:
+    dh-virtualenv's own fix_activate_path() only matches the classic
+    `virtualenv` tool's activate-script format, so with `--builtin-venv`
+    the build-tree's absolute path (pyvenv.cfg, bin/activate,
+    direct_url.json, every .pyc's co_filename) silently leaked through
+    unfixed; override_dh_virtualenv now sed-replaces it to the final
+    /opt/venvs/proximo path and strips the .pyc caches (recompiled
+    lazily, harmlessly, on first import) and direct_url.json by hand.
+  * Architecture: all -> any. The venv bundles arch-specific compiled
+    wheels (pydantic-core, rpds-py, cryptography, cffi); shipping them
+    under Architecture: all silently skipped dh_strip/dh_shlibdeps
+    (debhelper only runs those for arch-dependent packages), so the first
+    `all` build had unstripped binaries and no libc6 dependency -- lintian
+    caught both. `any` fixes both and gained ${shlibs:Depends} in Depends.
+  * debian/proximo.postrm added: since we ship without .pyc caches,
+    Python recompiles them at runtime into untracked __pycache__ dirs;
+    without a cleanup hook `dpkg -r`/`apt remove` warned "directory not
+    empty" and left /opt/venvs/proximo behind. Now unconditionally
+    removed on remove/purge. Verified with a real install -> `proximo
+    doctor` -> remove cycle: no leftover files, no dpkg record.
+  * debian/proximo.lintian-overrides added for three tags that are
+    expected on *any* dh-virtualenv package, not defects here: files
+    under /opt, console-scripts shebanging to the venv's bare `python`,
+    and two non-executable files vendored inside pip itself. Also
+    dropped pip's own console-script wrappers (bin/pip, bin/pip3,
+    bin/pip3.*) from the shipped venv -- nobody should be installing into
+    this frozen production venv at runtime, and it silenced three
+    wrong-path-for-interpreter tags. Full `lintian` pass is now clean
+    except no-manual-page and three debug-file-with-no-debug-symbols
+    warnings on the auto-generated -dbgsym package (the bundled
+    manylinux wheels are pre-stripped, no DWARF info to extract) -- both
+    documented in debian/README.Debian "still rough", neither a defect.
+  * Version tracks upstream (0.14.1) now that the package actually builds
+    and installs; still UNRELEASED/no real distribution/urgency is a
+    placeholder -- this is a packaging milestone, not a Debian archive
+    upload, and there's been no separate audit of this artifact for
+    publication (see debian/README.Debian "still rough").
+  * The A2A extra (a2a-sdk, uvicorn, starlette, cryptography) is
+    deliberately NOT bundled into the venv -- matches upstream's opt-in
+    design; only the base mcp+httpx surface ships. Anyone wanting
+    proximo-a2a installs the extra by hand into the venv.
+  * Kept the prior scaffold entry below verbatim for the historical record
+    of what was blocking (now resolved) and what stays a permanent design
+    decision (the on-demand stdio transport, not a blocker).
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Sat, 04 Jul 2026 00:00:00 +0000
+
 proximo (0.1.0) UNRELEASED; urgency=medium
 
   * Initial packaging scaffold for the foundation release ("Spaniard").

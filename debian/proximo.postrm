@@ -1,0 +1,21 @@
+#!/bin/sh
+# The venv is self-contained under /opt/venvs/proximo and no other package
+# ever writes there -- but dh_virtualenv's own postinst/prerm autoscripts
+# (installed by dh_virtualenv itself, see debian/rules) don't remove the
+# venv tree. Worse: this package deliberately ships without .pyc caches
+# (dh_virtualenv strips them at build time to stop the build-time absolute
+# path leaking via co_filename -- see debian/rules); Python recompiles
+# them lazily the first time the server actually runs, writing fresh
+# __pycache__ dirs that dpkg never tracked. Without this, `dpkg -r`/`apt
+# remove` warns "directory not empty" and leaves the whole tree behind.
+set -e
+
+case "$1" in
+    remove|purge)
+        rm -rf /opt/venvs/proximo
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

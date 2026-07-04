@@ -1,0 +1,18 @@
+# /opt is the correct FHS location for a self-contained, versioned add-on
+# package -- dh-virtualenv's whole point is bundling a private runtime
+# (mcp, httpx; not packaged for Debian) outside the system Python's
+# site-packages. Every hit below is the same one design decision, repeated
+# once per shipped file under /opt/venvs/proximo. See debian/README.Debian.
+proximo: dir-or-file-in-opt *
+
+# pip's own generated console_scripts wrappers (mcp, httpx, proximo, ...)
+# shebang to the venv's bare "python", not a versioned "python3.X" --
+# that's pip's standard codegen for any virtualenv/venv, not a defect
+# introduced by this package's build.
+proximo: unusual-interpreter *
+
+# Vendored inside pip itself (site-packages/pip/_vendor/...) -- upstream
+# pip's own packaging choice, untouched by this package's build. (Only two
+# instances today -- distro.py, certs.py -- but pip's vendor set shifts
+# release to release, so this isn't pinned to specific filenames.)
+proximo: script-not-executable

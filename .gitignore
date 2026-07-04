@@ -37,3 +37,4 @@ uv.lock
 
 # internal session scratch — never publish
 .remember/
+.claude/

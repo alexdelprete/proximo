@@ -72,8 +72,9 @@ Security posture mirrors backends.py (and is stricter on TLS):
 - TLS verification prefers ca_bundle over disabling. FAIL-CLOSED: constructing a
   PbsBackend with verify_tls=false AND no ca_bundle raises — the token-bearing backend
   refuses to send the secret over a completely unverified channel.
-- Fingerprint is stored on config; honest note: not yet wire-enforced in httpx (would require
-  a custom SSL context); stored to surface in plans + future hardening.
+- Fingerprint is WIRE-ENFORCED: when set, an exact-cert SHA-256 pin replaces
+  CA/hostname validation (the proxmox-backup-client --fingerprint idiom) — mismatch closes
+  the socket before the token header is sent. A pin alone is sufficient verification.
 - Input validators use \\Z (not $) to block trailing-newline bypass.
 """
 
@@ -86,7 +87,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from ._tls import httpx_verify, parse_verify_tls
+from ._tls import fingerprint_pinned_context, httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
@@ -233,15 +234,16 @@ class PbsConfig:
         PROXIMO_PBS_TOKEN_PATH   required  file containing USER@REALM!TOKENID:SECRET
         PROXIMO_PBS_VERIFY_TLS   optional  default "true"; set "false" to skip (warn)
         PROXIMO_PBS_CA_BUNDLE    optional  path to CA cert bundle (preferred over disabling TLS)
-        PROXIMO_PBS_FINGERPRINT  optional  SHA-256 fingerprint of PBS self-signed cert
-                                           (stored; honest note: not yet wire-enforced in httpx)
+        PROXIMO_PBS_FINGERPRINT  optional  SHA-256 fingerprint of the PBS cert (the form the
+                                           GUI shows). WIRE-ENFORCED: exact-cert pin replaces
+                                           CA/hostname validation; mismatch refuses pre-request.
     """
 
     base_url: str          # e.g. "https://pbs.example.lan:8007/api2/json"
     token_path: str        # file containing: USER@REALM!TOKENID:SECRET  (run-but-not-read)
     verify_tls: bool = True
     ca_bundle: str | None = None
-    fingerprint: str | None = None  # stored; not yet wire-enforced — see module docstring
+    fingerprint: str | None = None  # WIRE-ENFORCED exact-cert pin — see module docstring
 
     @classmethod
     def from_env(cls) -> PbsConfig:
@@ -320,21 +322,28 @@ class PbsBackend:
 
     def __init__(self, config: PbsConfig):
         self.config = config
+        if config.fingerprint:
+            # WIRE-ENFORCED pin (the proxmox-backup-client --fingerprint idiom): the pin
+            # replaces CA/hostname validation with an exact-certificate match — checked
+            # post-handshake, socket closed on mismatch before the token header is sent.
+            # A garbled pin refuses loudly here, never degrades into "no pin".
+            try:
+                ctx = fingerprint_pinned_context(config.fingerprint)
+            except ValueError as e:
+                raise ProximoError(f"PBS fingerprint refused: {e}") from e
+            self._client = httpx.Client(base_url=config.base_url, verify=ctx, timeout=60)
+            return
         verify: bool | str = config.ca_bundle if config.ca_bundle else config.verify_tls
         # FAIL-CLOSED: this backend sends a real API-token secret on every request. Refuse
         # to construct it over a completely unverified channel (verify_tls=false AND no
-        # ca_bundle). The stored fingerprint is NOT wire-enforced yet, so it does NOT make
-        # an otherwise-unverified connection safe — a ca_bundle (or system CA) is required.
+        # ca_bundle AND no fingerprint pin).
         if verify is False:
             raise ProximoError(
-                "refusing to send the PBS token over unverified TLS: set PROXIMO_PBS_CA_BUNDLE "
-                "to the PBS CA cert (preferred) or PROXIMO_PBS_VERIFY_TLS=true. The stored "
-                "fingerprint is not yet wire-enforced and cannot substitute for verification."
+                "refusing to send the PBS token over unverified TLS: set PROXIMO_PBS_FINGERPRINT "
+                "to the server cert's SHA-256 (the PBS GUI shows it; strongest for self-signed), "
+                "or PROXIMO_PBS_CA_BUNDLE to the PBS CA cert, or PROXIMO_PBS_VERIFY_TLS=true."
             )
         self._client = httpx.Client(base_url=config.base_url, verify=httpx_verify(verify), timeout=60)
-        # NOTE: fingerprint is stored on config but NOT wire-enforced here.
-        # httpx requires a custom SSL context for fingerprint pinning; that
-        # hardening is deferred and explicitly noted in the module docstring.
 
     def _auth_header(self) -> dict[str, str]:
         # Token file holds: USER@REALM!TOKENID:SECRET  (e.g. backup@pbs!token:secret)

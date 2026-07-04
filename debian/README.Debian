@@ -1,20 +1,127 @@
 proximo for Debian
 ==================
 
-This is a packaging *scaffold* — a clean start, not yet a one-command build.
-Two things must be resolved before `dpkg-buildpackage` produces a working .deb:
+STATUS: first working build (0.14.1-1). `dpkg-buildpackage -us -uc -b`
+produces an installable .deb; `dpkg -i` + `proximo doctor` + `dpkg -r`
+have all been run end-to-end. Still not a Debian-archive-quality package
+(see "Still rough" below) -- but it is no longer a scaffold.
 
-1. Python runtime dependencies (mcp, httpx) are not in Debian.
-   DECIDED: self-contained (sovereign, no host clutter) — bundle a venv via
-   **dh-virtualenv** so Proximo carries its own deps and installs to its own prefix.
-   Implementing this is the remaining build step; until then debian/control's
-   Depends only covers stdlib + ssh.
+Approach: self-contained via **dh-virtualenv**
+------------------------------------------------
 
-2. Transport. DECIDED: **on-demand, not a daemon.** Proximo speaks MCP over **stdio**,
-   launched by the MCP client only when needed — no always-on service, no held-open
-   port. That is the sovereign, minimal-footprint default. An OPTIONAL daemon-mode
-   unit (network transport) lives at packaging/optional-daemon-mode.service.example
-   for anyone who wants it; it is NOT installed by default.
+Proximo's runtime deps (mcp, httpx) aren't packaged for Debian. DECIDED
+(sovereign, no host clutter): bundle a private venv so Proximo carries its
+own dependency closure instead of fighting the system Python.
+
+debian/rules drives `dh $@ --with python-virtualenv --buildsystem=pybuild`.
+`--buildsystem=pybuild` is kept only so `dh_auto_configure` can sanity-check
+the tree is pyproject-buildable; the `python-virtualenv` sequence add-on
+removes `dh_auto_build`/`dh_auto_install`/`dh_auto_test`/`dh_auto_clean`
+outright, since `dh_virtualenv` (inserted right before `dh_installinit`)
+does the real work:
+
+1. `python3 -m venv` (via `--builtin-venv`, so the build doesn't need the
+   separate `virtualenv` PyPI tool as a build-dep) creates a venv at
+   `/opt/venvs/proximo`.
+2. `pip install .` (build-isolated, so pip also fetches the hatchling
+   build backend from PyPI) installs proximo-proxmox + mcp + httpx + their
+   transitive deps into it.
+3. Shebangs/activate paths get fixed up to the final install location.
+
+`/usr/bin/proximo` symlinks to the venv's `proximo` console script
+(`debian/proximo.links`). `Architecture: any` (not `all`) -- the venv
+bundles arch-specific compiled wheels (pydantic-core, rpds-py, cryptography,
+cffi are Rust/C extensions with no pure-Python fallback), so this can't be
+an arch-independent package; `Architecture: any` gets `dh_strip` and
+`dh_shlibdeps` to actually run over those binaries (an earlier `all` build
+shipped unstripped .so files with no libc6 dependency -- lintian caught it,
+see `debian/proximo.lintian-overrides` history in git log for the fix).
+
+Two build-time gotchas we hit and fixed by hand in `override_dh_virtualenv`
+(debian/rules), because dh-virtualenv 1.2.2 predates `--builtin-venv`
+having its own quirks:
+
+- **Build-path leak.** `--builtin-venv`'s `pyvenv.cfg` and `bin/activate`
+  embed the literal build-tree absolute path (e.g. a CI workdir or a
+  throwaway git worktree under the builder's home).
+  dh-virtualenv's own `fix_activate_path()` only matches the classic
+  `virtualenv` tool's quoted activate-script format, so with
+  `--builtin-venv` it silently no-ops. We sed-replace the build path with
+  the final `/opt/venvs/proximo` by hand, delete pip's `direct_url.json`
+  (records the local source checkout path, pure provenance metadata,
+  not needed at runtime), and strip all `.pyc`/`__pycache__` (their
+  `co_filename` bakes in the build path too -- Python recompiles them
+  lazily and harmlessly on first import). Verified clean: extracted the
+  built .deb and grepped for the worktree path, home-directory paths, and
+  internal-hostname shapes -- zero hits (aside from two third-party PyPI wheels,
+  pydantic-core and rpds-py, whose Rust build embeds a generic
+  cargo-registry path from *their own* upstream CI container -- not
+  this machine's path, not introduced by this build, not fixable short of
+  rebuilding those wheels from source).
+- **Orphaned `__pycache__` on removal.** Since we ship without `.pyc`
+  caches, Python recompiles them at runtime, writing fresh
+  `__pycache__` dirs under `/opt/venvs/proximo` that dpkg never tracked --
+  `dpkg -r`/`apt remove` used to warn "directory not empty" and leave the
+  tree behind. Fixed with `debian/proximo.postrm`: unconditionally
+  `rm -rf /opt/venvs/proximo` on remove/purge (nothing else ever writes
+  there). Verified: install, run `proximo doctor`, remove -- `/opt/venvs`
+  is gone, no leftover files, no dpkg record.
+
+`debian/proximo.lintian-overrides` documents three tags that are expected
+for *any* dh-virtualenv package and aren't defects here: files under `/opt`
+(that's the whole point of a self-contained venv), console-scripts
+shebanging to the venv's bare `python` (pip's standard codegen), and two
+non-executable files vendored inside pip itself (`pip/_vendor/...`,
+upstream's choice, not ours). A full from-scratch `lintian` pass after all
+of the above is clean except two expected leftovers: `no-manual-page` (no
+man page yet -- see below) and three `debug-file-with-no-debug-symbols`
+warnings on the `-dbgsym` package (the bundled cryptography/pydantic-core/
+rpds-py wheels are pre-stripped manylinux binaries with no DWARF info to
+extract; fixing that would mean rebuilding those wheels from source, out
+of scope here).
+
+Still rough
+-----------
+
+- **No man page** for `proximo` (lintian `no-manual-page`, a warning not
+  an error). Worth doing properly in its own pass rather than a
+  perfunctory stub.
+- **`python3 (>= 3.12)` stays a real runtime dependency**, not just a
+  build one: `python3 -m venv`'s `bin/python3` is a symlink to the system
+  interpreter (not a copy), so the venv isn't fully self-contained down to
+  the interpreter itself. dh-virtualenv's postinst/prerm autoscripts
+  handle re-linking across a system Python point-release upgrade
+  (`dh_venv_safe_interpreter_update`, triggered off `/usr/bin/python?.*`)
+  -- that path is untested here (only a fresh install + remove cycle was
+  verified, not an upgrade-under-a-python-bump scenario).
+- **Not run through a real Debian archive gate** (no `lintian --pedantic`,
+  no `piuparts`, no reproducible-build check, no autopkgtest). This is a
+  "it builds, installs, runs, and removes cleanly" bar, not an
+  archive-acceptance bar.
+- **Version 0.14.1-1 with a `-1` revision on a `3.0 (native)` source
+  format** is slightly non-canonical (native packages conventionally carry
+  no Debian revision suffix); harmless in practice (dpkg builds it fine),
+  but a purist would either drop the `-1` or switch source format --
+  left as-is since the task asked for a `0.14.1-1` entry and this isn't
+  headed for archive upload.
+- **A2A extra (a2a-sdk, uvicorn* already pulled in transitively by mcp,
+  starlette, cryptography) is deliberately NOT bundled** beyond what mcp
+  itself needs -- matches upstream's opt-in design. `proximo-a2a` ships as
+  a console script but errors with a friendly message until someone pip
+  installs the `[a2a]` extra into the venv by hand.
+- **No live-smoke coverage of `PROXIMO_ENABLE_EXEC` / ssh->pct paths** as
+  part of this packaging pass -- `proximo doctor` was exercised against
+  whatever `PROXIMO_*` env was already present on the build host, purely
+  to prove the binary starts and talks to Proxmox's API; that is not a
+  packaging test suite.
+
+Transport (unchanged, already decided)
+---------------------------------------
+
+Proximo speaks MCP over **stdio**, launched by the MCP client on demand --
+no always-on service, no held-open port. An OPTIONAL daemon-mode unit
+(network transport) lives at `packaging/optional-daemon-mode.service.example`
+for anyone who wants one; it is NOT installed by default.
 
 Deployment shapes (see the project README):
   - On the PVE host: PROXIMO_SSH_TARGET=local (direct pct; isolate the venv).

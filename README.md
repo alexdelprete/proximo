@@ -132,18 +132,16 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.14.1`.** On [PyPI](https://pypi.org/project/proximo-proxmox/) (`proximo-proxmox`),
-> [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.14.1) (CI green), and
-> [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
-> New in 0.14.1: the **trim + harden patch** — PLAN previews and the PROVE ledger now disclose the
-> actual field values a mutation will change, and secrets (cloud-init passwords, ACME DNS creds,
-> exec argv) are masked out of both; plus the doctor's **spine report** and ~35 duplication sites
-> collapsed. 0.14.0 brought **scoped registration** — `PROXIMO_SURFACES=pve,exec` registers only the
-> planes you use, so unpicked surfaces never touch your context window (unset = all 352, unchanged;
-> see "Big surface, scoped context" below). 0.13.0 brought the **zero-trust arc** — six opt-in, out-of-band
-> controls (**CONTAIN** · **CONSENT** · **SCOPE** · **LEASE** · **ENVELOPE** · **TAINT**), all fail-closed
-> at the 5 mutation seams and all **off until configured**, plus the off-box PROVE anchor. See
-> [SECURITY.md](SECURITY.md) for which controls are on by default and what each honestly holds.
+> 📦 **`0.14.1`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.14.1), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+>
+> **New in 0.14.1 — the trim + harden patch.** Plans and the ledger now show the actual
+> field values a mutation will change. Secrets stay out of both: cloud-init passwords,
+> ACME DNS credentials, exec argv. The doctor gained its **spine report**.
+>
+> **0.14.0** added **scoped registration**: `PROXIMO_SURFACES=pve,exec` loads only the
+> planes you use. **0.13.0** added the **zero-trust arc** — six opt-in controls
+> (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT), all off until configured.
+> [SECURITY.md](SECURITY.md) says which controls are on by default and what each honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -213,7 +211,7 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
-🩸 **0.14.1 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) — the **trim + harden patch**: a 10-cluster sweep landing 57 verified fixes — PLAN previews and PROVE ledger entries now disclose the actual field changes across four planes (PMG RuleDB, network/SDN, storage backends, replication), secrets masked out of plans and the ledger (cloud-init `cipassword`, ACME DNS creds, `tfa_delete` password-in-URL closed), per-call symlink re-check on the ledger, fail-closed shape checks on PBS reads, and the doctor **spine report** (four pillars standing, two sockets yours to erect). +74 pinning tests (suite 5,153 green). Tool count unchanged (352).
+🩸 **0.14.1 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) — the **trim + harden patch**: plans and the ledger now show the actual field changes and carry no secrets (57 verified fixes, +74 tests) + the doctor **spine report**. Tool count unchanged (352).
 🩸 **0.14.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) — **scoped registration** (`PROXIMO_SURFACES`: load only the planes you use; a structural registry gate, not a runtime refusal) + the demo-led README (live recording, reproducible via `scripts/demo/demo.py`) + a mutation-checked doctor no-secret-material guard. Tool count unchanged (352).
 🩸 **0.13.0** — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT (prompt-injection mitigation), all opt-in and fail-closed, + the off-box PROVE anchor + `pve_acl_prune` (**351 → 352 tools**).
 🩸 **0.12.0** — **`proximo doctor --target`** brings the CLI preflight onto the multi-target registry (the MCP tools were target-aware since 0.11.0) + a PMG login-concurrency fix. No new tools (still 351); a drop-in over 0.11.0.

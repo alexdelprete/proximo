@@ -211,12 +211,29 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
-🩸 **0.14.1 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) — the **trim + harden patch**: plans and the ledger now show the actual field changes and carry no secrets (57 verified fixes, +74 tests) + the doctor **spine report**. Tool count unchanged (352).
-🩸 **0.14.0 — published** on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) — **scoped registration** (`PROXIMO_SURFACES`: load only the planes you use; a structural registry gate, not a runtime refusal) + the demo-led README (live recording, reproducible via `scripts/demo/demo.py`) + a mutation-checked doctor no-secret-material guard. Tool count unchanged (352).
-🩸 **0.13.0** — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT (prompt-injection mitigation), all opt-in and fail-closed, + the off-box PROVE anchor + `pve_acl_prune` (**351 → 352 tools**).
-🩸 **0.12.0** — **`proximo doctor --target`** brings the CLI preflight onto the multi-target registry (the MCP tools were target-aware since 0.11.0) + a PMG login-concurrency fix. No new tools (still 351); a drop-in over 0.11.0.
-🩸 **0.11.0** — **native multi-target** (one instance → many PVE/PBS/PMG/PDM remotes via a per-tool `proximo_target=`; default unchanged) + the **ACME cert-order plane** (347 → 351 tools); the multi-target change was adversarially redteamed and live-proven against two distinct real boxes. PDM remains the 4th surface from 0.9.0. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
-The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed; the opt-in controls (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md)) exist but ship off until configured. **352 MCP tools. 5,000+ tests (3 by-design skips in the golden wrapper sweep), ruff + pyright clean** — but those tests are **mock/in-process** (no socket): they prove the *shapes*, not live behavior. **The real-Proxmox proofs below are a separate, by-hand live-smoke harness — not in that count, not in CI.** The blast-radius engine carries the destructive surface — across eleven op-classes it names the specific guests, nodes, ACL principals, or disks a dangerous op would harm, so nothing falls back to a bare confirm.
+- 🩸 **0.14.1** — the **trim + harden patch**. Plans and the ledger now show the actual field
+  changes, and carry no secrets. 57 verified fixes, +74 tests, plus the doctor **spine report**.
+- 🩸 **0.14.0** — **scoped registration**: `PROXIMO_SURFACES` loads only the planes you use.
+  A structural registry gate, not a runtime refusal. Plus the demo-led README.
+- 🩸 **0.13.0** — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT,
+  all opt-in and fail-closed. Plus the off-box PROVE anchor and `pve_acl_prune` (351 → 352 tools).
+- 🩸 **0.12.0** — `proximo doctor --target` brings the CLI preflight onto the multi-target
+  registry. Plus a PMG login-concurrency fix. A drop-in over 0.11.0.
+- 🩸 **0.11.0** — **native multi-target**: one instance reaches many PVE/PBS/PMG/PDM remotes via
+  `proximo_target=`. Plus the ACME cert-order plane (347 → 351 tools). Redteamed and live-proven
+  against two real boxes. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+
+The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed. The
+opt-in six (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md))
+ship off until configured.
+
+**The numbers, honestly:** 352 MCP tools. 5,000+ tests, ruff + pyright clean — but those tests
+are **mock/in-process**: they prove the *shapes*, not live behavior. The real-Proxmox proofs
+below are a separate, by-hand live-smoke harness — not in that count, not in CI.
+
+The **blast-radius engine** carries the destructive surface. Across eleven op-classes it names
+the specific guests, nodes, ACL principals, or disks a dangerous op would harm — nothing falls
+back to a bare confirm.
 
 **Proven against real Proxmox** (not mocks):
 - The trust spine end-to-end, the core provisioning/config mutate cycle, and PBS read shapes.

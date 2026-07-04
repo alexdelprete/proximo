@@ -267,6 +267,22 @@ def firewall_rule_add(
     return api._post(f"{base}/rules", data)
 
 
+def _fetch_rules_digest(api, base: str, op_name: str) -> str:
+    """Re-read rules at op time to obtain the PVE digest for optimistic-locking.
+    Shape risk: whether GET …/firewall/rules surfaces a 'digest' field is uncertain until
+    live smoke. If no digest is available, abort with ProximoError rather than silently
+    proceeding without a lock (fail-closed). Shared by firewall_rule_remove/update."""
+    rules = api._get(f"{base}/rules") or []
+    digest = next((r.get("digest") for r in rules if r.get("digest")), None)
+    if digest is None:
+        raise ProximoError(
+            f"{op_name}: could not obtain a digest from {base}/rules — "
+            "aborting to prevent undetected concurrent modification (shape risk: confirm "
+            "at live smoke whether this PVE version returns a digest on the rules list)"
+        )
+    return digest
+
+
 def firewall_rule_remove(
     api,
     pos: int,
@@ -291,18 +307,7 @@ def firewall_rule_remove(
     """
     pos = _check_pos(pos)
     base = _fw_base(api, scope, node, vmid, kind)
-    # Re-read rules at op time to obtain the PVE digest for optimistic-locking.
-    # Shape risk: whether GET …/firewall/rules surfaces a 'digest' field is uncertain until
-    # live smoke. If no digest is available, we abort with ProximoError rather than
-    # silently proceeding without a lock (fail-closed).
-    rules = api._get(f"{base}/rules") or []
-    digest = next((r.get("digest") for r in rules if r.get("digest")), None)
-    if digest is None:
-        raise ProximoError(
-            f"firewall_rule_remove: could not obtain a digest from {base}/rules — "
-            "aborting to prevent undetected concurrent modification (shape risk: confirm "
-            "at live smoke whether this PVE version returns a digest on the rules list)"
-        )
+    digest = _fetch_rules_digest(api, base, "firewall_rule_remove")
     # MUTATION — confirm-gated + audited at the server layer.
     return api._delete(f"{base}/rules/{pos}", {"digest": digest})
 
@@ -365,18 +370,8 @@ def firewall_rule_update(
         data["enable"] = 1 if enable else 0
     if not data:
         raise ProximoError("firewall_rule_update requires at least one field to update")
-    # Re-read rules at op time to obtain the PVE digest for optimistic-locking.
-    # Shape risk: same as firewall_rule_remove — confirm at live smoke.
-    # The empty-data guard runs BEFORE we add the digest so that guard stays reliable.
-    rules = api._get(f"{base}/rules") or []
-    digest = next((r.get("digest") for r in rules if r.get("digest")), None)
-    if digest is None:
-        raise ProximoError(
-            f"firewall_rule_update: could not obtain a digest from {base}/rules — "
-            "aborting to prevent undetected concurrent modification (shape risk: confirm "
-            "at live smoke whether this PVE version returns a digest on the rules list)"
-        )
-    data["digest"] = digest
+    # The empty-data guard runs BEFORE we fetch the digest so that guard stays reliable.
+    data["digest"] = _fetch_rules_digest(api, base, "firewall_rule_update")
     # MUTATION — confirm-gated + audited at the server layer.
     return api._put(f"{base}/rules/{pos}", data)
 
@@ -480,6 +475,26 @@ def _merged_post_update(found: dict, new_fields: dict) -> dict:
     }
 
 
+_RULE_SNAPSHOT_KEYS = (
+    "pos", "action", "type", "source", "dest", "dport", "sport", "proto", "enable", "comment",
+)
+
+
+def _find_rule_at_pos(
+    api, pos: int, scope: str, node: str | None, vmid: str | None, kind: str | None,
+) -> tuple[dict | None, dict, str | None]:
+    """One safe read of the rule list for plan_firewall_rule_remove/update: return
+    (found_rule_or_None, current_snapshot_dict, check_error). check_error is the raising
+    exception's class name, or None if the read succeeded."""
+    try:
+        rules = firewall_rules_list(api, scope, node, vmid, kind) or []
+        found = next((r for r in rules if r.get("pos") == pos), None)
+        current = {k: found[k] for k in _RULE_SNAPSHOT_KEYS if k in found} if found else {}
+        return found, current, None
+    except Exception as e:
+        return None, {}, type(e).__name__
+
+
 def plan_firewall_rule_add(
     action: str,
     direction: str = "in",
@@ -567,31 +582,20 @@ def plan_firewall_rule_remove(
     _check_scope(scope)
 
     scope_label = _scope_label(scope, node, vmid, kind)
-    current: dict = {}
     rule_desc = f"rule at position {pos}"
-    check_error: str | None = None
-    found: dict | None = None
 
-    try:
-        rules = firewall_rules_list(api, scope, node, vmid, kind) or []
-        # PVE rule lists include a 'pos' field; find the matching entry.
-        found = next((r for r in rules if r.get("pos") == pos), None)
-        if found:
-            current = {k: found[k] for k in ("pos", "action", "type", "source", "dest",
-                                               "dport", "sport", "proto", "enable", "comment")
-                       if k in found}
-            rule_desc = (
-                f"rule at pos={pos}: action={found.get('action', '?')}, "
-                f"type={found.get('type', '?')}"
-            )
-            if found.get("source"):
-                rule_desc += f", source={found['source']}"
-            if found.get("dest"):
-                rule_desc += f", dest={found['dest']}"
-            if found.get("dport"):
-                rule_desc += f", dport={found['dport']}"
-    except Exception as e:
-        check_error = type(e).__name__
+    found, current, check_error = _find_rule_at_pos(api, pos, scope, node, vmid, kind)
+    if found:
+        rule_desc = (
+            f"rule at pos={pos}: action={found.get('action', '?')}, "
+            f"type={found.get('type', '?')}"
+        )
+        if found.get("source"):
+            rule_desc += f", source={found['source']}"
+        if found.get("dest"):
+            rule_desc += f", dest={found['dest']}"
+        if found.get("dport"):
+            rule_desc += f", dport={found['dport']}"
 
     affected: list[dict] = []
     complete = True
@@ -676,24 +680,14 @@ def plan_firewall_rule_update(
         new_fields["direction"] = _check_direction(new_fields["direction"])
 
     scope_label = _scope_label(scope, node, vmid, kind)
-    current: dict = {}
     rule_desc = f"rule at position {pos}"
-    check_error: str | None = None
-    found: dict | None = None
 
-    try:
-        rules = firewall_rules_list(api, scope, node, vmid, kind) or []
-        found = next((r for r in rules if r.get("pos") == pos), None)
-        if found:
-            current = {k: found[k] for k in ("pos", "action", "type", "source", "dest",
-                                               "dport", "sport", "proto", "enable", "comment")
-                       if k in found}
-            rule_desc = (
-                f"rule at pos={pos}: action={found.get('action', '?')}, "
-                f"type={found.get('type', '?')}"
-            )
-    except Exception as e:
-        check_error = type(e).__name__
+    found, current, check_error = _find_rule_at_pos(api, pos, scope, node, vmid, kind)
+    if found:
+        rule_desc = (
+            f"rule at pos={pos}: action={found.get('action', '?')}, "
+            f"type={found.get('type', '?')}"
+        )
 
     changed_fields = ", ".join(f"{k}={v!r}" for k, v in new_fields.items()) if new_fields else "(no fields)"
 

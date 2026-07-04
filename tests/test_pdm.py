@@ -796,3 +796,28 @@ def test_strip_secrets_returns_copy_not_mutates_original():
     # Original dict must be untouched (in-place pop would destroy this):
     assert "token" in d, "_strip_secrets must not mutate the original dict"
     assert d["token"] == "original-secret"
+
+
+# ---------------------------------------------------------------------------
+# FIX 3c: _strip_secrets — credential-shaped key VARIANTS (substring, not exact-match only)
+# ---------------------------------------------------------------------------
+
+def test_strip_secrets_catches_common_credential_key_variants():
+    """Compound key names carrying a credential marker (client_secret, api_key, auth_token,
+    private_key, bearer_token, ...) must be stripped too — an exact-match-only filter misses
+    these while still claiming to guard against a future PDM regression handing back a secret.
+    """
+    d = {
+        "id": "x",
+        "client_secret": "SUPERSECRETVALUE",
+        "api_key": "AKIA-EXAMPLE",
+        "auth_token": "abc.def.ghi",
+        "private_key": "-----BEGIN KEY-----",
+        "bearer_token": "bearer-value",
+        "safe": "keep",
+    }
+    out = _strip_secrets(d)
+    for bad_key in ("client_secret", "api_key", "auth_token", "private_key", "bearer_token"):
+        assert bad_key not in out, f"expected {bad_key!r} (credential-shaped) to be stripped"
+    assert out["safe"] == "keep"
+    assert out["id"] == "x"

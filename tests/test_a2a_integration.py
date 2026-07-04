@@ -124,6 +124,15 @@ def test_execute_bad_param_audits_rejection_and_does_not_mutate(tmp_path, monkey
     assert any(e["action"] == "a2a_rejected" for e in _entries(log))
 
 
+def test_execute_non_string_skill_audits_rejection(tmp_path, monkeypatch):
+    """A non-string 'skill' field (e.g. a list) must not crash past the audit trail —
+    it must be recorded as a rejected A2A call, same as any other malformed probe."""
+    _, api, _, _, log = _wire(tmp_path, monkeypatch)
+    _run(["not", "a", "string"], {})
+    assert api.powered == []
+    assert any(e["action"] == "a2a_rejected" and e["outcome"] == "rejected" for e in _entries(log))
+
+
 # ---------------------------------------------------------------------------
 # The agent card is served over real HTTP at the well-known path
 # ---------------------------------------------------------------------------

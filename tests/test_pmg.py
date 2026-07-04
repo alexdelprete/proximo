@@ -3340,6 +3340,14 @@ class TestPlanWhoGroupUpdate:
         with pytest.raises(ProximoError):
             plan_who_group_update("mygroup")
 
+    def test_blast_radius_discloses_new_name(self):
+        p = plan_who_group_update("2", name="Renamed")
+        assert any("Renamed" in entry for entry in p.blast_radius)
+
+    def test_no_fields_noted_as_no_op(self):
+        p = plan_who_group_update("2")
+        assert any("no-op" in entry or "no fields" in entry for entry in p.blast_radius)
+
 
 class TestPlanWhoGroupDelete:
     def test_risk_is_medium(self):
@@ -3394,6 +3402,10 @@ class TestPlanWhatGroupUpdate:
         with pytest.raises(ProximoError):
             plan_what_group_update("mygroup")
 
+    def test_blast_radius_discloses_new_name(self):
+        p = plan_what_group_update("8", name="Renamed")
+        assert any("Renamed" in entry for entry in p.blast_radius)
+
 
 class TestPlanWhatGroupDelete:
     def test_risk_is_medium(self):
@@ -3439,6 +3451,10 @@ class TestPlanWhenGroupUpdate:
     def test_rejects_non_numeric_ogroup(self):
         with pytest.raises(ProximoError):
             plan_when_group_update("mygroup")
+
+    def test_blast_radius_discloses_new_name(self):
+        p = plan_when_group_update("4", name="Renamed")
+        assert any("Renamed" in entry for entry in p.blast_radius)
 
 
 class TestPlanWhenGroupDelete:
@@ -3514,6 +3530,10 @@ class TestPlanWhoObjectUpdate:
     def test_rejects_non_numeric_id(self):
         with pytest.raises(ProximoError):
             plan_who_object_update("2", "email", "obj-abc")
+
+    def test_blast_radius_discloses_new_value(self):
+        p = plan_who_object_update("2", "email", "5", email="attacker@evil.example")
+        assert any("attacker@evil.example" in entry for entry in p.blast_radius)
 
 
 class TestPlanWhoObjectDelete:
@@ -4183,6 +4203,10 @@ class TestPlanWhatObjectUpdate:
         with pytest.raises(ProximoError):
             plan_what_object_update("8", "contenttype", "abc")
 
+    def test_blast_radius_discloses_new_value(self):
+        p = plan_what_object_update("8", "matchfield", "3", field="Subject", value="malicious")
+        assert any("malicious" in entry for entry in p.blast_radius)
+
 
 class TestPlanWhatObjectDelete:
     def test_risk_is_medium(self):
@@ -4247,6 +4271,10 @@ class TestPlanWhenObjectUpdate:
         with pytest.raises(ProximoError):
             plan_when_object_update("4", "abc")
 
+    def test_blast_radius_discloses_new_value(self):
+        p = plan_when_object_update("4", "7", start="03:00", end="04:00")
+        assert any("03:00" in entry for entry in p.blast_radius)
+
 
 class TestPlanWhenObjectDelete:
     def test_risk_is_medium(self):
@@ -4302,6 +4330,10 @@ class TestPlanActionBccUpdate:
         with pytest.raises(ProximoError):
             plan_action_bcc_update("26")
 
+    def test_blast_radius_discloses_new_target(self):
+        p = plan_action_bcc_update("13_26", target="attacker@evil.example")
+        assert any("attacker@evil.example" in entry for entry in p.blast_radius)
+
 
 class TestPlanActionFieldCreate:
     def test_risk_is_low(self):
@@ -4321,6 +4353,10 @@ class TestPlanActionFieldUpdate:
     def test_action_string(self):
         p = plan_action_field_update("5_10")
         assert p.action == "pmg_action_field_update"
+
+    def test_blast_radius_discloses_new_value(self):
+        p = plan_action_field_update("5_10", name="tag", field="X-Spam", value="evil-payload")
+        assert any("evil-payload" in entry for entry in p.blast_radius)
 
     def test_rejects_non_compound_id(self):
         with pytest.raises(ProximoError):
@@ -4346,6 +4382,10 @@ class TestPlanActionNotificationUpdate:
         p = plan_action_notification_update("7_14")
         assert p.action == "pmg_action_notification_update"
 
+    def test_blast_radius_discloses_new_value(self):
+        p = plan_action_notification_update("7_14", to="attacker@evil.example")
+        assert any("attacker@evil.example" in entry for entry in p.blast_radius)
+
     def test_rejects_non_compound_id(self):
         with pytest.raises(ProximoError):
             plan_action_notification_update("14")
@@ -4370,6 +4410,10 @@ class TestPlanActionDisclaimerUpdate:
         p = plan_action_disclaimer_update("2_9")
         assert p.action == "pmg_action_disclaimer_update"
 
+    def test_blast_radius_discloses_new_value(self):
+        p = plan_action_disclaimer_update("2_9", disclaimer="malicious text")
+        assert any("malicious text" in entry for entry in p.blast_radius)
+
     def test_rejects_non_compound_id(self):
         with pytest.raises(ProximoError):
             plan_action_disclaimer_update("9")
@@ -4393,6 +4437,10 @@ class TestPlanActionRemoveattachmentsUpdate:
     def test_action_string(self):
         p = plan_action_removeattachments_update("3_5")
         assert p.action == "pmg_action_removeattachments_update"
+
+    def test_blast_radius_discloses_new_value(self):
+        p = plan_action_removeattachments_update("3_5", text="stripped-notice")
+        assert any("stripped-notice" in entry for entry in p.blast_radius)
 
     def test_rejects_non_compound_id(self):
         with pytest.raises(ProximoError):
@@ -4765,6 +4813,10 @@ class TestPlanRuledbRuleUpdate:
     def test_rejects_invalid_priority(self):
         with pytest.raises(ProximoError):
             plan_ruledb_rule_update("100", priority=200)
+
+    def test_blast_radius_discloses_new_name(self):
+        p = plan_ruledb_rule_update("100", name="Renamed-Rule")
+        assert any("Renamed-Rule" in entry for entry in p.blast_radius)
 
 
 # ---------------------------------------------------------------------------

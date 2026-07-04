@@ -717,6 +717,66 @@ def test_load_or_create_key_refuses_symlinked_directory(tmp_path):
     assert not (evil / "audit.key").exists()  # key never created through the symlinked dir
 
 
+def test_record_refuses_directory_swapped_to_symlink_after_construction(tmp_path):
+    """The symlinked-directory guard must re-run on every record(), not just at construction — a
+    co-located writer that replaces the ledger's PARENT directory with a symlink AFTER the ledger
+    object is already open (a long-lived process, e.g. the server's lru_cache'd instance ledger)
+    must not have subsequent appends silently redirected onto the attacker-chosen target."""
+    real_dir = tmp_path / "ledgerdir"
+    real_dir.mkdir()
+    log = real_dir / "audit.log"
+
+    led = AuditLedger(str(log))
+    led.record("a", target="t1")  # succeeds — real directory, nothing suspicious yet
+
+    evil = tmp_path / "evil"
+    evil.mkdir()
+    real_dir.rename(tmp_path / "ledgerdir-orig")  # move the real (already-written) dir aside
+    real_dir.symlink_to(evil)  # same path the open AuditLedger still points at, now a symlink
+
+    with pytest.raises(OSError):
+        led.record("a", target="t2")
+    assert not (evil / "audit.log").exists()  # never written through the swapped-in symlink
+
+
+def test_head_refuses_directory_swapped_to_symlink_after_construction(tmp_path):
+    """head() must re-check the symlink guard too — a forged chain planted at a redirected path
+    must not be read back as if it were the legitimate ledger."""
+    real_dir = tmp_path / "ledgerdir"
+    real_dir.mkdir()
+    log = real_dir / "audit.log"
+
+    led = AuditLedger(str(log))
+    led.record("a", target="t1")
+
+    evil = tmp_path / "evil"
+    evil.mkdir()
+    real_dir.rename(tmp_path / "ledgerdir-orig")
+    real_dir.symlink_to(evil)
+
+    with pytest.raises(OSError):
+        led.head()
+
+
+def test_verify_refuses_directory_swapped_to_symlink_after_construction(tmp_path):
+    """verify() must re-check the symlink guard too — audit_verify() reporting 'ok: true' over a
+    forged chain reached through a redirected directory would defeat PROVE silently."""
+    real_dir = tmp_path / "ledgerdir"
+    real_dir.mkdir()
+    log = real_dir / "audit.log"
+
+    led = AuditLedger(str(log))
+    led.record("a", target="t1")
+
+    evil = tmp_path / "evil"
+    evil.mkdir()
+    real_dir.rename(tmp_path / "ledgerdir-orig")
+    real_dir.symlink_to(evil)
+
+    with pytest.raises(OSError):
+        led.verify()
+
+
 # --- concurrency: real threads, real fcntl.flock, no mocking -----------------------------------
 #
 # Mirrors test_envelope.py's `test_rate_concurrency_barrier` pattern: real threading.Barrier so

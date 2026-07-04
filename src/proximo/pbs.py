@@ -763,6 +763,23 @@ def namespace_delete(
 # PLAN functions — pure factories; no mutation; the PLAN pillar
 # ---------------------------------------------------------------------------
 
+def _scope_description(
+    store: str,
+    ns: str | None = None,
+    backup_type: str | None = None,
+    backup_id: str | None = None,
+) -> str:
+    """Human-readable scope string shared by plan_prune and plan_verify_start."""
+    parts = [f"datastore '{store}'"]
+    if ns is not None:
+        parts.append(f"namespace '{ns}'")
+    if backup_type is not None:
+        parts.append(f"type '{backup_type}'")
+    if backup_id is not None:
+        parts.append(f"id '{backup_id}'")
+    return " / ".join(parts)
+
+
 def plan_gc_start(store: str) -> Plan:
     """Preview starting a GC run on a PBS datastore.  PURE — no API call.
 
@@ -843,14 +860,7 @@ def plan_prune(
             policy_parts.append(f"{label}={val}")
     policy_str = ", ".join(policy_parts) if policy_parts else "(no keep policy set — ALL may be pruned)"
 
-    scope_parts = [f"datastore '{store}'"]
-    if ns is not None:
-        scope_parts.append(f"namespace '{ns}'")
-    if backup_type is not None:
-        scope_parts.append(f"type '{backup_type}'")
-    if backup_id is not None:
-        scope_parts.append(f"id '{backup_id}'")
-    scope_str = " / ".join(scope_parts)
+    scope_str = _scope_description(store, ns, backup_type, backup_id)
 
     if dry_run:
         return Plan(
@@ -1054,14 +1064,7 @@ def plan_verify_start(
     backup_type = _check_backup_type(backup_type)
     backup_id = _check_backup_id(backup_id)
 
-    scope_parts = [f"datastore '{store}'"]
-    if ns is not None:
-        scope_parts.append(f"namespace '{ns}'")
-    if backup_type is not None:
-        scope_parts.append(f"type '{backup_type}'")
-    if backup_id is not None:
-        scope_parts.append(f"id '{backup_id}'")
-    scope_str = " / ".join(scope_parts)
+    scope_str = _scope_description(store, ns, backup_type, backup_id)
 
     return Plan(
         action="pbs_verify_start",

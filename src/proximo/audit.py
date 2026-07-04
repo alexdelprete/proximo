@@ -310,15 +310,22 @@ class AuditLedger:
     def __init__(self, path: str, *, key: bytes | None = None):
         self.path = path
         self.key = key
+        self._refuse_if_symlinked_dir()
         directory = os.path.dirname(path)
         if directory:
-            if os.path.islink(directory):
-                # A symlinked ledger directory redirects every ledger write onto an attacker-chosen
-                # path; the per-file O_NOFOLLOW on record()'s append can't catch a symlinked PARENT.
-                # Refuse rather than write the tamper-evident ledger through it (mirrors
-                # envelope._rate_reserve's reservation-dir guard).
-                raise OSError(f"refusing to use a symlinked audit-ledger directory: {directory!r}")
             os.makedirs(directory, exist_ok=True)
+
+    def _refuse_if_symlinked_dir(self) -> None:
+        # A symlinked ledger directory redirects every ledger write (or read) onto an
+        # attacker-chosen path; the per-file O_NOFOLLOW on record()'s append can't catch a
+        # symlinked PARENT. Refuse rather than write/read the tamper-evident ledger through it
+        # (mirrors envelope._rate_reserve's reservation-dir guard). Re-checked on EVERY
+        # record()/head()/verify() call, not just at construction — a long-lived AuditLedger
+        # (the server's lru_cache'd instance ledger) must not have a mid-session directory
+        # swap silently redirect it, the same way _rate_reserve re-validates on every call.
+        directory = os.path.dirname(self.path)
+        if directory and os.path.islink(directory):
+            raise OSError(f"refusing to use a symlinked audit-ledger directory: {directory!r}")
 
     @property
     def keyed(self) -> bool:
@@ -348,6 +355,7 @@ class AuditLedger:
     def record(self, action: str, *, target: str, mutation: bool = False,
                outcome: str = "ok", detail: dict[str, Any] | None = None,
                remote: str | None = None) -> dict[str, Any]:
+        self._refuse_if_symlinked_dir()
         target = _sanitize_target(target)
         body = {
             "ts": datetime.now(UTC).isoformat(),
@@ -401,6 +409,7 @@ class AuditLedger:
 
     def head(self) -> str:
         """Latest entry_hash (GENESIS if empty). Anchor this off-box for true tamper-resistance."""
+        self._refuse_if_symlinked_dir()
         if not os.path.exists(self.path):
             return GENESIS_HASH
         with open(self.path, encoding="utf-8") as f:
@@ -415,6 +424,7 @@ class AuditLedger:
         truncation, a forged tail-append, or a full file replacement, pass `expected_head` — the head()
         value you pinned off-box; verify fails if the chain's final hash doesn't match it.
         """
+        self._refuse_if_symlinked_dir()
         prev = GENESIS_HASH
         count = 0
         sealed_seen = False

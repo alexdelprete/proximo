@@ -121,6 +121,15 @@ def test_backup_list_rejects_bad_storage():
         backup_list(api, "stor age!")
 
 
+@pytest.mark.parametrize("storage", [".", ".."])
+def test_backup_list_rejects_dot_segment_storage(storage):
+    # '.'/'..' pass the bare charset regex but would normalize the
+    # /storage/{storage} URL segment onto a different endpoint (traversal).
+    api = ApiBackend(_cfg())
+    with pytest.raises(ProximoError, match="traversal"):
+        backup_list(api, storage)
+
+
 # ── OPERATION: backup_delete ─────────────────────────────────────────────────
 
 
@@ -163,6 +172,15 @@ def test_backup_delete_rejects_traversal_in_volid():
     api = ApiBackend(_cfg())
     with pytest.raises(ProximoError, match="traversal"):
         backup_delete(api, "local", "local:backup/../../../etc/passwd")
+
+
+@pytest.mark.parametrize("storage", [".", ".."])
+def test_backup_delete_rejects_dot_segment_storage(storage):
+    # '.'/'..' pass the bare charset regex but would normalize the
+    # /storage/{storage} URL segment onto a different endpoint (traversal).
+    api = ApiBackend(_cfg())
+    with pytest.raises(ProximoError, match="traversal"):
+        backup_delete(api, storage, _VALID_VOLID)
 
 
 def test_backup_delete_rejects_volid_wrong_colon_count():

@@ -809,6 +809,29 @@ def test_tie_break_prefers_tighter_window(tmp_path, monkeypatch):
     assert rate_window == 3600
 
 
+def test_tightest_cap_compares_effective_rate_not_raw_count(tmp_path, monkeypatch):
+    """The "tightest cap" selection must compare EFFECTIVE throughput (rate_max/window), not the
+    raw rate_max count: a permissive env sanity ceiling (10/1s = 864,000/day) must NOT beat out a
+    much stricter registry-declared per-box budget (500/86400s = 500/day) just because 10 < 500."""
+    _wire_server(tmp_path, monkeypatch)
+    base_url = "https://x:8006/api2/json"
+    monkeypatch.setenv("PROXIMO_API_BASE_URL", base_url)
+    monkeypatch.setenv("PROXIMO_RATE_MAX", "10")
+    monkeypatch.setenv("PROXIMO_RATE_WINDOW", "1")
+    _registry(monkeypatch, tmp_path, f"""
+        [targets.prod]
+        kind = "pve"
+        base_url = "{base_url}"
+        node = "prod"
+        token_path = "/etc/proximo/prod.token"
+        rate_max = 500
+        rate_window = 86400
+    """)
+
+    rate_max, rate_window = envelope._box_rate(base_url)
+    assert (rate_max, rate_window) == (500, 86400)
+
+
 def test_base_url_whitespace_typo_still_caps(tmp_path, monkeypatch):
     """Fix 3 (MED): a leading/trailing-whitespace typo on the only cap-declaring alias must not
     make the cap invisible. `alpha` (the cap-declaring registry entry) has a trailing-space typo
@@ -1081,6 +1104,45 @@ def test_ct_exec_single_reservation_across_seams_with_consent_enabled(tmp_path, 
     (cdir / consent.consent_id_for(plan2)).write_text("")  # consent granted, only rate should block
     with pytest.raises(ProximoError, match="(?i)rate"):
         server._audited("pve_guest_power", "lxc/100", lambda: None, mutation=True)
+
+
+# === Envelope resolution errors (record-before-raise) ===========================================
+
+
+def test_forbid_wall_audits_envelope_resolution_error_before_raising(tmp_path, monkeypatch):
+    """An exception raised while RESOLVING the envelope (e.g. a transiently-malformed
+    PROXIMO_TARGETS file mid-write) must not leak out of enforce_envelope_forbid uncaught: every
+    other refusal path in this gate family records to the PROVE ledger BEFORE raising, and this
+    one must too — a distinct outcome (blocked:envelope_error), never confused with an ordinary
+    blocked:forbidden."""
+    led, log = _wire_server(tmp_path, monkeypatch)
+    bad = tmp_path / "targets.toml"
+    bad.write_text("this is not [valid toml")
+    monkeypatch.setenv("PROXIMO_TARGETS", str(bad))
+
+    with pytest.raises(ProximoError, match="(?i)envelope"):
+        envelope.enforce_envelope_forbid("pve_guest_power", "lxc/100", led)
+
+    entries = _entries(log)
+    errors = [e for e in entries if e["outcome"] == "blocked:envelope_error"]
+    assert len(errors) == 1
+    assert [e for e in entries if e["outcome"] == "blocked:forbidden"] == []
+
+
+def test_rate_wall_audits_envelope_resolution_error_before_raising(tmp_path, monkeypatch):
+    """Same contract as above, for enforce_envelope_rate's own resolve_envelope() call."""
+    led, log = _wire_server(tmp_path, monkeypatch)
+    bad = tmp_path / "targets.toml"
+    bad.write_text("this is not [valid toml")
+    monkeypatch.setenv("PROXIMO_TARGETS", str(bad))
+
+    with pytest.raises(ProximoError, match="(?i)envelope"):
+        envelope.enforce_envelope_rate("pve_guest_power", "lxc/100", led)
+
+    entries = _entries(log)
+    errors = [e for e in entries if e["outcome"] == "blocked:envelope_error"]
+    assert len(errors) == 1
+    assert [e for e in entries if e["outcome"].startswith("blocked:rate")] == []
 
 
 # === Structural guard ============================================================================

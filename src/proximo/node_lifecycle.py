@@ -177,17 +177,23 @@ def plan_node_storage_backend_create(
     _check_storage_name(name)
     _check_node(node)
     _check_backend_create_params(backend, devices, **kw)
+    # Disclose the per-backend params actually being applied (e.g. zfs raidlevel, directory
+    # filesystem) — these are materially consequential (redundancy/format) and must be visible
+    # in the preview, not just validated silently. Mirrors hw_mappings.py's plan_mapping_pci_create.
+    extra = {k: v for k, v in kw.items() if v is not None}
     return Plan(
         action="pve_node_storage_backend_create",
         target=f"node/{node or 'default'}/disks/{backend}/{name}",
         change=(
             f"create {backend} storage backend {name!r}"
             + (f" on device(s) {devices!r}" if devices else "")
+            + (f" ({extra})" if extra else "")
         ),
         current={},
         blast_radius=[
             f"FORMATS disk(s) {devices!r} into the new {backend} backend {name!r} — any pre-existing "
             "data on those disks is destroyed immediately and irreversibly"
+            + (f"; backend params: {extra}" if extra else "")
         ],
         risk=RISK_HIGH,
         risk_reasons=[
@@ -197,6 +203,7 @@ def plan_node_storage_backend_create(
         note=(
             f"No undo: creating the {backend} backend FORMATS the named disk(s) — pre-existing data is "
             f"lost. Deleting the backend (pve_node_storage_backend_delete) does NOT restore it."
+            + (f" Backend params: {extra}." if extra else "")
         ),
     )
 
@@ -205,10 +212,15 @@ def plan_node_storage_backend_delete(
     backend: str,
     name: str,
     node: str | None = None,
+    cleanup: bool = False,
 ) -> Plan:
     """Plan for pve_node_storage_backend_delete — delete a storage backend.
 
     RISK_HIGH, no undo: backend-specific blast wording names the target.
+
+    cleanup=True sends cleanup-disks=1 to PVE — an ADDITIONAL destructive action that wipes
+    the underlying disk(s), not just removing the config mapping. Disclosed explicitly below
+    since it contradicts the directory backend's default "data may persist" wording.
     """
     _check_backend(backend)
     _check_storage_name(name)
@@ -236,6 +248,9 @@ def plan_node_storage_backend_delete(
             f"directory: removes the directory mapping {name!r} — Proxmox will no longer manage "
             "this storage path; data on the underlying disk may persist but is unmanaged"
         )
+    if cleanup:
+        blast_detail += " (cleanup=True: the underlying disk(s) are ALSO wiped)"
+        risk_reason += "; cleanup=True additionally wipes the underlying disk(s)"
     return Plan(
         action="pve_node_storage_backend_delete",
         target=f"node/{node or 'default'}/disks/{backend}/{name}",

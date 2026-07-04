@@ -18,9 +18,8 @@ from proximo.qemu_agent import (
     plan_agent_set_password,
 )
 from proximo.server import (
-    _agent_disabled,
+    _agent_gate,
     _audited,
-    _blocked_agent_allowlist,
     _plan,
     tool,
 )
@@ -44,10 +43,9 @@ def pve_agent_info(
     pid: required when command='exec-status' (the pid returned by pve_agent_exec).
     """
     cfg, api, _, _ = _proximo_server._svc()
-    if not cfg.enable_agent:
-        return _agent_disabled("pve_agent_info", f"qemu/{vmid}", mutation=False)
-    if not cfg.agent_permitted(vmid):
-        return _blocked_agent_allowlist("pve_agent_info", f"qemu/{vmid}", mutation=False)
+    blocked = _agent_gate(cfg, "pve_agent_info", vmid, mutation=False)
+    if blocked:
+        return blocked
 
     _check_agent_info_command(command)
 
@@ -75,10 +73,9 @@ def pve_agent_file_read(
     Smoke-confirm: PVE file-read response shape is unverified.
     """
     cfg, api, _, _ = _proximo_server._svc()
-    if not cfg.enable_agent:
-        return _agent_disabled("pve_agent_file_read", f"qemu/{vmid}", mutation=False)
-    if not cfg.agent_permitted(vmid):
-        return _blocked_agent_allowlist("pve_agent_file_read", f"qemu/{vmid}", mutation=False)
+    blocked = _agent_gate(cfg, "pve_agent_file_read", vmid, mutation=False)
+    if blocked:
+        return blocked
 
     _check_file_path(file)
     return _audited("pve_agent_file_read", f"qemu/{vmid}",
@@ -105,10 +102,9 @@ def pve_agent_file_write(
     Smoke-confirm: PVE file-write endpoint and content encoding are unverified.
     """
     cfg, api, _, _ = _proximo_server._svc()
-    if not cfg.enable_agent:
-        return _agent_disabled("pve_agent_file_write", f"qemu/{vmid}", mutation=True)
-    if not cfg.agent_permitted(vmid):
-        return _blocked_agent_allowlist("pve_agent_file_write", f"qemu/{vmid}", mutation=True)
+    blocked = _agent_gate(cfg, "pve_agent_file_write", vmid, mutation=True)
+    if blocked:
+        return blocked
 
     # UNCONDITIONAL: content fingerprint only, never the body.
     detail = {"file": file, **_content_fingerprint(content)}
@@ -139,10 +135,9 @@ def pve_agent_fs(
     No undo primitive on this plane; always pair freeze with thaw.
     """
     cfg, api, _, _ = _proximo_server._svc()
-    if not cfg.enable_agent:
-        return _agent_disabled("pve_agent_fs", f"qemu/{vmid}", mutation=True)
-    if not cfg.agent_permitted(vmid):
-        return _blocked_agent_allowlist("pve_agent_fs", f"qemu/{vmid}", mutation=True)
+    blocked = _agent_gate(cfg, "pve_agent_fs", vmid, mutation=True)
+    if blocked:
+        return blocked
 
     _check_agent_fs_command(command)
     plan = _plan("pve_agent_fs", f"qemu/{vmid}:{command}",
@@ -175,10 +170,9 @@ def pve_agent_set_password(
     Smoke-confirm: PVE set-user-password endpoint and body fields are unverified.
     """
     cfg, api, _, _ = _proximo_server._svc()
-    if not cfg.enable_agent:
-        return _agent_disabled("pve_agent_set_password", f"qemu/{vmid}", mutation=True)
-    if not cfg.agent_permitted(vmid):
-        return _blocked_agent_allowlist("pve_agent_set_password", f"qemu/{vmid}", mutation=True)
+    blocked = _agent_gate(cfg, "pve_agent_set_password", vmid, mutation=True)
+    if blocked:
+        return blocked
 
     # UNCONDITIONAL: password redacted always, regardless of cfg.redact_ledger.
     detail = {"username": username, **_password_fingerprint()}

@@ -606,6 +606,25 @@ def test_plan_iface_create_note_warns_about_apply_risk():
     assert "HIGH" in p.note or "RISK_HIGH" in p.note or "apply" in p.note.lower()
 
 
+def test_plan_iface_create_previews_staged_fields():
+    # the confirmed PLAN must disclose WHAT will be written to interfaces.new, not just "(staged)" —
+    # otherwise an operator approves a bland preview and the real payload (address/gateway/etc.)
+    # is staged sight-unseen.
+    api = _NetworkListApi(ifaces=[])
+    p = plan_iface_create(
+        api, "vmbr0", "bridge", opts={"bridge_ports": "eth0", "address": "203.0.113.9"}
+    )
+    blast = " ".join(p.blast_radius)
+    assert "bridge_ports" in blast and "address" in blast
+
+
+def test_plan_iface_create_no_opts_omits_staged_fields_line():
+    api = _NetworkListApi(ifaces=[])
+    p = plan_iface_create(api, "vmbr0", "bridge")
+    blast = " ".join(p.blast_radius)
+    assert "staged fields" not in blast
+
+
 # ---------------------------------------------------------------------------
 # 9. plan_iface_update
 # ---------------------------------------------------------------------------
@@ -1207,6 +1226,47 @@ def test_plan_sdn_vnet_update_requires_something():
 def test_plan_sdn_subnet_update_requires_something():
     with pytest.raises(ProximoError):
         plan_sdn_subnet_update("myvnet", "myzone-10.0.0.0-24")
+
+
+# --- SDN plan previews disclose options key=value, not just key names (harden) ---
+# A confirm=False preview must show the actual field VALUES about to be staged — otherwise
+# an operator approves a bland "(pending)" preview while an arbitrary VLAN tag/alias/gateway
+# is queued sight-unseen (mirrors plan_firewall_options_set's set_summary disclosure).
+
+def test_plan_sdn_zone_create_discloses_option_values():
+    plan = plan_sdn_zone_create("myzone", "simple", options={"mtu": "1450"})
+    blast = " ".join(plan.blast_radius) + plan.change
+    assert "mtu" in blast and "1450" in blast
+
+
+def test_plan_sdn_zone_update_discloses_option_values():
+    plan = plan_sdn_zone_update("myzone", options={"mtu": "1450"})
+    blast = " ".join(plan.blast_radius) + plan.change
+    assert "mtu" in blast and "1450" in blast
+
+
+def test_plan_sdn_vnet_create_discloses_option_values():
+    plan = plan_sdn_vnet_create("myvnet", "myzone", options={"tag": "999", "alias": "web"})
+    blast = " ".join(plan.blast_radius) + plan.change
+    assert "tag" in blast and "999" in blast and "alias" in blast and "web" in blast
+
+
+def test_plan_sdn_vnet_update_discloses_option_values():
+    plan = plan_sdn_vnet_update("myvnet", options={"tag": "999", "alias": "exfil-net"})
+    blast = " ".join(plan.blast_radius) + plan.change
+    assert "tag" in blast and "999" in blast and "alias" in blast and "exfil-net" in blast
+
+
+def test_plan_sdn_subnet_create_discloses_option_values():
+    plan = plan_sdn_subnet_create("myvnet", "10.0.0.0/24", options={"gateway": "10.0.0.1"})
+    blast = " ".join(plan.blast_radius) + plan.change
+    assert "gateway" in blast and "10.0.0.1" in blast
+
+
+def test_plan_sdn_subnet_update_discloses_option_values():
+    plan = plan_sdn_subnet_update("myvnet", "myzone-10.0.0.0-24", options={"gateway": "10.0.0.9"})
+    blast = " ".join(plan.blast_radius) + plan.change
+    assert "gateway" in blast and "10.0.0.9" in blast
 
 
 # ---------------------------------------------------------------------------

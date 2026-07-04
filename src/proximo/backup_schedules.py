@@ -409,7 +409,10 @@ def plan_replication_create(rep_id: str, rep_type: str, target: str, **kw) -> Pl
     return Plan(
         action="pve_replication_create",
         target=f"cluster/replication/{rep_id}",
-        change=f"create PVE replication job {rep_id!r}: type={rep_type!r} target={target!r}",
+        change=(
+            f"create PVE replication job {rep_id!r}: "
+            f"type={rep_type!r} target={target!r} {kw}"
+        ),
         current={},
         blast_radius=["adds a new replication schedule (no existing data affected)"],
         risk=RISK_LOW,

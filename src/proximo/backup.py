@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
+from .storage import _check_storage  # reuse: same regex/rule, no duplication
 
 # --- valid modes + compression for vzdump ---
 _VALID_MODES = frozenset({"snapshot", "suspend", "stop"})
@@ -26,17 +27,7 @@ _VALID_COMPRESS = frozenset({"zstd", "gzip", "lzo", "0", "1"})
 # Allowed characters: alnum, ':', '/', '.', '_', '-'  (no other shell-special chars)
 # Must contain exactly one ':' separating storage-name from path, no '..' components.
 # Using \Z (not $) to prevent trailing-newline bypass (redteam lesson).
-_STORAGE_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
 _VOLID_RE = re.compile(r"^[A-Za-z0-9._:/-]+\Z")
-
-
-def _check_storage(storage: str) -> str:
-    s = str(storage)
-    if not _STORAGE_RE.match(s):
-        raise ProximoError(
-            f"invalid storage name: {storage!r} (letters/digits/. _/- only)"
-        )
-    return s
 
 
 def _check_volid(volid: str) -> str:

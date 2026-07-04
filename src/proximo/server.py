@@ -424,55 +424,64 @@ def _auto_undo(action: str, target: str, api: ApiBackend, vmid: str,
                      "delete with pve_snapshot_delete when no longer needed.")}
 
 
+def _blocked(action: str, target: str, outcome: str, message: str, detail: dict | None = None,
+            *, mutation: bool = True) -> dict:
+    """Shared body for the four 'refuse + audit' helpers below."""
+    audit = _ledger()
+    audit.record(action, target=target, mutation=mutation, outcome=outcome,
+                 detail=detail, remote=ledger_remote())
+    return {"status": outcome, "message": message}
+
+
 def _blocked_allowlist(action: str, target: str, detail: dict | None = None,
                        *, mutation: bool = True) -> dict:
     """Refuse + audit a container op whose CTID isn't on the allowlist (fail-closed), as a clean dict
     — checked at the server layer BEFORE any snapshot/exec, so a forbidden CTID never gets touched.
     `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
-    audit = _ledger()
-    audit.record(action, target=target, mutation=mutation, outcome="blocked:allowlist",
-                 detail=detail, remote=ledger_remote())
-    return {"status": "blocked:allowlist",
-            "message": f"CTID {target} is not permitted by the allowlist (fail-closed)."}
+    return _blocked(action, target, "blocked:allowlist",
+                    f"CTID {target} is not permitted by the allowlist (fail-closed).",
+                    detail, mutation=mutation)
 
 
 def _exec_disabled(action: str, target: str, detail: dict | None = None,
                    *, mutation: bool = True) -> dict:
     """In-container exec is off by default (safe). Refuse + audit; explain how to opt in.
     `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
-    audit = _ledger()
-    audit.record(action, target=target, mutation=mutation, outcome="blocked:exec_disabled",
-                 detail=detail, remote=ledger_remote())
-    return {
-        "status": "blocked:exec_disabled",
-        "message": ("In-container exec is disabled (safe default: API-only). It grants near-root on the "
-                    "PVE host; enable deliberately with PROXIMO_ENABLE_EXEC=1."),
-    }
+    return _blocked(action, target, "blocked:exec_disabled",
+                    ("In-container exec is disabled (safe default: API-only). It grants near-root on the "
+                     "PVE host; enable deliberately with PROXIMO_ENABLE_EXEC=1."),
+                    detail, mutation=mutation)
 
 
 def _agent_disabled(action: str, target: str, detail: dict | None = None,
                     *, mutation: bool = True) -> dict:
     """qemu-agent ops are off by default. Refuse + audit; explain how to opt in.
     `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
-    audit = _ledger()
-    audit.record(action, target=target, mutation=mutation, outcome="blocked:agent_disabled",
-                 detail=detail, remote=ledger_remote())
-    return {
-        "status": "blocked:agent_disabled",
-        "message": ("qemu-agent ops are disabled (safe default: API-only). "
-                    "Enable with PROXIMO_ENABLE_AGENT=1 and set PROXIMO_AGENT_ALLOWLIST."),
-    }
+    return _blocked(action, target, "blocked:agent_disabled",
+                    ("qemu-agent ops are disabled (safe default: API-only). "
+                     "Enable with PROXIMO_ENABLE_AGENT=1 and set PROXIMO_AGENT_ALLOWLIST."),
+                    detail, mutation=mutation)
 
 
 def _blocked_agent_allowlist(action: str, target: str, detail: dict | None = None,
                               *, mutation: bool = True) -> dict:
     """Refuse + audit a qemu-agent op whose VMID isn't on the allowlist (fail-closed).
     `mutation` must reflect the GATED tool's true class so blocked reads don't ledger as mutations."""
-    audit = _ledger()
-    audit.record(action, target=target, mutation=mutation, outcome="blocked:allowlist",
-                 detail=detail, remote=ledger_remote())
-    return {"status": "blocked:allowlist",
-            "message": f"Guest {target} is not permitted by the agent allowlist (fail-closed)."}
+    return _blocked(action, target, "blocked:allowlist",
+                    f"Guest {target} is not permitted by the agent allowlist (fail-closed).",
+                    detail, mutation=mutation)
+
+
+def _agent_gate(cfg, action: str, vmid: str, *, mutation: bool) -> dict | None:
+    """Shared qemu-agent gate: off-by-default, then allowlist (fail-closed), in order.
+    Returns the blocked-response dict (already recorded to the ledger) if refused, or
+    None to proceed. `mutation` must reflect the GATED tool's true class so blocked reads
+    don't ledger as mutations."""
+    if not cfg.enable_agent:
+        return _agent_disabled(action, f"qemu/{vmid}", mutation=mutation)
+    if not cfg.agent_permitted(vmid):
+        return _blocked_agent_allowlist(action, f"qemu/{vmid}", mutation=mutation)
+    return None
 
 
 # --- In-container exec (ssh -> pct) — MUTATION-CAPABLE, confirm-gated ---
@@ -584,7 +593,6 @@ def ct_psql(ctid: str, sql: str, db: str = "postgres", snapshot: bool = False,
                     detail={**detail, "confirmed": True, "undo": bool(undo_point)})
 
 
-    # @mcp.tool() (not @tool()) ON PURPOSE: audit_verify is INSTANCE-level — it verifies
 def _anchor_moved_hint(prev_entries: int | None, cur_entries: int) -> str:
     """Explain a head that has moved past the off-box anchor pin, using pinned vs live entry counts
     so a routine forward-grow reads as benign stale-pin lag and a shrink reads as a real
@@ -748,10 +756,9 @@ def pve_agent_exec(
     Returns status="running" with pid when the poll deadline is reached before exit.
     """
     cfg, api, _, audit = _svc()
-    if not cfg.enable_agent:
-        return _agent_disabled("pve_agent_exec", f"qemu/{vmid}", mutation=True)
-    if not cfg.agent_permitted(vmid):
-        return _blocked_agent_allowlist("pve_agent_exec", f"qemu/{vmid}", mutation=True)
+    blocked = _agent_gate(cfg, "pve_agent_exec", vmid, mutation=True)
+    if blocked:
+        return blocked
 
     # Ledger redaction parity with ct_exec: a guest exec argv can carry a secret (e.g. `mysql -pPW`).
     # When PROXIMO_LEDGER_REDACT is set, store a fingerprint instead of the argv — in BOTH the plan's

@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import re
 
-from .access import _check_userid
+from .access import _check_userid, access_acl_list
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
@@ -264,7 +264,7 @@ def group_create(api, groupid: str, comment: str | None = None) -> object:
     groupid = _check_groupid(groupid)
     data: dict = {"groupid": groupid}
     if comment is not None:
-        data["comment"] = str(comment)
+        data["comment"] = _check_freetext(comment, "comment")
     # MUTATION — confirm-gated + audited at the server layer.
     return api._post("/access/groups", data)
 
@@ -280,7 +280,7 @@ def group_update(api, groupid: str, comment: str | None = None) -> object:
     groupid = _check_groupid(groupid)
     data: dict = {}
     if comment is not None:
-        data["comment"] = str(comment)
+        data["comment"] = _check_freetext(comment, "comment")
     # MUTATION — confirm-gated + audited at the server layer.
     return api._put(f"/access/groups/{groupid}", data)
 
@@ -477,7 +477,7 @@ def plan_user_delete(api, userid: str) -> Plan:
     user_read_failed = False
     user_not_found = False
     try:
-        user_data = api._get(f"/access/users/{userid}") or {}
+        user_data = user_get(api, userid)
     except Exception as e:
         resp = getattr(e, "response", None)
         if resp is not None and getattr(resp, "status_code", None) == 404:
@@ -557,7 +557,6 @@ def plan_user_delete(api, userid: str) -> Plan:
     acl_read_failed = False
     acl_entries: list[dict] = []
     try:
-        from .access import access_acl_list
         acl_entries = access_acl_list(api) or []
     except Exception:
         acl_read_failed = True
@@ -705,7 +704,7 @@ def plan_group_delete(api, groupid: str) -> Plan:
     read_failed = False
     not_found = False
     try:
-        group_data = api._get(f"/access/groups/{groupid}") or {}
+        group_data = group_get(api, groupid)
     except Exception as e:
         resp = getattr(e, "response", None)
         if resp is not None and getattr(resp, "status_code", None) == 404:
@@ -780,7 +779,7 @@ def plan_group_delete(api, groupid: str) -> Plan:
     affected: list[dict] = []
     complete = True
     try:
-        acl_entries = api._get("/access/acl") or []
+        acl_entries = access_acl_list(api)
         grants = [e for e in acl_entries if e.get("type") == "group" and e.get("ugid") == groupid]
         for e in grants:
             affected.append({"principal": f"group {groupid}", "path": str(e.get("path", "")),

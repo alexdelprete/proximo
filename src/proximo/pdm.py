@@ -144,8 +144,10 @@ def _check_opt(val: str, name: str) -> str:
 # Credential-shaped keys stripped from any config/user/remote dict before it leaves the backend.
 # Defence-in-depth: the PDM Auditor token should never see a secret, but a future PDM regression
 # must not be able to hand one to the caller through this read surface.
-# frozenset + lowercase for O(1) case-insensitive look-ups.
-_SECRET_KEYS_LOWER = frozenset(("token", "password", "secret", "key", "tokensecret"))
+# Substring match (not exact-match only): a compound key like "client_secret" or "api_key"
+# carries the same marker word and must be caught too — "tokensecret" needs no separate entry
+# since "token" and "secret" already match it as substrings.
+_SECRET_KEY_MARKERS = ("token", "password", "secret", "key")
 
 
 def _strip_secret_value(v: object) -> object:
@@ -170,7 +172,7 @@ def _strip_secrets(d: dict) -> dict:
     return {
         k: _strip_secret_value(v)
         for k, v in d.items()
-        if k.lower() not in _SECRET_KEYS_LOWER
+        if not any(marker in k.lower() for marker in _SECRET_KEY_MARKERS)
     }
 
 
@@ -198,6 +200,30 @@ class PdmConfig:
     verify_tls: bool = True
     ca_bundle: str | None = None
 
+    @staticmethod
+    def _normalize_base_url(base_url: str) -> str:
+        """Append /api2/json if the URL has no path (common PDM usage is just the host:port).
+
+        Shared by from_env and from_target so both heads normalise identically.
+        """
+        url = base_url.rstrip("/")
+        if not url.endswith("/api2/json"):
+            url = url + "/api2/json"
+        return url
+
+    @staticmethod
+    def _warn_unverified_tls(source: str) -> None:
+        """Fail-open-but-loud warning when TLS verification is disabled with no CA bundle.
+
+        Shared by from_env and from_target; `source` is the full leading phrase
+        (e.g. "PROXIMO_PDM_VERIFY_TLS=false" or "PDM target verify_tls=false").
+        """
+        warnings.warn(
+            f"{source} with no CA bundle — "
+            "talking to the PDM API without cert validation.",
+            stacklevel=3,
+        )
+
     @classmethod
     def from_env(cls) -> PdmConfig:
         try:
@@ -209,20 +235,13 @@ class PdmConfig:
                 "Set PROXIMO_PDM_BASE_URL and PROXIMO_PDM_TOKEN_PATH to use pdm_* tools."
             ) from e
 
-        # Normalise: append /api2/json if the URL has no path (common PDM usage is just the host:port)
-        url = base_url.rstrip("/")
-        if not url.endswith("/api2/json"):
-            url = url + "/api2/json"
+        url = cls._normalize_base_url(base_url)
 
         verify_tls = parse_verify_tls(os.environ.get("PROXIMO_PDM_VERIFY_TLS", "true"))
         ca_bundle = os.environ.get("PROXIMO_PDM_CA_BUNDLE") or None
 
         if not verify_tls and not ca_bundle:
-            warnings.warn(
-                "PROXIMO_PDM_VERIFY_TLS=false with no CA bundle — "
-                "talking to the PDM API without cert validation.",
-                stacklevel=2,
-            )
+            cls._warn_unverified_tls("PROXIMO_PDM_VERIFY_TLS=false")
 
         return cls(
             base_url=url,
@@ -230,8 +249,6 @@ class PdmConfig:
             verify_tls=verify_tls,
             ca_bundle=ca_bundle,
         )
-
-
 
     @classmethod
     def from_target(cls, fields: dict) -> PdmConfig:
@@ -241,17 +258,11 @@ class PdmConfig:
             token_path = fields["token_path"]
         except KeyError as e:
             raise RuntimeError(f"target missing required field: {e.args[0]}") from e
-        url = base_url.rstrip("/")
-        if not url.endswith("/api2/json"):
-            url = url + "/api2/json"
+        url = cls._normalize_base_url(base_url)
         verify_tls = parse_verify_tls(fields.get("verify_tls", "true"))
         ca_bundle = fields.get("ca_bundle") or None
         if not verify_tls and not ca_bundle:
-            warnings.warn(
-                "PDM target verify_tls=false with no CA bundle — "
-                "talking to the PDM API without cert validation.",
-                stacklevel=2,
-            )
+            cls._warn_unverified_tls("PDM target verify_tls=false")
         return cls(
             base_url=url,
             token_path=token_path,
@@ -413,16 +424,41 @@ class PdmBackend:
         """
         return self._pve_remote_get(remote, "nodes") or []
 
+    def _guest_list(self, kind: str, remote: str, node: str | None = None) -> list[dict]:
+        """GET /pve/remotes/{remote}/{kind} → guest list (cluster-wide).
+
+        Shared body for pve_qemu_list/pve_lxc_list — node is an OPTIONAL filter,
+        passed as query 'node' (PDM's guest list is cluster-wide).
+        """
+        params = {}
+        if node is not None:
+            params["node"] = _check_node(node)
+        return self._pve_remote_get(remote, kind, params or None) or []
+
+    def _guest_config(self, kind: str, remote: str, vmid: int | str, node: str | None = None,
+                      snapshot: str | None = None, state: str = "active") -> dict:
+        """GET /pve/remotes/{remote}/{kind}/{vmid}/config → guest config.
+
+        Shared body for pve_qemu_config/pve_lxc_config — node, snapshot are OPTIONAL
+        query params (node is NOT required); state is REQUIRED by PDM (enum; "active" =
+        current config) and defaults to "active" — PDM rejects the request with 400 if
+        it is omitted.
+        """
+        v = _check_vmid(vmid)
+        params = {"state": _check_opt(state, "state")}
+        if node is not None:
+            params["node"] = _check_node(node)
+        if snapshot is not None:
+            params["snapshot"] = _check_opt(snapshot, "snapshot")
+        return self._pve_remote_get(remote, f"{kind}/{v}/config", params) or {}
+
     def pve_qemu_list(self, remote: str, node: str | None = None) -> list[dict]:
         """GET /pve/remotes/{remote}/qemu → VM list (cluster-wide).
 
         node: OPTIONAL filter, passed as query 'node' (PDM's qemu list is cluster-wide).
         Shape equals PVE qemu list; live-proven 2026-06-27 against a registered PVE remote.
         """
-        params = {}
-        if node is not None:
-            params["node"] = _check_node(node)
-        return self._pve_remote_get(remote, "qemu", params or None) or []
+        return self._guest_list("qemu", remote, node)
 
     def pve_qemu_config(self, remote: str, vmid: int | str, node: str | None = None,
                         snapshot: str | None = None, state: str = "active") -> dict:
@@ -433,13 +469,7 @@ class PdmBackend:
                PDM rejects the request with 400 if it is omitted.
         Live-proven 2026-06-27 against a registered PVE remote.
         """
-        v = _check_vmid(vmid)
-        params = {"state": _check_opt(state, "state")}
-        if node is not None:
-            params["node"] = _check_node(node)
-        if snapshot is not None:
-            params["snapshot"] = _check_opt(snapshot, "snapshot")
-        return self._pve_remote_get(remote, f"qemu/{v}/config", params) or {}
+        return self._guest_config("qemu", remote, vmid, node, snapshot, state)
 
     def pve_lxc_list(self, remote: str, node: str | None = None) -> list[dict]:
         """GET /pve/remotes/{remote}/lxc → LXC list (cluster-wide).
@@ -447,10 +477,7 @@ class PdmBackend:
         node: OPTIONAL filter, passed as query 'node' (PDM's lxc list is cluster-wide).
         Shape equals PVE lxc list; live-proven 2026-06-27 against a registered PVE remote.
         """
-        params = {}
-        if node is not None:
-            params["node"] = _check_node(node)
-        return self._pve_remote_get(remote, "lxc", params or None) or []
+        return self._guest_list("lxc", remote, node)
 
     def pve_lxc_config(self, remote: str, vmid: int | str, node: str | None = None,
                        snapshot: str | None = None, state: str = "active") -> dict:
@@ -461,13 +488,7 @@ class PdmBackend:
                PDM rejects the request with 400 if it is omitted.
         Live-proven 2026-06-27 against a registered PVE remote.
         """
-        v = _check_vmid(vmid)
-        params = {"state": _check_opt(state, "state")}
-        if node is not None:
-            params["node"] = _check_node(node)
-        if snapshot is not None:
-            params["snapshot"] = _check_opt(snapshot, "snapshot")
-        return self._pve_remote_get(remote, f"lxc/{v}/config", params) or {}
+        return self._guest_config("lxc", remote, vmid, node, snapshot, state)
 
     # ---------------------------------------------------------------------------
     # D: PBS per-remote reads (proxied)

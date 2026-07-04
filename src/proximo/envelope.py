@@ -187,6 +187,7 @@ class EnvelopeConfig:
     forbid: frozenset[str]
     rate_max: int | None = None
     rate_window: int = _RATE_WINDOW_DEFAULT
+    base_url: str | None = None
 
 
 def _parse_forbid(value: object) -> tuple[frozenset[str], bool]:
@@ -227,9 +228,30 @@ def _parse_int(value: object) -> tuple[int | None, bool]:
     return None, True  # float / other shape => garbled
 
 
+def _rate_candidate(max_raw: object, window_raw: object) -> tuple[int | None, int, bool]:
+    """Parse one (rate_max, rate_window) candidate pair. Returns (rmax, rwin-or-default, garbled).
+    A rate_window that parses to <= 0 must fail closed the same as a garbled shape: a
+    non-positive window makes `cutoff = now - window >= now`, so every slot reads as
+    already-expired and the cap never engages (fails OPEN). rate_max itself is untouched here —
+    0 stays a valid fail-closed sentinel (_parse_int is not changed)."""
+    rmax, mg = _parse_int(max_raw)
+    rwin, wg = _parse_int(window_raw)
+    garbled = mg or wg or (rwin is not None and rwin <= 0)
+    return rmax, (rwin if rwin is not None else _RATE_WINDOW_DEFAULT), garbled
+
+
 def _box_key(base_url: str) -> str:
     """Stable, non-reversible label for a box in ledger detail / the reservation filename."""
     return hashlib.sha256(base_url.encode("utf-8")).hexdigest()[:16]
+
+
+def _normalize_base_url(value: object) -> str | None:
+    """Shared base-url normalization: a non-empty str, stripped and trailing-slash-trimmed, or
+    None for any other shape (missing/empty/non-str) — the same rule config.py's own
+    api_base_url normalization applies."""
+    if not isinstance(value, str) or not value:
+        return None
+    return value.strip().rstrip("/")
 
 
 def _active_base_url() -> str | None:
@@ -243,9 +265,7 @@ def _active_base_url() -> str | None:
         base_url = load_registry().get(name, {}).get("base_url")
     else:
         base_url = os.environ.get("PROXIMO_API_BASE_URL")
-    if not isinstance(base_url, str) or not base_url:
-        return None
-    return base_url.strip().rstrip("/")
+    return _normalize_base_url(base_url)
 
 
 def _box_rate(base_url: str | None) -> tuple[int | None, int]:
@@ -263,22 +283,17 @@ def _box_rate(base_url: str | None) -> tuple[int | None, int]:
     any_declared = False
 
     env_base_raw = os.environ.get("PROXIMO_API_BASE_URL")
-    env_base = env_base_raw.strip().rstrip("/") if env_base_raw else None
+    env_base = _normalize_base_url(env_base_raw)
     env_max_raw = os.environ.get(_RATE_MAX_ENV)
     env_window_raw = os.environ.get(_RATE_WINDOW_ENV)
     if env_max_raw or env_window_raw:
         any_declared = True
         if base_url is not None and env_base == base_url:
-            rmax, mg = _parse_int(env_max_raw)
-            rwin, wg = _parse_int(env_window_raw)
-            # A rate_window that parses to <= 0 must fail closed the same as a garbled shape: a
-            # non-positive window makes `cutoff = now - window >= now`, so every slot reads as
-            # already-expired and the cap never engages (fails OPEN). rate_max itself is untouched
-            # here — 0 stays a valid fail-closed sentinel (_parse_int is not changed).
-            if mg or wg or (rwin is not None and rwin <= 0):
+            rmax, rwin, cand_garbled = _rate_candidate(env_max_raw, env_window_raw)
+            if cand_garbled:
                 garbled = True
             elif rmax is not None:
-                candidates.append((rmax, rwin if rwin is not None else _RATE_WINDOW_DEFAULT))
+                candidates.append((rmax, rwin))
 
     for fields in load_registry().values():
         if not isinstance(fields, dict):
@@ -286,16 +301,14 @@ def _box_rate(base_url: str | None) -> tuple[int | None, int]:
         if "rate_max" not in fields and "rate_window" not in fields:
             continue
         any_declared = True
-        entry_base = fields.get("base_url")
-        entry_base = entry_base.strip().rstrip("/") if isinstance(entry_base, str) else None
+        entry_base = _normalize_base_url(fields.get("base_url"))
         if base_url is None or entry_base != base_url:
             continue
-        rmax, mg = _parse_int(fields.get("rate_max"))
-        rwin, wg = _parse_int(fields.get("rate_window"))
-        if mg or wg or (rwin is not None and rwin <= 0):
+        rmax, rwin, cand_garbled = _rate_candidate(fields.get("rate_max"), fields.get("rate_window"))
+        if cand_garbled:
             garbled = True
         elif rmax is not None:
-            candidates.append((rmax, rwin if rwin is not None else _RATE_WINDOW_DEFAULT))
+            candidates.append((rmax, rwin))
 
     if garbled:
         return 0, _RATE_WINDOW_DEFAULT
@@ -303,10 +316,14 @@ def _box_rate(base_url: str | None) -> tuple[int | None, int]:
         return (0, _RATE_WINDOW_DEFAULT) if any_declared else (None, _RATE_WINDOW_DEFAULT)
     if not candidates:
         return None, _RATE_WINDOW_DEFAULT
-    # Tie-break to the LARGER/tighter window on a rate_max tie — otherwise whichever candidate
-    # happened to be appended first (env, always before registry entries) silently wins even when
-    # a registry entry declares a much tighter window for the same box.
-    return min(candidates, key=lambda c: (c[0], -c[1]))
+    # Rank by EFFECTIVE sustained rate (rate_max/window), not raw rate_max — a shorter-window,
+    # higher-count candidate (e.g. env's blanket 10/1s sanity ceiling = 864,000/day) must not
+    # beat a longer-window, lower-count candidate that is actually far more restrictive (e.g. a
+    # registry-declared 500/86400s = 500/day budget for the same box). window is always > 0 here
+    # (a parsed-but-<=0 window is filtered into `garbled` above). Tie-break to the LARGER/tighter
+    # window when the ratio is equal — this subsumes the plain rate_max-tie case too, since equal
+    # rate_max with unequal windows already yields unequal ratios.
+    return min(candidates, key=lambda c: (c[0] / c[1], -c[1]))
 
 
 def resolve_envelope() -> EnvelopeConfig:
@@ -334,8 +351,10 @@ def resolve_envelope() -> EnvelopeConfig:
     else:
         forbid = global_forbid | target_forbid
 
-    rate_max, rate_window = _box_rate(_active_base_url())
-    return EnvelopeConfig(forbid=forbid, rate_max=rate_max, rate_window=rate_window)
+    base_url = _active_base_url()
+    rate_max, rate_window = _box_rate(base_url)
+    return EnvelopeConfig(forbid=forbid, rate_max=rate_max, rate_window=rate_window,
+                           base_url=base_url)
 
 
 def _forbidden(action: str, target: str, detail: dict | None, forbid: frozenset[str]) -> bool:
@@ -447,6 +466,26 @@ def _rate_reserve(reservation_dir: str, base_url: str, rate_max: int, window: in
             fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
 
 
+def _resolve_envelope_audited(action: str, target: str, audit: AuditLedger,
+                               detail: dict | None) -> EnvelopeConfig:
+    """``resolve_envelope()``, but any exception (e.g. a transiently-malformed ``PROXIMO_TARGETS``
+    file mid-write) is recorded to the PROVE ledger — outcome ``blocked:envelope_error`` — BEFORE
+    raising, mirroring every other refusal path in this gate family's record-before-raise
+    contract. Without this, an envelope-resolution error would leak out of
+    ``enforce_envelope_forbid``/``enforce_envelope_rate`` uncaught and unaudited, even though the
+    mutation is still (safely) blocked."""
+    try:
+        return resolve_envelope()
+    except Exception as e:
+        audit.record(action, target=target, mutation=True, outcome="blocked:envelope_error",
+                      detail={**(detail or {}), "error": type(e).__name__},
+                      remote=ledger_remote())
+        raise ProximoError(
+            f"envelope refused: could not resolve envelope config for {action!r} on {target!r} "
+            f"(fail-closed) — {type(e).__name__}"
+        ) from e
+
+
 def enforce_envelope_forbid(action: str, target: str, audit: AuditLedger, *,
                              detail: dict | None = None) -> None:
     """The FORBID half of the envelope check, split out so it can run BEFORE consent while the
@@ -467,7 +506,7 @@ def enforce_envelope_forbid(action: str, target: str, audit: AuditLedger, *,
     raising. This is a hard wall with NO consent escape: it runs before ``enforce_consent`` at
     every seam, same as the base forbid check.
     """
-    env = resolve_envelope()
+    env = _resolve_envelope_audited(action, target, audit, detail)
 
     if env.forbid and _forbidden(action, target, detail, env.forbid):
         audit.record(action, target=target, mutation=True, outcome="blocked:forbidden",
@@ -518,7 +557,7 @@ def enforce_envelope_rate(action: str, target: str, audit: AuditLedger, *,
     exhausted budget records ``blocked:rate_budget``/``blocked:rate_error`` to the PROVE ledger
     BEFORE raising ProximoError, so the backend call never fires.
     """
-    env = resolve_envelope()
+    env = _resolve_envelope_audited(action, target, audit, detail)
 
     if env.rate_max is None:
         return  # no rate cap configured for this surface -> rate wall inert
@@ -526,7 +565,7 @@ def enforce_envelope_rate(action: str, target: str, audit: AuditLedger, *,
     if _rate_reserved.get():
         return  # an earlier seam in this SAME operation already reserved a slot (de-dup)
 
-    base_url = _active_base_url()
+    base_url = env.base_url
     outcome = "blocked:rate_budget"
     if env.rate_max <= 0 or base_url is None:
         # rate_max<=0 is the fail-closed sentinel (garbled config / unresolvable box identity

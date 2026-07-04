@@ -37,7 +37,13 @@ import re
 
 # _check_roleid (in access.py) rejects both '/' (charset) and '.'/'..' (the _reject_dot_traversal
 # guard landed in 0.6.3) — no traversal asymmetry remains. _check_userid carries the same guard.
-from .access import _check_roleid, _check_userid, _is_administrator_role
+from .access import (
+    _check_roleid,
+    _check_userid,
+    _is_administrator_role,
+    access_acl_list,
+    access_users_list,
+)
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_MEDIUM, Plan
 
@@ -61,6 +67,31 @@ def _check_realmid(realm: str) -> str:
         raise ProximoError(
             f"invalid realm id: {realm!r} — expected letters/digits/._- "
             "starting with alnum (no slash, no whitespace, no '..')"
+        )
+    return s
+
+
+# Freetext fields (privs, comment) are stored in PVE's line-based config files (role.cfg,
+# domains.cfg).  A newline or other control character in one of these fields can corrupt
+# that config.  Reject any control character (U+0000–U+001F, U+007F) without stripping
+# first — the raw value is the injection surface.  Module-local duplicate of
+# access_users._check_freetext (same reasoning as access.py's module-local _check_groupid —
+# see its docstring — this module has no import edge to access_users.py today).
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _check_freetext(value: str, field: str) -> str:
+    """Reject control characters in a freetext field (no .strip() — raw value is checked).
+
+    Raises ProximoError if the value contains any control character (U+0000-U+001F or
+    U+007F), which would corrupt PVE's line-based config if stored.
+
+    Returns the value unchanged (as a str) when accepted.
+    """
+    s = str(value)
+    if _CONTROL_RE.search(s):
+        raise ProximoError(
+            f"invalid {field}: {value!r} — control characters and newlines are not allowed"
         )
     return s
 
@@ -190,7 +221,7 @@ def role_create(api, roleid: str, privs: str | None = None) -> object:
     roleid = _check_roleid(roleid)
     data: dict = {"roleid": roleid}
     if privs is not None:
-        data["privs"] = str(privs)
+        data["privs"] = _check_freetext(str(privs), "privs")
     return api._post("/access/roles", data)
 
 
@@ -214,7 +245,7 @@ def role_update(api, roleid: str, privs: str | None = None, append: bool | None 
     roleid = _check_roleid(roleid)
     data: dict = {}
     if privs is not None:
-        data["privs"] = str(privs)
+        data["privs"] = _check_freetext(str(privs), "privs")
     if append is not None:
         data["append"] = int(append)
     return api._put(f"/access/roles/{roleid}", data)
@@ -274,7 +305,7 @@ def realm_create(
     # type requires — it returns a clean 400/500 for missing/unknown keys.
     data: dict = dict(options or {})
     if comment is not None:
-        data["comment"] = str(comment)
+        data["comment"] = _check_freetext(str(comment), "comment")
     data["realm"] = realm
     data["type"] = realm_type
     return api._post("/access/domains", data)
@@ -299,7 +330,7 @@ def realm_update(api, realm: str, comment: str | None = None,
     # type-specific fields first; explicit `comment` param wins over any options['comment'].
     data: dict = dict(options or {})
     if comment is not None:
-        data["comment"] = str(comment)
+        data["comment"] = _check_freetext(str(comment), "comment")
     return api._put(f"/access/domains/{realm}", data)
 
 
@@ -431,7 +462,7 @@ def plan_role_update(api, roleid: str, privs: str | None = None, append: bool | 
     affected: list[dict] = []
     complete = True
     try:
-        acl_entries = api._get("/access/acl") or []
+        acl_entries = access_acl_list(api)
         matched = [e for e in acl_entries if e.get("roleid") == roleid]
         for e in matched:
             affected.append({
@@ -513,7 +544,7 @@ def plan_role_delete(api, roleid: str) -> Plan:
     acl_count: int | None = None
 
     try:
-        acl_entries = api._get("/access/acl") or []
+        acl_entries = access_acl_list(api)
         acl_count = sum(1 for e in acl_entries if e.get("roleid") == roleid)
     except Exception as exc:
         resp = getattr(exc, "response", None)
@@ -687,7 +718,7 @@ def plan_realm_update(api, realm: str, comment: str | None = None,
     complete = True
     realm_suffix = f"@{realm}"
     try:
-        user_entries = api._get("/access/users") or []
+        user_entries = access_users_list(api)
         matched = [u for u in user_entries if str(u.get("userid", "")).endswith(realm_suffix)]
         for u in matched:
             affected.append({"userid": str(u.get("userid", "")), "change": "login may break",
@@ -771,7 +802,7 @@ def plan_realm_delete(api, realm: str) -> Plan:
     realm_suffix = f"@{realm}"
 
     try:
-        user_entries = api._get("/access/users") or []
+        user_entries = access_users_list(api)
         user_count = sum(
             1 for u in user_entries
             if str(u.get("userid", "")).endswith(realm_suffix)
@@ -890,7 +921,15 @@ def tfa_delete(api, userid: str, tfa_id: str, password: str | None = None) -> ob
     params: dict = {}
     if password is not None:
         params["password"] = password
-    return api._delete(f"/access/tfa/{userid}/{tfa_id}", params)
+    try:
+        return api._delete(f"/access/tfa/{userid}/{tfa_id}", params)
+    except Exception as e:
+        # `password` travels as a query-string param (backends.py sends `params` on DELETE); a
+        # request-failure exception (e.g. httpx.HTTPStatusError) embeds the FULL request URL,
+        # query string included, in str(e). Never let that string escape this function —
+        # `from None` also drops it from __context__/__cause__ so no downstream traceback
+        # formatting can resurrect it.
+        raise ProximoError(f"TFA delete request failed ({type(e).__name__})") from None
 
 
 def plan_tfa_delete(api, userid: str, tfa_id: str) -> Plan:

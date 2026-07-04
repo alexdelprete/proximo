@@ -1121,6 +1121,15 @@ def test_pmg_who_group_update_confirm_records_planned_then_ok(tmp_path, monkeypa
     assert outcomes.index("planned") < outcomes.index("ok")
 
 
+def test_pmg_who_group_update_ok_ledger_entry_discloses_new_name(tmp_path, monkeypatch):
+    # The executed-mutation ledger entry must show WHAT changed, not just the ogroup id.
+    _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
+    server.pmg_who_group_update("2", name="Renamed", confirm=True)
+    ok_entries = [e for e in _entries(log)
+                  if e["action"] == "pmg_who_group_update" and e["outcome"] == "ok"]
+    assert ok_entries and ok_entries[0]["detail"].get("name") == "Renamed"
+
+
 def test_pmg_who_group_delete_dry_run_does_not_call_delete(tmp_path, monkeypatch):
     _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
     out = server.pmg_who_group_delete("2")
@@ -1187,6 +1196,14 @@ def test_pmg_what_group_update_confirm_records_planned_then_ok(tmp_path, monkeyp
     assert "planned" in outcomes
     assert "ok" in outcomes
     assert outcomes.index("planned") < outcomes.index("ok")
+
+
+def test_pmg_what_group_update_ok_ledger_entry_discloses_new_name(tmp_path, monkeypatch):
+    _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
+    server.pmg_what_group_update("8", name="Renamed", confirm=True)
+    ok_entries = [e for e in _entries(log)
+                  if e["action"] == "pmg_what_group_update" and e["outcome"] == "ok"]
+    assert ok_entries and ok_entries[0]["detail"].get("name") == "Renamed"
 
 
 def test_pmg_what_group_delete_dry_run_does_not_call_delete(tmp_path, monkeypatch):
@@ -1257,6 +1274,14 @@ def test_pmg_when_group_update_confirm_records_planned_then_ok(tmp_path, monkeyp
     assert outcomes.index("planned") < outcomes.index("ok")
 
 
+def test_pmg_when_group_update_ok_ledger_entry_discloses_new_name(tmp_path, monkeypatch):
+    _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
+    server.pmg_when_group_update("4", name="BusinessHours", confirm=True)
+    ok_entries = [e for e in _entries(log)
+                  if e["action"] == "pmg_when_group_update" and e["outcome"] == "ok"]
+    assert ok_entries and ok_entries[0]["detail"].get("name") == "BusinessHours"
+
+
 def test_pmg_when_group_delete_dry_run_does_not_call_delete(tmp_path, monkeypatch):
     _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
     out = server.pmg_when_group_delete("4")
@@ -1325,6 +1350,14 @@ def test_pmg_who_object_update_confirm_records_planned_then_ok(tmp_path, monkeyp
     assert outcomes.index("planned") < outcomes.index("ok")
 
 
+def test_pmg_who_object_update_ok_ledger_entry_discloses_new_value(tmp_path, monkeypatch):
+    _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
+    server.pmg_who_object_update("2", "email", "5", email="new@evil.com", confirm=True)
+    ok_entries = [e for e in _entries(log)
+                  if e["action"] == "pmg_who_object_update" and e["outcome"] == "ok"]
+    assert ok_entries and ok_entries[0]["detail"].get("email") == "new@evil.com"
+
+
 def test_pmg_who_object_delete_dry_run_does_not_call_delete(tmp_path, monkeypatch):
     _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
     out = server.pmg_who_object_delete("2", "5")
@@ -1385,6 +1418,9 @@ def test_pmg_what_object_update_confirm(tmp_path, monkeypatch):
     assert len(pmg.puts) == 1
     assert pmg.puts[0][0] == "/config/ruledb/what/8/contenttype/5"
     assert pmg.puts[0][1].get("contenttype") == "text/plain"
+    ok_entries = [e for e in _entries(log)
+                  if e["action"] == "pmg_what_object_update" and e["outcome"] == "ok"]
+    assert ok_entries and ok_entries[0]["detail"].get("contenttype") == "text/plain"
 
 
 def test_pmg_what_object_delete_dry_run(tmp_path, monkeypatch):
@@ -1437,6 +1473,9 @@ def test_pmg_when_object_update_confirm(tmp_path, monkeypatch):
     assert pmg.puts[0][0] == "/config/ruledb/when/4/timeframe/7"
     assert pmg.puts[0][1].get("start") == "09:00"
     assert pmg.puts[0][1].get("end") == "17:00"
+    ok_entries = [e for e in _entries(log)
+                  if e["action"] == "pmg_when_object_update" and e["outcome"] == "ok"]
+    assert ok_entries and ok_entries[0]["detail"].get("start") == "09:00"
 
 
 def test_pmg_when_object_delete_dry_run(tmp_path, monkeypatch):
@@ -1480,6 +1519,14 @@ def test_pmg_action_bcc_update_dry_run(tmp_path, monkeypatch):
     assert pmg.puts == []
 
 
+def test_pmg_action_bcc_update_plan_discloses_new_target(tmp_path, monkeypatch):
+    # The dry-run PLAN preview must show the new target, not just the object id —
+    # otherwise a human reviewing the plan can't tell where mail is about to be BCC'd.
+    _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
+    out = server.pmg_action_bcc_update("13_26", target="attacker@evil.example")
+    assert any("attacker@evil.example" in entry for entry in out["blast_radius"])
+
+
 def test_pmg_action_bcc_update_confirm(tmp_path, monkeypatch):
     _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
     out = server.pmg_action_bcc_update("13_26", target="new@example.com", confirm=True)
@@ -1487,6 +1534,11 @@ def test_pmg_action_bcc_update_confirm(tmp_path, monkeypatch):
     assert len(pmg.puts) == 1
     assert pmg.puts[0][0] == "/config/ruledb/action/bcc/13_26"
     assert pmg.puts[0][1].get("target") == "new@example.com"
+    # The executed-mutation ledger entry must show WHAT changed, not just the id —
+    # otherwise a post-hoc audit of "who BCC'd mail where" can't be reconstructed.
+    ok_entries = [e for e in _entries(log)
+                  if e["action"] == "pmg_action_bcc_update" and e["outcome"] == "ok"]
+    assert ok_entries and ok_entries[0]["detail"].get("target") == "new@example.com"
 
 
 def test_pmg_action_field_create_dry_run(tmp_path, monkeypatch):
@@ -1682,6 +1734,9 @@ def test_pmg_ruledb_rule_update_confirm(tmp_path, monkeypatch):
     assert len(pmg.puts) == 1
     assert pmg.puts[0][0] == "/config/ruledb/rules/100/config"
     assert pmg.puts[0][1].get("name") == "renamed"
+    ok_entries = [e for e in _entries(log)
+                  if e["action"] == "pmg_ruledb_rule_update" and e["outcome"] == "ok"]
+    assert ok_entries and ok_entries[0]["detail"].get("name") == "renamed"
 
 
 def test_pmg_ruledb_rule_delete_dry_run(tmp_path, monkeypatch):

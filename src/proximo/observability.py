@@ -108,22 +108,26 @@ def _check_cf(cf: str) -> str:
     return c
 
 
-def _check_lastentries(lastentries: int) -> int:
+def _check_count(value: int | str, field: str) -> int:
     try:
-        n = int(lastentries)
+        n = int(value)
     except (ValueError, TypeError) as exc:
         raise ProximoError(
-            f"invalid lastentries: {lastentries!r} (must be a positive integer)"
+            f"invalid {field}: {value!r} (must be a positive integer)"
         ) from exc
     if n <= 0:
         raise ProximoError(
-            f"invalid lastentries: {lastentries!r} (must be > 0)"
+            f"invalid {field}: {value!r} (must be > 0)"
         )
     if n > _MAX_LASTENTRIES:
         raise ProximoError(
-            f"lastentries {n} exceeds maximum ({_MAX_LASTENTRIES}); use a smaller window"
+            f"{field} {n} exceeds maximum ({_MAX_LASTENTRIES}); use a smaller window"
         )
     return n
+
+
+def _check_lastentries(lastentries: int) -> int:
+    return _check_count(lastentries, "lastentries")
 
 
 def _check_service_action(action: str) -> str:
@@ -248,18 +252,7 @@ def node_syslog(api, node: str | None = None, limit: int = 100) -> list[dict]:
     shape (list of {n, t} dicts where n=line-number, t=text, per PVE API viewer).
     """
     _check_node(node)
-    try:
-        n_entries = int(limit)
-    except (ValueError, TypeError) as exc:
-        raise ProximoError(
-            f"invalid limit: {limit!r} (must be a positive integer)"
-        ) from exc
-    if n_entries <= 0:
-        raise ProximoError(f"invalid limit: {limit!r} (must be > 0)")
-    if n_entries > _MAX_LASTENTRIES:
-        raise ProximoError(
-            f"limit {n_entries} exceeds maximum ({_MAX_LASTENTRIES}); use a smaller window"
-        )
+    n_entries = _check_count(limit, "limit")
     n = node or api.config.node
     return api._get(f"/nodes/{n}/syslog?limit={n_entries}") or []
 

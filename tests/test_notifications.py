@@ -406,6 +406,19 @@ class TestPlanNotificationEndpointCreate:
         with pytest.raises(ProximoError):
             plan_notification_endpoint_create("smtp", "bad/name")
 
+    def test_redacts_token_from_change(self):
+        # gotify's `token` is a bearer auth secret. plan.change is BOTH returned to the
+        # caller AND written to the tamper-evident PROVE ledger, even on confirm=False.
+        plan = plan_notification_endpoint_create("gotify", "gotify1", token="LIVETOKEN")
+        assert "LIVETOKEN" not in plan.change
+        assert "[redacted]" in plan.change
+
+    def test_redacts_password_from_change(self):
+        # smtp's `password` is an SMTP-AUTH secret.
+        plan = plan_notification_endpoint_create("smtp", "mail1", password="LIVEPW")
+        assert "LIVEPW" not in plan.change
+        assert "[redacted]" in plan.change
+
 
 class TestPlanNotificationEndpointUpdate:
     def test_reads_current_from_api(self):
@@ -413,6 +426,20 @@ class TestPlanNotificationEndpointUpdate:
         plan = plan_notification_endpoint_update(api, "smtp", "mail1")
         assert plan.risk == RISK_LOW
         assert "name" in plan.current   # captured from fake API
+
+    def test_redacts_token_from_current(self):
+        # The live GET result is stored in Plan.current (PROVE ledger) even when the
+        # update call itself doesn't touch the token field.
+        api = _Api(get_return={"name": "gotify1", "token": "LIVETOKEN"})
+        plan = plan_notification_endpoint_update(api, "gotify", "gotify1", server="new-host")
+        assert "LIVETOKEN" not in str(plan.current)
+        assert plan.current["token"] == "[redacted]"
+
+    def test_redacts_token_from_change(self):
+        api = _Api(get_return={"name": "gotify1"})
+        plan = plan_notification_endpoint_update(api, "gotify", "gotify1", token="NEWTOKEN")
+        assert "NEWTOKEN" not in plan.change
+        assert "[redacted]" in plan.change
 
     def test_no_implied_undo_in_note(self):
         api = _Api(get_return={"name": "mail1"})

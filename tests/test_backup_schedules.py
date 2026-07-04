@@ -579,6 +579,17 @@ class TestPlanReplication:
         assert plan.risk == RISK_LOW
         assert plan.current == {}
 
+    def test_create_change_discloses_schedule_and_rate(self):
+        # schedule/rate/disable/comment are the actual fields being written — the PLAN
+        # preview (and the PROVE ledger entry built from it) must show them, not just
+        # the id/type/target, mirroring plan_pbs_job_create's `{kw}` disclosure.
+        plan = plan_replication_create(
+            "101/0", "local", "node2", schedule="*/30", rate=10.0, disable=False, comment="nightly"
+        )
+        assert "*/30" in plan.change
+        assert "10.0" in plan.change
+        assert "nightly" in plan.change
+
     def test_update_reads_current(self):
         api = _Api(get_return={"id": "101/0", "target": "node2"})
         plan = plan_replication_update(api, "101/0", schedule="*/15")

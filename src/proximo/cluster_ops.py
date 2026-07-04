@@ -58,19 +58,6 @@ def _check_ha_group(group: str) -> str:
     return g
 
 
-def _check_ha_sid(sid: str) -> str:
-    """Validate an explicit HA SID (e.g. 'vm:100' or 'ct:200').
-
-    Most callers should use _build_sid(vmid, kind) instead; this is for direct-SID paths.
-    """
-    s = str(sid).strip()
-    if not _HA_SID_RE.match(s):
-        raise ProximoError(
-            f"invalid HA SID: {sid!r} (expected 'vm:<vmid>' or 'ct:<vmid>')"
-        )
-    return s
-
-
 def _build_sid(vmid: str, kind: str) -> str:
     """Construct the HA SID from a validated vmid + kind ('vm:100' or 'ct:200').
 

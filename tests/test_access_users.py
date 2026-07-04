@@ -557,6 +557,21 @@ def test_group_update_rejects_invalid_groupid():
         group_update(api, "bad/group")
 
 
+def test_group_create_rejects_newline_in_comment():
+    """Freetext injection guard: newline in comment rejected on group_create — same
+    /etc/pve/user.cfg injection surface as user_create's comment field."""
+    api = _api()
+    with pytest.raises(ProximoError):
+        group_create(api, "admins", comment="injected\nnewline")
+
+
+def test_group_update_rejects_newline_in_comment():
+    """Freetext injection guard: newline in comment rejected on group_update."""
+    api = _api()
+    with pytest.raises(ProximoError):
+        group_update(api, "admins", comment="injected\nnewline")
+
+
 # ---------------------------------------------------------------------------
 # group_delete — URL shape
 # ---------------------------------------------------------------------------

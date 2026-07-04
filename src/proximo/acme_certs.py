@@ -324,7 +324,10 @@ def plan_acme_plugin_create(plugin_id: str, plugin_type: str, **kw) -> Plan:
 def plan_acme_plugin_update(backend, plugin_id: str, **kw) -> Plan:
     """Plan an ACME plugin update. Reads current config for honesty."""
     _check_acme_plugin_id(plugin_id)
-    current = acme_plugin_get(backend, plugin_id)
+    # acme_plugin_get's own documented shape includes `data` (the DNS provider's raw
+    # credential) — redact it the same way the proposed new value already is, since
+    # Plan.current is written verbatim to the PROVE ledger on every call.
+    current = _redact_plugin_kw(acme_plugin_get(backend, plugin_id))
     return Plan(
         action="pve_acme_plugin_update",
         target=f"cluster/acme/plugins/{plugin_id}",
@@ -351,7 +354,10 @@ def plan_acme_plugin_delete(api, plugin_id: str) -> Plan:
     Captures current config as EVIDENCE ONLY — credentials must be re-supplied on re-create.
     """
     _check_acme_plugin_id(plugin_id)
-    current = acme_plugin_get(api, plugin_id)
+    # acme_plugin_get's own documented shape includes `data` (the DNS provider's raw
+    # credential) — redact it before it lands in Plan.current, written verbatim to the
+    # PROVE ledger even on a confirm=False dry-run.
+    current = _redact_plugin_kw(acme_plugin_get(api, plugin_id))
     return Plan(
         action="pve_acme_plugin_delete",
         target=f"cluster/acme/plugins/{plugin_id}",
@@ -368,9 +374,11 @@ def plan_acme_plugin_delete(api, plugin_id: str) -> Plan:
             "TLS lockout risk if no fallback challenge method is configured",
         ],
         note=(
-            "No UNDO primitive on this plane. Current config captured above — "
-            "re-create with pve_acme_plugin_create to restore, but credentials must be "
-            "re-supplied; stored secrets are NOT returned by the GET endpoint."
+            "No UNDO primitive on this plane. Current config captured above (any DNS-provider "
+            "credential redacted) — re-create with pve_acme_plugin_create to restore, but "
+            "credentials must be re-supplied; whether stored secrets are returned by the GET "
+            "endpoint is unverified (see module header, 'VERIFIED live shapes: None'), so this "
+            "plan redacts defensively rather than assuming they are re-supplied for free."
         ),
     )
 

@@ -101,10 +101,18 @@ def _is_relative_grow(size: str) -> bool:
 # Current disk size probe (for absolute-size shrink detection)
 # ---------------------------------------------------------------------------
 
-def _probe_disk_size(api, node: str, kind: str, vmid: str, disk: str) -> str | None:
-    """Try to read the current disk's size from the guest config.
+def _read_disk_size(
+    api, node: str, kind: str, vmid: str, disk: str
+) -> tuple[str | None, str | None]:
+    """Read the current disk's size from the guest config (one safe read).
 
-    Returns the size string (e.g. '10G') on success, None on any failure.
+    Returns (size_str, error_type_name). error_type_name is the raising exception's class
+    name when the config GET itself raised, and None in every other case (non-dict cfg,
+    disk key missing, no 'size=' token, or a size was found successfully).
+
+    Shared by _probe_disk_size (which only needs the size) and plan_disk_resize (which
+    also needs to distinguish a genuine read failure from a readable-but-absent size, to
+    disclose the difference honestly in the plan).
 
     SHAPE-RISK: PVE config returns disk entries as 'storage:volid,size=NUnit,...'. We extract
     the 'size=' component. The exact key format must be confirmed at live smoke.
@@ -112,18 +120,26 @@ def _probe_disk_size(api, node: str, kind: str, vmid: str, disk: str) -> str | N
     try:
         cfg = api._get(f"/nodes/{node}/{kind}/{vmid}/config")
         if not isinstance(cfg, dict):
-            return None
+            return None, None
         disk_entry = cfg.get(disk)
         if not isinstance(disk_entry, str):
-            return None
+            return None, None
         # Parse comma-separated key=value options; size= is one of them.
         for part in disk_entry.split(","):
             part = part.strip()
             if part.startswith("size="):
-                return part[5:]
-        return None
-    except Exception:
-        return None
+                return part[5:], None
+        return None, None
+    except Exception as e:
+        return None, type(e).__name__
+
+
+def _probe_disk_size(api, node: str, kind: str, vmid: str, disk: str) -> str | None:
+    """Try to read the current disk's size from the guest config.
+
+    Returns the size string (e.g. '10G') on success, None on any failure.
+    """
+    return _read_disk_size(api, node, kind, vmid, disk)[0]
 
 
 def _parse_size_bytes(s: str) -> int | None:
@@ -301,24 +317,13 @@ def plan_disk_resize(
     n = node or api.config.node
 
     current: dict = {}
-    current_str: str | None = None
-    config_read_failed = False
-
-    try:
-        cfg = api._get(f"/nodes/{n}/{kind}/{vmid}/config")
-        if isinstance(cfg, dict):
-            disk_entry = cfg.get(disk)
-            if isinstance(disk_entry, str):
-                for part in disk_entry.split(","):
-                    part = part.strip()
-                    if part.startswith("size="):
-                        current_str = part[5:]
-                        current["disk"] = disk
-                        current["current_size"] = current_str
-                        break
-    except Exception as e:
-        config_read_failed = True
-        current["config_read_error"] = type(e).__name__
+    current_str, read_error = _read_disk_size(api, n, kind, vmid, disk)
+    config_read_failed = read_error is not None
+    if read_error is not None:
+        current["config_read_error"] = read_error
+    elif current_str is not None:
+        current["disk"] = disk
+        current["current_size"] = current_str
 
     # Determine risk and blast based on size direction.
     if _is_relative_grow(size):

@@ -630,6 +630,16 @@ def test_plan_config_set_captures_current_config():
     assert p.current["config"]["memory"] == 512
 
 
+def test_plan_config_set_masks_cipassword_in_current_config():
+    # Guest config GET may return cloud-init secrets (e.g. cipassword) inline. The plan's
+    # Plan.current is written verbatim to the tamper-evident PROVE ledger on every call
+    # (even confirm=False) — the raw secret must never land there.
+    api = _fake_api(config_data={"cores": 2, "cipassword": "SUPERSECRET", "digest": "x"})
+    p = plan_config_set(api, "102", {"cores": 4})
+    assert p.current["config"]["cipassword"] != "SUPERSECRET"
+    assert "SUPERSECRET" not in str(p.current)
+
+
 def test_plan_config_set_handles_read_error_gracefully():
     api = _fake_api(raise_on_get=True)
     p = plan_config_set(api, "102", {"cores": 4})
@@ -751,6 +761,14 @@ def test_plan_config_revert_stores_prior_in_current():
     p = plan_config_revert(api, "102", {"cores": 2})
     assert "prior_config" in p.current
     assert p.current["prior_config"]["cores"] == 2
+
+
+def test_plan_config_revert_masks_cipassword_in_current_config():
+    # Same secret-leak class as plan_config_set: the live-read snapshot lands in Plan.current
+    # (written to the PROVE ledger unconditionally) and must never carry a raw cipassword.
+    api = _fake_api(config_data={"cores": 4, "cipassword": "SUPERSECRET", "digest": "x"})
+    p = plan_config_revert(api, "102", {"cores": 2})
+    assert "SUPERSECRET" not in str(p.current)
 
 
 def test_plan_config_revert_reboot_hint_for_cores():

@@ -48,6 +48,7 @@ from __future__ import annotations
 import re
 
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
+from .cloudinit import _mask_secrets
 from .planning import RISK_LOW, RISK_MEDIUM, Plan
 
 # ---------------------------------------------------------------------------
@@ -95,6 +96,12 @@ _INDEXED_PREFIXES_QEMU_ONLY = re.compile(r"^(serial|parallel|usb)\d+\Z")
 # guest_config_revert rather than failing (PVE will 400 on them).
 _COMPUTED_KEYS = frozenset({
     "digest", "lock",
+})
+
+# Keys whose change is likely to require a guest reboot to take effect. Shared by
+# plan_config_set and plan_config_revert's reboot-hint check.
+_REBOOT_KEYS = frozenset({
+    "cores", "memory", "swap", "cpulimit", "sockets", "numa", "kvm", "scsihw", "ostype",
 })
 
 # LXC raw-config keys that are not settable via the API config endpoint.
@@ -163,6 +170,18 @@ def _put_config(api, path: str, data: dict):
     SHAPE-RISK: confirm 200/204 vs 405 at live smoke; also confirm QEMU sync vs async.
     """
     return api._put(path, data)
+
+
+def _safe_read_config(api, n: str, kind: str, vmid: str) -> tuple[dict, str | None]:
+    """One safe GET of the guest config for a plan preview — never raises.
+
+    Returns (config, read_error); read_error is the raising exception's class name,
+    or None if the read succeeded. Shared by plan_config_set and plan_config_revert.
+    """
+    try:
+        return api._get(f"/nodes/{n}/{kind}/{vmid}/config") or {}, None
+    except Exception as e:
+        return {}, type(e).__name__
 
 
 # ---------------------------------------------------------------------------
@@ -334,14 +353,14 @@ def plan_config_set(api, vmid: str, changes: dict, kind: str = "lxc",
     # One safe read to build the diff — from the SAME node the mutation will target,
     # so the recorded plan/PROVE snapshot matches what gets written (multi-node clusters).
     n = node or api.config.node
-    current_cfg: dict = {}
-    read_error: str | None = None
-    try:
-        current_cfg = api._get(
-            f"/nodes/{n}/{kind}/{vmid}/config"
-        ) or {}
-    except Exception as e:
-        read_error = type(e).__name__
+    current_cfg, read_error = _safe_read_config(api, n, kind, vmid)
+    # PVE's config GET can return cloud-init secrets (e.g. cipassword) inline alongside
+    # disk/net config (see cloudinit.py's SR-2). Mask them before they reach the diff or
+    # Plan.current — the latter is written verbatim to the PROVE ledger on every call,
+    # confirm=False dry-runs included. Changeable/deletable keys are always drawn from the
+    # SET allowlist (_check_changes), which never includes a secret key, so masking here
+    # cannot hide a real "from" value for any key actually being changed.
+    current_cfg = _mask_secrets(current_cfg)
 
     # Build per-key diff for display in the plan.
     diff: dict = {}
@@ -351,8 +370,6 @@ def plan_config_set(api, vmid: str, changes: dict, kind: str = "lxc",
         diff[k] = {"from": current_cfg.get(k, "<unset>"), "to": "<deleted>"}
 
     # Determine if a reboot is expected for any changed key.
-    _REBOOT_KEYS = frozenset({"cores", "memory", "swap", "cpulimit", "sockets", "numa",
-                               "kvm", "scsihw", "ostype"})
     needs_reboot = bool(
         (set(to_set) | set(to_delete)) & _REBOOT_KEYS
     )
@@ -409,14 +426,12 @@ def plan_config_revert(api, vmid: str, prior_config: dict, kind: str = "lxc",
 
     # One safe read to build the diff — from the SAME node the revert will target.
     n = node or api.config.node
-    current_cfg: dict = {}
-    read_error: str | None = None
-    try:
-        current_cfg = api._get(
-            f"/nodes/{n}/{kind}/{vmid}/config"
-        ) or {}
-    except Exception as e:
-        read_error = type(e).__name__
+    current_cfg, read_error = _safe_read_config(api, n, kind, vmid)
+    # See plan_config_set: mask cloud-init secrets (e.g. cipassword) that PVE's config GET
+    # may return inline, before the snapshot reaches the diff or Plan.current (written
+    # verbatim to the PROVE ledger). writable_prior/to_delete are always drawn from the
+    # SET allowlist, which never includes a secret key, so masking here is safe.
+    current_cfg = _mask_secrets(current_cfg)
 
     current_writable = _strip_computed(current_cfg)
     to_delete = sorted(
@@ -452,8 +467,6 @@ def plan_config_revert(api, vmid: str, prior_config: dict, kind: str = "lxc",
             f"{skipped!r}"
         )
 
-    _REBOOT_KEYS = frozenset({"cores", "memory", "swap", "cpulimit", "sockets", "numa",
-                               "kvm", "scsihw", "ostype"})
     needs_reboot = bool((set(writable_prior) | set(to_delete)) & _REBOOT_KEYS)
     if needs_reboot:
         blast.append(

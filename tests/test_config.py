@@ -278,6 +278,35 @@ def test_audit_keyed_off_no_key_path_warns(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# F4b — redact_ledger permissive default must warn, like every other
+# permissive-by-default security toggle in _build().
+# ---------------------------------------------------------------------------
+
+def test_redact_ledger_off_warns_ledger_may_carry_secrets(monkeypatch):
+    """PROXIMO_LEDGER_REDACT unset (the default: full command/SQL body recorded) must warn that
+    ct_exec/ct_psql/pve_agent_exec write the raw command/SQL — which can carry secrets like a
+    password on the argv — into the PROVE ledger."""
+    _base_env(monkeypatch)  # PROXIMO_LEDGER_REDACT deliberately not set
+    with pytest.warns(UserWarning, match="(?i)ledger_redact|redact_ledger"):
+        cfg = ProximoConfig.from_env()
+    assert cfg.redact_ledger is False
+
+
+def test_redact_ledger_on_does_not_warn(monkeypatch):
+    """Opting in to redaction must not trigger the permissive-default warning (cry-wolf)."""
+    import warnings as _w
+    _base_env(monkeypatch, PROXIMO_LEDGER_REDACT="1")
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        cfg = ProximoConfig.from_env()
+    redact_warns = [str(w.message) for w in caught
+                    if "ledger_redact" in str(w.message).lower()
+                    or "redact_ledger" in str(w.message).lower()]
+    assert not redact_warns, f"redact-off warning fired even though redact_ledger is on: {redact_warns}"
+    assert cfg.redact_ledger is True
+
+
+# ---------------------------------------------------------------------------
 # F5 — from_env() warning accurately describes backend behaviour (fail-closed)
 # ---------------------------------------------------------------------------
 

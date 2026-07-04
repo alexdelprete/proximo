@@ -214,6 +214,9 @@ def test_config_manual_pin_matches_sink_no_warn(monkeypatch, tmp_path):
         PROXIMO_AUDIT_EXPECTED_HEAD=_HEAD,
         PROXIMO_AUDIT_ANCHOR_SINK="file",
         PROXIMO_AUDIT_ANCHOR_FILE_PATH=str(anchor),
+        # Opt in to ledger redaction so the (unrelated) permissive-default warning doesn't trip
+        # the blanket "any UserWarning is a failure" check below — this test is about anchor drift.
+        PROXIMO_LEDGER_REDACT="1",
     )
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)

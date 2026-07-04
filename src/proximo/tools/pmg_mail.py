@@ -819,7 +819,8 @@ def pmg_tracker_detail(
     """Get tracking detail for a specific mail ID (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tracker/{id}.
-    id_: raw mail tracking ID (passed as URL path segment, no sanitisation).
+    id_: mail/queue tracker ID, validated path-segment-safe (rejects '..', '/',
+    control/whitespace chars) before use — see _check_tracker_id.
     Maps start/end Unix epoch → starttime/endtime query params.
     """
     cfg, pmg = _proximo_server._pmg()

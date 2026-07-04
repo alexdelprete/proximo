@@ -508,6 +508,30 @@ def quarantine_spam(
 # W2 READ operations
 # ---------------------------------------------------------------------------
 
+def _epoch_range_params(start: int | None, end: int | None) -> dict:
+    """Validate optional Unix-epoch start/end params and return as a starttime/endtime dict.
+
+    Shared by every PMG read op that maps tool start/end → API starttime/endtime
+    query params (statistics/tracker/quarantine time-range filters).
+    """
+    params: dict = {}
+    if start is not None:
+        try:
+            params["starttime"] = int(start)
+        except (ValueError, TypeError) as exc:
+            raise ProximoError(
+                f"invalid start: {start!r} (must be an integer Unix epoch)"
+            ) from exc
+    if end is not None:
+        try:
+            params["endtime"] = int(end)
+        except (ValueError, TypeError) as exc:
+            raise ProximoError(
+                f"invalid end: {end!r} (must be an integer Unix epoch)"
+            ) from exc
+    return params
+
+
 def statistics_domains(
     api: PmgBackend,
     start: int | None = None,
@@ -520,25 +544,7 @@ def statistics_domains(
     PMG 9.1 live-verified path via pmgsh ls.
     Maps tool start/end epoch params → starttime/endtime query params.
     """
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
     return api._get("/statistics/domains", params=params if params else None) or []
 
 
@@ -554,25 +560,7 @@ def statistics_virus(
     PMG 9.1 live-verified path via pmgsh ls.
     Maps tool start/end epoch params → starttime/endtime query params.
     """
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
     return api._get("/statistics/virus", params=params if params else None) or []
 
 
@@ -588,25 +576,7 @@ def statistics_spamscores(
     PMG 9.1 live-verified path via pmgsh ls.
     Maps tool start/end epoch params → starttime/endtime query params.
     """
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
     return api._get("/statistics/spamscores", params=params if params else None) or []
 
 
@@ -1495,25 +1465,8 @@ def tracker_list(
     limit: max results 0–100000 (default 2000).
     """
     node = _check_node(node)
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {"limit": int(limit)}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
+    params["limit"] = int(limit)
     if from_ is not None:
         params["from"] = from_
     if target is not None:
@@ -1544,25 +1497,7 @@ def tracker_detail(
     """
     node = _check_node(node)
     id_ = _check_tracker_id(id_)
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
     return api._get(
         f"/nodes/{node}/tracker/{id_}", params=params if params else None
     ) or []
@@ -1583,25 +1518,8 @@ def quarantine_virus(
     Maps start/end epoch params → starttime/endtime query params.
     """
     effective_pmail = pmail if pmail is not None else api.config.username
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {"pmail": effective_pmail}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
+    params["pmail"] = effective_pmail
     return api._get("/quarantine/virus", params=params) or []
 
 
@@ -1620,25 +1538,8 @@ def quarantine_attachment(
     Maps start/end epoch params → starttime/endtime query params.
     """
     effective_pmail = pmail if pmail is not None else api.config.username
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {"pmail": effective_pmail}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
+    params["pmail"] = effective_pmail
     return api._get("/quarantine/attachment", params=params) or []
 
 
@@ -1678,25 +1579,8 @@ def quarantine_spamusers(
     Maps start/end epoch params → starttime/endtime query params.
     """
     quarantine_type = _check_quarantine_type(quarantine_type)
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {"quarantine-type": quarantine_type}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
+    params["quarantine-type"] = quarantine_type
     return api._get("/quarantine/spamusers", params=params) or []
 
 
@@ -1724,25 +1608,8 @@ def statistics_mailcount(
         raise ProximoError(
             f"invalid timespan: {timespan!r} — must be in range 3600–31622400"
         )
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {"timespan": timespan_int}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
+    params["timespan"] = timespan_int
     return api._get("/statistics/mailcount", params=params) or []
 
 
@@ -1764,25 +1631,7 @@ def statistics_sender(
              parameter; passing it causes HTTP 400 'Parameter verification failed.'
     Maps start/end epoch params → starttime/endtime query params.
     """
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
     if filter_ is not None:
         params["filter"] = filter_
     # orderby is NOT sent to PMG — /statistics/sender rejects it with HTTP 400.
@@ -1806,25 +1655,7 @@ def statistics_receiver(
     orderby: optional sort spec — raw passthrough, no validation.
     Maps start/end epoch params → starttime/endtime query params.
     """
-    if start is not None:
-        try:
-            int(start)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid start: {start!r} (must be an integer Unix epoch)"
-            ) from exc
-    if end is not None:
-        try:
-            int(end)
-        except (ValueError, TypeError) as exc:
-            raise ProximoError(
-                f"invalid end: {end!r} (must be an integer Unix epoch)"
-            ) from exc
-    params: dict = {}
-    if start is not None:
-        params["starttime"] = int(start)
-    if end is not None:
-        params["endtime"] = int(end)
+    params = _epoch_range_params(start, end)
     if filter_ is not None:
         params["filter"] = filter_
     if orderby is not None:
@@ -2518,6 +2349,45 @@ def when_group_delete(api: PmgBackend, ogroup: str) -> object:
     return _ruledb_group_delete(api, "when", ogroup)
 
 
+def _who_object_body(
+    type_: str,
+    *,
+    email: str | None = None,
+    domain: str | None = None,
+    regex: str | None = None,
+    ip: str | None = None,
+    cidr: str | None = None,
+    mode: str | None = None,
+    profile: str | None = None,
+    group: str | None = None,
+) -> dict:
+    """Build the type-dispatched request body shared by who_object_add/update."""
+    body: dict = {}
+    if type_ == "email":
+        if email is not None:
+            body["email"] = email
+    elif type_ == "domain":
+        if domain is not None:
+            body["domain"] = domain
+    elif type_ == "regex":
+        if regex is not None:
+            body["regex"] = regex
+    elif type_ == "ip":
+        if ip is not None:
+            body["ip"] = ip
+    elif type_ == "network":
+        if cidr is not None:
+            body["cidr"] = cidr
+    elif type_ == "ldap":
+        if mode is not None:
+            body["mode"] = mode
+        if profile is not None:
+            body["profile"] = profile
+        if group is not None:
+            body["group"] = group
+    return body
+
+
 def who_object_add(
     api: PmgBackend,
     ogroup: str,
@@ -2553,29 +2423,10 @@ def who_object_add(
     """
     ogroup = _check_ruledb_id(ogroup)
     type_ = _check_who_object_type(type_)
-    body: dict = {}
-    if type_ == "email":
-        if email is not None:
-            body["email"] = email
-    elif type_ == "domain":
-        if domain is not None:
-            body["domain"] = domain
-    elif type_ == "regex":
-        if regex is not None:
-            body["regex"] = regex
-    elif type_ == "ip":
-        if ip is not None:
-            body["ip"] = ip
-    elif type_ == "network":
-        if cidr is not None:
-            body["cidr"] = cidr
-    elif type_ == "ldap":
-        if mode is not None:
-            body["mode"] = mode
-        if profile is not None:
-            body["profile"] = profile
-        if group is not None:
-            body["group"] = group
+    body = _who_object_body(
+        type_, email=email, domain=domain, regex=regex, ip=ip,
+        cidr=cidr, mode=mode, profile=profile, group=group,
+    )
     return api._post(f"/config/ruledb/who/{ogroup}/{type_}", data=body)
 
 
@@ -2609,29 +2460,10 @@ def who_object_update(
     ogroup = _check_ruledb_id(ogroup)
     type_ = _check_who_object_type(type_)
     id_ = _check_ruledb_id(id_)
-    body: dict = {}
-    if type_ == "email":
-        if email is not None:
-            body["email"] = email
-    elif type_ == "domain":
-        if domain is not None:
-            body["domain"] = domain
-    elif type_ == "regex":
-        if regex is not None:
-            body["regex"] = regex
-    elif type_ == "ip":
-        if ip is not None:
-            body["ip"] = ip
-    elif type_ == "network":
-        if cidr is not None:
-            body["cidr"] = cidr
-    elif type_ == "ldap":
-        if mode is not None:
-            body["mode"] = mode
-        if profile is not None:
-            body["profile"] = profile
-        if group is not None:
-            body["group"] = group
+    body = _who_object_body(
+        type_, email=email, domain=domain, regex=regex, ip=ip,
+        cidr=cidr, mode=mode, profile=profile, group=group,
+    )
     return api._put(f"/config/ruledb/who/{ogroup}/{type_}/{id_}", data=body)
 
 
@@ -2700,15 +2532,21 @@ def plan_who_group_update(
     affects mail matching immediately.
     """
     ogroup = _check_ruledb_id(ogroup)
+    changes = {k: v for k, v in {"name": name, "info": info, "and": and_, "invert": invert}.items()
+               if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_who_group_update",
         target=f"config/ruledb/who/{ogroup}/config",
-        change=f"update 'who' object group {ogroup} config",
+        change=(f"update 'who' object group {ogroup} config: {change_summary}"
+                if changes else f"update 'who' object group {ogroup} config"),
         current={},
         blast_radius=[
             f"modifies the configuration of 'who' group {ogroup}",
             "if the group is bound to an active rule, matching changes take effect immediately",
             "review all rules referencing this group before confirming",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -2788,15 +2626,21 @@ def plan_what_group_update(
     affects mail matching immediately.
     """
     ogroup = _check_ruledb_id(ogroup)
+    changes = {k: v for k, v in {"name": name, "info": info, "and": and_, "invert": invert}.items()
+               if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_what_group_update",
         target=f"config/ruledb/what/{ogroup}/config",
-        change=f"update 'what' object group {ogroup} config",
+        change=(f"update 'what' object group {ogroup} config: {change_summary}"
+                if changes else f"update 'what' object group {ogroup} config"),
         current={},
         blast_radius=[
             f"modifies the configuration of 'what' group {ogroup}",
             "if the group is bound to an active rule, matching changes take effect immediately",
             "review all rules referencing this group before confirming",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -2876,15 +2720,21 @@ def plan_when_group_update(
     affects mail matching immediately.
     """
     ogroup = _check_ruledb_id(ogroup)
+    changes = {k: v for k, v in {"name": name, "info": info, "and": and_, "invert": invert}.items()
+               if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_when_group_update",
         target=f"config/ruledb/when/{ogroup}/config",
-        change=f"update 'when' object group {ogroup} config",
+        change=(f"update 'when' object group {ogroup} config: {change_summary}"
+                if changes else f"update 'when' object group {ogroup} config"),
         current={},
         blast_radius=[
             f"modifies the configuration of 'when' group {ogroup}",
             "if the group is bound to an active rule, matching changes take effect immediately",
             "review all rules referencing this group before confirming",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -2983,15 +2833,25 @@ def plan_who_object_update(
     ogroup = _check_ruledb_id(ogroup)
     type_ = _check_who_object_type(type_)
     id_ = _check_ruledb_id(id_)
+    # Reuse the same type-dispatch body-builder the op uses, so the preview shows
+    # exactly what would be sent — not just which object is being touched.
+    changes = _who_object_body(
+        type_, email=email, domain=domain, regex=regex, ip=ip,
+        cidr=cidr, mode=mode, profile=profile, group=group,
+    )
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_who_object_update",
         target=f"config/ruledb/who/{ogroup}/{type_}/{id_}",
-        change=f"update {type_} object {id_} in 'who' group {ogroup}",
+        change=(f"update {type_} object {id_} in 'who' group {ogroup}: {change_summary}"
+                if changes else f"update {type_} object {id_} in 'who' group {ogroup}"),
         current={},
         blast_radius=[
             f"modifies {type_} object {id_} in 'who' group {ogroup}",
             "if the group is bound to an active rule, the change takes effect immediately",
             "verify the new value matches your intended mail filter target",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -3088,6 +2948,41 @@ def _check_action_object_id(id_: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _what_object_body(
+    type_: str,
+    *,
+    contenttype: str | None = None,
+    only_content: bool | None = None,
+    field: str | None = None,
+    value: str | None = None,
+    top_part_only: bool | None = None,
+    spamlevel: int | None = None,
+    filename: str | None = None,
+) -> dict:
+    """Build the type-dispatched request body shared by what_object_add/update."""
+    body: dict = {}
+    if type_ in ("contenttype", "archivefilter"):
+        if contenttype is not None:
+            body["contenttype"] = contenttype
+        if only_content is not None:
+            body["only-content"] = only_content
+    elif type_ == "matchfield":
+        if field is not None:
+            body["field"] = field
+        if value is not None:
+            body["value"] = value
+        if top_part_only is not None:
+            body["top-part-only"] = top_part_only
+    elif type_ == "spamfilter":
+        if spamlevel is not None:
+            body["spamlevel"] = spamlevel
+    elif type_ in ("filenamefilter", "archivefilenamefilter"):
+        if filename is not None:
+            body["filename"] = filename
+    # virusfilter: empty body (no type-specific fields)
+    return body
+
+
 def what_object_add(
     api: PmgBackend,
     ogroup: str,
@@ -3124,26 +3019,10 @@ def what_object_add(
     """
     ogroup = _check_ruledb_id(ogroup)
     type_ = _check_what_object_type(type_)
-    body: dict = {}
-    if type_ in ("contenttype", "archivefilter"):
-        if contenttype is not None:
-            body["contenttype"] = contenttype
-        if only_content is not None:
-            body["only-content"] = only_content
-    elif type_ == "matchfield":
-        if field is not None:
-            body["field"] = field
-        if value is not None:
-            body["value"] = value
-        if top_part_only is not None:
-            body["top-part-only"] = top_part_only
-    elif type_ == "spamfilter":
-        if spamlevel is not None:
-            body["spamlevel"] = spamlevel
-    elif type_ in ("filenamefilter", "archivefilenamefilter"):
-        if filename is not None:
-            body["filename"] = filename
-    # virusfilter: empty body (no type-specific fields)
+    body = _what_object_body(
+        type_, contenttype=contenttype, only_content=only_content, field=field,
+        value=value, top_part_only=top_part_only, spamlevel=spamlevel, filename=filename,
+    )
     return api._post(f"/config/ruledb/what/{ogroup}/{type_}", data=body)
 
 
@@ -3177,25 +3056,10 @@ def what_object_update(
     ogroup = _check_ruledb_id(ogroup)
     type_ = _check_what_object_type(type_)
     id_ = _check_ruledb_id(id_)
-    body: dict = {}
-    if type_ in ("contenttype", "archivefilter"):
-        if contenttype is not None:
-            body["contenttype"] = contenttype
-        if only_content is not None:
-            body["only-content"] = only_content
-    elif type_ == "matchfield":
-        if field is not None:
-            body["field"] = field
-        if value is not None:
-            body["value"] = value
-        if top_part_only is not None:
-            body["top-part-only"] = top_part_only
-    elif type_ == "spamfilter":
-        if spamlevel is not None:
-            body["spamlevel"] = spamlevel
-    elif type_ in ("filenamefilter", "archivefilenamefilter"):
-        if filename is not None:
-            body["filename"] = filename
+    body = _what_object_body(
+        type_, contenttype=contenttype, only_content=only_content, field=field,
+        value=value, top_part_only=top_part_only, spamlevel=spamlevel, filename=filename,
+    )
     return api._put(f"/config/ruledb/what/{ogroup}/{type_}/{id_}", data=body)
 
 
@@ -3694,15 +3558,25 @@ def plan_what_object_update(
     ogroup = _check_ruledb_id(ogroup)
     type_ = _check_what_object_type(type_)
     id_ = _check_ruledb_id(id_)
+    # Reuse the same type-dispatch body-builder the op uses, so the preview shows
+    # exactly what would be sent — not just which object is being touched.
+    changes = _what_object_body(
+        type_, contenttype=contenttype, only_content=only_content, field=field,
+        value=value, top_part_only=top_part_only, spamlevel=spamlevel, filename=filename,
+    )
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_what_object_update",
         target=f"config/ruledb/what/{ogroup}/{type_}/{id_}",
-        change=f"update {type_} object {id_} in 'what' group {ogroup}",
+        change=(f"update {type_} object {id_} in 'what' group {ogroup}: {change_summary}"
+                if changes else f"update {type_} object {id_} in 'what' group {ogroup}"),
         current={},
         blast_radius=[
             f"modifies {type_} object {id_} in 'what' group {ogroup}",
             "if the group is bound to an active rule, the change takes effect immediately",
             "verify the new value matches your intended mail content filter target",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -3781,15 +3655,20 @@ def plan_when_object_update(
     """
     ogroup = _check_ruledb_id(ogroup)
     id_ = _check_ruledb_id(id_)
+    changes = {k: v for k, v in {"start": start, "end": end}.items() if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_when_object_update",
         target=f"config/ruledb/when/{ogroup}/timeframe/{id_}",
-        change=f"update timeframe object {id_} in 'when' group {ogroup}",
+        change=(f"update timeframe object {id_} in 'when' group {ogroup}: {change_summary}"
+                if changes else f"update timeframe object {id_} in 'when' group {ogroup}"),
         current={},
         blast_radius=[
             f"modifies timeframe object {id_} in 'when' group {ogroup}",
             "if the group is bound to an active rule, the change takes effect immediately",
             "verify the new start/end times match your intended scheduling window",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -3852,21 +3731,34 @@ def plan_action_bcc_create(name: str, target: str) -> Plan:
     )
 
 
-def plan_action_bcc_update(id_: str) -> Plan:
+def plan_action_bcc_update(
+    id_: str,
+    name: str | None = None,
+    target: str | None = None,
+    info: str | None = None,
+    original: bool | None = None,
+) -> Plan:
     """Preview updating a BCC action object in the PMG RuleDB.  PURE — no API call.
 
     RISK_MEDIUM: modifies an existing action; active rules referencing it are affected.
     """
     id_ = _check_action_object_id(id_)
+    changes = {k: v for k, v in
+               {"name": name, "target": target, "info": info, "original": original}.items()
+               if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_action_bcc_update",
         target=f"config/ruledb/action/bcc/{id_}",
-        change=f"update BCC action object {id_}",
+        change=(f"update BCC action object {id_}: {change_summary}"
+                if changes else f"update BCC action object {id_}"),
         current={},
         blast_radius=[
             f"modifies BCC action object {id_}",
             "if the action is attached to an active rule, the change takes effect immediately",
             "BCC target change affects where copies of matched mail are sent",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -3901,21 +3793,34 @@ def plan_action_field_create(name: str, field: str, value: str) -> Plan:
     )
 
 
-def plan_action_field_update(id_: str) -> Plan:
+def plan_action_field_update(
+    id_: str,
+    name: str | None = None,
+    field: str | None = None,
+    value: str | None = None,
+    info: str | None = None,
+) -> Plan:
     """Preview updating a field-modification action object in the PMG RuleDB.  PURE — no API call.
 
     RISK_MEDIUM: modifies an existing action; active rules referencing it are affected.
     """
     id_ = _check_action_object_id(id_)
+    changes = {k: v for k, v in
+               {"name": name, "field": field, "value": value, "info": info}.items()
+               if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_action_field_update",
         target=f"config/ruledb/action/field/{id_}",
-        change=f"update field action object {id_}",
+        change=(f"update field action object {id_}: {change_summary}"
+                if changes else f"update field action object {id_}"),
         current={},
         blast_radius=[
             f"modifies field action object {id_}",
             "if the action is attached to an active rule, the change takes effect immediately",
             "field change affects what header value is injected into matched messages",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -3950,21 +3855,37 @@ def plan_action_notification_create(name: str, to: str) -> Plan:
     )
 
 
-def plan_action_notification_update(id_: str) -> Plan:
+def plan_action_notification_update(
+    id_: str,
+    name: str | None = None,
+    to: str | None = None,
+    subject: str | None = None,
+    body_text: str | None = None,
+    info: str | None = None,
+    attach: bool | None = None,
+) -> Plan:
     """Preview updating a notification action object in the PMG RuleDB.  PURE — no API call.
 
     RISK_MEDIUM: modifies an existing action; active rules referencing it are affected.
     """
     id_ = _check_action_object_id(id_)
+    changes = {k: v for k, v in
+               {"name": name, "to": to, "subject": subject, "body": body_text,
+                "info": info, "attach": attach}.items()
+               if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_action_notification_update",
         target=f"config/ruledb/action/notification/{id_}",
-        change=f"update notification action object {id_}",
+        change=(f"update notification action object {id_}: {change_summary}"
+                if changes else f"update notification action object {id_}"),
         current={},
         blast_radius=[
             f"modifies notification action object {id_}",
             "if the action is attached to an active rule, the change takes effect immediately",
             "recipient/subject/body changes affect notifications sent for matched mail",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -3999,21 +3920,36 @@ def plan_action_disclaimer_create(name: str) -> Plan:
     )
 
 
-def plan_action_disclaimer_update(id_: str) -> Plan:
+def plan_action_disclaimer_update(
+    id_: str,
+    name: str | None = None,
+    disclaimer: str | None = None,
+    info: str | None = None,
+    position: str | None = None,
+    add_separator: bool | None = None,
+) -> Plan:
     """Preview updating a disclaimer action object in the PMG RuleDB.  PURE — no API call.
 
     RISK_MEDIUM: modifies an existing action; active rules referencing it are affected.
     """
     id_ = _check_action_object_id(id_)
+    changes = {k: v for k, v in
+               {"name": name, "disclaimer": disclaimer, "info": info,
+                "position": position, "add-separator": add_separator}.items()
+               if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_action_disclaimer_update",
         target=f"config/ruledb/action/disclaimer/{id_}",
-        change=f"update disclaimer action object {id_}",
+        change=(f"update disclaimer action object {id_}: {change_summary}"
+                if changes else f"update disclaimer action object {id_}"),
         current={},
         blast_radius=[
             f"modifies disclaimer action object {id_}",
             "if the action is attached to an active rule, the change takes effect immediately",
             "disclaimer text/position changes affect all messages matched by rules using this action",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -4048,21 +3984,36 @@ def plan_action_removeattachments_create(name: str) -> Plan:
     )
 
 
-def plan_action_removeattachments_update(id_: str) -> Plan:
+def plan_action_removeattachments_update(
+    id_: str,
+    name: str | None = None,
+    text: str | None = None,
+    info: str | None = None,
+    all_: bool | None = None,
+    quarantine: bool | None = None,
+) -> Plan:
     """Preview updating a remove-attachments action object in the PMG RuleDB.  PURE — no API call.
 
     RISK_MEDIUM: modifies an existing action; active rules referencing it are affected.
     """
     id_ = _check_action_object_id(id_)
+    changes = {k: v for k, v in
+               {"name": name, "text": text, "info": info,
+                "all": all_, "quarantine": quarantine}.items()
+               if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_action_removeattachments_update",
         target=f"config/ruledb/action/removeattachments/{id_}",
-        change=f"update remove-attachments action object {id_}",
+        change=(f"update remove-attachments action object {id_}: {change_summary}"
+                if changes else f"update remove-attachments action object {id_}"),
         current={},
         blast_radius=[
             f"modifies remove-attachments action object {id_}",
             "if the action is attached to an active rule, the change takes effect immediately",
             "changes to all/quarantine/text affect how attachments are removed from matched mail",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified — this is a no-op update"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[
@@ -4517,16 +4468,28 @@ def plan_ruledb_rule_update(
         if active is None
         else "setting active=False deactivates the rule (stops mail processing)"
     )
+    # `active` already gets its own dedicated note above — disclose the remaining fields here.
+    changes = {k: v for k, v in {
+        "name": name, "priority": priority, "direction": direction,
+        "from-and": from_and, "from-invert": from_invert,
+        "to-and": to_and, "to-invert": to_invert,
+        "what-and": what_and, "what-invert": what_invert,
+        "when-and": when_and, "when-invert": when_invert,
+    }.items() if v is not None}
+    change_summary = "; ".join(f"{k}={v!r}" for k, v in sorted(changes.items()))
     return Plan(
         action="pmg_ruledb_rule_update",
         target=f"config/ruledb/rules/{id_}/config",
-        change=f"update RuleDB rule {id_} configuration",
+        change=(f"update RuleDB rule {id_} configuration: {change_summary}"
+                if changes else f"update RuleDB rule {id_} configuration"),
         current={},
         blast_radius=[
             f"modifies configuration of rule {id_}",
             active_note,
             _RULE_MAIL_FLOW_WARNING,
             "changes to an active rule take effect immediately on new mail",
+            (f"fields being changed: {change_summary}" if changes
+             else "no fields specified (other than possibly active) — see active flag above"),
         ],
         risk=RISK_MEDIUM,
         risk_reasons=[

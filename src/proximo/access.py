@@ -151,6 +151,22 @@ def _is_administrator_role(roles: str) -> bool:
     return "Administrator" in {r.strip() for r in roles.split(",")}
 
 
+def _check_acl_target(target: str, kind: str) -> str:
+    """Validate + normalize an ACL target for the given kind ('user'/'group'/'token')."""
+    if kind == "user":
+        return _check_userid(target)
+    if kind == "group":
+        return _check_groupid(target)
+    if kind == "token":
+        if "!" not in target:
+            raise ProximoError(
+                f"invalid token target: {target!r} — expected 'user@realm!tokenid'"
+            )
+        user_part, _, token_part = target.partition("!")
+        return f"{_check_userid(user_part)}!{_check_tokenid(token_part)}"
+    raise ProximoError(f"invalid kind: {kind!r} (expected 'user', 'token', or 'group')")
+
+
 # ---------------------------------------------------------------------------
 # Read operations — audited but not confirm-gated
 # ---------------------------------------------------------------------------
@@ -290,21 +306,7 @@ def acl_modify(
     """
     path = _check_acl_path(path)
     roles = _check_roles(roles)
-    if kind not in ("user", "token", "group"):
-        raise ProximoError(f"invalid kind: {kind!r} (expected 'user', 'token', or 'group')")
-    # Validate the target according to kind.
-    if kind == "user":
-        target = _check_userid(target)
-    elif kind == "group":
-        target = _check_groupid(target)
-    else:
-        # token kind: expected format "user@realm!tokenid"
-        if "!" not in target:
-            raise ProximoError(
-                f"invalid token target: {target!r} — expected 'user@realm!tokenid'"
-            )
-        user_part, _, token_part = target.partition("!")
-        target = f"{_check_userid(user_part)}!{_check_tokenid(token_part)}"
+    target = _check_acl_target(target, kind)
 
     data: dict = {
         "path": path,
@@ -454,19 +456,7 @@ def plan_acl_modify(
     """
     path = _check_acl_path(path)
     roles = _check_roles(roles)
-    if kind not in ("user", "token", "group"):
-        raise ProximoError(f"invalid kind: {kind!r} (expected 'user', 'token', or 'group')")
-    if kind == "user":
-        target = _check_userid(target)
-    elif kind == "group":
-        target = _check_groupid(target)
-    else:
-        if "!" not in target:
-            raise ProximoError(
-                f"invalid token target: {target!r} — expected 'user@realm!tokenid'"
-            )
-        user_part, _, token_part = target.partition("!")
-        target = f"{_check_userid(user_part)}!{_check_tokenid(token_part)}"
+    target = _check_acl_target(target, kind)
 
     # ONE SAFE READ: current ACL state (fail-closed — None signals the read failed).
     acl_entries: list[dict] | None
@@ -581,19 +571,7 @@ def plan_prune_grant(
     Validates inputs even on the plan path — same as all other plan functions.
     """
     path = _check_acl_path(path)
-    if kind == "user":
-        target = _check_userid(target)
-    elif kind == "group":
-        target = _check_groupid(target)
-    elif kind == "token":
-        if "!" not in target:
-            raise ProximoError(
-                f"invalid token target: {target!r} — expected 'user@realm!tokenid'"
-            )
-        user_part, _, token_part = target.partition("!")
-        target = f"{_check_userid(user_part)}!{_check_tokenid(token_part)}"
-    else:
-        raise ProximoError(f"invalid kind: {kind!r} (expected 'user', 'token', or 'group')")
+    target = _check_acl_target(target, kind)
     roleid = _check_roleid(roleid)
     if narrow_role is not None:
         narrow_role = _check_roleid(narrow_role)
@@ -693,7 +671,7 @@ def plan_prune_grant(
     # shadowed_inherited=set() (it only reports restored/widened inherited grants), so it never
     # names the grant actually being removed. Add it ALWAYS, even on ACL-read failure (the
     # primary revoke target is known regardless of whether the read succeeded).
-    primary_sev = "high" if (path in ("/", "/storage") or roleid == "Administrator"
+    primary_sev = "high" if (_is_root_or_broad(path) or roleid == "Administrator"
                              or revoke.risk == RISK_HIGH) else "medium"
     primary_loss = {"principal": target, "kind": kind, "via": "direct grant removed",
                     "change": "loses", "roles": [roleid], "at": path, "severity": primary_sev}

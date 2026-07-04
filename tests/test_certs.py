@@ -481,6 +481,17 @@ class TestPlanAcmePluginUpdate:
         blast_text = " ".join(plan.blast_radius).lower()
         assert "credential" in blast_text or "domain" in blast_text
 
+    def test_redacts_data_credential_from_current(self):
+        # acme_plugin_get's own documented shape includes `data` (the DNS provider's raw
+        # API credential). plan.current is written verbatim to the PROVE ledger on every
+        # call, dry-run included — the live credential must never land there.
+        api = _Api(get_returns={
+            "/cluster/acme/plugins/dns-cf": {"id": "dns-cf", "data": "CF_Token=LIVESECRET"},
+        })
+        plan = plan_acme_plugin_update(api, "dns-cf", api="cf")
+        assert "LIVESECRET" not in str(plan.current)
+        assert plan.current["data"] == "[redacted]"
+
 
 class TestPlanAcmePluginDelete:
     """Plugin delete must be HIGH + renewal breaks + TLS-lockout blast_radius."""
@@ -518,6 +529,16 @@ class TestPlanAcmePluginDelete:
         api = _Api(get_returns={"/cluster/acme/plugins/dns-cf": {}})
         plan = plan_acme_plugin_delete(api, "dns-cf")
         assert "credentials must be" in plan.note or "re-supplied" in plan.note
+
+    def test_redacts_data_credential_from_current(self):
+        # Same leak class as plan_acme_plugin_update: acme_plugin_get's documented shape
+        # includes `data` — must never reach Plan.current (PROVE ledger + dry-run response).
+        api = _Api(get_returns={
+            "/cluster/acme/plugins/dns-cf": {"id": "dns-cf", "data": "CF_Token=LIVESECRET"},
+        })
+        plan = plan_acme_plugin_delete(api, "dns-cf")
+        assert "LIVESECRET" not in str(plan.current)
+        assert plan.current["data"] == "[redacted]"
 
     def test_risk_reasons_mention_autorenewal_breaks(self):
         api = _Api(get_returns={"/cluster/acme/plugins/dns-cf": {}})

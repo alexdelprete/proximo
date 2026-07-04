@@ -263,6 +263,11 @@ class ApiBackend:
             token = f.read().strip()
         return {"Authorization": f"PVEAPIToken={token}"}
 
+    def _resolve_node(self, node: str | None) -> str:
+        """Validate `node` (if given) and resolve it, defaulting to the configured node."""
+        _check_node(node)
+        return node or self.config.node
+
     def _get(self, path: str):
         r = self._client.get(path, headers=self._auth_header())
         r.raise_for_status()
@@ -305,35 +310,34 @@ class ApiBackend:
         return self._get(f"/access/permissions{q}") or {}
 
     def node_status(self, node: str | None = None) -> dict:
-        _check_node(node)
-        return self._get(f"/nodes/{node or self.config.node}/status")
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/status")
 
     def list_guests(self, node: str | None = None) -> list[dict]:
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         lxc = self._get(f"/nodes/{n}/lxc") or []
         qemu = self._get(f"/nodes/{n}/qemu") or []
         return [{**g, "type": "lxc"} for g in lxc] + [{**g, "type": "qemu"} for g in qemu]
 
     def guest_status(self, vmid: str, kind: str = "lxc", node: str | None = None) -> dict:
         vmid, kind = _check_vmid(vmid), _check_kind(kind)
-        _check_node(node)
-        return self._get(f"/nodes/{node or self.config.node}/{kind}/{vmid}/status/current")
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/{kind}/{vmid}/status/current")
 
     def guest_power(self, vmid: str, action: str, kind: str = "lxc", node: str | None = None) -> dict:
         vmid, kind = _check_vmid(vmid), _check_kind(kind)
-        _check_node(node)
+        n = self._resolve_node(node)
         if action not in {"start", "stop", "reboot", "shutdown"}:
             raise ProximoError(f"unsupported power action: {action}")
         # MUTATION — the server layer must confirm-gate + audit before calling this.
-        return self._post(f"/nodes/{node or self.config.node}/{kind}/{vmid}/status/{action}")
+        return self._post(f"/nodes/{n}/{kind}/{vmid}/status/{action}")
 
     # --- snapshots (UNDO pillar). Create/rollback/delete are ASYNC — they return a task UPID. ---
 
     def _snap_base(self, vmid: str, kind: str, node: str | None) -> str:
         vmid, kind = _check_vmid(vmid), _check_kind(kind)
-        _check_node(node)
-        return f"/nodes/{node or self.config.node}/{kind}/{vmid}/snapshot"
+        n = self._resolve_node(node)
+        return f"/nodes/{n}/{kind}/{vmid}/snapshot"
 
     def snapshot_list(self, vmid: str, kind: str = "lxc", node: str | None = None) -> list[dict]:
         return self._get(self._snap_base(vmid, kind, node)) or []
@@ -360,22 +364,22 @@ class ApiBackend:
         return self._delete(f"{self._snap_base(vmid, kind, node)}/{snapname}", params)
 
     def task_status(self, upid: str, node: str | None = None) -> dict:
-        _check_node(node)
+        n = self._resolve_node(node)
         upid = _check_upid(upid)
-        return self._get(f"/nodes/{node or self.config.node}/tasks/{upid}/status")
+        return self._get(f"/nodes/{n}/tasks/{upid}/status")
 
     # --- node reads (DIAGNOSE pillar) ---
 
     def node_storage(self, node: str | None = None) -> list[dict]:
-        _check_node(node)
-        return self._get(f"/nodes/{node or self.config.node}/storage") or []
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/storage") or []
 
     def node_tasks(self, node: str | None = None, limit: int = 50) -> list[dict]:
-        _check_node(node)
+        n = self._resolve_node(node)
         limit = int(limit)  # int-cast: never let an arbitrary string into the query string
         if limit <= 0:
             limit = 50
-        return self._get(f"/nodes/{node or self.config.node}/tasks?limit={limit}") or []
+        return self._get(f"/nodes/{n}/tasks?limit={limit}") or []
 
     # --- qemu-agent plane (Wave 3) ---
     # Defense-in-depth: gate enforced HERE so a future caller reaching these methods directly
@@ -393,8 +397,7 @@ class ApiBackend:
             raise ProximoError(
                 f"VMID {vmid} not permitted by agent allowlist (fail-closed)"
             )
-        _check_node(node)
-        return vmid, (node or self.config.node)
+        return vmid, self._resolve_node(node)
 
     def agent_simple(self, vmid: str, node: str | None, command: str) -> dict:
         """Issue a no-parameter agent command (ping / info / get-* / fsfreeze-* / fstrim).
@@ -475,8 +478,7 @@ class ApiBackend:
 
         VERIFIED live (PVE 9.2): GET; entries carry devpath/health/size/model/serial/used.
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         return self._get(f"/nodes/{n}/disks/list") or []
 
     def node_disk_smart(self, disk: str, node: str | None = None) -> dict:
@@ -486,8 +488,7 @@ class ApiBackend:
         it does NOT trigger a self-test.
         """
         _check_disk(disk)
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         return self._get(f"/nodes/{n}/disks/smart?disk={quote(disk, safe='/')}") or {}
 
     def node_disk_wipe(self, disk: str, node: str | None = None) -> str | None:
@@ -497,8 +498,7 @@ class ApiBackend:
         Returns the worker UPID (async, like the sibling disk/storage ops). IRREVERSIBLE.
         """
         _check_disk(disk)
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         return self._put(f"/nodes/{n}/disks/wipedisk", {"disk": disk})  # Smoke-confirm: PUT, async UPID
 
     def node_disk_initgpt(self, disk: str, node: str | None = None) -> str | None:
@@ -508,8 +508,7 @@ class ApiBackend:
         IRREVERSIBLE — existing partition table is overwritten.
         """
         _check_disk(disk)
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         return self._post(f"/nodes/{n}/disks/initgpt", {"disk": disk})  # Smoke-confirm: POST
 
     def node_storage_backend_list(self, backend: str, node: str | None = None) -> list | dict:
@@ -519,8 +518,7 @@ class ApiBackend:
         nested children); lvmthin/zfs/directory return a list. Returned raw.
         """
         _check_backend(backend)
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         return self._get(f"/nodes/{n}/disks/{backend}") or []
 
     def node_storage_backend_create(
@@ -533,8 +531,7 @@ class ApiBackend:
         """
         _check_backend(backend)
         _check_storage_name(name)
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         body = {"name": name, **kw}
         return self._post(f"/nodes/{n}/disks/{backend}", body)  # Smoke-confirm: POST
 
@@ -548,8 +545,7 @@ class ApiBackend:
         """
         _check_backend(backend)
         _check_storage_name(name)
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         params = {"cleanup-disks": 1} if cleanup else None
         return self._delete(  # Smoke-confirm: DELETE
             f"/nodes/{n}/disks/{backend}/{name}", params=params
@@ -560,8 +556,7 @@ class ApiBackend:
 
         VERIFIED live (PVE 9.2): GET returns {localtime, time, timezone}. (CAPTURE source for time_set.)
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         return self._get(f"/nodes/{n}/time") or {}
 
     def node_time_set(self, timezone: str, node: str | None = None) -> None:
@@ -570,8 +565,7 @@ class ApiBackend:
         Smoke-confirm: PUT /nodes/{node}/time with body {timezone: …} — shape not live-verified.
         """
         _check_timezone(timezone)
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         self._put(f"/nodes/{n}/time", {"timezone": timezone})  # Smoke-confirm: PUT
 
     def node_hosts_get(self, node: str | None = None) -> dict:
@@ -579,8 +573,7 @@ class ApiBackend:
 
         VERIFIED live (PVE 9.2): GET returns {data, digest}. (CAPTURE source for hosts_set.)
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         return self._get(f"/nodes/{n}/hosts") or {}
 
     def node_hosts_set(
@@ -590,8 +583,7 @@ class ApiBackend:
 
         Smoke-confirm: POST /nodes/{node}/hosts with body {data, [digest]} — shape not live-verified.
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         body: dict = {"data": data}
         if digest is not None:
             body["digest"] = digest
@@ -610,8 +602,7 @@ class ApiBackend:
         Smoke-confirm: PUT /nodes/{node}/dns with body {search?, dns1?, dns2?, dns3?}
         — shape not live-verified.
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         body = {
             k: v for k, v in
             {"search": search, "dns1": dns1, "dns2": dns2, "dns3": dns3}.items()
@@ -633,8 +624,7 @@ class ApiBackend:
         — shape not live-verified.
         Private key (key) is NEVER logged by the caller — only {"key": "[redacted]"} reaches the ledger.
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         body: dict = {
             "certificates": certificates,
             "force": int(force),
@@ -649,8 +639,7 @@ class ApiBackend:
 
         Smoke-confirm: DELETE /certificates/custom [?restart=1] — shape not live-verified.
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         params = {"restart": 1} if restart else None
         self._delete(f"/nodes/{n}/certificates/custom", params=params)  # Smoke-confirm: DELETE
 
@@ -660,8 +649,7 @@ class ApiBackend:
         Smoke-confirm: POST /startall [body {vms: CSV}] — shape not live-verified.
         Returns a task UPID or None.
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         body: dict | None = {"vms": vms} if vms is not None else None
         return self._post(f"/nodes/{n}/startall", body)  # Smoke-confirm: POST
 
@@ -671,8 +659,7 @@ class ApiBackend:
         Smoke-confirm: POST /stopall [body {vms: CSV}] — shape not live-verified.
         Returns a task UPID or None.
         """
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         body: dict | None = {"vms": vms} if vms is not None else None
         return self._post(f"/nodes/{n}/stopall", body)  # Smoke-confirm: POST
 
@@ -690,8 +677,7 @@ class ApiBackend:
         Returns a task UPID or None.
         """
         _check_node(target)
-        _check_node(node)
-        n = node or self.config.node
+        n = self._resolve_node(node)
         body: dict = {"target": target}
         if vms is not None:
             body["vms"] = vms

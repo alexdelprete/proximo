@@ -364,6 +364,27 @@ class TestStorageBackendCreatePlan:
         with pytest.raises(ProximoError, match="unsupported storage backend"):
             plan_node_storage_backend_create("btrfs", "pool")
 
+    # --- per-backend kw disclosure (PROVE: the plan must show what was actually applied) ---
+
+    def test_zfs_raidlevel_disclosed_in_plan(self):
+        p = plan_node_storage_backend_create(
+            "zfs", "tank", devices="/dev/sdb", raidlevel="raidz2"
+        )
+        combined = p.change + " ".join(p.blast_radius) + p.note
+        assert "raidz2" in combined
+
+    def test_directory_filesystem_disclosed_in_plan(self):
+        p = plan_node_storage_backend_create(
+            "directory", "mydir", devices="/dev/sdc", filesystem="xfs"
+        )
+        combined = p.change + " ".join(p.blast_radius) + p.note
+        assert "xfs" in combined
+
+    def test_no_extra_kw_no_parens_noise(self):
+        """No kw beyond devices → no dangling '()' artifact in the plan text."""
+        p = plan_node_storage_backend_create("lvm", "vg0", devices="/dev/sdb")
+        assert "()" not in p.change
+
     # --- raidlevel type-safety (L13 fix) ----------------------------------------
 
     def test_zfs_raidlevel_bool_true_raises(self):
@@ -427,6 +448,32 @@ class TestStorageBackendDeletePlan:
         for backend in ("zfs", "lvm", "directory"):
             p = plan_node_storage_backend_delete(backend, "x")
             assert "no undo" in p.note.lower() or "irreversible" in p.note.lower()
+
+    # --- cleanup=True disclosure (PROVE: the preview must match what PVE will actually do) ---
+
+    def test_cleanup_defaults_to_no_disk_wipe_disclosure(self):
+        p = plan_node_storage_backend_delete("directory", "mydir")
+        blast = " ".join(p.blast_radius)
+        assert "cleanup" not in blast.lower()
+
+    def test_cleanup_true_discloses_disk_wipe_zfs(self):
+        p = plan_node_storage_backend_delete("zfs", "tank", cleanup=True)
+        blast = " ".join(p.blast_radius)
+        assert "cleanup" in blast.lower()
+        assert "wipe" in blast.lower() or "wiped" in blast.lower()
+
+    def test_cleanup_true_discloses_disk_wipe_lvm(self):
+        p = plan_node_storage_backend_delete("lvm", "vg0", cleanup=True)
+        blast = " ".join(p.blast_radius)
+        assert "cleanup" in blast.lower()
+
+    def test_cleanup_true_contradicts_directory_persist_wording(self):
+        """directory's default blast says data 'may persist' — cleanup=True means it does NOT,
+        so that contradiction must be surfaced, not silently left in the preview."""
+        p = plan_node_storage_backend_delete("directory", "mydir", cleanup=True)
+        blast = " ".join(p.blast_radius)
+        assert "cleanup" in blast.lower()
+        assert "wipe" in blast.lower() or "wiped" in blast.lower()
 
 
 # ─── Plan factories — CAPTURE-or-declare ──────────────────────────────────────

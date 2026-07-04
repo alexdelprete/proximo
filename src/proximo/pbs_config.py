@@ -120,6 +120,58 @@ def _strip_password(resp: object) -> object:
 
 
 # ---------------------------------------------------------------------------
+# Field-building helpers
+# ---------------------------------------------------------------------------
+
+def _datastore_schedule_fields(
+    gc_schedule: str | None = None,
+    prune_schedule: str | None = None,
+    notification_mode: str | None = None,
+    comment: str | None = None,
+) -> dict:
+    """Optional datastore config fields — shared by create/update backend calls and their plan-factory
+    previews so the field list can't silently diverge.
+    """
+    fields: dict = {}
+    if gc_schedule is not None:
+        fields["gc-schedule"] = gc_schedule          # Smoke-confirm: hyphenated param name
+    if prune_schedule is not None:
+        fields["prune-schedule"] = prune_schedule    # Smoke-confirm
+    if notification_mode is not None:
+        fields["notification-mode"] = notification_mode  # Smoke-confirm
+    if comment is not None:
+        fields["comment"] = comment
+    return fields
+
+
+def _traffic_control_fields(
+    rate_in: int | None = None,
+    rate_out: int | None = None,
+    network: str | None = None,
+    burst_in: int | None = None,
+    burst_out: int | None = None,
+    timeframe: str | None = None,
+    comment: str | None = None,
+) -> dict:
+    """Optional traffic-control rule fields — shared by traffic_control_upsert and
+    plan_traffic_control_upsert so the field list can't silently diverge.
+    """
+    fields: dict = {}
+    for py, api_k in [
+        (rate_in, "rate-in"),       # Smoke-confirm: 'rate-in' param name
+        (rate_out, "rate-out"),     # Smoke-confirm: 'rate-out' param name
+        (network, "network"),
+        (burst_in, "burst-in"),     # Smoke-confirm: 'burst-in' param name
+        (burst_out, "burst-out"),   # Smoke-confirm: 'burst-out' param name
+        (timeframe, "timeframe"),   # Smoke-confirm: 'timeframe' param name + accepted format
+        (comment, "comment"),
+    ]:
+        if py is not None:
+            fields[api_k] = py
+    return fields
+
+
+# ---------------------------------------------------------------------------
 # Backend functions — raw PBS API calls
 # ---------------------------------------------------------------------------
 
@@ -151,15 +203,11 @@ def datastore_create(
     """
     name = _check_store(name)
     path = _check_datastore_path(path)
-    data: dict = {"name": name, "path": path}
-    if gc_schedule is not None:
-        data["gc-schedule"] = gc_schedule          # Smoke-confirm: hyphenated param name
-    if prune_schedule is not None:
-        data["prune-schedule"] = prune_schedule    # Smoke-confirm
-    if notification_mode is not None:
-        data["notification-mode"] = notification_mode  # Smoke-confirm
-    if comment is not None:
-        data["comment"] = comment
+    data: dict = {
+        "name": name,
+        "path": path,
+        **_datastore_schedule_fields(gc_schedule, prune_schedule, notification_mode, comment),
+    }
     return api._post("/config/datastore", data)
 
 
@@ -177,15 +225,7 @@ def datastore_update(
     Smoke-confirm: whether a PUT with no fields succeeds or is rejected.
     """
     name = _check_store(name)
-    data: dict = {}
-    if gc_schedule is not None:
-        data["gc-schedule"] = gc_schedule          # Smoke-confirm
-    if prune_schedule is not None:
-        data["prune-schedule"] = prune_schedule    # Smoke-confirm
-    if notification_mode is not None:
-        data["notification-mode"] = notification_mode  # Smoke-confirm
-    if comment is not None:
-        data["comment"] = comment
+    data: dict = _datastore_schedule_fields(gc_schedule, prune_schedule, notification_mode, comment)
     return api._put(f"/config/datastore/{name}", data or None)
 
 
@@ -342,14 +382,30 @@ def remotes_list(api: PbsBackend) -> list[dict]:
     """GET /config/remote — list all PBS remote sync-sources (passwords never returned).
 
     PBS design: the GET list response never includes passwords.
-    Strips 'password' defensively from each entry anyway.
+    Strips 'password' defensively from each entry anyway.  Fail-closed: if the response is not
+    the expected list shape, refuse to return it rather than risk handing back an un-redacted
+    payload (a non-list shape previously bypassed redaction entirely).
     Smoke-confirm: response shape — expected list of remote config dicts.
     Smoke-confirm: that password is absent from the list response.
     """
     data = api._get("/config/remote") or []
-    if isinstance(data, list):
-        return [{k: v for k, v in item.items() if k != "password"} for item in data]
-    return data
+    if not isinstance(data, list):
+        raise ProximoError(
+            f"unexpected /config/remote response shape: {type(data).__name__} "
+            "(expected a list) — refusing to return a response that hasn't been verified "
+            "password-free"
+        )
+    out: list[dict] = []
+    for item in data:
+        stripped = _strip_password(item)
+        if not isinstance(stripped, dict):
+            raise ProximoError(
+                f"unexpected /config/remote entry shape: {type(item).__name__} "
+                "(expected a dict) — refusing to return a response that hasn't been "
+                "verified password-free"
+            )
+        out.append(stripped)
+    return out
 
 
 def traffic_controls_list(api: PbsBackend) -> list[dict]:
@@ -483,22 +539,16 @@ def traffic_control_upsert(
     rate-in/rate-out/burst-in/burst-out/timeframe param names, whether 'name' is in POST body.
     """
     name = _check_store(name)
-    data: dict = {}
-    for py, api_k in [
-        (rate_in, "rate-in"),       # Smoke-confirm: 'rate-in' param name
-        (rate_out, "rate-out"),     # Smoke-confirm: 'rate-out' param name
-        (network, "network"),
-        (burst_in, "burst-in"),     # Smoke-confirm: 'burst-in' param name
-        (burst_out, "burst-out"),   # Smoke-confirm: 'burst-out' param name
-        (timeframe, "timeframe"),   # Smoke-confirm: 'timeframe' param name + accepted format
-        (comment, "comment"),
-    ]:
-        if py is not None:
-            data[api_k] = py
+    data: dict = _traffic_control_fields(
+        rate_in, rate_out, network, burst_in, burst_out, timeframe, comment
+    )
 
     # Dispatch: detect create-vs-update.
     # VERIFIED live (PBS 4.2): a GET on a NONEXISTENT traffic-control rule returns 400, not 404 —
-    # so both 400 and 404 mean "doesn't exist → create".
+    # so both 400 and 404 mean "doesn't exist → create". Any OTHER exception (including a bare
+    # AttributeError from a malformed response) is inconclusive and must abort rather than
+    # silently assume absence — dispatching a CREATE against a rule that might already exist
+    # would be exactly the false-safety this project forbids (see plan_restore in backup.py).
     try:
         existing = api._get(f"/config/traffic-control/{name}")
     except httpx.HTTPStatusError as e:
@@ -506,9 +556,6 @@ def traffic_control_upsert(
             existing = None
         else:
             raise
-    except AttributeError:
-        # Mock backends may not have httpx-aware responses; treat as 'exists unknown'
-        existing = None
 
     if existing:
         # Rule exists → update
@@ -552,15 +599,10 @@ def plan_datastore_create(
     """
     name = _check_store(name)
     path = _check_datastore_path(path)
-    config_parts: dict = {"path": path}
-    if gc_schedule is not None:
-        config_parts["gc-schedule"] = gc_schedule
-    if prune_schedule is not None:
-        config_parts["prune-schedule"] = prune_schedule
-    if notification_mode is not None:
-        config_parts["notification-mode"] = notification_mode
-    if comment is not None:
-        config_parts["comment"] = comment
+    config_parts: dict = {
+        "path": path,
+        **_datastore_schedule_fields(gc_schedule, prune_schedule, notification_mode, comment),
+    }
     return Plan(
         action="pbs_datastore_create",
         target=f"config/datastore/{name}",
@@ -613,15 +655,7 @@ def plan_datastore_update(
         complete = False
         note_capture = " Could not capture current datastore config — no guided revert available."
 
-    changes: dict = {}
-    if gc_schedule is not None:
-        changes["gc-schedule"] = gc_schedule
-    if prune_schedule is not None:
-        changes["prune-schedule"] = prune_schedule
-    if notification_mode is not None:
-        changes["notification-mode"] = notification_mode
-    if comment is not None:
-        changes["comment"] = comment
+    changes: dict = _datastore_schedule_fields(gc_schedule, prune_schedule, notification_mode, comment)
 
     return Plan(
         action="pbs_datastore_update",
@@ -1118,18 +1152,9 @@ def plan_traffic_control_upsert(
             "No guided revert available."
         )
 
-    changes: dict = {}
-    for py, api_k in [
-        (rate_in, "rate-in"),
-        (rate_out, "rate-out"),
-        (network, "network"),
-        (burst_in, "burst-in"),
-        (burst_out, "burst-out"),
-        (timeframe, "timeframe"),
-        (comment, "comment"),
-    ]:
-        if py is not None:
-            changes[api_k] = py
+    changes: dict = _traffic_control_fields(
+        rate_in, rate_out, network, burst_in, burst_out, timeframe, comment
+    )
 
     throttle_note = ""
     if rate_in is not None or rate_out is not None:

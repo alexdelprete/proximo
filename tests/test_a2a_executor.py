@@ -237,6 +237,20 @@ def test_dispatch_excluded_name_as_skill_id_raises(executor):
 
 
 # ---------------------------------------------------------------------------
+# Test: non-string skill id → A2AParamError (not an uncaught TypeError)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_skill_id", [["not", "a", "string"], {"nested": "dict"}, 123, None])
+def test_dispatch_non_string_skill_id_raises_param_error(executor, bad_skill_id):
+    """A non-string 'skill' value (list/dict/int/None) must raise A2AParamError, not a bare
+    TypeError from the dict lookup — so the caller lands in the audited rejection path.
+    """
+    with pytest.raises(A2AParamError):
+        executor._dispatch(bad_skill_id, {})
+
+
+# ---------------------------------------------------------------------------
 # Test: confirm as string "true" → A2AParamError (no truthy coercion)
 # ---------------------------------------------------------------------------
 

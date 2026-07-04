@@ -244,7 +244,7 @@ def pve_network_iface_create(
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"nodes/{node or cfg.node}/network/{iface}"
     plan = _plan("pve_network_iface_create", tgt,
-                 lambda: plan_iface_create(api, iface, iface_type, node))
+                 lambda: plan_iface_create(api, iface, iface_type, node, options or {}))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_network_iface_create", tgt,

@@ -325,12 +325,16 @@ def plan_iface_create(
     iface: str,
     iface_type: str,
     node: str | None = None,
+    opts: dict | None = None,
 ) -> Plan:
     """Preview creating a network interface.
 
     Reads the current network list (a safe read) to detect iface collision.
     Changes are staged (interfaces.new) — not live until network_apply.
     RISK_MEDIUM: staged change, reversible before apply.
+
+    Discloses the STAGED fields (*opts*) so the confirmed plan describes the actual
+    payload that will be written, not just "(staged)" — mirrors plan_iface_update.
 
     If the collision check fails, that uncertainty is disclosed — absence of a HIGH
     flag is not a safety signal.
@@ -370,6 +374,9 @@ def plan_iface_create(
             f"staged configuration change: creates {iface_type} '{iface}' on {n}",
             "reversible before apply: delete the staged iface before applying to undo",
         ]
+
+    if opts:
+        blast.append("staged fields: " + ", ".join(f"{k}={opts[k]}" for k in sorted(opts)))
 
     return Plan(
         action="pve_network_iface_create",
@@ -413,9 +420,8 @@ def plan_iface_update(
             found = False
         else:
             current = {k: match[k] for k in ("iface", "type", "method", "address", "active") if k in match}
-    except Exception as e:
+    except Exception:
         check_failed = True
-        _ = e  # acknowledged
 
     n = node or api.config.node
     affected: list[dict] = []
@@ -771,6 +777,13 @@ def _sdn_pending_blast(lead: str) -> list[str]:
     ]
 
 
+def _sdn_kv_parts(options: dict | None) -> list[str]:
+    """Sorted 'k=v' parts for an SDN options bag — used so previews disclose the actual field
+    VALUES being staged, not just touched key names (mirrors plan_firewall_options_set)."""
+    opts = options or {}
+    return [f"{k}={opts[k]}" for k in sorted(opts)]
+
+
 # --- zones ------------------------------------------------------------------
 
 def sdn_zone_create(api, zone: str, zone_type: str, options: dict | None = None,
@@ -909,29 +922,36 @@ def sdn_subnet_delete(api, vnet: str, subnet: str, lock_token: str | None = None
 # --- SDN plan factories -----------------------------------------------------
 
 def plan_sdn_zone_create(zone: str, zone_type: str, options: dict | None = None) -> Plan:
-    """Preview creating an SDN zone. PURE. RISK_LOW — pending, inert until apply."""
+    """Preview creating an SDN zone. PURE. RISK_LOW — pending, inert until apply.
+
+    Discloses the option key=value pairs being staged, not just the zone/type."""
     zone = _check_sdn_id(zone, "zone")
     zone_type = _check_zone_type(zone_type)
     _check_sdn_options(options)
+    lead = f"stages a PENDING SDN zone '{zone}' (type={zone_type})"
+    if options:
+        lead += f", options: {', '.join(_sdn_kv_parts(options))}"
     return Plan(
         action="pve_sdn_zone_create", target=f"sdn/zones/{zone}",
         change=f"create SDN {zone_type} zone '{zone}' (pending)", current={},
-        blast_radius=_sdn_pending_blast(f"stages a PENDING SDN zone '{zone}' (type={zone_type})"),
+        blast_radius=_sdn_pending_blast(lead),
         risk=RISK_LOW, risk_reasons=["SDN object create is a pending config change — inert until apply"],
     )
 
 
 def plan_sdn_zone_update(zone: str, options: dict | None = None, delete: list | str | None = None) -> Plan:
-    """Preview updating an SDN zone. PURE. RISK_LOW — pending, inert until apply."""
+    """Preview updating an SDN zone. PURE. RISK_LOW — pending, inert until apply.
+
+    Discloses the option key=value pairs being staged (not just the touched key names)."""
     zone = _check_sdn_id(zone, "zone")
     _check_sdn_options(options)
     if not options and not delete:
         raise ProximoError("sdn_zone_update requires at least one option to set or delete")
-    keys = sorted(set(options or {})) + ([f"-{k}" for k in (delete if isinstance(delete, list) else
-                  ([delete] if delete else []))])
+    del_keys = delete if isinstance(delete, list) else ([delete] if delete else [])
+    parts = _sdn_kv_parts(options) + [f"-{k}" for k in del_keys]
     return Plan(
         action="pve_sdn_zone_update", target=f"sdn/zones/{zone}",
-        change=f"update SDN zone '{zone}' (pending): {', '.join(keys) or '(none)'}", current={},
+        change=f"update SDN zone '{zone}' (pending): {', '.join(parts) or '(none)'}", current={},
         blast_radius=_sdn_pending_blast(f"stages a PENDING update to SDN zone '{zone}'"),
         risk=RISK_LOW, risk_reasons=["SDN object update is a pending config change — inert until apply"],
     )
@@ -961,27 +981,36 @@ def plan_sdn_zone_delete(api, zone: str) -> Plan:
 
 
 def plan_sdn_vnet_create(vnet: str, zone: str, options: dict | None = None) -> Plan:
-    """Preview creating an SDN vnet. PURE. RISK_LOW — pending, inert until apply."""
+    """Preview creating an SDN vnet. PURE. RISK_LOW — pending, inert until apply.
+
+    Discloses the option key=value pairs being staged (e.g. tag/alias), not just the vnet/zone."""
     vnet = _check_sdn_id(vnet, "vnet")
     zone = _check_sdn_id(zone, "zone")
     _check_sdn_options(options)
+    lead = f"stages a PENDING SDN vnet '{vnet}' in zone '{zone}'"
+    if options:
+        lead += f", options: {', '.join(_sdn_kv_parts(options))}"
     return Plan(
         action="pve_sdn_vnet_create", target=f"sdn/vnets/{vnet}",
         change=f"create SDN vnet '{vnet}' in zone '{zone}' (pending)", current={},
-        blast_radius=_sdn_pending_blast(f"stages a PENDING SDN vnet '{vnet}' in zone '{zone}'"),
+        blast_radius=_sdn_pending_blast(lead),
         risk=RISK_LOW, risk_reasons=["SDN object create is a pending config change — inert until apply"],
     )
 
 
 def plan_sdn_vnet_update(vnet: str, options: dict | None = None, delete: list | str | None = None) -> Plan:
-    """Preview updating an SDN vnet. PURE. RISK_LOW — pending, inert until apply."""
+    """Preview updating an SDN vnet. PURE. RISK_LOW — pending, inert until apply.
+
+    Discloses the option key=value pairs being staged (e.g. tag/alias), not just "(pending)"."""
     vnet = _check_sdn_id(vnet, "vnet")
     _check_sdn_options(options)
     if not options and not delete:
         raise ProximoError("sdn_vnet_update requires at least one option to set or delete")
+    del_keys = delete if isinstance(delete, list) else ([delete] if delete else [])
+    parts = _sdn_kv_parts(options) + [f"-{k}" for k in del_keys]
     return Plan(
         action="pve_sdn_vnet_update", target=f"sdn/vnets/{vnet}",
-        change=f"update SDN vnet '{vnet}' (pending)", current={},
+        change=f"update SDN vnet '{vnet}' (pending): {', '.join(parts) or '(none)'}", current={},
         blast_radius=_sdn_pending_blast(f"stages a PENDING update to SDN vnet '{vnet}'"),
         risk=RISK_LOW, risk_reasons=["SDN object update is a pending config change — inert until apply"],
     )
@@ -1010,29 +1039,39 @@ def plan_sdn_vnet_delete(api, vnet: str) -> Plan:
 
 
 def plan_sdn_subnet_create(vnet: str, subnet: str, options: dict | None = None) -> Plan:
-    """Preview creating an SDN subnet. PURE. RISK_LOW — pending, inert until apply."""
+    """Preview creating an SDN subnet. PURE. RISK_LOW — pending, inert until apply.
+
+    Discloses the option key=value pairs being staged (e.g. gateway/snat), not just the subnet id."""
     vnet = _check_sdn_id(vnet, "vnet")
     subnet = _check_subnet_cidr(subnet)
     _check_sdn_options(options)
+    lead = f"stages a PENDING SDN subnet {subnet} in vnet '{vnet}'"
+    if options:
+        lead += f", options: {', '.join(_sdn_kv_parts(options))}"
     return Plan(
         action="pve_sdn_subnet_create", target=f"sdn/vnets/{vnet}/subnets/{subnet}",
         change=f"create SDN subnet {subnet} in vnet '{vnet}' (pending)", current={},
-        blast_radius=_sdn_pending_blast(f"stages a PENDING SDN subnet {subnet} in vnet '{vnet}'"),
+        blast_radius=_sdn_pending_blast(lead),
         risk=RISK_LOW, risk_reasons=["SDN object create is a pending config change — inert until apply"],
     )
 
 
 def plan_sdn_subnet_update(vnet: str, subnet: str, options: dict | None = None,
                            delete: list | str | None = None) -> Plan:
-    """Preview updating an SDN subnet. PURE. RISK_LOW — pending, inert until apply."""
+    """Preview updating an SDN subnet. PURE. RISK_LOW — pending, inert until apply.
+
+    Discloses the option key=value pairs being staged (e.g. gateway/snat), not just "(pending)"."""
     vnet = _check_sdn_id(vnet, "vnet")
     subnet = _check_subnet_path_id(subnet)
     _check_sdn_options(options)
     if not options and not delete:
         raise ProximoError("sdn_subnet_update requires at least one option to set or delete")
+    del_keys = delete if isinstance(delete, list) else ([delete] if delete else [])
+    parts = _sdn_kv_parts(options) + [f"-{k}" for k in del_keys]
     return Plan(
         action="pve_sdn_subnet_update", target=f"sdn/vnets/{vnet}/subnets/{subnet}",
-        change=f"update SDN subnet {subnet} in vnet '{vnet}' (pending)", current={},
+        change=f"update SDN subnet {subnet} in vnet '{vnet}' (pending): {', '.join(parts) or '(none)'}",
+        current={},
         blast_radius=_sdn_pending_blast(f"stages a PENDING update to SDN subnet {subnet}"),
         risk=RISK_LOW, risk_reasons=["SDN object update is a pending config change — inert until apply"],
     )

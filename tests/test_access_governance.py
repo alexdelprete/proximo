@@ -330,6 +330,14 @@ def test_role_create_rejects_roleid_with_slash():
         role_create(api, "bad/role")
 
 
+def test_role_create_rejects_newline_in_privs():
+    """Freetext injection guard: privs is stored in PVE's line-based role.cfg — a newline
+    would corrupt it, same class of guard access_users.py already applies to comment/email."""
+    api = _api()
+    with pytest.raises(ProximoError):
+        role_create(api, "MyRole", privs="VM.PowerMgmt\ninjected")
+
+
 # ---------------------------------------------------------------------------
 # role_update — PUT /access/roles/{roleid}
 # ---------------------------------------------------------------------------
@@ -377,6 +385,12 @@ def test_role_update_rejects_invalid_roleid():
         role_update(api, "bad role!")
 
 
+def test_role_update_rejects_newline_in_privs():
+    api = _api()
+    with pytest.raises(ProximoError):
+        role_update(api, "MyRole", privs="VM.PowerMgmt\ninjected")
+
+
 # ---------------------------------------------------------------------------
 # role_delete — DELETE /access/roles/{roleid}
 # ---------------------------------------------------------------------------
@@ -422,6 +436,14 @@ def test_realm_create_omits_comment_when_not_provided():
     api = _api()
     realm_create(api, "myldap", "ldap")
     assert "comment" not in api.seen["data"]
+
+
+def test_realm_create_rejects_newline_in_comment():
+    """Freetext injection guard: comment is stored in PVE's line-based domains.cfg — a
+    newline would corrupt it, same class of guard access_users.py already applies."""
+    api = _api()
+    with pytest.raises(ProximoError):
+        realm_create(api, "myldap", "ldap", comment="injected\nnewline")
 
 
 def test_realm_create_accepts_pam_type():
@@ -552,6 +574,12 @@ def test_realm_update_rejects_invalid_realm():
     api = _api()
     with pytest.raises(ProximoError):
         realm_update(api, "bad realm!", comment="x")
+
+
+def test_realm_update_rejects_newline_in_comment():
+    api = _api()
+    with pytest.raises(ProximoError):
+        realm_update(api, "myldap", comment="injected\nnewline")
 
 
 # ---------------------------------------------------------------------------
@@ -1127,6 +1155,23 @@ def test_tfa_delete_rejects_traversal_id():
     api = _api()
     with pytest.raises(ProximoError):
         tfa_delete(api, "root@pam", "../../zones/x")
+
+
+def test_tfa_delete_request_failure_does_not_leak_password():
+    """The acting user's password travels as a DELETE query param (backends.py sends `params`
+    as the httpx query string). A request failure there (e.g. the live-verified 403 under API
+    token auth) must never surface the raw underlying exception — httpx's HTTPStatusError embeds
+    the full request URL, including the query string, in str(exception)."""
+    secret = "super-secret-password"  # noqa: S105 — test sentinel, not a real credential
+
+    def fake_delete(path, params=None):
+        raise RuntimeError(f"Client error '403 Forbidden' for url 'https://pve.example/{path}?password={secret}'")
+
+    api = SimpleNamespace(config=SimpleNamespace(node="pve"), _delete=fake_delete)
+    with pytest.raises(ProximoError) as exc_info:
+        tfa_delete(api, "root@pam", "totp:LABEL", password=secret)
+    assert secret not in str(exc_info.value)
+    assert "RuntimeError" in str(exc_info.value)
 
 
 def test_plan_tfa_delete_is_high_and_reads_current():

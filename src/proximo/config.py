@@ -271,6 +271,14 @@ class ProximoConfig:
                 "to restore HMAC-SHA256 tamper-evidence.",
                 stacklevel=2,
             )
+        if not redact_ledger:
+            warnings.warn(
+                "PROXIMO_LEDGER_REDACT is off — ct_exec/ct_psql/pve_agent_exec record the full "
+                "command/SQL body (which can carry secrets, e.g. a password on the argv) into "
+                "the PROVE ledger. Set PROXIMO_LEDGER_REDACT=1 to record a fingerprint "
+                "(sha256 + kind + length) instead.",
+                stacklevel=2,
+            )
         # Independent CONSENT (PROXIMO_CONSENT_DIR). Read from the process env directly: CONSENT is
         # enforced env-side in consent.py (not per-target), so the precondition is about the process
         # and applies whether config came from_env or from_target. This IS the load-bearing honesty

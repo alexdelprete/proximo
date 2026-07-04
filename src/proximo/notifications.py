@@ -38,6 +38,17 @@ _ENDPOINT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 # Smoke-confirm: exact accepted charset and length limit.
 _METRICS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 
+# Credential-shaped fields some endpoint types carry (gotify `token`, smtp SMTP-AUTH
+# `password`). plan.change/current are BOTH returned to the caller AND written to the
+# tamper-evident PROVE ledger, so the raw value must never appear there — mirrors
+# acme_certs.py's _redact_plugin_kw.
+_SECRET_KEYS = frozenset({"token", "password"})
+
+
+def _redact_secrets(d: dict) -> dict:
+    """Mask credential-shaped fields before they enter a plan string or Plan.current."""
+    return {k: ("[redacted]" if k in _SECRET_KEYS else v) for k, v in d.items()}
+
 
 def _check_endpoint_type(ep_type: str) -> str:
     # Do NOT strip — stripping defeats \\Z trailing-newline protection.
@@ -235,7 +246,7 @@ def plan_notification_endpoint_create(ep_type: str, name: str, **kw) -> Plan:
     return Plan(
         action="pve_notification_endpoint_create",
         target=f"cluster/notifications/endpoints/{ep_type}/{name}",
-        change=f"create PVE {ep_type!r} notification endpoint {name!r}: {kw}",
+        change=f"create PVE {ep_type!r} notification endpoint {name!r}: {_redact_secrets(kw)}",
         current={},
         blast_radius=["adds a new notification delivery channel (no existing alerts affected)"],
         risk=RISK_LOW,
@@ -252,11 +263,11 @@ def plan_notification_endpoint_update(api, ep_type: str, name: str, **kw) -> Pla
     """Plan updating a PVE notification endpoint. Reads current config for honesty."""
     _check_endpoint_type(ep_type)
     _check_endpoint_name(name)
-    current = notification_endpoint_get(api, ep_type, name)
+    current = _redact_secrets(notification_endpoint_get(api, ep_type, name))
     return Plan(
         action="pve_notification_endpoint_update",
         target=f"cluster/notifications/endpoints/{ep_type}/{name}",
-        change=f"update PVE {ep_type!r} notification endpoint {name!r}: {kw}",
+        change=f"update PVE {ep_type!r} notification endpoint {name!r}: {_redact_secrets(kw)}",
         current=current,
         blast_radius=["modifies delivery settings for an existing notification endpoint"],
         risk=RISK_LOW,

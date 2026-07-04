@@ -84,9 +84,7 @@ def _type_ok(value: Any, type_name: str) -> bool:
     if expected is None:  # unknown declared type -> reject rather than wave through (fail-closed)
         return False
     # bool is a subclass of int; never let a bool satisfy "integer" or an int satisfy "boolean".
-    if type_name == "integer" and isinstance(value, bool):
-        return False
-    if type_name != "boolean" and isinstance(value, bool):
+    if isinstance(value, bool):
         return type_name == "boolean"
     return isinstance(value, expected)
 

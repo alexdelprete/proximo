@@ -316,7 +316,10 @@ def pmg_who_group_update(
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_who_group_update", tgt,
                     lambda: pmg_who_group_update_op(pmg, ogroup, name, info, and_, invert),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "ogroup": ogroup, "name": name, "info": info,
+                             "and": and_, "invert": invert}.items() if v is not None})
 
 
 @tool()
@@ -389,7 +392,10 @@ def pmg_what_group_update(
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_what_group_update", tgt,
                     lambda: pmg_what_group_update_op(pmg, ogroup, name, info, and_, invert),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "ogroup": ogroup, "name": name, "info": info,
+                             "and": and_, "invert": invert}.items() if v is not None})
 
 
 @tool()
@@ -462,7 +468,10 @@ def pmg_when_group_update(
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_when_group_update", tgt,
                     lambda: pmg_when_group_update_op(pmg, ogroup, name, info, and_, invert),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "ogroup": ogroup})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "ogroup": ogroup, "name": name, "info": info,
+                             "and": and_, "invert": invert}.items() if v is not None})
 
 
 @tool()
@@ -566,7 +575,11 @@ def pmg_who_object_update(
                         cidr=cidr, mode=mode, profile=profile, group=group,
                     ),
                     mutation=True, outcome="ok",
-                    detail={"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_})
+                    detail={k: v for k, v in
+                            {"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_,
+                             "email": email, "domain": domain, "regex": regex, "ip": ip,
+                             "cidr": cidr, "mode": mode, "profile": profile,
+                             "group": group}.items() if v is not None})
 
 
 @tool()
@@ -680,7 +693,12 @@ def pmg_what_object_update(
                         spamlevel=spamlevel, filename=filename,
                     ),
                     mutation=True, outcome="ok",
-                    detail={"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_})
+                    detail={k: v for k, v in
+                            {"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_,
+                             "contenttype": contenttype, "only_content": only_content,
+                             "field": field, "value": value, "top_part_only": top_part_only,
+                             "spamlevel": spamlevel, "filename": filename}.items()
+                            if v is not None})
 
 
 @tool()
@@ -758,7 +776,8 @@ def pmg_when_object_update(
     return _audited("pmg_when_object_update", tgt,
                     lambda: pmg_when_object_update_op(pmg, ogroup, id_, start=start, end=end),
                     mutation=True, outcome="ok",
-                    detail={"confirmed": True, "ogroup": ogroup, "id": id_})
+                    detail={"confirmed": True, "ogroup": ogroup, "id": id_,
+                            "start": start, "end": end})
 
 
 @tool()
@@ -830,13 +849,17 @@ def pmg_action_bcc_update(
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/bcc/{id_}"
     plan = _plan("pmg_action_bcc_update", tgt,
-                 lambda: pmg_plan_action_bcc_update(id_))
+                 lambda: pmg_plan_action_bcc_update(id_, name=name, target=target,
+                                                    info=info, original=original))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_action_bcc_update", tgt,
                     lambda: pmg_action_bcc_update_op(pmg, id_, name=name, target=target,
                                                      info=info, original=original),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "id": id_, "name": name, "target": target,
+                             "info": info, "original": original}.items() if v is not None})
 
 
 @tool()
@@ -883,13 +906,17 @@ def pmg_action_field_update(
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/field/{id_}"
     plan = _plan("pmg_action_field_update", tgt,
-                 lambda: pmg_plan_action_field_update(id_))
+                 lambda: pmg_plan_action_field_update(id_, name=name, field=field,
+                                                      value=value, info=info))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_action_field_update", tgt,
                     lambda: pmg_action_field_update_op(pmg, id_, name=name, field=field,
                                                        value=value, info=info),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "id": id_, "name": name, "field": field,
+                             "value": value, "info": info}.items() if v is not None})
 
 
 @tool()
@@ -943,7 +970,10 @@ def pmg_action_notification_update(
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/notification/{id_}"
     plan = _plan("pmg_action_notification_update", tgt,
-                 lambda: pmg_plan_action_notification_update(id_))
+                 lambda: pmg_plan_action_notification_update(
+                     id_, name=name, to=to, subject=subject,
+                     body_text=body_text, info=info, attach=attach,
+                 ))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_action_notification_update", tgt,
@@ -951,7 +981,11 @@ def pmg_action_notification_update(
                         pmg, id_, name=name, to=to, subject=subject,
                         body_text=body_text, info=info, attach=attach,
                     ),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "id": id_, "name": name, "to": to,
+                             "subject": subject, "body": body_text, "info": info,
+                             "attach": attach}.items() if v is not None})
 
 
 @tool()
@@ -1002,7 +1036,10 @@ def pmg_action_disclaimer_update(
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/disclaimer/{id_}"
     plan = _plan("pmg_action_disclaimer_update", tgt,
-                 lambda: pmg_plan_action_disclaimer_update(id_))
+                 lambda: pmg_plan_action_disclaimer_update(
+                     id_, name=name, disclaimer=disclaimer,
+                     info=info, position=position, add_separator=add_separator,
+                 ))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_action_disclaimer_update", tgt,
@@ -1010,7 +1047,11 @@ def pmg_action_disclaimer_update(
                         pmg, id_, name=name, disclaimer=disclaimer,
                         info=info, position=position, add_separator=add_separator,
                     ),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "id": id_, "name": name,
+                             "disclaimer": disclaimer, "info": info, "position": position,
+                             "add_separator": add_separator}.items() if v is not None})
 
 
 @tool()
@@ -1062,7 +1103,10 @@ def pmg_action_removeattachments_update(
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/removeattachments/{id_}"
     plan = _plan("pmg_action_removeattachments_update", tgt,
-                 lambda: pmg_plan_action_removeattachments_update(id_))
+                 lambda: pmg_plan_action_removeattachments_update(
+                     id_, name=name, text=text, info=info,
+                     all_=all_, quarantine=quarantine,
+                 ))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_action_removeattachments_update", tgt,
@@ -1070,7 +1114,11 @@ def pmg_action_removeattachments_update(
                         pmg, id_, name=name, text=text, info=info,
                         all_=all_, quarantine=quarantine,
                     ),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "id": id_, "name": name, "text": text,
+                             "info": info, "all": all_, "quarantine": quarantine}.items()
+                            if v is not None})
 
 
 @tool()
@@ -1180,7 +1228,15 @@ def pmg_ruledb_rule_update(
                         from_and, from_invert, to_and, to_invert,
                         what_and, what_invert, when_and, when_invert,
                     ),
-                    mutation=True, outcome="ok", detail={"confirmed": True, "id": id_})
+                    mutation=True, outcome="ok",
+                    detail={k: v for k, v in
+                            {"confirmed": True, "id": id_, "name": name, "priority": priority,
+                             "active": active, "direction": direction,
+                             "from_and": from_and, "from_invert": from_invert,
+                             "to_and": to_and, "to_invert": to_invert,
+                             "what_and": what_and, "what_invert": what_invert,
+                             "when_and": when_and, "when_invert": when_invert}.items()
+                            if v is not None})
 
 
 @tool()

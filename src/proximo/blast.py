@@ -68,16 +68,7 @@ def _storage_of_volid(volval: str) -> str | None:
 def _disk_slots(config: dict) -> dict[str, str]:
     """{slot: storage} for every DATA-disk slot in a guest config. cdrom media is excluded
     (removable media is not guest data; deleting its storage breaks a mount, not the guest)."""
-    out: dict[str, str] = {}
-    for key, val in config.items():
-        if not isinstance(val, str) or not _is_disk_key(key):
-            continue
-        if "media=cdrom" in val:
-            continue
-        storage = _storage_of_volid(val)
-        if storage is not None:
-            out[key] = storage
-    return out
+    return _disk_slots_split(config)[0]
 
 
 def _disk_slots_split(config: dict) -> tuple[dict[str, str], list[str]]:
@@ -206,6 +197,30 @@ class BlastResult:
         return [e.as_dict() for e in self.affected]
 
 
+def _count_unread(guests: list[dict], configs: dict) -> int:
+    """Count of guests in `guests` whose config in `configs` is missing/unread (not a dict)."""
+    return sum(1 for g in guests if not isinstance(configs.get(str(g.get("vmid", ""))), dict))
+
+
+def _blast_severity(complete: bool, affected: list[BlastEntry]) -> str:
+    """Shared max_severity ladder: incomplete enumeration forces HIGH (never lowered); otherwise the
+    highest severity among `affected`, or 'none' if nothing is affected."""
+    if not complete:
+        return "high"                                       # uncertainty is HIGH, never lowered
+    if any(e.severity == "high" for e in affected):
+        return "high"
+    return "medium" if affected else "none"
+
+
+def _incomplete_sentinel() -> BlastEntry:
+    """The 'enumeration incomplete' sentinel appended to `affected` when complete=False."""
+    return BlastEntry(
+        resource="?", vmid="", name="", node="", via=[],
+        effect="enumeration incomplete — one or more guests could not be read",
+        only_copy=False, running=False, severity="unknown",
+    )
+
+
 def compute_storage_blast(storage: str, guests: list[dict], configs: dict,
                           complete: bool) -> BlastResult:
     """PURE. Given enumerated guests + their configs (vmid -> config dict, or None if the read
@@ -222,7 +237,7 @@ def compute_storage_blast(storage: str, guests: list[dict], configs: dict,
     affected.sort(key=lambda e: (0 if e.severity == "high" else 1, e.vmid))
 
     total = len(guests)
-    failed = sum(1 for g in guests if not isinstance(configs.get(str(g.get("vmid", ""))), dict))
+    failed = _count_unread(guests, configs)
     lines: list[str] = []
     if not complete:
         miss = str(failed) if failed else "some"
@@ -241,21 +256,9 @@ def compute_storage_blast(storage: str, guests: list[dict], configs: dict,
             "volumes are not enumerated in v1; absence here is not proof the storage is unused"
         )
 
+    max_severity = _blast_severity(complete, affected)
     if not complete:
-        max_severity = "high"                               # uncertainty is HIGH, never lowered
-    elif any(e.severity == "high" for e in affected):
-        max_severity = "high"
-    elif affected:
-        max_severity = "medium"
-    else:
-        max_severity = "none"
-
-    if not complete:
-        affected = affected + [BlastEntry(
-            resource="?", vmid="", name="", node="", via=[],
-            effect="enumeration incomplete — one or more guests could not be read",
-            only_copy=False, running=False, severity="unknown",
-        )]
+        affected = affected + [_incomplete_sentinel()]
     return BlastResult(affected=affected, summary_lines=lines, complete=complete,
                        max_severity=max_severity)
 
@@ -331,7 +334,7 @@ def compute_storage_nodes_blast(storage: str, new_nodes: set[str], guests: list[
     lines: list[str] = []
     if not complete:
         total = len(guests)
-        failed = sum(1 for g in guests if not isinstance(configs.get(str(g.get("vmid", ""))), dict))
+        failed = _count_unread(guests, configs)
         miss = str(failed) if failed else "some"
         lines.append(
             f"⚠ INCOMPLETE: could not enumerate {miss} of {total} guests cluster-wide — "
@@ -352,21 +355,9 @@ def compute_storage_nodes_blast(storage: str, new_nodes: set[str], guests: list[
             "not proof of safety for orphaned/unreferenced volumes)"
         )
 
+    max_severity = _blast_severity(complete, affected)
     if not complete:
-        max_severity = "high"                               # uncertainty is HIGH, never lowered
-    elif any(e.severity == "high" for e in affected):
-        max_severity = "high"
-    elif affected:
-        max_severity = "medium"
-    else:
-        max_severity = "none"
-
-    if not complete:
-        affected = affected + [BlastEntry(
-            resource="?", vmid="", name="", node="", via=[],
-            effect="enumeration incomplete — one or more guests could not be read",
-            only_copy=False, running=False, severity="unknown",
-        )]
+        affected = affected + [_incomplete_sentinel()]
     return BlastResult(affected=affected, summary_lines=lines, complete=complete,
                        max_severity=max_severity)
 
@@ -540,7 +531,7 @@ def compute_disk_move_blast(target_storage: str, disk_size_bytes: int | None,
     lines: list[str] = []
     if not complete:
         total = len(guests)
-        failed = sum(1 for g in guests if not isinstance(configs.get(str(g.get("vmid", ""))), dict))
+        failed = _count_unread(guests, configs)
         miss = str(failed) if failed else "some"
         lines.append(
             f"⚠ INCOMPLETE: could not enumerate {miss} of {total} guests cluster-wide — "
@@ -555,13 +546,9 @@ def compute_disk_move_blast(target_storage: str, disk_size_bytes: int | None,
         label = e.resource + (f" ({e.name})" if e.name else "")
         lines.append(f"  {label} on {e.node}: {e.effect}")
 
-    max_severity = "high" if not complete else cap_sev
+    max_severity = "high" if not complete else cap_sev   # ladder differs (folds in cap_sev); untouched
     if not complete:
-        affected = affected + [BlastEntry(
-            resource="?", vmid="", name="", node="", via=[],
-            effect="enumeration incomplete — one or more guests could not be read",
-            only_copy=False, running=False, severity="unknown",
-        )]
+        affected = affected + [_incomplete_sentinel()]
     return BlastResult(affected=affected, summary_lines=lines, complete=complete,
                        max_severity=max_severity)
 
@@ -580,8 +567,7 @@ def gather_disk_move_dependents(api, target_storage: str, vmid: str, disk: str, 
 
     disk_size_bytes: int | None = None
     try:
-        n = node or api.config.node
-        cfg = api._get(f"/nodes/{n}/{kind}/{vmid}/config")
+        cfg = guest_config_get(api, vmid, kind, node)
         if isinstance(cfg, dict):
             entry = cfg.get(disk)
             if isinstance(entry, str):
@@ -1510,7 +1496,8 @@ def compute_firewall_lockout_blast(scope: str, nodes: list[str] | None,
             )
             continue
 
-        breadths = [_source_breadth(r.get("source"))[0] for r in protective]
+        pairs = [_source_breadth(r.get("source")) for r in protective]
+        breadths = [k for k, _ in pairs]
         widest = max(breadths, key=lambda k: _BREADTH_RANK.get(k, 1))
         if widest == "anywhere":
             lines.append(
@@ -1523,8 +1510,7 @@ def compute_firewall_lockout_blast(scope: str, nodes: list[str] | None,
                 "only if you manage from inside the private network"
             )
         else:
-            srcs = sorted({_source_breadth(r.get("source"))[1] for r in protective
-                           if _source_breadth(r.get("source"))[0] not in ("anywhere", "internal")})
+            srcs = sorted({label for k, label in pairs if k not in ("anywhere", "internal")})
             affected.append({
                 "node": node, "state": "conditional", "severity": "high",
                 "effect": f"management ACCEPT exists but SOURCE-RESTRICTED ({'; '.join(srcs)}) — if your "

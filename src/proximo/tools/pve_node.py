@@ -150,12 +150,14 @@ def pve_node_storage_backend_create(
                  lambda: plan_node_storage_backend_create(backend, name, devices, node, **kw))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
+    extra = {k: v for k, v in kw.items() if v is not None}
     return _audited("pve_node_storage_backend_create", tgt,
                     lambda: api.node_storage_backend_create(backend, name, node,
                                                             **({"devices": devices} if devices else {}),
                                                             **kw),
                     mutation=True, outcome="submitted",
-                    detail={"backend": backend, "name": name, "confirmed": True})
+                    detail={"backend": backend, "name": name, "devices": devices,
+                            **extra, "confirmed": True})
 
 
 @tool()
@@ -181,14 +183,14 @@ def pve_node_storage_backend_delete(
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/disks/{backend}/{name}"
     plan = _plan("pve_node_storage_backend_delete", tgt,
-                 lambda: plan_node_storage_backend_delete(backend, name, node))
+                 lambda: plan_node_storage_backend_delete(backend, name, node, cleanup))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     # Async (worker UPID) like backend_create — record "submitted", not "ok".
     return _audited("pve_node_storage_backend_delete", tgt,
                     lambda: api.node_storage_backend_delete(backend, name, node, cleanup),
                     mutation=True, outcome="submitted",
-                    detail={"backend": backend, "name": name, "confirmed": True})
+                    detail={"backend": backend, "name": name, "cleanup": cleanup, "confirmed": True})
 
 
 # --- Node config (reads) ---

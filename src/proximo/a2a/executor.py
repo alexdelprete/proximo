@@ -50,16 +50,25 @@ class ProximoAgentExecutor(AgentExecutor):
 
         This is the trust-critical chokepoint:
           * unknown skill id  → A2AParamError (never reaches any server fn)
+          * non-string skill id (list/dict/...)  → A2AParamError (never an uncaught
+            TypeError from the dict lookup — that would bypass the audited rejection path)
           * bad/missing/mistyped params  → A2AParamError (via validate_and_build)
           * PLAN-by-default  → validate_and_build never injects confirm
           * EXCLUDED_FROM_SLICE used as skill id  → A2AParamError (those are server
             fn names, not skill ids; they don't appear in SKILLS_BY_ID)
         """
+        if not isinstance(skill_id, str):
+            raise A2AParamError(f"skill id must be a string, got {type(skill_id).__name__}")
         skill = SKILLS_BY_ID.get(skill_id)
         if skill is None:
             raise A2AParamError(f"unknown skill '{skill_id}'")
         kwargs = validate_and_build(skill, raw_params)  # the guard — never bypass
         return skill.tool(**kwargs)
+
+    async def _fail(self, updater: TaskUpdater, message: str) -> None:
+        """Wrap `message` in a TaskUpdater failed-message — the shared 'fail the task' tail
+        shared by every rejection/error branch in ``execute``."""
+        await updater.failed(updater.new_agent_message([new_text_part(message)]))
 
     def _audit_rejection(self, skill_id: str | None, reason: str) -> None:
         """Best-effort PROVE trace for a REJECTED A2A call (unknown skill / bad params / no skill).
@@ -105,13 +114,10 @@ class ProximoAgentExecutor(AgentExecutor):
 
         if skill_id is None:
             self._audit_rejection(None, "no skill in inbound message")
-            await updater.failed(
-                updater.new_agent_message([
-                    new_text_part(
-                        "Expected a DataPart with shape {\"skill\": \"<id>\", \"params\": {...}}."
-                        " No such part found in the inbound message."
-                    )
-                ])
+            await self._fail(
+                updater,
+                "Expected a DataPart with shape {\"skill\": \"<id>\", \"params\": {...}}."
+                " No such part found in the inbound message.",
             )
             return
 
@@ -120,16 +126,10 @@ class ProximoAgentExecutor(AgentExecutor):
             result: dict = await anyio.to_thread.run_sync(self._dispatch, skill_id, params)
         except A2AParamError as exc:
             self._audit_rejection(skill_id, str(exc))
-            await updater.failed(
-                updater.new_agent_message([new_text_part(str(exc))])
-            )
+            await self._fail(updater, str(exc))
             return
         except Exception as exc:  # noqa: BLE001
-            await updater.failed(
-                updater.new_agent_message([
-                    new_text_part(f"skill '{skill_id}' failed: {type(exc).__name__}")
-                ])
-            )
+            await self._fail(updater, f"skill '{skill_id}' failed: {type(exc).__name__}")
             return
 
         # --- emit result as a data artifact then complete ---

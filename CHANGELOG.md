@@ -2,7 +2,60 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
-## [Unreleased]
+## [0.14.1] - 2026-07-04
+
+**The trim + harden patch: PLAN previews and the PROVE ledger now tell the whole truth — and
+keep secrets out of both.** Plus the doctor's spine report, and a leaner tree with ~35
+duplication sites collapsed. No new tools, no new env vars, no breaking changes.
+
+**Trim + harden campaign (2026-07-04).** A 10-cluster agent-team sweep over the whole tree —
+57 verified findings applied (every one re-verified against the code before touching it), +74
+new pinning tests. Suite 5,153 green (3 by-design skips), ruff + pyright clean.
+
+Hardened — PLAN/PROVE tell the whole truth, secrets stay out of both:
+- **Secret redaction in PLAN previews:** guest-config plans (`pve_guest_config_set`/`revert`)
+  now mask cloud-init secrets (e.g. `cipassword`) before they reach the plan response or the
+  ledger; ACME DNS-plugin update/delete plans no longer capture the provider's credential
+  `data` field; notification-endpoint create/update plans disclose/redact the fields actually
+  applied instead of embedding raw payloads.
+- **`pve_tfa_delete` password-leak seam closed:** the acting user's password no longer rides
+  the URL query string, where a guaranteed PVE error echo (httpx's URL-bearing exception text)
+  could leak it into error messages and the ledger.
+- **PLAN disclosure gaps closed across four planes:** all 12 PMG RuleDB `*_update` tools (who/
+  what/when groups + objects, action bcc/field/notification/disclaimer/removeattachments, rule
+  update) now render the actual field values being changed into the dry-run preview AND the
+  executed-mutation ledger detail — an operator approving a plan (or auditing afterward) can
+  now see e.g. a BCC target being redirected, not just an object id. Same class of fix for
+  `pve_network_iface_create` (staged interface fields), SDN zone/vnet/subnet create/update
+  (actual option key=values), storage-backend create (per-backend params) and delete (plans now
+  say plainly when `cleanup=True` will wipe the underlying disks), and
+  `pve_replication_create` (schedule/rate/comment params previously silently dropped).
+- **PROVE ledger symlink guard now re-checks on every append/read** (record/head/verify), not
+  just at construction — a mid-session directory swap under the long-lived ledger instance is
+  refused, mirroring the envelope reservation-dir guard.
+- **Startup warning when `PROXIMO_LEDGER_REDACT` is off** (the default records full exec
+  argv/SQL into the ledger, which can carry secrets) — parity with every other
+  permissive-by-default warning.
+- **Envelope RATE cap now ranks candidates by effective sustained rate** (count/window), so a
+  short-window sanity ceiling can no longer outrank a stricter long-window budget for the same
+  box; envelope-resolution failures are now recorded to the ledger and refuse fail-closed
+  instead of raising unaudited.
+- **Fail-closed shape checks:** PBS `remotes_list` refuses non-list responses and non-dict
+  entries rather than returning anything unverified password-free; PBS
+  `traffic_control_upsert` aborts on an unexpected existence-check error instead of silently
+  assuming create; backup storage names reject `.`/`..` (path-traversal guard parity with the
+  storage plane); `role_create`/`role_update` (privs), `realm_*`/`group_*` (comment) reject
+  control characters, matching the existing user-plane guard; blast disk-move dependents now
+  read guest configs through the validated accessor instead of a raw API path.
+- **A2A/PDM boundary:** a non-string `skill` in an inbound A2A call is a clean audited
+  rejection (was an uncaught TypeError bypassing the ledger); PDM secret-key redaction widened
+  to compound names (`client_secret`, `api_key`, `auth_token`, `private_key`, …).
+
+Trimmed — ~35 verified-identical duplication sites collapsed into shared helpers (PMG epoch
+params ×11, who/what-object body builders, blast severity ladder + sentinels, firewall rule
+lookup/digest re-reads, backends node-check ×26, qemu-agent gate ×6, PDM config/url
+normalization, envelope candidate parsing, and dead code removed: `_check_ha_sid`,
+`_is_root_or_broad`). Zero behavior change; every trim pinned by the existing suite.
 
 - feat(doctor): the **spine report** — `proximo doctor` now shows the trust spine: the four
   structural pillars (PLAN·PROVE·UNDO·DIAGNOSE, standing in every configuration) and the two

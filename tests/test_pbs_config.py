@@ -39,6 +39,7 @@ from proximo.pbs_config import (
     plan_traffic_control_upsert,
     remote_get,
     remotes_list,
+    traffic_control_upsert,
     traffic_controls_list,
 )
 from proximo.planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM
@@ -898,6 +899,21 @@ class TestRemotesList:
         result = remotes_list(pbs)
         assert result == []
 
+    def test_non_list_response_shape_fails_closed(self):
+        """A non-list response (malformed/unexpected PBS shape) must be refused, not returned
+        verbatim -- the previous fallback bypassed password redaction entirely for any shape
+        other than a list."""
+        pbs = _FakePbs(get_return={"name": "r1", "password": "LEAK"})
+        with pytest.raises(ProximoError):
+            remotes_list(pbs)
+
+    def test_non_dict_entry_shape_fails_closed(self):
+        """A non-dict ENTRY inside an otherwise-list response must also be refused --
+        redaction can only be verified on dict entries."""
+        pbs = _FakePbs(get_return=[{"name": "r1"}, "not-a-dict"])
+        with pytest.raises(ProximoError):
+            remotes_list(pbs)
+
 
 class TestTrafficControlsList:
     def test_gets_correct_path(self):
@@ -961,6 +977,18 @@ class TestRemoteGet:
         pbs = _FakePbs()
         with pytest.raises(PE):
             remote_get(pbs, "bad/name")
+
+
+class TestTrafficControlUpsertDispatchFailsClosed:
+    """The create-vs-update existence check must abort on an inconclusive read rather than
+    silently assuming absence and dispatching a CREATE against a possibly-existing rule."""
+
+    def test_attributeerror_from_existence_check_propagates(self):
+        pbs = _FakePbs(raise_on_get=AttributeError("malformed response"))
+        with pytest.raises(AttributeError):
+            traffic_control_upsert(pbs, "rule1", rate_in=100)
+        assert pbs.posts == []  # must NOT have silently created
+        assert pbs.puts == []   # must NOT have silently updated either
 
 
 # ---------------------------------------------------------------------------

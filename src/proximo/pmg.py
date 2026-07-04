@@ -34,7 +34,7 @@ from urllib.parse import quote
 
 import httpx
 
-from ._tls import httpx_verify, parse_verify_tls
+from ._tls import fingerprint_pinned_context, httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
@@ -195,6 +195,7 @@ class PmgConfig:
         PROXIMO_PMG_NODE           optional  default "pmg"
         PROXIMO_PMG_VERIFY_TLS     optional  default "true"; set "false" to skip (warn)
         PROXIMO_PMG_CA_BUNDLE      optional  path to CA cert bundle (preferred over disabling TLS)
+        PROXIMO_PMG_FINGERPRINT    optional  WIRE-ENFORCED exact-cert SHA-256 pin (self-signed PMG)
     """
 
     base_url: str        # e.g. "https://pmg.example.lan:8006/api2/json"
@@ -203,6 +204,7 @@ class PmgConfig:
     node: str = "pmg"
     verify_tls: bool = True
     ca_bundle: str | None = None
+    fingerprint: str | None = None  # WIRE-ENFORCED exact-cert pin — see PmgBackend.__init__
 
     @classmethod
     def from_env(cls) -> PmgConfig:
@@ -220,8 +222,9 @@ class PmgConfig:
         node = os.environ.get("PROXIMO_PMG_NODE", "pmg")
         verify_tls = parse_verify_tls(os.environ.get("PROXIMO_PMG_VERIFY_TLS", "true"))
         ca_bundle = os.environ.get("PROXIMO_PMG_CA_BUNDLE") or None
+        fingerprint = os.environ.get("PROXIMO_PMG_FINGERPRINT") or None
 
-        if not verify_tls and not ca_bundle:
+        if not verify_tls and not ca_bundle and not fingerprint:
             warnings.warn(
                 "PROXIMO_PMG_VERIFY_TLS=false with no CA bundle — "
                 "talking to the PMG API without cert validation.",
@@ -235,6 +238,7 @@ class PmgConfig:
             node=node,
             verify_tls=verify_tls,
             ca_bundle=ca_bundle,
+            fingerprint=fingerprint,
         )
 
 
@@ -251,7 +255,8 @@ class PmgConfig:
         node = fields.get("node", "pmg")
         verify_tls = parse_verify_tls(fields.get("verify_tls", "true"))
         ca_bundle = fields.get("ca_bundle") or None
-        if not verify_tls and not ca_bundle:
+        fingerprint = fields.get("fingerprint") or None
+        if not verify_tls and not ca_bundle and not fingerprint:
             warnings.warn(
                 "PMG target verify_tls=false with no CA bundle — "
                 "talking to the PMG API without cert validation.",
@@ -264,6 +269,7 @@ class PmgConfig:
             node=node,
             verify_tls=verify_tls,
             ca_bundle=ca_bundle,
+            fingerprint=fingerprint,
         )
 
 
@@ -293,14 +299,27 @@ class PmgBackend:
 
     def __init__(self, config: PmgConfig):
         self.config = config
+        if config.fingerprint:
+            # WIRE-ENFORCED pin: exact-cert SHA-256 match replaces CA/hostname validation
+            # (self-signed PMG). Mismatch closes the socket before credentials are sent.
+            try:
+                ctx = fingerprint_pinned_context(config.fingerprint)
+            except ValueError as e:
+                raise ProximoError(f"PMG fingerprint refused: {e}") from e
+            self._client = httpx.Client(base_url=config.base_url, verify=ctx, timeout=60)
+            self._ticket = None
+            self._csrf = None
+            self._lock = threading.Lock()
+            return
         verify: bool | str = config.ca_bundle if config.ca_bundle else config.verify_tls
         # FAIL-CLOSED: this backend sends credentials on login. Refuse to construct
-        # over a completely unverified channel (verify_tls=False AND no ca_bundle).
-        # A ca_bundle (or system CA trust) is required.
+        # over a completely unverified channel (verify_tls=False AND no ca_bundle AND no
+        # fingerprint). A ca_bundle, a pin, or system CA trust is required.
         if verify is False:
             raise ProximoError(
-                "refusing to send PMG credentials over unverified TLS: set PROXIMO_PMG_CA_BUNDLE "
-                "to the PMG CA cert (preferred) or PROXIMO_PMG_VERIFY_TLS=true."
+                "refusing to send PMG credentials over unverified TLS: set PROXIMO_PMG_FINGERPRINT "
+                "to the cert's SHA-256 (self-signed PMG), PROXIMO_PMG_CA_BUNDLE to the PMG CA cert, "
+                "or PROXIMO_PMG_VERIFY_TLS=true."
             )
         self._client = httpx.Client(base_url=config.base_url, verify=httpx_verify(verify), timeout=60)
         self._ticket: str | None = None

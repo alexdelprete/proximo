@@ -62,7 +62,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from ._tls import httpx_verify, parse_verify_tls
+from ._tls import fingerprint_pinned_context, httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .pbs import _check_namespace
 
@@ -193,12 +193,14 @@ class PdmConfig:
         PROXIMO_PDM_TOKEN_PATH   required  file containing TOKENID:SECRET
         PROXIMO_PDM_VERIFY_TLS   optional  default "true"; set "false" to skip (warn + fail-closed)
         PROXIMO_PDM_CA_BUNDLE    optional  path to CA cert bundle (preferred over disabling TLS)
+        PROXIMO_PDM_FINGERPRINT  optional  WIRE-ENFORCED exact-cert SHA-256 pin (self-signed PDM)
     """
 
     base_url: str          # e.g. "https://pdm.example.com:8443/api2/json"
     token_path: str        # file containing: TOKENID:SECRET  (run-but-not-read)
     verify_tls: bool = True
     ca_bundle: str | None = None
+    fingerprint: str | None = None  # WIRE-ENFORCED exact-cert pin — see PdmBackend.__init__
 
     @staticmethod
     def _normalize_base_url(base_url: str) -> str:
@@ -239,8 +241,9 @@ class PdmConfig:
 
         verify_tls = parse_verify_tls(os.environ.get("PROXIMO_PDM_VERIFY_TLS", "true"))
         ca_bundle = os.environ.get("PROXIMO_PDM_CA_BUNDLE") or None
+        fingerprint = os.environ.get("PROXIMO_PDM_FINGERPRINT") or None
 
-        if not verify_tls and not ca_bundle:
+        if not verify_tls and not ca_bundle and not fingerprint:
             cls._warn_unverified_tls("PROXIMO_PDM_VERIFY_TLS=false")
 
         return cls(
@@ -248,6 +251,7 @@ class PdmConfig:
             token_path=token_path,
             verify_tls=verify_tls,
             ca_bundle=ca_bundle,
+            fingerprint=fingerprint,
         )
 
     @classmethod
@@ -261,13 +265,15 @@ class PdmConfig:
         url = cls._normalize_base_url(base_url)
         verify_tls = parse_verify_tls(fields.get("verify_tls", "true"))
         ca_bundle = fields.get("ca_bundle") or None
-        if not verify_tls and not ca_bundle:
+        fingerprint = fields.get("fingerprint") or None
+        if not verify_tls and not ca_bundle and not fingerprint:
             cls._warn_unverified_tls("PDM target verify_tls=false")
         return cls(
             base_url=url,
             token_path=token_path,
             verify_tls=verify_tls,
             ca_bundle=ca_bundle,
+            fingerprint=fingerprint,
         )
 
 
@@ -287,14 +293,24 @@ class PdmBackend:
 
     def __init__(self, config: PdmConfig):
         self.config = config
+        if config.fingerprint:
+            # WIRE-ENFORCED pin: exact-cert SHA-256 match replaces CA/hostname validation
+            # (self-signed PDM). Mismatch closes the socket before the token is sent.
+            try:
+                ctx = fingerprint_pinned_context(config.fingerprint)
+            except ValueError as e:
+                raise ProximoError(f"PDM fingerprint refused: {e}") from e
+            self._client = httpx.Client(base_url=config.base_url, verify=ctx, timeout=60)
+            return
         verify: bool | str = config.ca_bundle if config.ca_bundle else config.verify_tls
         # FAIL-CLOSED: this backend sends a real API-token secret on every request. Refuse
         # to construct it over a completely unverified channel (verify_tls=false AND no
-        # ca_bundle).
+        # ca_bundle AND no fingerprint).
         if verify is False:
             raise ProximoError(
-                "refusing to send the PDM token over unverified TLS: set PROXIMO_PDM_CA_BUNDLE "
-                "to the PDM CA cert (preferred) or PROXIMO_PDM_VERIFY_TLS=true."
+                "refusing to send the PDM token over unverified TLS: set PROXIMO_PDM_FINGERPRINT "
+                "to the cert's SHA-256 (self-signed PDM), PROXIMO_PDM_CA_BUNDLE to the PDM CA cert, "
+                "or PROXIMO_PDM_VERIFY_TLS=true."
             )
         self._client = httpx.Client(base_url=config.base_url, verify=httpx_verify(verify), timeout=60)
 

@@ -1,10 +1,15 @@
 proximo for Debian
 ==================
 
-STATUS: first working build (0.14.1-1). `dpkg-buildpackage -us -uc -b`
-produces an installable .deb; `dpkg -i` + `proximo doctor` + `dpkg -r`
-have all been run end-to-end. Still not a Debian-archive-quality package
-(see "Still rough" below) -- but it is no longer a scaffold.
+STATUS: first working build, now tracking 0.15.0-1, now with a man page, a clean
+`lintian --pedantic --info` pass, and a real autopkgtest smoke test.
+`dpkg-buildpackage -us -uc -b` produces an installable .deb; `dpkg -i` +
+`man proximo` + `proximo doctor` + `dpkg -P` have all been run end-to-end,
+confirmed zero files left behind after purge. Closer to
+archive-adjacent quality (see "Still rough" below for what's left) --
+but it is still not an actual Debian-archive submission (no sponsor,
+no archive-quality changelog distribution, no piuparts/reproducible-build
+check).
 
 Approach: self-contained via **dh-virtualenv**
 ------------------------------------------------
@@ -67,25 +72,82 @@ having its own quirks:
   there). Verified: install, run `proximo doctor`, remove -- `/opt/venvs`
   is gone, no leftover files, no dpkg record.
 
-`debian/proximo.lintian-overrides` documents three tags that are expected
-for *any* dh-virtualenv package and aren't defects here: files under `/opt`
-(that's the whole point of a self-contained venv), console-scripts
-shebanging to the venv's bare `python` (pip's standard codegen), and two
-non-executable files vendored inside pip itself (`pip/_vendor/...`,
-upstream's choice, not ours). A full from-scratch `lintian` pass after all
-of the above is clean except two expected leftovers: `no-manual-page` (no
-man page yet -- see below) and three `debug-file-with-no-debug-symbols`
-warnings on the `-dbgsym` package (the bundled cryptography/pydantic-core/
-rpds-py wheels are pre-stripped manylinux binaries with no DWARF info to
-extract; fixing that would mean rebuilding those wheels from source, out
-of scope here).
+`debian/proximo.lintian-overrides` documents four tags that are expected
+for *any* dh-virtualenv package (or this specific package's naming) and
+aren't defects here: files under `/opt` (that's the whole point of a
+self-contained venv), console-scripts shebanging to the venv's bare
+`python` (pip's standard codegen), two non-executable files vendored
+inside pip itself (`pip/_vendor/...`, upstream's choice, not ours), and
+the pedantic-only `repeated-path-segment` hit on
+`.../site-packages/proximo/` (dh-virtualenv names the venv after the
+source package, and upstream's own top-level import package happens to
+also be named `proximo` -- two independently-correct naming choices
+colliding, not a build mistake).
+
+Man page
+--------
+
+`debian/proximo.1` is **hand-written**, not `help2man`-generated: `proximo
+--help` doesn't print help text at all -- with no subcommand, `main()`
+(see `src/proximo/server.py`) unconditionally starts the MCP stdio server
+and blocks reading stdin, so `help2man ./proximo` genuinely fails
+(`can't get '--help' info`, confirmed while writing this). The page was
+written by reading `src/proximo/__main__.py`, `server.py`'s `main()`, and
+`doctor.py`'s `doctor_check()` directly, so every claim in it (the
+`doctor` subcommand's `--target` flag, its JSON-report-then-exit-0-even-
+if-unreachable behavior, the exit-1 config-error path, the three required
+`PROXIMO_*` vars) is checked against the actual code, not inferred from
+prose docs. It deliberately does NOT restate the full `PROXIMO_*`
+reference (60+ variables across PVE/PBS/PMG/PDM and the opt-in trust-spine
+extensions) -- it names the three required variables plus two notable
+safety toggles, then points at `/usr/share/doc/proximo/proximo.env.example`
+(now shipped via `debian/proximo.docs`) and the upstream README for the
+rest. Wired in via `debian/proximo.manpages`; verified with `groff -man
+-Tutf8 -ww` (no warnings), `man --warnings`, and a real `dpkg -i` +
+`man proximo` end-to-end.
+
+lintian --pedantic pass
+------------------------
+
+Before this pass, `lintian --pedantic --info` on the source .changes (both
+the `proximo` and `proximo-dbgsym` binaries) showed 5 tags: `no-manual-page`
+(warning), the pedantic-only `repeated-path-segment` (see above), and the
+three `debug-file-with-no-debug-symbols` warnings on `-dbgsym` (already
+known, see below). After this pass: 3 tags, all three the same
+`-dbgsym` `debug-file-with-no-debug-symbols` warnings -- the bundled
+cryptography/pydantic-core/rpds-py wheels are pre-stripped manylinux
+binaries with no DWARF info to extract; fixing that would mean rebuilding
+those wheels from source, out of scope here. Plain (non-pedantic)
+`lintian` was already clean before this pass except those same three; it
+still is. No overrides were added for the `-dbgsym` tags -- they're
+genuinely unfixed, not silenced, and the reasoning is recorded here
+instead of hidden behind an override.
+
+autopkgtest
+-----------
+
+`debian/tests/control` + `debian/tests/smoke` add one smoke test: install
+the real `.deb` (dh-virtualenv venv + `/usr/bin/proximo` symlink, exactly
+as an end user would) and run `proximo doctor` with
+`PROXIMO_API_BASE_URL` pointed at a loopback port nothing listens on --
+the connection is refused immediately, so the test needs no real Proxmox
+host and touches no real infrastructure. `doctor` is designed to treat an
+unreachable target as a reported preflight finding, not a crash, so the
+test doesn't assert on the exit status (0 or 1 are both "the binary
+ran") -- it asserts that the JSON report actually came out (`{` as the
+first line, a `"note"` field, `"reachable": false`). Verified two ways:
+manually with `sh -e debian/tests/smoke` against a real `dpkg -i`
+install (both with the package absent -- confirmed the test correctly
+fails closed -- and installed -- confirmed it passes), and through the
+actual harness: `autopkgtest ../proximo_0.15.0-1_amd64.changes -- null`
+(the `null` backend runs directly on this host with no isolation, which
+is fine for a disposable packaging-verification container) --
+`smoke PASS`. Both runs left `/opt/venvs/proximo` and `/usr/bin/proximo`
+purged afterward (verified `find` for those paths returns nothing).
 
 Still rough
 -----------
 
-- **No man page** for `proximo` (lintian `no-manual-page`, a warning not
-  an error). Worth doing properly in its own pass rather than a
-  perfunctory stub.
 - **`python3 (>= 3.12)` stays a real runtime dependency**, not just a
   build one: `python3 -m venv`'s `bin/python3` is a symlink to the system
   interpreter (not a copy), so the venv isn't fully self-contained down to
@@ -94,26 +156,39 @@ Still rough
   (`dh_venv_safe_interpreter_update`, triggered off `/usr/bin/python?.*`)
   -- that path is untested here (only a fresh install + remove cycle was
   verified, not an upgrade-under-a-python-bump scenario).
-- **Not run through a real Debian archive gate** (no `lintian --pedantic`,
-  no `piuparts`, no reproducible-build check, no autopkgtest). This is a
-  "it builds, installs, runs, and removes cleanly" bar, not an
-  archive-acceptance bar.
-- **Version 0.14.1-1 with a `-1` revision on a `3.0 (native)` source
+- **Not run through a real Debian archive gate.** `lintian --pedantic` and
+  a real autopkgtest smoke run are now done (see above), but there is
+  still no `piuparts` run and no reproducible-build check. This is an
+  "it builds, installs, runs, passes one smoke test, and removes cleanly"
+  bar, not a full archive-acceptance bar.
+- **Version 0.15.0-1 with a `-1` revision on a `3.0 (native)` source
   format** is slightly non-canonical (native packages conventionally carry
   no Debian revision suffix); harmless in practice (dpkg builds it fine),
   but a purist would either drop the `-1` or switch source format --
-  left as-is since the task asked for a `0.14.1-1` entry and this isn't
+  left as-is since the task asked for a versioned entry and this isn't
   headed for archive upload.
 - **A2A extra (a2a-sdk, uvicorn* already pulled in transitively by mcp,
   starlette, cryptography) is deliberately NOT bundled** beyond what mcp
   itself needs -- matches upstream's opt-in design. `proximo-a2a` ships as
   a console script but errors with a friendly message until someone pip
-  installs the `[a2a]` extra into the venv by hand.
-- **No live-smoke coverage of `PROXIMO_ENABLE_EXEC` / ssh->pct paths** as
-  part of this packaging pass -- `proximo doctor` was exercised against
-  whatever `PROXIMO_*` env was already present on the build host, purely
-  to prove the binary starts and talks to Proxmox's API; that is not a
-  packaging test suite.
+  installs the `[a2a]` extra into the venv by hand. Not exposed under
+  `/usr/bin` either way (only `debian/proximo.links` symlinks the plain
+  `proximo` command); the man page documents only what's actually reachable
+  from `/usr/bin`.
+- **The autopkgtest smoke test covers exactly one path**: `proximo doctor`
+  against an unreachable target. It does not exercise
+  `PROXIMO_ENABLE_EXEC` / ssh->pct, PBS/PMG/PDM configuration, multi-target
+  registries, or a reachable-but-under-privileged token (the "capability
+  gaps" branch of `doctor_check`) -- those would need either a real (or
+  faked-up) Proxmox API to talk to, which is out of scope for a
+  no-infrastructure autopkgtest, or dedicated unit tests (already covered
+  separately by `tests/test_doctor.py` et al in the upstream test suite,
+  not by this packaging pass).
+- **`dh_shlibdeps` warns** (not a lintian tag) that `pydantic_core`'s
+  compiled `.so` links against `libdl.so.2` without using any of its
+  symbols -- an artifact of how that wheel's Rust build was linked
+  upstream, not something this packaging introduced or can fix without
+  rebuilding the wheel.
 
 Transport (unchanged, already decided)
 ---------------------------------------

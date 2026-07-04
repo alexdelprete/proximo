@@ -2,8 +2,11 @@
 """Single source of truth for "where proximo's version lives" + a drift checker.
 
 Version locations kept in sync: pyproject.toml, src/proximo/__init__.py,
-CHANGELOG.md (has a release heading), and server.json (the MCP registry
-manifest — its top-level `version` plus every `packages[].version`).
+CHANGELOG.md (has a release heading), server.json (the MCP registry
+manifest — its top-level `version` plus every `packages[].version`), the
+Debian man page `.TH` stamp, and the top `debian/changelog` entry's upstream
+version. (The man-page stamp auto-bumps on `set`; the Debian changelog entry
+is human-added like CHANGELOG.md and only verified here.)
 
 Consumed by:
   - tests/test_version_consistency.py  (the always-on gate)
@@ -26,10 +29,16 @@ PYPROJECT = "pyproject.toml"
 INIT = "src/proximo/__init__.py"
 CHANGELOG = "CHANGELOG.md"
 SERVER_JSON = "server.json"
+MANPAGE = "debian/proximo.1"
+DEBIAN_CHANGELOG = "debian/changelog"
 
 _INIT_RE = re.compile(r'(?m)^__version__\s*=\s*"([^"]+)"')
 _HEADING_RE = re.compile(r'(?m)^##\s*\[([^\]]+)\]')
 _SERVER_JSON_VERSION_RE = re.compile(r'"version"\s*:\s*"[^"]*"')
+# man page .TH line:  .TH PROXIMO 1 "July 2026" "proximo 0.15.0" "User Commands"
+_MANPAGE_RE = re.compile(r'"proximo\s+([0-9][^"]*)"')
+# debian/changelog top entry:  proximo (0.15.0-1) UNRELEASED; ...
+_DEB_CHANGELOG_RE = re.compile(r'(?m)^proximo\s+\(([0-9][^-)~]*)')
 
 
 def read_pyproject_version(root: Path) -> str:
@@ -59,6 +68,21 @@ def read_server_json_versions(root: Path) -> list[tuple[str, str]]:
     return versions
 
 
+def read_manpage_version(root: Path) -> str:
+    m = _MANPAGE_RE.search((root / MANPAGE).read_text(encoding="utf-8"))
+    if not m:
+        raise ValueError(f'no "proximo <version>" .TH stamp found in {MANPAGE}')
+    return m.group(1)
+
+
+def read_debian_changelog_version(root: Path) -> str:
+    """Upstream version of the TOP debian/changelog entry (the part before the -N revision)."""
+    m = _DEB_CHANGELOG_RE.search((root / DEBIAN_CHANGELOG).read_text(encoding="utf-8"))
+    if not m:
+        raise ValueError(f"no leading 'proximo (X.Y.Z-N)' entry found in {DEBIAN_CHANGELOG}")
+    return m.group(1)
+
+
 def read_changelog_headings(root: Path) -> list[str]:
     text = (root / CHANGELOG).read_text(encoding="utf-8")
     return [h.strip() for h in _HEADING_RE.findall(text)]
@@ -86,6 +110,18 @@ def check_consistency(root: Path) -> list[str]:
             f"CHANGELOG has no '## [{py}]' heading for version {py!r} "
             f"(add the release entry — a bare '## [Unreleased]' does not satisfy this)"
         )
+    # Debian packaging is optional in a checkout — only enforce these when the files exist.
+    if (root / MANPAGE).exists():
+        man = read_manpage_version(root)
+        if man != py:
+            problems.append(f"{MANPAGE} .TH version {man!r} != pyproject version {py!r}")
+    if (root / DEBIAN_CHANGELOG).exists():
+        deb = read_debian_changelog_version(root)
+        if deb != py:
+            problems.append(
+                f"{DEBIAN_CHANGELOG} top entry upstream version {deb!r} != pyproject version {py!r} "
+                f"(add a 'proximo ({py}-1) ...' entry above the older ones)"
+            )
     return problems
 
 
@@ -132,6 +168,16 @@ def set_version(root: Path, version: str) -> None:
     if n == 0:
         raise ValueError(f'expected at least one "version": ... field in {SERVER_JSON}, found 0')
     sj.write_text(sj_new, encoding="utf-8")
+
+    # Man-page .TH stamp auto-bumps (a plain literal), when the packaging file is present; the
+    # debian/changelog entry is NOT rewritten here — a native-package changelog is human-authored
+    # append-a-dated-entry, verified by check_consistency.
+    mp = root / MANPAGE
+    if mp.exists():
+        mp_new, n = _MANPAGE_RE.subn(f'"proximo {version}"', mp.read_text(encoding="utf-8"), count=1)
+        if n != 1:
+            raise ValueError(f'expected exactly one "proximo <version>" stamp in {MANPAGE}, found {n}')
+        mp.write_text(mp_new, encoding="utf-8")
 
 
 def _main(argv: list[str]) -> int:

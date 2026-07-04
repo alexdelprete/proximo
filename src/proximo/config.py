@@ -96,6 +96,7 @@ class ProximoConfig:
     audit_log_path: str = os.path.expanduser("~/.local/state/proximo/audit.log")
     verify_tls: bool = True
     ca_bundle: str | None = None  # path to the internal/Caddy CA bundle; preferred over disabling TLS verify
+    fingerprint: str | None = None  # PROXIMO_FINGERPRINT — WIRE-ENFORCED exact-cert SHA-256 pin (self-signed PVE)
     enable_exec: bool = False  # OFF by default (API-only, safe). True enables ssh->pct exec (root-grant tradeoff).
     audit_key_path: str | None = None  # opt-in: path to an HMAC key file → keyed (tamper-resistant) PROVE ledger
     audit_keyed: bool = True  # PROXIMO_AUDIT_KEYED — keyed (HMAC) PROVE by default; "off"/"0"/"false"/"no" disables
@@ -120,6 +121,7 @@ class ProximoConfig:
             agent_allow_raw=os.environ.get("PROXIMO_AGENT_ALLOWLIST", ""),
             vtls_raw=os.environ.get("PROXIMO_VERIFY_TLS", "true"),
             ca_bundle=os.environ.get("PROXIMO_CA_BUNDLE") or None,
+            fingerprint=os.environ.get("PROXIMO_FINGERPRINT") or None,
             enable_exec=os.environ.get("PROXIMO_ENABLE_EXEC", "false").lower() in ("1", "true", "yes", "on"),
             enable_agent=os.environ.get("PROXIMO_ENABLE_AGENT", "false").lower() in ("1", "true", "yes", "on"),
             audit_key_path=os.environ.get("PROXIMO_AUDIT_KEY_PATH") or None,
@@ -159,6 +161,7 @@ class ProximoConfig:
             agent_allow_raw=_csv("agent_allowlist"),
             vtls_raw=str(fields.get("verify_tls", "true")),
             ca_bundle=fields.get("ca_bundle") or None,
+            fingerprint=fields.get("fingerprint") or None,
             enable_exec=bool(fields.get("enable_exec", False)),
             enable_agent=bool(fields.get("enable_agent", False)),
             audit_key_path=fields.get("audit_key_path") or None,
@@ -183,6 +186,7 @@ class ProximoConfig:
         agent_allow_raw: str,
         vtls_raw: str,
         ca_bundle: str | None,
+        fingerprint: str | None,
         enable_exec: bool,
         enable_agent: bool,
         audit_key_path: str | None,
@@ -335,6 +339,7 @@ class ProximoConfig:
             audit_log_path=audit_log_path,
             verify_tls=verify_tls,
             ca_bundle=ca_bundle,
+            fingerprint=fingerprint,
             enable_exec=enable_exec,
             audit_key_path=audit_key_path,
             audit_keyed=audit_keyed,

@@ -1,0 +1,66 @@
+#!/bin/sh
+# autopkgtest: smoke-test the INSTALLED `proximo` command.
+#
+# This never talks to a real Proxmox host. It points PROXIMO_API_BASE_URL at
+# a loopback port nothing listens on, so the connection is refused
+# immediately -- `proximo doctor` is designed to treat that as a reported
+# preflight finding, not a crash, and still print its full JSON report. The
+# assertion here is only that the report comes out: the bundled dh-virtualenv
+# venv actually starts, the interpreter/imports resolve, and `doctor` runs
+# its real code path -- not that any particular exit status comes back, and
+# not that the fake target is reachable (it deliberately isn't).
+set -e
+
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+# Syntactically plausible token file (USER@REALM!TOKENID=SECRET). `doctor`'s
+# connectivity check fails before any token content would be sent anywhere;
+# this only has to look like a token file, never a real one.
+printf '%s\n' \
+    'smoke@pve!autopkgtest=0000000000000000000000000000000000000000000000000000000000000000' \
+    > "$WORKDIR/token"
+
+OUT="$WORKDIR/stdout"
+ERR="$WORKDIR/stderr"
+
+# PROXIMO_ENV_FILE=/nonexistent: don't let a real ~/.config/proximo/proximo.env
+# on the testbed leak in and override what this test is checking.
+set +e
+env \
+    PROXIMO_ENV_FILE=/nonexistent \
+    PROXIMO_API_BASE_URL='https://127.0.0.1:1/api2/json' \
+    PROXIMO_NODE='autopkgtest' \
+    PROXIMO_TOKEN_PATH="$WORKDIR/token" \
+    /usr/bin/proximo doctor >"$OUT" 2>"$ERR"
+rc=$?
+set -e
+
+echo "== proximo doctor exit status: $rc =="
+echo "== stdout =="
+cat "$OUT"
+echo "== stderr =="
+cat "$ERR"
+
+# The real assertion: doctor's JSON preflight report actually came out on
+# stdout (first line is the opening brace; the "note" field is doctor's
+# fixed report header -- see src/proximo/doctor.py). Exit status is not
+# asserted: doctor exits 0 for a reported-but-handled preflight failure
+# (this test's case) and 1 for a hard config error -- both are "the binary
+# ran"; only silence or a traceback instead of JSON would mean it didn't.
+head -n 1 "$OUT" | grep -q '^{$' || {
+    echo "FAIL: proximo doctor did not print a JSON report (no opening '{')" >&2
+    exit 1
+}
+
+grep -q '"note"' "$OUT" || {
+    echo "FAIL: proximo doctor's JSON report is missing the expected \"note\" header field" >&2
+    exit 1
+}
+
+grep -q '"reachable": false' "$OUT" || {
+    echo "FAIL: proximo doctor did not report the (expected) unreachable target" >&2
+    exit 1
+}
+
+echo "PASS: proximo doctor ran the real code path against an unreachable target and printed its JSON preflight report"

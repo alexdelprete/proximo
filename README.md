@@ -132,16 +132,17 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.14.1`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.14.1), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.15.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.15.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.14.1 — the trim + harden patch.** Plans and the ledger now show the actual
-> field values a mutation will change. Secrets stay out of both: cloud-init passwords,
-> ACME DNS credentials, exec argv. The doctor gained its **spine report**.
+> **New in 0.15.0 — cert-fingerprint pinning on every surface.** Pin any Proxmox box Proximo
+> talks to — PVE · PBS · PMG · PDM — by its exact certificate instead of shipping a CA. Wire-enforced
+> and live-proven against real hardware: a mismatched cert closes the socket before your token is
+> sent. The self-signed operator's answer. Plus a packaged, tested `.deb`.
 >
-> **0.14.0** added **scoped registration**: `PROXIMO_SURFACES=pve,exec` loads only the
-> planes you use. **0.13.0** added the **zero-trust arc** — six opt-in controls
-> (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT), all off until configured.
-> [SECURITY.md](SECURITY.md) says which controls are on by default and what each honestly holds.
+> Recent: **0.14.1** trimmed and hardened the tree — plans and the ledger now disclose the exact
+> field a mutation changes, with secrets kept out of both. **0.14.0** added **scoped registration**
+> (`PROXIMO_SURFACES` loads only the planes you use). See [SECURITY.md](SECURITY.md) for which
+> controls are on by default and what each honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -211,17 +212,15 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
+- 🩸 **0.15.0** — **cert-fingerprint pinning across all four surfaces** (PVE · PBS · PMG · PDM),
+  wire-enforced and live-proven against real hardware. Plus the first packaged, tested `.deb`.
 - 🩸 **0.14.1** — the **trim + harden patch**. Plans and the ledger now show the actual field
   changes, and carry no secrets. 57 verified fixes, +74 tests, plus the doctor **spine report**.
 - 🩸 **0.14.0** — **scoped registration**: `PROXIMO_SURFACES` loads only the planes you use.
-  A structural registry gate, not a runtime refusal. Plus the demo-led README.
 - 🩸 **0.13.0** — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT,
-  all opt-in and fail-closed. Plus the off-box PROVE anchor and `pve_acl_prune` (351 → 352 tools).
-- 🩸 **0.12.0** — `proximo doctor --target` brings the CLI preflight onto the multi-target
-  registry. Plus a PMG login-concurrency fix. A drop-in over 0.11.0.
-- 🩸 **0.11.0** — **native multi-target**: one instance reaches many PVE/PBS/PMG/PDM remotes via
-  `proximo_target=`. Plus the ACME cert-order plane (347 → 351 tools). Redteamed and live-proven
-  against two real boxes. _(0.1.1 "Spaniard" was the first public cut, 2026-06-10.)_
+  all opt-in and fail-closed. Plus the off-box PROVE anchor.
+- _Earlier: native multi-target (one instance → many PVE/PBS/PMG/PDM boxes) and the ACME plane
+  grew the tree to its current 352 tools; `0.1.1` "Spaniard" was the first public cut, 2026-06-10._
 
 The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed. The
 opt-in six (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md))

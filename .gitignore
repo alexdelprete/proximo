@@ -15,10 +15,13 @@ venv/
 
 # Debian build artifacts
 debian/proximo/
+debian/proximo-dbgsym/
 debian/.debhelper/
 debian/files
 debian/*.substvars
 debian/*.log
+debian/*.debhelper
+debian/debhelper-build-stamp
 *.deb
 *.buildinfo
 *.changes

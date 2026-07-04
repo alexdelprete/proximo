@@ -21,7 +21,7 @@ from urllib.parse import quote
 
 import httpx
 
-from ._tls import httpx_verify
+from ._tls import fingerprint_pinned_context, httpx_verify
 from .config import ProximoConfig
 
 # NB: \Z (not $) — Python's $ matches before a trailing newline, so "valid\n" would slip through.
@@ -242,16 +242,27 @@ class ApiBackend:
 
     def __init__(self, config: ProximoConfig):
         self.config = config
+        if config.fingerprint:
+            # WIRE-ENFORCED pin: the PVE node's cert is signed by the per-cluster "PVE Cluster
+            # Manager CA" that no public root trusts, so a pin (exact-cert SHA-256) replaces
+            # CA/hostname validation — mismatch closes the socket before the token is sent.
+            # Same mechanism as PbsBackend; a garbled pin refuses loudly here.
+            try:
+                ctx = fingerprint_pinned_context(config.fingerprint)
+            except ValueError as e:
+                raise ProximoError(f"PVE fingerprint refused: {e}") from e
+            self._client = httpx.Client(base_url=config.api_base_url, verify=ctx, timeout=30)
+            return
         verify: bool | str = config.ca_bundle if config.ca_bundle else config.verify_tls
         # FAIL-CLOSED: every request carries the PVE API-token secret. Refuse to construct
         # this client over a completely unverified channel (verify_tls=false AND no
-        # ca_bundle) — same rule PbsBackend already enforces for the PBS token, for the
-        # same reason: the token could be intercepted in transit.
+        # ca_bundle AND no fingerprint) — same rule PbsBackend enforces for the PBS token.
         if verify is False:
             raise ProximoError(
-                "refusing to send the PVE token over unverified TLS: set PROXIMO_CA_BUNDLE "
-                "to the PVE CA cert (preferred) or PROXIMO_VERIFY_TLS=true. A read-only token "
-                "is still a credential — it must not cross an unverified channel."
+                "refusing to send the PVE token over unverified TLS: set PROXIMO_FINGERPRINT "
+                "to the node cert's SHA-256 (strongest for a self-signed PVE), PROXIMO_CA_BUNDLE "
+                "to the cluster CA, or PROXIMO_VERIFY_TLS=true. A read-only token is still a "
+                "credential — it must not cross an unverified channel."
             )
         self._client = httpx.Client(base_url=config.api_base_url, verify=httpx_verify(verify), timeout=30)
 

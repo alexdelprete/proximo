@@ -42,6 +42,58 @@ def test_checker_flags_a_mismatch(tmp_path):
     assert any("!=" in p for p in problems)
 
 
+def _consistent_repo(tmp_path, v="1.2.3"):
+    """A minimal repo that check_consistency passes cleanly, incl. the Debian packaging files."""
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "x"\nversion = "{v}"\n', encoding="utf-8"
+    )
+    pkg = tmp_path / "src" / "proximo"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(f'__version__ = "{v}"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text(f"## [{v}]\n", encoding="utf-8")
+    (tmp_path / "server.json").write_text(_server_json(v), encoding="utf-8")
+    deb = tmp_path / "debian"
+    deb.mkdir()
+    (deb / "proximo.1").write_text(
+        f'.TH PROXIMO 1 "July 2026" "proximo {v}" "User Commands"\n.SH NAME\n', encoding="utf-8"
+    )
+    (deb / "changelog").write_text(f"proximo ({v}-1) UNRELEASED; urgency=medium\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_debian_packaging_files_are_consistent_and_optional(tmp_path):
+    # Present + matching -> clean.
+    assert version_tools.check_consistency(_consistent_repo(tmp_path)) == []
+    # Absent entirely -> still clean (a fork without debian/ is version-consistent).
+    import shutil
+    shutil.rmtree(tmp_path / "debian")
+    assert version_tools.check_consistency(tmp_path) == []
+
+
+def test_checker_flags_stale_manpage_stamp(tmp_path):
+    _consistent_repo(tmp_path)
+    (tmp_path / "debian" / "proximo.1").write_text(
+        '.TH PROXIMO 1 "July 2026" "proximo 0.0.1" "User Commands"\n', encoding="utf-8"
+    )
+    problems = version_tools.check_consistency(tmp_path)
+    assert any("proximo.1" in p and "!=" in p for p in problems)
+
+
+def test_checker_flags_stale_debian_changelog(tmp_path):
+    _consistent_repo(tmp_path)
+    (tmp_path / "debian" / "changelog").write_text(
+        "proximo (0.0.1-1) UNRELEASED; urgency=medium\n", encoding="utf-8"
+    )
+    problems = version_tools.check_consistency(tmp_path)
+    assert any("changelog" in p and "!=" in p for p in problems)
+
+
+def test_set_version_autobumps_the_manpage(tmp_path):
+    _consistent_repo(tmp_path, "1.2.3")
+    version_tools.set_version(tmp_path, "1.3.0")
+    assert 'proximo 1.3.0' in (tmp_path / "debian" / "proximo.1").read_text(encoding="utf-8")
+
+
 def test_checker_flags_missing_changelog_entry(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "x"\nversion = "1.2.3"\n', encoding="utf-8"

@@ -16,3 +16,13 @@ proximo: unusual-interpreter *
 # instances today -- distro.py, certs.py -- but pip's vendor set shifts
 # release to release, so this isn't pinned to specific filenames.)
 proximo: script-not-executable
+
+# Pedantic-only: dh-virtualenv names the venv after the source package
+# (/opt/venvs/proximo, per debian/rules' DH_VIRTUALENV_INSTALL_ROOT), and
+# the upstream project's own top-level import package is also named
+# "proximo" -- so site-packages/proximo/ repeats the "proximo" path
+# segment that's already in /opt/venvs/proximo/lib/pythonX/site-packages/.
+# That's two independent, correct naming choices (the venv-per-package
+# convention and upstream's own package name) colliding, not a build
+# mistake; renaming either would be actively wrong.
+proximo: repeated-path-segment proximo [opt/venvs/proximo/lib/python3.*/site-packages/proximo/]

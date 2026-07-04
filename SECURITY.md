@@ -40,7 +40,7 @@ back-port branch.
 
 | Version                                       | Supported    |
 | ---------------------------------------------- | ------------ |
-| latest release (`0.13.0` as of this writing)   | ✅           |
+| latest release (`0.15.0` as of this writing)   | ✅           |
 | anything older                                 | ❌ — upgrade |
 
 ## Security controls & defaults

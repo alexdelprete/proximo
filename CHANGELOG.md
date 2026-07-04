@@ -2,21 +2,45 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
-## [Unreleased]
+## [0.15.0] - 2026-07-04
 
+**Cert-fingerprint pinning across all four Proxmox surfaces, and a distributable Debian package.**
+Pin any Proxmox backend Proximo talks to — PVE · PBS · PMG · PDM — by its exact certificate,
+the self-signed operator's answer to shipping a cluster CA. Every pin is wire-enforced and
+live-proven against real hardware. Plus the first packaged `.deb`. New capabilities, no breaking
+changes; suite 5,193 green, ruff + pyright clean.
+
+- feat(pmg,pdm): **cert-fingerprint pinning now covers all four surfaces.** `PROXIMO_PMG_FINGERPRINT`
+  and `PROXIMO_PDM_FINGERPRINT` complete what PBS and PVE started — every Proxmox backend Proximo
+  talks to (PVE · PBS · PMG · PDM) can now be verified by an exact-cert SHA-256 pin instead of a
+  shipped CA. Same guarantee across the board: the pin replaces CA/hostname validation, a mismatch
+  closes the socket before any credential or token is sent, a pin alone suffices, a garbled pin
+  refuses loudly at startup. Available via env or the target registry (`fingerprint` field).
+  **Live-proven against the real self-signed lab PMG 9.1 and PDM.**
+- feat(pve): **`PROXIMO_FINGERPRINT` — wire-enforced cert pinning for the PVE backend.**
+  Extends the PBS pin to Proxmox VE: a stock PVE node serves a cert signed by the per-cluster
+  "PVE Cluster Manager CA" that no public root trusts, so an operator can now pin the node
+  cert's SHA-256 instead of shipping the cluster CA. Same guarantee as PBS — exact-cert match
+  checked on the handshake, socket closed on mismatch before the `PVEAPIToken` header is sent;
+  a pin alone is sufficient verification; a garbled pin refuses loudly at startup. Available
+  via `PROXIMO_FINGERPRINT` (env) or `fingerprint` (target registry). **Live-proven against a
+  real self-signed PVE 9.2 node** (matching pin connects, wrong pin refuses), in addition to
+  the synthetic-TLS unit tests.
 - feat(pbs): **`PROXIMO_PBS_FINGERPRINT` is now wire-enforced.** When set, the PBS server
   certificate's SHA-256 must match the pin exactly — checked on the TLS handshake itself,
   and a mismatch closes the socket before the token header is ever sent. The pin replaces
   CA/hostname validation (the `proxmox-backup-client --fingerprint` idiom), so a pin alone
   is now sufficient verification for a self-signed PBS box, while a garbled fingerprint
   refuses loudly at startup. Accepts the colon-separated form the PBS GUI displays.
-  Proven in tests against a real TLS handshake (self-signed cert + live socket), not mocks.
-  Closes the long-standing "stored; not yet wire-enforced" honesty note.
-- packaging(debian): **first working .deb** — dh-virtualenv, self-contained venv under
-  `/opt/venvs/proximo`, `/usr/bin/proximo` entry point. Built with `dpkg-buildpackage`,
-  verified end-user (install → `proximo doctor` → clean purge, zero files left). Not yet
-  distributed anywhere — build your own from `debian/`; honest-rough items (no man page,
-  no autopkgtest) are listed in `debian/README.Debian`.
+  Proven in tests against a real TLS handshake (self-signed cert + live socket), not mocks —
+  and **live-proven against a real self-signed PBS 4.2 datastore** (matching pin reads, wrong
+  pin refuses). Closes the long-standing "stored; not yet wire-enforced" honesty note.
+- packaging(debian): **a buildable, tested `.deb`** — dh-virtualenv, self-contained venv under
+  `/opt/venvs/proximo`, `/usr/bin/proximo` entry point, a hand-written `man proximo`, and a
+  passing autopkgtest smoke check. `lintian` clean (three unfixable pre-stripped-wheel tags on
+  the debug package aside). Built with `dpkg-buildpackage`, verified end-user (install →
+  `proximo doctor` → clean purge, zero files left). Not distributed anywhere yet — build your
+  own from `debian/`; remaining rough edges are listed honestly in `debian/README.Debian`.
 
 ## [0.14.1] - 2026-07-04
 

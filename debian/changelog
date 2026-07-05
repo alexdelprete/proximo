@@ -1,3 +1,12 @@
+proximo (0.16.0-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.16.0 (five safe-runbook MCP prompts; live-proven online
+    live-migration + softdog HA fencing; storage 'shared' fix). No packaging
+    changes from 0.15.0-1 — same dh-virtualenv build, man page, and autopkgtest.
+    Not distributed; build-your-own from debian/.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Sun, 05 Jul 2026 17:02:08 -0500
+
 proximo (0.15.0-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.15.0 (cert-fingerprint pinning across all four Proxmox

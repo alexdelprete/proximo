@@ -2,6 +2,44 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
+## [Unreleased]
+
+## [0.16.0] - 2026-07-05
+
+**The last two "unproven by design" claims are now live-proven** — online (zero-downtime) QEMU
+migration over shared storage, and HA fencing with the softdog watchdog — on a real 3-node PVE 9.2
+cluster with NFS-backed shared storage. Plus the storage bug the proof surfaced, fixed.
+
+- proof(cluster): **ONLINE live-migration live-proven end-to-end through the full stack**
+  (`scripts/live-smoke/migrate-online-smoke.py`): a running QEMU guest with its disk on shared
+  NFS storage migrated node→node in ~9s and **never stopped** (post-state asserted: guest on the
+  target node AND still `running`; an online migration that can't stay live fails — it does not
+  silently fall back to offline). The PLAN preview is asserted to disclose source→target and the
+  online mode before anything moves; PROVE ledger verified after. Closes the roadmap gap that had
+  been "unproven by design until shared storage exists" since 2026-06-10.
+- proof(ha): **HA fencing live-proven with the softdog watchdog** on a real quorate 3-node
+  cluster: an HA-managed guest's node had corosync cut; its LRM stopped petting the watchdog,
+  softdog reset the node ~85s later (boot-time change + the kernel's
+  `watchdog: watchdog0: watchdog did not stop!` signature in the prior boot's journal — no reboot
+  was ever issued), and the CRM recovered the guest `started` on a survivor node. Fault-to-recovery
+  2m36s, every phase observed through Proximo's own read tools. Honest residual: softdog (PVE's
+  default watchdog) is proven; a *hardware* watchdog (iTCO/IPMI) still needs real hardware.
+- fix(storage): **`pve_storage_create` no longer sends `shared` for network-backed storage types**
+  (nfs/cifs/pbs/cephfs/rbd/iscsi). PVE fixes `shared=1` in the plugin for those types and its API
+  *rejects* the explicit property (`500 unexpected property 'shared'` — live-found on PVE 9.2 by the
+  migration proof, mid-smoke). `shared=True` intent is already satisfied for them, so it is omitted;
+  `dir`-style types still send it. `storage_update` can't see the storage's type, so its docstring
+  now carries the sharp edge (pass `shared=None` for intrinsically-shared types). The unit test that
+  asserted the old behavior encoded the wrong assumption — flipped to the live-proven truth.
+- feat(prompts): **five safe-runbook MCP prompts** (`src/proximo/prompts.py`) — user-invoked front
+  doors that encode the guarded path for common operations: `safe_migration`, `provision_container`,
+  and `safe_backup` (each plan-first → verify-after), `diagnose_cluster` (read-only DIAGNOSE sweep),
+  and `review_receipts` (verify the PROVE ledger, then summarize recent actions). Prompts are
+  templates, not tool-callers — they add no new authority; they lower the "where do I start" barrier
+  and point at the sequence the trust spine already enforces. Registered on the shared FastMCP
+  instance, surfaced over `prompts/list`/`prompts/get`, and declared in the LobeHub manifest by the
+  extended `scripts/gen_lobehub_manifest.py`. Pinned by `tests/test_prompts.py`.
+
 ## [0.15.0] - 2026-07-04
 
 **Cert-fingerprint pinning across all four Proxmox surfaces, and a distributable Debian package.**

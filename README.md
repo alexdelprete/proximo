@@ -133,17 +133,18 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.15.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.15.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.16.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.16.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.15.0 — cert-fingerprint pinning on every surface.** Pin any Proxmox box Proximo
-> talks to — PVE · PBS · PMG · PDM — by its exact certificate instead of shipping a CA. Wire-enforced
-> and live-proven against real hardware: a mismatched cert closes the socket before your token is
-> sent. The self-signed operator's answer. Plus a packaged, tested `.deb`.
+> **New in 0.16.0 — the last two "unproven by design" claims are now live-proven.** Online
+> (zero-downtime) live-migration and softdog HA fencing, both proven end-to-end on a real 3-node
+> PVE 9.2 cluster with NFS-backed shared storage: a running guest migrated node→node in ~9s and
+> never stopped; a fenced node's HA guest recovered on a survivor. Plus **five safe-runbook prompts**
+> — user-invoked front doors (migrate, provision, back up, diagnose, review the receipts) that walk
+> the guarded path: check capacity, plan first, verify after.
 >
-> Recent: **0.14.1** trimmed and hardened the tree — plans and the ledger now disclose the exact
-> field a mutation changes, with secrets kept out of both. **0.14.0** added **scoped registration**
-> (`PROXIMO_SURFACES` loads only the planes you use). See [SECURITY.md](SECURITY.md) for which
-> controls are on by default and what each honestly holds.
+> Recent: **0.15.0** added **cert-fingerprint pinning** on every surface (PVE · PBS · PMG · PDM) —
+> pin a box by its exact certificate instead of shipping a CA, wire-enforced and live-proven. See
+> [SECURITY.md](SECURITY.md) for which controls are on by default and what each honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -176,9 +177,10 @@ uv pip install -e .          # or: pip install -e .
 >
 > The default path never touches the hypervisor host — management goes over the Proxmox **API** (scoped token). The two opt-in edges are the exceptions: exec uses your existing **ssh** to PVE to run `pct exec` as root on the host; the qemu-agent edge runs in-guest ops via the API. Both are off by default, each scoped by its own fail-closed allowlist (`PROXIMO_CT_ALLOWLIST` / `PROXIMO_AGENT_ALLOWLIST`), and say so loudly.
 >
-> *(A Debian package is deferred/optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.
-> Status: `debian/` is a packaging **scaffold, not yet installable** — `dpkg-buildpackage` won't
-> produce a working `.deb` until the bundled-venv step is finished; see `debian/README.Debian`.)*
+> *(A Debian package is optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.
+> Status: `debian/` now produces a **working, installable `.deb`** (`dpkg-buildpackage -us -uc -b`),
+> lintian-clean with a man page and an autopkgtest smoke — but it is **distributed nowhere**;
+> build-your-own from `debian/`. See `debian/README.Debian`.)*
 
 ## Multiple targets (one Proximo, many boxes)
 
@@ -213,6 +215,9 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
+- 🩸 **0.16.0** — **the last two "unproven by design" claims, live-proven**: online (zero-downtime)
+  live-migration and softdog HA fencing on a real 3-node PVE 9.2 cluster. Plus **five safe-runbook
+  prompts** — plan-first, verify-after front doors for the common operations.
 - 🩸 **0.15.0** — **cert-fingerprint pinning across all four surfaces** (PVE · PBS · PMG · PDM),
   wire-enforced and live-proven against real hardware. Plus the first packaged, tested `.deb`.
 - 🩸 **0.14.1** — the **trim + harden patch**. Plans and the ledger now show the actual field
@@ -256,8 +261,12 @@ back to a bare confirm.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
 **Not yet proven — said plainly:** the remaining 352-tool surface runs against mocks for shapes
-the live smokes don't reach: real HA *fencing* (needs a hardware watchdog), *online*
-live-migration (needs shared storage), and behavior at production scale.
+the live smokes don't reach: *hardware*-watchdog fencing (iTCO/IPMI — needs real hardware) and
+behavior at production scale. Softdog fencing and online live-migration ARE live-proven
+(2026-07-05, on a quorate 3-node PVE 9.2 cluster with NFS shared storage: a running guest
+migrated node→node in ~9s without stopping — `scripts/live-smoke/migrate-online-smoke.py` —
+and a corosync-isolated node was watchdog-fenced with its HA guest recovered on a survivor
+in 2m36s, no reboot ever issued).
 
 **The A2A face (experimental, opt-in):** `pip install 'proximo-proxmox[a2a]'`, then `proximo-a2a` — a curated
 16-skill slice over Agent2Agent that **routes through the same trust core** (PLAN/PROVE/UNDO inherited;
@@ -268,14 +277,6 @@ tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor (`PROXIM
 `ct_psql` records the SQL body and `ct_exec` the command argv it runs (the operator's own input) for a
 complete audit trail; set `PROXIMO_LEDGER_REDACT=1` to record a fingerprint (sha256 + kind + length)
 instead, when the SQL/command may carry secrets/PII. The PVE API token is never written to the ledger.
-
-### What's next
-- [ ] HA fencing (softdog) + online live-migration over shared storage — queued for the
-  nested-cluster lab. Real hardware-watchdog fencing still waits on real hardware.
-- [ ] Debian package polish: a man page + archive-quality gates (autopkgtest, `lintian
-  --pedantic`). The package itself now builds and installs — see `debian/README.Debian`.
-- [x] PBS certificate-fingerprint wire-enforcement — done: the pin is checked on the
-  handshake; a mismatch refuses before the token is sent.
 
 The full build history — every pillar, every redteam, every fix — lives in [`CHANGELOG.md`](./CHANGELOG.md).
 

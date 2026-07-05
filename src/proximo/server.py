@@ -938,6 +938,7 @@ def main() -> None:
 # (a) importing proximo.server still registers all 352 tools with FastMCP as a side effect,
 # and (b) the existing `server.<tool_name>` surface (direct-call tests, CLI, introspection
 # sweeps that do `getattr(server, name)`) keeps working unchanged. ---
+from proximo import prompts as _prompts  # noqa: E402,F401  # safe-runbook MCP prompts (registration side effect)
 from proximo.tools.pbs import (  # noqa: E402,F401
     pbs_datastore_create,
     pbs_datastore_delete,

@@ -1,7 +1,7 @@
 proximo for Debian
 ==================
 
-STATUS: first working build, now tracking 0.15.0-1, now with a man page, a clean
+STATUS: first working build, now tracking 0.16.0-1, now with a man page, a clean
 `lintian --pedantic --info` pass, and a real autopkgtest smoke test.
 `dpkg-buildpackage -us -uc -b` produces an installable .deb; `dpkg -i` +
 `man proximo` + `proximo doctor` + `dpkg -P` have all been run end-to-end,
@@ -139,7 +139,7 @@ first line, a `"note"` field, `"reachable": false`). Verified two ways:
 manually with `sh -e debian/tests/smoke` against a real `dpkg -i`
 install (both with the package absent -- confirmed the test correctly
 fails closed -- and installed -- confirmed it passes), and through the
-actual harness: `autopkgtest ../proximo_0.15.0-1_amd64.changes -- null`
+actual harness: `autopkgtest ../proximo_0.16.0-1_amd64.changes -- null`
 (the `null` backend runs directly on this host with no isolation, which
 is fine for a disposable packaging-verification container) --
 `smoke PASS`. Both runs left `/opt/venvs/proximo` and `/usr/bin/proximo`
@@ -161,7 +161,7 @@ Still rough
   still no `piuparts` run and no reproducible-build check. This is an
   "it builds, installs, runs, passes one smoke test, and removes cleanly"
   bar, not a full archive-acceptance bar.
-- **Version 0.15.0-1 with a `-1` revision on a `3.0 (native)` source
+- **Version 0.16.0-1 with a `-1` revision on a `3.0 (native)` source
   format** is slightly non-canonical (native packages conventionally carry
   no Debian revision suffix); harmless in practice (dpkg builds it fine),
   but a purist would either drop the `-1` or switch source format --

@@ -276,8 +276,17 @@ def test_storage_create_omits_disable_when_false():
 
 def test_storage_create_sends_shared_as_1_when_true():
     api = _api()
-    storage_create(api, "mystore", "nfs", shared=True)
+    storage_create(api, "mystore", "dir", shared=True)
     assert api.seen["data"]["shared"] == 1
+
+
+def test_storage_create_omits_shared_for_intrinsically_shared_type():
+    """PVE fixes shared=1 for network-backed types and its API REJECTS an explicit
+    'shared' property for them ("500 unexpected property 'shared'" — live-proven for
+    nfs on PVE 9.2, 2026-07-05). shared=True intent is already satisfied: omit it."""
+    api = _api()
+    storage_create(api, "mystore", "nfs", server="10.0.0.1", export="/srv/x", shared=True)
+    assert "shared" not in api.seen["data"]
 
 
 def test_storage_create_omits_shared_when_false():

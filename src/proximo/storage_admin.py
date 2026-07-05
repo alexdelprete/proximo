@@ -50,6 +50,12 @@ _VALID_STORAGE_TYPES = frozenset({
     "iscsi",
 })
 
+# Network-backed types where PVE fixes shared=1 in the plugin itself: the create/update API
+# REJECTS an explicit 'shared' property for these ("500 unexpected property 'shared'" —
+# live-proven for nfs on PVE 9.2, 2026-07-05). Passing shared=True for them is intent already
+# satisfied, so it is omitted from the request body rather than sent.
+_INTRINSICALLY_SHARED_TYPES = frozenset({"nfs", "cifs", "pbs", "cephfs", "rbd", "iscsi"})
+
 
 def _check_storage_type(storage_type: str) -> str:
     """Validate a PVE storage type against the curated allowed set.
@@ -161,7 +167,7 @@ def storage_create(
     # Smoke-confirm: verify PVE uses 1/0 (not true/false) for these boolean fields.
     if disable:
         data["disable"] = 1
-    if shared:
+    if shared and storage_type not in _INTRINSICALLY_SHARED_TYPES:
         data["shared"] = 1
 
     # MUTATION — confirm-gated + audited at the server layer.
@@ -190,6 +196,11 @@ def storage_update(
     nodes: new comma-separated node restriction list.
     disable: True=disable (send 1), False=enable (send 0), None=leave unchanged.
     shared: True=shared (send 1), False=unshared (send 0), None=leave unchanged.
+            ⚠️ Only valid for types where sharedness isn't intrinsic (e.g. 'dir'): PVE
+            REJECTS an explicit 'shared' on network-backed types (nfs/cifs/pbs/... —
+            "500 unexpected property 'shared'", live-proven for nfs on PVE 9.2). This
+            update path can't see the storage's type, so the caller must leave shared=None
+            for those types.
     delete: comma-separated list of config fields to UNSET on the storage definition.
             Smoke-confirm: verify the 'delete' param name and comma-sep semantics against
             a live PVE — this is the standard PVE 'delete' field that unsets named

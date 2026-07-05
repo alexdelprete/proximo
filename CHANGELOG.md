@@ -34,7 +34,7 @@ cluster with NFS-backed shared storage. Plus the storage bug the proof surfaced,
 - feat(prompts): **five safe-runbook MCP prompts** (`src/proximo/prompts.py`) — user-invoked front
   doors that encode the guarded path for common operations: `safe_migration`, `provision_container`,
   and `safe_backup` (each plan-first → verify-after), `diagnose_cluster` (read-only DIAGNOSE sweep),
-  and `review_receipts` (verify the PROVE ledger, then summarize recent actions). Prompts are
+  and `review_receipts` (verify the PROVE ledger's integrity — entries are read off-box). Prompts are
   templates, not tool-callers — they add no new authority; they lower the "where do I start" barrier
   and point at the sequence the trust spine already enforces. Registered on the shared FastMCP
   instance, surfaced over `prompts/list`/`prompts/get`, and declared in the LobeHub manifest by the

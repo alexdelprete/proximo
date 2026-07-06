@@ -312,25 +312,24 @@ def node_service_control(
 ) -> str | None:
     """Start, stop, restart, or reload a service on a PVE node.
 
-    POST /nodes/{node}/services/{service}/state/{action}
+    POST /nodes/{node}/services/{service}/{action}
 
     action: one of 'start', 'stop', 'restart', 'reload'.
     Returns a UPID string (async PVE task) — poll task_status to confirm completion.
 
     MUTATION — confirm-gated + audited at the server layer.
 
-    Smoke-confirm: verify the endpoint path structure
-    (/nodes/{node}/services/{service}/state/{action} vs
-    /nodes/{node}/services/{service}/{action}) on a live PVE instance;
-    verify that a UPID is returned (vs None) for each action;
-    verify the 'reload' action is available for all services or only select ones.
+    Schema-verified 2026-07-06 (pve-docs api-viewer): the mutation endpoints are
+    /nodes/{node}/services/{service}/{start|stop|restart|reload}; /state is the
+    GET-only status endpoint (the earlier /state/{action} guess was wrong).
+    Smoke-confirm: UPID returned (vs None) per action; 'reload' availability per service.
     """
     service = _check_service(service)
     action = _check_service_action(action)
     _check_node(node)
     n = node or api.config.node
     # MUTATION — confirm-gated + audited at the server layer.
-    return api._post(f"/nodes/{n}/services/{service}/state/{action}")
+    return api._post(f"/nodes/{n}/services/{service}/{action}")
 
 
 # ---------------------------------------------------------------------------

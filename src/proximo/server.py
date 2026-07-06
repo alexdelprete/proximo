@@ -103,9 +103,12 @@ def _pve_backends(target_name: str | None) -> tuple[ProximoConfig, ApiBackend, E
 
 @lru_cache(maxsize=1)
 def _instance_ledger() -> AuditLedger:
-    """The PROVE ledger is ONE chain for this Proximo instance — always built from the env
-    config, never per-target, so every target's ops record to the same tamper-evident chain."""
-    return open_ledger(ProximoConfig.from_env())
+    """The PROVE ledger is ONE chain for this Proximo instance — built from the env audit_* config,
+    never per-target, so every target's ops record to the same tamper-evident chain. Uses
+    from_env_ledger() (audit fields only) so a pure-targets deployment stands the ledger up WITHOUT
+    the single-target PVE API triple — otherwise `proximo doctor --target X` dies on a missing
+    PROXIMO_API_BASE_URL the ledger never needed."""
+    return open_ledger(ProximoConfig.from_env_ledger())
 
 
 def _svc() -> tuple[ProximoConfig, ApiBackend, ExecBackend, AuditLedger]:
@@ -930,6 +933,37 @@ def main() -> None:
             raise SystemExit(1) from None
         print(json.dumps(result, indent=2))
         return
+    # `proximo mint` — print-only onboarding recipe: create → write → grant → wire → verify.
+    # Prints the exact runbook for a least-privilege credential per product; makes NO API call,
+    # never handles a secret, and never starts the server. Hands off to `proximo doctor`.
+    if len(sys.argv) > 1 and sys.argv[1] == "mint":
+        import argparse
+        import json
+
+        from proximo.mint import PRODUCTS, build_recipe, render_text
+        parser = argparse.ArgumentParser(prog="proximo mint")
+        parser.add_argument("--product", default="pve",
+                            help=f"one of: {', '.join(PRODUCTS)} (default: pve)")
+        parser.add_argument("--user", default=None,
+                            help="service user (default: proximo@<product-realm>)")
+        parser.add_argument("--token-name", default="mcp",
+                            help="token name (default: mcp; unused for pmg)")
+        parser.add_argument("--token-file", default=None,
+                            help="credential file (default: ~/.config/proximo/<product>.token)")
+        parser.add_argument("--write", action="store_true",
+                            help="print the scoped WRITE grant instead of the read-only default")
+        parser.add_argument("--json", action="store_true",
+                            help="emit the recipe as structured JSON (mirrors doctor)")
+        args = parser.parse_args(sys.argv[2:])
+        try:
+            recipe = build_recipe(product=args.product, user=args.user,
+                                  token_name=args.token_name, token_file=args.token_file,
+                                  write=args.write)
+        except ValueError as e:
+            print(f"proximo mint: {e}", file=sys.stderr)
+            raise SystemExit(2) from None
+        print(json.dumps(recipe, indent=2) if args.json else render_text(recipe))
+        return
     print(BANNER, file=sys.stderr)
     mcp.run()
 
@@ -992,6 +1026,20 @@ from proximo.tools.pdm import (  # noqa: E402,F401
     pdm_tasks_list,
     pdm_users_list,
     pdm_version,
+)
+from proximo.tools.pdm_fleet import (  # noqa: E402,F401
+    pdm_pve_lxc_migrate,
+    pdm_pve_lxc_power,
+    pdm_pve_lxc_remote_migrate,
+    pdm_pve_lxc_snapshot_create,
+    pdm_pve_lxc_snapshot_delete,
+    pdm_pve_lxc_snapshot_rollback,
+    pdm_pve_qemu_migrate,
+    pdm_pve_qemu_power,
+    pdm_pve_qemu_remote_migrate,
+    pdm_pve_qemu_snapshot_create,
+    pdm_pve_qemu_snapshot_delete,
+    pdm_pve_qemu_snapshot_rollback,
 )
 from proximo.tools.pmg_mail import (  # noqa: E402,F401
     pmg_action_objects_list,

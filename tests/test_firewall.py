@@ -269,10 +269,12 @@ def test_ipset_list_cluster_scope():
     assert api.seen["path"] == "/cluster/firewall/ipset"
 
 
-def test_ipset_list_node_scope():
+def test_ipset_list_node_scope_rejected():
+    # Schema-verified 2026-07-06 (pve-docs api-viewer): node firewall exposes only
+    # options/rules/log — there is NO /nodes/{node}/firewall/ipset endpoint.
     api = _api()
-    ipset_list(api, scope="node")
-    assert "/nodes/pve/firewall/ipset" == api.seen["path"]
+    with pytest.raises(ProximoError, match="node scope"):
+        ipset_list(api, scope="node")
 
 
 # ---------------------------------------------------------------------------
@@ -1073,10 +1075,12 @@ def test_alias_list_cluster_scope():
     assert api.seen["path"] == "/cluster/firewall/aliases"
 
 
-def test_alias_list_node_scope():
+def test_alias_list_node_scope_rejected():
+    # Schema-verified 2026-07-06 (pve-docs api-viewer): node firewall exposes only
+    # options/rules/log — there is NO /nodes/{node}/firewall/aliases endpoint.
     api = _api(node="n1")
-    alias_list(api, scope="node")
-    assert api.seen["path"] == "/nodes/n1/firewall/aliases"
+    with pytest.raises(ProximoError, match="node scope"):
+        alias_list(api, scope="node")
 
 
 def test_alias_list_guest_scope_lxc():
@@ -1119,10 +1123,10 @@ def test_alias_create_omits_comment_when_absent():
     assert "comment" not in api.seen["data"]
 
 
-def test_alias_create_node_scope_path():
+def test_alias_create_node_scope_rejected():
     api = _api(node="n1")
-    alias_create(api, name="web", cidr="10.0.0.0/24", scope="node")
-    assert api.seen["path"] == "/nodes/n1/firewall/aliases"
+    with pytest.raises(ProximoError, match="node scope"):
+        alias_create(api, name="web", cidr="10.0.0.0/24", scope="node")
 
 
 def test_alias_create_rejects_bad_name():
@@ -1240,10 +1244,43 @@ def test_ipset_create_includes_comment():
     assert api.seen["data"]["comment"] == "bad actors"
 
 
-def test_ipset_create_node_scope_path():
+def test_ipset_create_node_scope_rejected():
     api = _api(node="n1")
-    ipset_create(api, name="blocklist", scope="node")
-    assert api.seen["path"] == "/nodes/n1/firewall/ipset"
+    with pytest.raises(ProximoError, match="node scope"):
+        ipset_create(api, name="blocklist", scope="node")
+
+
+def test_alias_ipset_plans_reject_node_scope_everywhere():
+    # PLAN honesty: the dry-run must fail the same way execution will — a plan that
+    # renders fine for node scope and then dies on confirm=True is a lying plan.
+    api = _api(node="n1")
+    calls = [
+        lambda: plan_alias_create("web", "10.0.0.0/24", scope="node"),
+        lambda: plan_alias_update(api, "web", scope="node", cidr="10.0.0.0/24"),
+        lambda: plan_alias_delete(api, "web", scope="node"),
+        lambda: plan_ipset_create("blocklist", scope="node"),
+        lambda: plan_ipset_delete(api, "blocklist", scope="node"),
+        lambda: plan_ipset_entry_add("blocklist", "10.0.0.1", scope="node"),
+        lambda: plan_ipset_entry_remove("blocklist", "10.0.0.1", scope="node"),
+    ]
+    for call in calls:
+        with pytest.raises(ProximoError, match="node scope"):
+            call()
+
+
+def test_alias_ipset_family_rejects_node_scope_everywhere():
+    # Every alias/ipset op must fail-fast on node scope, not emit a 501 against PVE.
+    api = _api(node="n1")
+    calls = [
+        lambda: alias_update(api, "web", scope="node", cidr="10.0.0.0/24"),
+        lambda: alias_delete(api, "web", scope="node"),
+        lambda: ipset_delete(api, "blocklist", scope="node"),
+        lambda: ipset_entry_add(api, "blocklist", "10.0.0.1", scope="node"),
+        lambda: ipset_entry_remove(api, "blocklist", "10.0.0.1", scope="node"),
+    ]
+    for call in calls:
+        with pytest.raises(ProximoError, match="node scope"):
+            call()
 
 
 def test_ipset_create_rejects_bad_name():

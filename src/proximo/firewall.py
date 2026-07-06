@@ -62,6 +62,23 @@ def _check_scope(scope: str) -> str:
     return scope
 
 
+def _check_alias_ipset_scope(scope: str) -> str:
+    """Aliases and IP sets exist only at cluster and guest scope.
+
+    Schema-verified 2026-07-06 (pve-docs api-viewer): node firewall exposes only
+    options/rules/log — there are NO /nodes/{node}/firewall/aliases or .../ipset
+    endpoints, so node scope must fail-fast here instead of 501ing against PVE.
+    """
+    _check_scope(scope)
+    if scope == "node":
+        raise ProximoError(
+            "firewall aliases/ipsets do not exist at node scope in the PVE API "
+            "(node firewall has only options/rules/log) — use scope='cluster' "
+            "or scope='guest'"
+        )
+    return scope
+
+
 def _check_pos(pos) -> int:
     """Firewall rule position — must be a non-negative integer (it goes into the URL path)."""
     try:
@@ -191,17 +208,17 @@ def ipset_list(
     vmid: str | None = None,
     kind: str | None = None,
 ) -> list[dict]:
-    """List IP sets for the given scope.
+    """List IP sets for the given scope (cluster or guest — node scope has no ipset).
 
     GET /cluster/firewall/ipset
-    GET /nodes/{node}/firewall/ipset
     GET /nodes/{node}/{kind}/{vmid}/firewall/ipset
 
     Returns a list of IPSet dicts.
 
-    Shape risk: node/guest scope ipset endpoints may not exist on all PVE versions.
-    Confirm at live smoke if using non-cluster scopes.
+    Schema-verified 2026-07-06 (pve-docs api-viewer): cluster + guest scopes only;
+    node firewall exposes only options/rules/log.
     """
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     return api._get(f"{base}/ipset") or []
 
@@ -898,7 +915,9 @@ def alias_list(
     vmid: str | None = None,
     kind: str | None = None,
 ) -> list[dict]:
-    """List firewall aliases for the given scope (read; audited at server layer)."""
+    """List firewall aliases for the given scope (cluster or guest — node scope has
+    no aliases; read; audited at server layer)."""
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     return api._get(f"{base}/aliases") or []
 
@@ -920,6 +939,7 @@ def alias_create(
     """
     name = _check_fw_name(name, "alias name")
     cidr = _check_cidr(cidr)
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {"name": name, "cidr": cidr}
     if comment is not None:
@@ -946,6 +966,7 @@ def alias_update(
     alters what every rule referencing this alias matches. No UNDO.
     """
     name = _check_fw_name(name, "alias name")
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {}
     if cidr is not None:
@@ -976,6 +997,7 @@ def alias_delete(
     PVE refuses if the alias is still referenced by a rule. No UNDO: re-create to revert.
     """
     name = _check_fw_name(name, "alias name")
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     params: dict = {}
     if digest is not None:
@@ -1006,7 +1028,7 @@ def plan_alias_create(
 ) -> Plan:
     """Preview creating an alias. PURE. RISK_LOW — passive definition until referenced."""
     name = _check_fw_name(name, "alias name")
-    _check_scope(scope)
+    _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
     return Plan(
         action="pve_firewall_alias_create",
@@ -1037,7 +1059,7 @@ def plan_alias_update(
     """Preview updating an alias. Reads the current alias (one safe read). RISK_MEDIUM:
     changing the CIDR silently changes what every referencing rule matches."""
     name = _check_fw_name(name, "alias name")
-    _check_scope(scope)
+    _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
     current = _find_alias(api, name, scope, node, vmid, kind)
     changes = []
@@ -1076,7 +1098,7 @@ def plan_alias_delete(
     """Preview deleting an alias. Reads the current alias (one safe read). RISK_MEDIUM:
     PVE refuses if the alias is still referenced; if forced out elsewhere, rules break."""
     name = _check_fw_name(name, "alias name")
-    _check_scope(scope)
+    _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
     current = _find_alias(api, name, scope, node, vmid, kind)
     return Plan(
@@ -1129,6 +1151,7 @@ def ipset_create(
     Passive until a rule references it as '+name'. No UNDO: delete to revert.
     """
     name = _check_fw_name(name, "ipset name")
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {"name": name}
     if comment is not None:
@@ -1152,6 +1175,7 @@ def ipset_delete(
     PVE also refuses while a rule still references the set. No UNDO.
     """
     name = _check_fw_name(name, "ipset name")
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     params: dict = {}
     if force:
@@ -1178,6 +1202,7 @@ def ipset_entry_add(
     """
     name = _check_fw_name(name, "ipset name")
     cidr = _check_cidr(cidr)
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {"cidr": cidr}
     if comment is not None:
@@ -1204,6 +1229,7 @@ def ipset_entry_remove(
     """
     name = _check_fw_name(name, "ipset name")
     cidr = _check_cidr(cidr)
+    _check_alias_ipset_scope(scope)
     base = _fw_base(api, scope, node, vmid, kind)
     params: dict = {}
     if digest is not None:
@@ -1234,7 +1260,7 @@ def plan_ipset_create(
 ) -> Plan:
     """Preview creating an IP set. PURE. RISK_LOW — empty set, passive until referenced."""
     name = _check_fw_name(name, "ipset name")
-    _check_scope(scope)
+    _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
     return Plan(
         action="pve_firewall_ipset_create",
@@ -1263,7 +1289,7 @@ def plan_ipset_delete(
     """Preview deleting an IP set. Reads current members (one safe read). RISK_MEDIUM:
     force WIPES all members; PVE refuses while a rule still references the set."""
     name = _check_fw_name(name, "ipset name")
-    _check_scope(scope)
+    _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
     entries, read_failed = _ipset_entries(api, name, scope, node, vmid, kind)
     if read_failed:
@@ -1315,7 +1341,7 @@ def plan_ipset_entry_add(
     """Preview adding an entry to an IP set. PURE. RISK_MEDIUM — changes referencing rules' match set."""
     name = _check_fw_name(name, "ipset name")
     cidr = _check_cidr(cidr)
-    _check_scope(scope)
+    _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
     kindword = "exclusion (nomatch)" if nomatch else "entry"
     return Plan(
@@ -1344,7 +1370,7 @@ def plan_ipset_entry_remove(
     """Preview removing an entry from an IP set. PURE. RISK_MEDIUM — changes referencing rules' match set."""
     name = _check_fw_name(name, "ipset name")
     cidr = _check_cidr(cidr)
-    _check_scope(scope)
+    _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
     return Plan(
         action="pve_firewall_ipset_entry_remove",

@@ -153,16 +153,22 @@ def notification_endpoint_delete(api, ep_type: str, name: str) -> None:
 def notification_matcher_set(api, name: str, **kw) -> None:
     """Create-or-update a PVE notification matcher (routing rule).
 
-    POST /cluster/notifications/matchers/{name}  (create or upsert)
-    Body: {match-rule, match-severity, target, comment, ...}
-    Smoke-confirm: exact path (POST for upsert vs separate POST/PUT), body field names.
+    Create: POST /cluster/notifications/matchers        {name, comment, ...}
+    Update: PUT  /cluster/notifications/matchers/{name}  {comment, ...}
+    Schema-verified 2026-07-06 (pve-docs api-viewer): the {name} path accepts only
+    GET/PUT/DELETE — POST goes to the collection with the name in the body, so the
+    upsert needs one safe read to pick the verb.
     MUTATION — confirm-gated + audited at the server layer.
     """
     _check_endpoint_name(name)
     data = {k: v for k, v in kw.items() if v is not None}
-    # Smoke-confirm: PVE POST vs PUT distinction for matcher create-or-update.
+    existing = api._get("/cluster/notifications/matchers") or []
+    names = {m.get("name") for m in existing if isinstance(m, dict)}
     # MUTATION — confirm-gated + audited at the server layer.
-    api._post(f"/cluster/notifications/matchers/{name}", data)
+    if name in names:
+        api._put(f"/cluster/notifications/matchers/{name}", data)
+    else:
+        api._post("/cluster/notifications/matchers", {"name": name, **data})
 
 
 def notification_matcher_delete(api, name: str) -> None:

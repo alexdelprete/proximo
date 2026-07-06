@@ -2,7 +2,7 @@
   "identifier": "john-broadway-proximo",
   "name": "Proximo",
   "description": "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway + Datacenter Manager on one clean surface: every dangerous op planned, undoable, and audited.",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "tools": [
     {
       "name": "ct_exec",
@@ -2464,6 +2464,637 @@
           }
         },
         "title": "pdm_users_listArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_qemu_power",
+      "description": "MUTATION: start/stop/shutdown/resume a VM on a PDM-registered remote (through PDM).\n\nDry-run by default: returns a PLAN (live state, blast radius, risk) recorded to the\nledger. Re-call with confirm=True to submit. Task-backed → status='submitted'.\n",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "action"
+        ],
+        "title": "pdm_pve_qemu_powerArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_lxc_power",
+      "description": "MUTATION: start/stop/shutdown a container on a PDM-registered remote (through PDM).\n\nDry-run by default (PLAN); confirm=True to submit. Task-backed → 'submitted'.\n",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "action"
+        ],
+        "title": "pdm_pve_lxc_powerArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_qemu_migrate",
+      "description": "MUTATION: migrate a VM to another node within the remote's cluster (through PDM).\n\nonline=True migrates a running VM. Dry-run by default (PLAN); confirm=True to submit.\n",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "target"
+        ],
+        "title": "pdm_pve_qemu_migrateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_lxc_migrate",
+      "description": "MUTATION: migrate a container to another node within the remote's cluster (through PDM).",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "target"
+        ],
+        "title": "pdm_pve_lxc_migrateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_qemu_remote_migrate",
+      "description": "MUTATION: migrate a VM to a DIFFERENT PDM-registered remote (datacenter-to-datacenter).\n\ntarget_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',\n'local-lvm:local-lvm'). delete=True removes the source after a successful move (destructive).\nDry-run by default (PLAN); confirm=True to submit.\n",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "target_remote": {
+            "title": "Target Remote",
+            "type": "string"
+          },
+          "target_bridge": {
+            "title": "Target Bridge",
+            "type": "string"
+          },
+          "target_storage": {
+            "title": "Target Storage",
+            "type": "string"
+          },
+          "target_vmid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Vmid"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "delete": {
+            "default": false,
+            "title": "Delete",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "target_remote",
+          "target_bridge",
+          "target_storage"
+        ],
+        "title": "pdm_pve_qemu_remote_migrateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_lxc_remote_migrate",
+      "description": "MUTATION: migrate a container to a DIFFERENT PDM-registered remote (datacenter-to-datacenter).",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "target_remote": {
+            "title": "Target Remote",
+            "type": "string"
+          },
+          "target_bridge": {
+            "title": "Target Bridge",
+            "type": "string"
+          },
+          "target_storage": {
+            "title": "Target Storage",
+            "type": "string"
+          },
+          "target_vmid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Vmid"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "delete": {
+            "default": false,
+            "title": "Delete",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "target_remote",
+          "target_bridge",
+          "target_storage"
+        ],
+        "title": "pdm_pve_lxc_remote_migrateArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_qemu_snapshot_create",
+      "description": "MUTATION: snapshot a VM on a PDM-registered remote (through PDM).\n\nvmstate=True includes the VM's RAM state. Additive (LOW risk). Dry-run by default.\n",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "snapname": {
+            "title": "Snapname",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "vmstate": {
+            "default": false,
+            "title": "Vmstate",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "snapname"
+        ],
+        "title": "pdm_pve_qemu_snapshot_createArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_lxc_snapshot_create",
+      "description": "MUTATION: snapshot a container on a PDM-registered remote (through PDM).\n\nContainers have no RAM state, so there is no vmstate option. Dry-run by default.\n",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "snapname": {
+            "title": "Snapname",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "snapname"
+        ],
+        "title": "pdm_pve_lxc_snapshot_createArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_qemu_snapshot_delete",
+      "description": "MUTATION: delete a VM snapshot on a PDM-registered remote. Irreversible; no UNDO. Dry-run by default.",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "snapname": {
+            "title": "Snapname",
+            "type": "string"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "snapname"
+        ],
+        "title": "pdm_pve_qemu_snapshot_deleteArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_lxc_snapshot_delete",
+      "description": "MUTATION: delete a container snapshot on a PDM-registered remote. Irreversible; no UNDO.",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "snapname": {
+            "title": "Snapname",
+            "type": "string"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "snapname"
+        ],
+        "title": "pdm_pve_lxc_snapshot_deleteArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_qemu_snapshot_rollback",
+      "description": "MUTATION: roll a VM back to a snapshot on a PDM-registered remote (through PDM).\n\nDESTRUCTIVE (discards current state). Takes an auto safety-snapshot first (fail-closed:\nno snapshot, no rollback). Dry-run by default (PLAN); confirm=True to submit.\n",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "snapname": {
+            "title": "Snapname",
+            "type": "string"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "snapname"
+        ],
+        "title": "pdm_pve_qemu_snapshot_rollbackArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pdm_pve_lxc_snapshot_rollback",
+      "description": "MUTATION: roll a container back to a snapshot on a PDM-registered remote (through PDM).\n\nDESTRUCTIVE. Takes an auto safety-snapshot first (fail-closed). Dry-run by default.\n",
+      "inputSchema": {
+        "properties": {
+          "remote": {
+            "title": "Remote",
+            "type": "string"
+          },
+          "vmid": {
+            "title": "Vmid",
+            "type": "string"
+          },
+          "snapname": {
+            "title": "Snapname",
+            "type": "string"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "required": [
+          "remote",
+          "vmid",
+          "snapname"
+        ],
+        "title": "pdm_pve_lxc_snapshot_rollbackArguments",
         "type": "object"
       }
     },
@@ -12518,7 +13149,7 @@
     },
     {
       "name": "pve_ipset_list",
-      "description": "List IP sets for the given scope (read).",
+      "description": "List IP sets for the given scope (read). Scope = cluster or guest only —\nthe PVE API has no node-scope ipsets (node firewall = options/rules/log).",
       "inputSchema": {
         "properties": {
           "scope": {
@@ -13071,7 +13702,7 @@
     },
     {
       "name": "pve_firewall_alias_list",
-      "description": "List firewall aliases (named CIDRs) for the given scope (read).",
+      "description": "List firewall aliases (named CIDRs) for the given scope (read). Scope = cluster\nor guest only — the PVE API has no node-scope aliases (node firewall = options/rules/log).",
       "inputSchema": {
         "properties": {
           "scope": {

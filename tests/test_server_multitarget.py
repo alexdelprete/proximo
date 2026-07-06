@@ -58,6 +58,33 @@ def test_svc_named_target_uses_registry(monkeypatch, tmp_path):
         targets._active_target.reset(token)
 
 
+def test_svc_targets_only_needs_no_single_target_env(monkeypatch, tmp_path):
+    # Real multi-target install, 2026-07-06: `proximo doctor --target edge` with a valid
+    # PROXIMO_TARGETS but NO single-target env vars raised "Missing required Proximo env var:
+    # PROXIMO_API_BASE_URL" — because the instance ledger was built from_env(), which hard-requires
+    # the API triple. The ledger reads only audit_* fields, so a pure-targets deployment must stand
+    # up its ledger without them. NO _env_default() here — that is the whole point.
+    monkeypatch.delenv("PROXIMO_API_BASE_URL", raising=False)
+    monkeypatch.delenv("PROXIMO_NODE", raising=False)
+    monkeypatch.delenv("PROXIMO_TOKEN_PATH", raising=False)
+    server._svc_cache_clear()  # drop any instance ledger a prior test built from_env
+    _registry(monkeypatch, tmp_path, """
+        [targets.edge]
+        kind = "pve"
+        base_url = "https://198.51.100.20:8006/api2/json"
+        node = "edge"
+        token_path = "/etc/proximo/edge.token"
+    """)
+    token = targets._active_target.set("edge")
+    try:
+        cfg, _api, _exec, led = server._svc()
+        assert cfg.node == "edge"
+        assert led is not None          # the instance ledger stood up without the API triple
+    finally:
+        targets._active_target.reset(token)
+        server._svc_cache_clear()
+
+
 def test_svc_pbs_target_on_pve_resolver_raises(monkeypatch, tmp_path):
     _env_default(monkeypatch)
     _registry(monkeypatch, tmp_path, """

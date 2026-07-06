@@ -365,6 +365,69 @@ def test_from_target_defaults_match_from_env_defaults():
     assert cfg.api_base_url.endswith("/api2/json")  # rstrip('/') applied
 
 
+def test_from_env_ledger_needs_no_pve_api_triple(monkeypatch):
+    # The instance PROVE ledger must stand up in a pure-targets deployment (no single-target env).
+    # from_env_ledger reads only audit_* fields and defaults the API triple to empty — it must NOT
+    # raise the "Missing required Proximo env var" that from_env does.
+    monkeypatch.delenv("PROXIMO_API_BASE_URL", raising=False)
+    monkeypatch.delenv("PROXIMO_NODE", raising=False)
+    monkeypatch.delenv("PROXIMO_TOKEN_PATH", raising=False)
+    monkeypatch.setenv("PROXIMO_LEDGER_REDACT", "1")
+    cfg = ProximoConfig.from_env_ledger()
+    assert cfg.api_base_url == "" and cfg.node == "" and cfg.token_path == ""
+    assert cfg.redact_ledger is True          # audit_* env still read
+    assert cfg.audit_keyed is True            # default preserved
+
+
+def test_from_env_ledger_matches_from_env_audit_fields(monkeypatch, tmp_path):
+    # In single-target mode the ledger config must be identical to the old from_env path for every
+    # audit field — routing _instance_ledger through from_env_ledger must not change the ledger.
+    _base_env(monkeypatch,
+              PROXIMO_LEDGER_REDACT="1", PROXIMO_AUDIT_KEYED="false",
+              PROXIMO_AUDIT_LOG=str(tmp_path / "x.log"))
+    env, led = ProximoConfig.from_env(), ProximoConfig.from_env_ledger()
+    for f in ("audit_log_path", "audit_keyed", "audit_key_path", "redact_ledger", "expected_head"):
+        assert getattr(env, f) == getattr(led, f), f"{f} diverges: {getattr(env, f)} != {getattr(led, f)}"
+
+
+def test_from_target_inherits_env_redact_default(monkeypatch):
+    # A targets-mode operator who exports PROXIMO_LEDGER_REDACT=1 expects it to apply. The
+    # per-target config (which the exec tools read as cfg.redact_ledger) must INHERIT the env
+    # default, not silently drop it. Real multi-target install, 2026-07-06.
+    monkeypatch.setenv("PROXIMO_LEDGER_REDACT", "1")
+    cfg = ProximoConfig.from_target({
+        "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+        "node": "edge", "token_path": "/etc/proximo/edge.token",
+    })
+    assert cfg.redact_ledger is True
+
+
+def test_from_target_env_redact_suppresses_warning(monkeypatch):
+    # The redact warning must reflect the EFFECTIVE setting — firing it when redaction is
+    # actually on (via env) is the one thing a warning can't do (teaches operators to ignore it).
+    import warnings as _w
+    monkeypatch.setenv("PROXIMO_LEDGER_REDACT", "1")
+    with _w.catch_warnings(record=True) as w:
+        _w.simplefilter("always")
+        ProximoConfig.from_target({
+            "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+            "node": "edge", "token_path": "/etc/proximo/edge.token",
+        })
+    redact = [x for x in w if "redact" in str(x.message).lower()]
+    assert not redact, f"redact warning fired despite env PROXIMO_LEDGER_REDACT=1: {redact}"
+
+
+def test_from_target_explicit_redact_false_overrides_env(monkeypatch):
+    # A target may still opt OUT of a redaction the env turned on — explicit block wins.
+    monkeypatch.setenv("PROXIMO_LEDGER_REDACT", "1")
+    cfg = ProximoConfig.from_target({
+        "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+        "node": "edge", "token_path": "/etc/proximo/edge.token",
+        "redact_ledger": False,
+    })
+    assert cfg.redact_ledger is False
+
+
 def test_from_target_verify_false_no_ca_warns():
     with pytest.warns(UserWarning, match="refuse to"):
         ProximoConfig.from_target({

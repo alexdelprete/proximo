@@ -258,16 +258,30 @@ class TestNotificationEndpointDelete:
 # ---------------------------------------------------------------------------
 
 class TestNotificationMatcherSet:
-    def test_posts_to_correct_path(self):
-        api = _Api()
+    # Schema-verified 2026-07-06 (pve-docs api-viewer): /cluster/notifications/matchers/{name}
+    # accepts GET/PUT/DELETE only; create is POST on the collection with the name in the body.
+
+    def test_create_posts_to_collection_with_name_in_body(self):
+        api = _Api(get_return=[])  # matcher does not exist yet
         notification_matcher_set(api, "all-alerts", comment="route all")
-        assert len(api.posts) == 1
+        assert api.gets == ["/cluster/notifications/matchers"]
+        assert len(api.posts) == 1 and not api.puts
         path, data = api.posts[0]
-        assert path == "/cluster/notifications/matchers/all-alerts"
+        assert path == "/cluster/notifications/matchers"
+        assert data["name"] == "all-alerts"
         assert data["comment"] == "route all"
 
+    def test_update_puts_to_name_path(self):
+        api = _Api(get_return=[{"name": "all-alerts"}])  # matcher already exists
+        notification_matcher_set(api, "all-alerts", comment="route all")
+        assert len(api.puts) == 1 and not api.posts
+        path, data = api.puts[0]
+        assert path == "/cluster/notifications/matchers/all-alerts"
+        assert data["comment"] == "route all"
+        assert "name" not in data
+
     def test_none_kwargs_excluded(self):
-        api = _Api()
+        api = _Api(get_return=[])
         notification_matcher_set(api, "matcher1", comment=None)
         _, data = api.posts[0]
         assert "comment" not in data

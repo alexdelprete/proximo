@@ -86,7 +86,8 @@ def pve_ipset_list(
     scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
 ) -> list[dict]:
-    """List IP sets for the given scope (read)."""
+    """List IP sets for the given scope (read). Scope = cluster or guest only —
+    the PVE API has no node-scope ipsets (node firewall = options/rules/log)."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/ipset"
     return _audited("pve_ipset_list", tgt,
@@ -209,7 +210,8 @@ def pve_firewall_alias_list(
     scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
 ) -> list[dict]:
-    """List firewall aliases (named CIDRs) for the given scope (read)."""
+    """List firewall aliases (named CIDRs) for the given scope (read). Scope = cluster
+    or guest only — the PVE API has no node-scope aliases (node firewall = options/rules/log)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_firewall_alias_list", f"firewall/{scope}/aliases",
                     lambda: alias_list(api, scope, node, vmid, kind))

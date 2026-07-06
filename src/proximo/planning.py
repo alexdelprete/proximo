@@ -432,3 +432,134 @@ def plan_snapshot_delete(vmid: str, snapname: str, kind: str = "lxc") -> Plan:
         current={}, blast_radius=[f"removes restore point '{snapname}' (you can't roll back to it after)"],
         risk=RISK_MEDIUM, risk_reasons=["removes a restore point"],
     )
+
+
+# --- PDM fleet-control planners -----------------------------------------------
+# These mirror the PVE planners' risk logic but read live state through the PDM
+# proxy: pdm.guest_status(remote, kind, vmid) (remote-first signature) rather than
+# the direct-PVE api.guest_status(vmid, kind, node). Target is remote-qualified so
+# the ledger names which datacenter the guest lives in.
+
+
+def _pdm_current(pdm, remote: str, kind: str, vmid: str) -> tuple[dict, bool]:
+    """Read live guest state via the PDM proxy for a plan's `current` facts + running flag."""
+    cur = pdm.guest_status(remote, kind, vmid) or {}
+    status = str(cur.get("status", "unknown"))
+    current: dict = {"status": status}
+    for k in ("name", "uptime", "cpu", "mem", "maxmem"):
+        if k in cur:
+            current[k] = cur[k]
+    return current, status == "running"
+
+
+def plan_pdm_power(pdm, remote: str, kind: str, vmid: str, action: str) -> Plan:
+    """Preview a proxied power action (no-op detection + risk by action)."""
+    current, running = _pdm_current(pdm, remote, kind, vmid)
+    blast: list[str] = []
+    reasons: list[str] = []
+    if action == "start" and running:
+        risk = RISK_NONE
+        blast = ["no-op: already running"]
+    elif action in ("stop", "shutdown") and not running:
+        risk = RISK_NONE
+        blast = [f"no-op: already {current['status']}"]
+    elif action == "start":
+        risk = RISK_LOW
+        reasons = ["bringing a guest up"]
+    elif action == "resume" and kind == "qemu":
+        risk = RISK_LOW
+        reasons = ["resuming a paused VM"]
+    elif action == "shutdown":
+        risk = RISK_MEDIUM
+        reasons = ["graceful ACPI shutdown of a running guest"]
+    elif action == "stop":
+        risk = RISK_HIGH
+        reasons = ["hard stop (power pull) of a running guest"]
+    else:
+        # e.g. lxc+resume, or reboot/suspend — PDM proxies none of these; confirm will be
+        # refused by _check_power_action, so the preview says so rather than looking normal.
+        risk = RISK_MEDIUM
+        reasons = [f"'{action}' is not a power action PDM proxies for {kind} — confirm will be refused"]
+    if running and action in ("stop", "shutdown"):
+        blast = [f"1 running guest on remote '{remote}' will halt"]
+    return Plan(
+        action="pdm_fleet_power", target=f"{remote}:{kind}/{vmid}:{action}",
+        change=f"{action} {kind} {vmid} on remote {remote}",
+        current=current, blast_radius=blast, risk=risk, risk_reasons=reasons,
+    )
+
+
+def plan_pdm_migrate(pdm, remote: str, kind: str, vmid: str, target: str, *,
+                     cross_remote: bool = False, delete: bool = False, online: bool = False,
+                     target_storage: str | None = None, target_bridge: str | None = None) -> Plan:
+    """Preview an in-cluster or cross-remote migration."""
+    current, running = _pdm_current(pdm, remote, kind, vmid)
+    where = f"remote '{target}'" if cross_remote else f"node '{target}'"
+    if cross_remote:
+        risk = RISK_HIGH if delete else RISK_MEDIUM
+        reasons = ["cross-remote (datacenter-to-datacenter) migration"]
+        if delete:
+            reasons.append("source guest is DELETED after a successful move")
+    else:
+        risk = RISK_MEDIUM
+        reasons = ["in-cluster migration"]
+    blast = [f"{kind} {vmid} relocates from '{remote}' to {where}"]
+    maps = []
+    if target_storage:
+        maps.append(f"storage {target_storage}")
+    if target_bridge:
+        maps.append(f"bridge {target_bridge}")
+    if maps:
+        blast.append("mappings: " + ", ".join(maps))
+    if cross_remote and delete:
+        blast.append(f"source copy on '{remote}' is DELETED after a successful move (irreversible)")
+    if running and not online:
+        blast.append("running guest — an offline migrate interrupts it")
+    return Plan(
+        action="pdm_fleet_migrate", target=f"{remote}:{kind}/{vmid}",
+        change=f"migrate {kind} {vmid} from '{remote}' to {where}" + (" (online)" if online else ""),
+        current=current, blast_radius=blast, risk=risk, risk_reasons=reasons,
+    )
+
+
+def plan_pdm_snapshot_create(pdm, remote: str, kind: str, vmid: str, snapname: str, *,
+                             vmstate: bool = False) -> Plan:
+    """Preview a snapshot create (additive)."""
+    current, _ = _pdm_current(pdm, remote, kind, vmid)
+    blast = [f"adds restore point '{snapname}'"]
+    if vmstate:
+        blast.append("includes RAM state (vmstate)")
+    return Plan(
+        action="pdm_fleet_snapshot_create", target=f"{remote}:{kind}/{vmid}:{snapname}",
+        change=f"create snapshot '{snapname}' of {kind} {vmid} on remote {remote}",
+        current=current, blast_radius=blast, risk=RISK_LOW,
+        risk_reasons=["additive: creates a restore point"],
+    )
+
+
+def plan_pdm_snapshot_delete(pdm, remote: str, kind: str, vmid: str, snapname: str) -> Plan:
+    """Preview a snapshot delete (irreversible loss of a restore point)."""
+    current, _ = _pdm_current(pdm, remote, kind, vmid)
+    return Plan(
+        action="pdm_fleet_snapshot_delete", target=f"{remote}:{kind}/{vmid}:{snapname}",
+        change=f"delete snapshot '{snapname}' of {kind} {vmid} on remote {remote}",
+        current=current, blast_radius=[f"removes restore point '{snapname}' (irreversible)"],
+        risk=RISK_MEDIUM, risk_reasons=["deletes a restore point — cannot be undone"],
+    )
+
+
+def plan_pdm_snapshot_rollback(pdm, remote: str, kind: str, vmid: str, snapname: str) -> Plan:
+    """Preview a rollback. DESTRUCTIVE — the tool takes an auto safety-snapshot first."""
+    current, running = _pdm_current(pdm, remote, kind, vmid)
+    blast = [
+        f"DISCARDS current state; reverts {kind}/{vmid} to snapshot '{snapname}'",
+        "an auto safety-snapshot of the current state is taken first (fail-closed)",
+    ]
+    if running:
+        blast.append("running guest will be reverted")
+    return Plan(
+        action="pdm_fleet_snapshot_rollback", target=f"{remote}:{kind}/{vmid}:{snapname}",
+        change=f"rollback {kind} {vmid} on remote {remote} to snapshot '{snapname}'",
+        current=current, blast_radius=blast, risk=RISK_HIGH,
+        risk_reasons=["destructive: discards all changes since the snapshot"],
+    )

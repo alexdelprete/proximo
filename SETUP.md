@@ -48,6 +48,10 @@ pip show proximo-proxmox
 
 ## Step 2 — Create a least-privilege token in Proxmox  ← the important step
 
+> Shortcut: `proximo mint` prints this whole step (and the next three) as an exact,
+> copy-pasteable runbook for your product — `--product pve|pbs|pmg|pdm`, read-only by
+> default, `--write` for the scoped write grant.
+
 A **token** is an API key with its own permissions, separate from your password, and revocable any time.
 We'll make a **read-only** one first. Pick the GUI *or* the CLI — they do the same thing.
 

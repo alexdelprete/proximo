@@ -34,7 +34,10 @@ from pathlib import Path
 
 # Paths that legitimately live in the internal repo but must NEVER reach the public mirror.
 # `.gitea/` = self-hosted-forge CI (names the internal forge host).
-DENY_PREFIXES: tuple[str, ...] = (".gitea/",)
+# `docs/plans/internal/` = lab build-records (operational live-prove runbooks) — they name real
+# lab IPs / dogfood credential paths / the arm-disarm workflow. The DESIGN specs in docs/plans/
+# ship publicly; the build-records under internal/ stay on the internal mirror.
+DENY_PREFIXES: tuple[str, ...] = (".gitea/", "docs/plans/internal/")
 # Denied by BASENAME (matches anywhere in the tree, not just root) = internal-only docs the public
 # mirror must NOT carry. `CLAUDE.md` = dev-memory. POSITIONING/LANDSCAPE/ROADMAP/CEILING = internal
 # strategy: competitive playbook, field survey, frozen design-thesis roadmap, and the addressable-surface

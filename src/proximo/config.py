@@ -25,6 +25,7 @@ _SSH_TARGET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]*\Z")
 # Unrecognized values keep TLS on (safe default) and emit a diagnostic warning.
 _VTLS_FALSY = frozenset({"0", "false", "off", "no"})
 _VTLS_TRUTHY = frozenset({"1", "true", "on", "yes"})
+_TRUTHY = frozenset({"1", "true", "yes", "on"})  # generic bool-env values (redact, etc.)
 
 _DEFAULT_ENV_FILE = "~/.config/proximo/proximo.env"
 
@@ -126,7 +127,33 @@ class ProximoConfig:
             enable_agent=os.environ.get("PROXIMO_ENABLE_AGENT", "false").lower() in ("1", "true", "yes", "on"),
             audit_key_path=os.environ.get("PROXIMO_AUDIT_KEY_PATH") or None,
             audit_keyed_raw=os.environ.get("PROXIMO_AUDIT_KEYED", "true"),
-            redact_ledger=os.environ.get("PROXIMO_LEDGER_REDACT", "false").lower() in ("1", "true", "yes", "on"),
+            redact_ledger=os.environ.get("PROXIMO_LEDGER_REDACT", "false").lower() in _TRUTHY,
+            expected_head_raw=os.environ.get("PROXIMO_AUDIT_EXPECTED_HEAD") or "",
+            audit_log_path=os.environ.get("PROXIMO_AUDIT_LOG", cls.audit_log_path),
+            anchor_sink_raw=os.environ.get("PROXIMO_AUDIT_ANCHOR_SINK", "none"),
+            anchor_file_path=os.environ.get("PROXIMO_AUDIT_ANCHOR_FILE_PATH") or None,
+        )
+
+    @classmethod
+    def from_env_ledger(cls) -> ProximoConfig:
+        """Config carrying ONLY the instance PROVE-ledger settings, read from env.
+
+        The PROVE ledger is ONE instance-wide chain and open_ledger() reads only the audit_*
+        fields — never the PVE API triple. So this must NOT require PROXIMO_API_BASE_URL/NODE/
+        TOKEN_PATH: a pure-targets deployment (PROXIMO_TARGETS set, no single-target env) still
+        stands up its ledger. Before this, _instance_ledger() built from_env(), so
+        `proximo doctor --target X` died with "Missing required Proximo env var:
+        PROXIMO_API_BASE_URL" — the flagship diagnostic couldn't run in the flagship config.
+        The API triple is defaulted to empty here (unused by the ledger; this config is never
+        turned into a backend)."""
+        return cls._build(
+            api_base_url="", node="", token_path="",   # unused by the ledger
+            ssh_target="pve", ct_allow_raw="", agent_allow_raw="",
+            vtls_raw="true", ca_bundle=None, fingerprint=None,
+            enable_exec=False, enable_agent=False,
+            audit_key_path=os.environ.get("PROXIMO_AUDIT_KEY_PATH") or None,
+            audit_keyed_raw=os.environ.get("PROXIMO_AUDIT_KEYED", "true"),
+            redact_ledger=os.environ.get("PROXIMO_LEDGER_REDACT", "false").lower() in _TRUTHY,
             expected_head_raw=os.environ.get("PROXIMO_AUDIT_EXPECTED_HEAD") or "",
             audit_log_path=os.environ.get("PROXIMO_AUDIT_LOG", cls.audit_log_path),
             anchor_sink_raw=os.environ.get("PROXIMO_AUDIT_ANCHOR_SINK", "none"),
@@ -166,7 +193,13 @@ class ProximoConfig:
             enable_agent=bool(fields.get("enable_agent", False)),
             audit_key_path=fields.get("audit_key_path") or None,
             audit_keyed_raw=str(fields.get("audit_keyed", "true")),
-            redact_ledger=bool(fields.get("redact_ledger", False)),
+            # Ledger redaction is consumed per-target (exec tools read cfg.redact_ledger), but it is
+            # an instance-wide intent: inherit the env PROXIMO_LEDGER_REDACT as the default so a
+            # targets-mode operator's `export PROXIMO_LEDGER_REDACT=1` actually applies. An explicit
+            # per-target `redact_ledger` still wins (a target may opt out of a redaction env turned on).
+            redact_ledger=bool(fields.get(
+                "redact_ledger",
+                os.environ.get("PROXIMO_LEDGER_REDACT", "false").lower() in _TRUTHY)),
             expected_head_raw=str(fields.get("audit_expected_head") or ""),
             audit_log_path=fields.get("audit_log", cls.audit_log_path),
             anchor_sink_raw=str(fields.get("audit_anchor_sink", "none")),

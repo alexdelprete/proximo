@@ -4,6 +4,74 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-07-06
+
+### Added
+- **`proximo mint`** — print-only token-onboarding runbook (sibling to `proximo doctor`):
+  the exact create → write → grant → wire → verify steps per product (PVE/PBS/PMG/PDM),
+  least-privilege by default (`--write` opt-in), `--json` for structured output. Bakes in
+  the per-product credential formats (`=` vs `:` vs password) and the two hard-won grant
+  gotchas (PDM user∩token intersection; PVE privsep token ACLs). Makes no API call and
+  never handles a secret. See `docs/plans/2026-07-06-mint-helper-design.md`.
+- **PDM fleet control** — the Proxmox Datacenter Manager plane goes from read-only (22 tools) to
+  governed guest control (**+12 → 34**): power (start/stop/shutdown/resume), in-cluster migrate,
+  **cross-remote (datacenter-to-datacenter) migrate**, and snapshot create/delete/rollback, for
+  qemu and lxc, driven through PDM's remote proxy. Every op is dry-run-by-default (PLAN) →
+  confirm-to-fire, recorded to the hash-chained ledger (PROVE), task-backed (records `submitted`,
+  never `ok`), and a **rollback takes an auto safety-snapshot first, fail-closed** (UNDO). Paths and
+  request bodies were verified against the PDM API schema — nothing invented (PDM proxies no
+  reboot/suspend, no lxc resume, and no create/clone, so those are refused, not faked). The first
+  governed PDM write surface in the field. **Tool count 352 → 364.** **LIVE-PROVEN 2026-07-06**
+  end-to-end against a real PDM 1.1.4 + nested PVE 9.2 cluster (`scripts/live-smoke/pdm-fleet-smoke.py`):
+  power stop/start, snapshot create → rollback (auto safety-snapshot taken first) → delete, and
+  **online migrate node→node and back**, with the 92-entry PROVE hash-chain verified (PLAN + submit +
+  undo_point all chained). See `docs/plans/2026-07-06-pdm-fleet-control-design.md`.
+  **Cross-remote `remote-migrate` now LIVE-PROVEN too** (2026-07-06) — a real
+  datacenter-to-datacenter MOVE (source `labclu` → a standalone 4th node), guest present on the
+  target and removed from the source (`delete=True`), PLAN + PROVE-chain verified
+  (`scripts/live-smoke/pdm-remote-migrate-smoke.py`). It was the one fleet op the first run couldn't
+  reach (needs a second, separate remote).
+
+### Fixed
+- **`remote-migrate` sent `target-bridge`/`target-storage` as scalars; PDM's typed API demands
+  arrays** — a live cross-remote migrate 400'd with `Expected array - got scalar value`. The mocked
+  unit test had encoded the same scalar assumption, so it passed while the real call failed. Both now
+  send single-element arrays and assert the array shape. Caught by the first real `remote-migrate`
+  against PDM 1.1.4 — the exact class of bug (typed-API shape) the fleet live-prove exists to surface.
+- **Two multi-target (`PROXIMO_TARGETS`) bugs a real production install surfaced** — both traced to the
+  `from_env`/`from_target` split not being fully reconciled:
+  - **`proximo doctor --target <name>` demanded single-target env vars.** In a pure-targets deployment
+    (no `PROXIMO_API_BASE_URL`/`NODE`/`TOKEN_PATH`), the flagship diagnostic died with
+    `Missing required Proximo env var: PROXIMO_API_BASE_URL` — because the one instance-wide PROVE
+    ledger was built via `from_env()`, which hard-requires the PVE API triple the ledger never uses.
+    New `ProximoConfig.from_env_ledger()` builds the ledger from the `audit_*` env only, so the
+    diagnostic now speaks the targets config format. Verified end-to-end via the real CLI.
+  - **`PROXIMO_LEDGER_REDACT=1` was silently dropped in targets mode.** `from_target` read
+    `redact_ledger` only from the per-target TOML block, never inheriting the env var — so an operator
+    who exported it still got full command/SQL bodies in the ledger *and* a warning telling them
+    redaction was off (the warning was correct; the setting had been dropped). `from_target` now
+    inherits the env `PROXIMO_LEDGER_REDACT` as the default; an explicit per-target value still wins.
+- **Three PDM fleet-control bugs the live-prove surfaced** (mocked unit tests couldn't — they encoded
+  the same wrong assumptions the code did):
+  - **Remote-qualified task UPIDs.** PDM's proxied POSTs return `"<type>:<remote>!UPID:..."` and its
+    per-remote task-status endpoint *rejects* the bare `UPID:` form — `_check_upid` now accepts the
+    qualifying prefix (traversal guards intact).
+  - **JSON booleans, not PVE-style 1.** PDM's typed Rust API returns `400 "Expected boolean value"`
+    for `online`/`delete`/`vmstate` sent as int `1`; they now serialize as JSON `true`. (The unit
+    tests passed on `== 1` because Python's `True == 1` — tightened to `is True`.)
+  - **Auto-undo safety-snapshot name now returned to the caller**, not only recorded in the ledger —
+    it is the handle to revert a bad rollback, so UNDO is only usable if the caller receives it.
+- **Three wrong-URL bugs the coverage audit flagged, fixed against the verified PVE 9 API schema**
+  (each had a self-flagged "Smoke-confirm" note; the guessed shape was wrong in all three):
+  - `pve_node_service_control` posted to `…/services/{service}/state/{action}` — `/state` is the
+    GET-only status endpoint; mutations are `POST …/services/{service}/{start|stop|restart|reload}`.
+  - `pve_notification_matcher_set` posted to `…/matchers/{name}`, which accepts only GET/PUT/DELETE.
+    The upsert now does one safe read of the collection, then `POST /cluster/notifications/matchers`
+    (name in body) to create or `PUT …/matchers/{name}` to update.
+  - Firewall **aliases/ipsets do not exist at node scope** (node firewall = options/rules/log only).
+    All alias/ipset ops — and their PLAN factories, so the dry-run fails the same way execution
+    would — now fail fast with a clear error instead of 501ing against PVE.
+
 ## [0.16.0] - 2026-07-05
 
 **The last two "unproven by design" claims are now live-proven** — online (zero-downtime) QEMU

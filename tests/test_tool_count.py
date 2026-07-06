@@ -32,7 +32,7 @@ from pathlib import Path
 
 import proximo.server as server
 
-EXPECTED_TOOL_COUNT = 352
+EXPECTED_TOOL_COUNT = 364
 
 _TOOLS_DIR = Path(__file__).resolve().parent.parent / "src" / "proximo" / "tools"
 _SOURCE_FILES = [Path(server.__file__), *sorted(_TOOLS_DIR.glob("*.py"))]

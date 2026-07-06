@@ -1,8 +1,15 @@
-"""Proximo PDM (Proxmox Datacenter Manager) lane — read-only backend.
+"""Proximo PDM (Proxmox Datacenter Manager) lane.
 
 PDM is a fleet-management appliance that aggregates PVE and PBS remotes.
-This module is a **read-only** v1: all 22 tools are DIAGNOSE (no mutations,
-no PLAN/UNDO stubs).
+The read plane (22 DIAGNOSE tools) is live-verified. Section F adds the
+fleet-control MUTATION methods (power / migrate / snapshot via the remote proxy),
+surfaced by the pdm_fleet.py tools with full PLAN/PROVE/UNDO — LIVE-PROVEN
+2026-07-06 end-to-end against a real PDM 1.1.4 + nested PVE 9.2 cluster
+(pdm-fleet-smoke.py: power stop/start, snapshot create/rollback(+auto-undo)/delete,
+online migrate node→node and back, 92-entry PROVE chain verified). The live run
+surfaced three bugs since fixed: remote-qualified UPID parsing (below), JSON-boolean
+serialization (PDM's typed API rejects PVE-style 1), and surfacing the auto-undo
+safety-snapshot name to the caller.
 
 API topology:
   - PDM base:  https://<host>:8443/api2/json  (not :8006)
@@ -35,8 +42,11 @@ VERIFIED live shapes (PDM 1.1, 2026-06-27):
     GET /pbs/remotes/{remote}/status                          → PBS node status dict
     GET /pbs/remotes/{remote}/datastore                       → [{"name","path"}, ...]
     GET /pbs/remotes/{remote}/datastore/{store}/snapshots     → [...]
-  C-group (PVE per-remote) — apidoc-derived; live-prove-pending (no PVE remote registered yet):
-    GET /pve/remotes/{remote}/resources | cluster-status | nodes | qemu | lxc | {kind}/{vmid}/config
+  C-group (PVE per-remote) — LIVE-PROVEN (PDM 1.1.4 → PVE 9.2 cluster, 2026-07-06):
+    GET  /pve/remotes/{remote}/resources | cluster-status | nodes | qemu | lxc | {kind}/{vmid}/config
+    POST /pve/remotes/{remote}/{kind}/{vmid}/{start|stop|shutdown|resume} | migrate | snapshot | .../rollback
+    NOTE: proxied POSTs return a REMOTE-QUALIFIED upid ("pve:<remote>!UPID:..."); the per-remote
+          task endpoint REJECTS the bare form. Booleans MUST be JSON true, not 1.
   GET /remotes/metric-collection/status → 403 for Auditor token — EXCLUDED from surface
 
 Security posture mirrors pbs.py (and is stricter on TLS):
@@ -138,6 +148,74 @@ def _check_opt(val: str, name: str) -> str:
     s = str(val)
     if len(s) > 256 or re.search(r"[\x00-\x1f]", s):
         raise ProximoError(f"invalid {name}: control chars or >256 chars")
+    return s
+
+
+# Guest kinds and the power actions PDM's proxy actually exposes (invent nothing:
+# PDM proxies no reboot/suspend, and lxc has no resume — see the schema).
+_GUEST_KINDS = ("qemu", "lxc")
+_POWER_ACTIONS = {
+    "qemu": ("start", "stop", "shutdown", "resume"),
+    "lxc": ("start", "stop", "shutdown"),
+}
+
+
+def _check_kind(kind: str) -> str:
+    """Validate a guest kind (qemu|lxc) — a path segment on the remote proxy."""
+    s = str(kind)
+    if s not in _GUEST_KINDS:
+        raise ProximoError(f"invalid guest kind: {kind!r} (must be one of {_GUEST_KINDS})")
+    return s
+
+
+def _check_power_action(kind: str, action: str) -> str:
+    """Validate a power action for the given kind against what PDM proxies.
+
+    qemu: start/stop/shutdown/resume; lxc: start/stop/shutdown. No reboot, no
+    suspend — PDM exposes no proxy for them, so we refuse rather than invent one.
+    """
+    k = _check_kind(kind)
+    a = str(action)
+    allowed = _POWER_ACTIONS[k]
+    if a not in allowed:
+        raise ProximoError(
+            f"invalid power action {action!r} for {k}: PDM proxies {allowed} (no reboot/suspend)"
+        )
+    return a
+
+
+# Snapshot name: PVE charset (start alpha, then alnum/_/-, <=40) — path segment for
+# /snapshot/{snapname}, so it must reject slash/traversal/control chars.
+_SNAPNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}\Z")
+
+
+def _check_snapname(snapname: str) -> str:
+    """Validate a snapshot name (path segment for delete/rollback)."""
+    s = str(snapname)
+    if not _SNAPNAME_RE.match(s):
+        raise ProximoError(
+            f"invalid snapshot name: {snapname!r} (start with a letter, then alnum/_/-, <=40 chars)"
+        )
+    return s
+
+
+# Proxmox task UPID: "UPID:node:pid:pstart:starttime:type:id:user:" — used as a URL path segment,
+# so allowlist the real charset and require the UPID: prefix. Rejects %-encoded traversal, '/', '?',
+# '#' — stricter than a bare control-char check (defence matches the other path validators).
+# PDM's proxied POSTs return a REMOTE-QUALIFIED upid — "<type>:<remote>!UPID:..." (e.g.
+# "pve:pve-test1!UPID:...") — and its per-remote task endpoint REJECTS the bare "UPID:..." form
+# (live-proven 2026-07-06), so allow that optional prefix. The prefix charset stays inside the
+# path-safe allowlist (no '/'), so it cannot smuggle traversal.
+_UPID_RE = re.compile(r"^(?:[a-z]{2,10}:[A-Za-z0-9._-]{1,60}!)?UPID:[A-Za-z0-9@!:._-]{1,220}\Z")
+
+
+def _check_upid(upid: str) -> str:
+    """Validate a task UPID used as a path segment (bare or PDM remote-qualified)."""
+    s = str(upid)
+    if not _UPID_RE.match(s):
+        raise ProximoError(
+            f"invalid task UPID: {upid!r} (must be a 'UPID:...' or '<type>:<remote>!UPID:...' task id)"
+        )
     return s
 
 
@@ -328,6 +406,18 @@ class PdmBackend:
         r.raise_for_status()
         return r.json().get("data")
 
+    def _post(self, path: str, data: dict | None = None, params: dict | None = None):
+        """POST a mutation. Body goes as JSON; token read at call time, never logged."""
+        r = self._client.post(path, headers=self._auth_header(), json=data or {}, params=params or {})
+        r.raise_for_status()
+        return r.json().get("data")
+
+    def _delete(self, path: str, params: dict | None = None):
+        """DELETE a resource (e.g. a snapshot). Token read at call time, never logged."""
+        r = self._client.delete(path, headers=self._auth_header(), params=params or {})
+        r.raise_for_status()
+        return r.json().get("data")
+
     # --- Anti-boxing seam: remote-proxy primitives ---
 
     def _pve_remote_get(self, remote: str, subpath: str, params: dict | None = None):
@@ -351,6 +441,23 @@ class PdmBackend:
         r = _check_remote(remote)
         path = f"/pbs/remotes/{r}/{subpath.lstrip('/')}"
         return self._get(path, params)
+
+    def _pve_remote_post(self, remote: str, subpath: str, data: dict | None = None,
+                         params: dict | None = None):
+        """Proxy a POST mutation to a PVE remote registered in PDM.
+
+        Same flat scheme as _pve_remote_get (/pve/remotes/<remote>/<subpath>), for
+        the guest-lifecycle mutations PDM proxies (power/migrate/snapshot).
+        """
+        r = _check_remote(remote)
+        path = f"/pve/remotes/{r}/{subpath.lstrip('/')}"
+        return self._post(path, data, params)
+
+    def _pve_remote_delete(self, remote: str, subpath: str, params: dict | None = None):
+        """Proxy a DELETE to a PVE remote registered in PDM (e.g. snapshot delete)."""
+        r = _check_remote(remote)
+        path = f"/pve/remotes/{r}/{subpath.lstrip('/')}"
+        return self._delete(path, params)
 
     # ---------------------------------------------------------------------------
     # A: PDM self + topology
@@ -577,3 +684,132 @@ class PdmBackend:
             params["include_tokens"] = 1 if include_tokens else 0
         result = self._get("/access/users", params or None) or []
         return [_strip_secrets(u) for u in result if isinstance(u, dict)]
+
+    # ---------------------------------------------------------------------------
+    # F: Fleet control — guest lifecycle mutations (proxied to a PVE remote)
+    #
+    # PDM proxies these on EXISTING guests only. Create/clone is NOT proxiable
+    # (no collection-level POST on the remote proxy) — out of scope, not invented.
+    # All are task-backed (return a UPID): the tool records "submitted", never "ok".
+    # LIVE-PROVEN 2026-07-06 against real PDM 1.1.4 + nested PVE 9.2: power/snapshot/rollback/
+    # in-cluster migrate (pdm-fleet-smoke.py) AND cross-remote remote-migrate — a real
+    # datacenter-to-datacenter MOVE, source→target with delete, PROVE-chain verified
+    # (pdm-remote-migrate-smoke.py, source labclu → standalone pve-test4). The live run
+    # caught the target-bridge/target-storage scalar-vs-array bug the mocks had encoded.
+    # ---------------------------------------------------------------------------
+
+    def guest_power(self, remote: str, kind: str, vmid: int | str, action: str) -> str:
+        """POST /pve/remotes/{remote}/{kind}/{vmid}/{action} → task UPID.
+
+        Proxied power on an existing guest. action ∈ start/stop/shutdown (+resume for qemu);
+        PDM proxies no reboot/suspend, so those are refused rather than invented.
+        """
+        k = _check_kind(kind)
+        v = _check_vmid(vmid)
+        a = _check_power_action(k, action)
+        return self._pve_remote_post(remote, f"{k}/{v}/{a}")
+
+    def guest_status(self, remote: str, kind: str, vmid: int | str) -> dict:
+        """GET /pve/remotes/{remote}/{kind}/{vmid}/status → live guest state.
+
+        Read used by the planner to preview a mutation (no-op detection, risk).
+        """
+        k = _check_kind(kind)
+        v = _check_vmid(vmid)
+        return self._pve_remote_get(remote, f"{k}/{v}/status") or {}
+
+    def guest_migrate(self, remote: str, kind: str, vmid: int | str, target: str,
+                      online: bool = False, target_storage: str | None = None) -> str:
+        """POST /pve/remotes/{remote}/{kind}/{vmid}/migrate → task UPID.
+
+        In-cluster migration. `target` is a node name; `online` migrates a running guest.
+        Booleans are sent as JSON true (PDM's typed API rejects int 1); flags omitted unless set.
+        """
+        k = _check_kind(kind)
+        v = _check_vmid(vmid)
+        t = _check_node(target)
+        body: dict = {"target": t}
+        if online:
+            body["online"] = True
+        if target_storage is not None:
+            body["target-storage"] = _check_opt(target_storage, "target-storage")
+        return self._pve_remote_post(remote, f"{k}/{v}/migrate", body)
+
+    def guest_remote_migrate(self, remote: str, kind: str, vmid: int | str, target_remote: str,
+                             target_bridge: str, target_storage: str, target_vmid: int | str | None = None,
+                             online: bool = False, delete: bool = False) -> str:
+        """POST /pve/remotes/{remote}/{kind}/{vmid}/remote-migrate → task UPID.
+
+        Cross-remote (datacenter-to-datacenter) migration. `target` is the destination
+        remote ID; target-bridge and target-storage mappings are REQUIRED by the API.
+        `delete` removes the source guest after a successful move — a destructive flag,
+        off unless set.
+        """
+        k = _check_kind(kind)
+        v = _check_vmid(vmid)
+        tr = _check_remote(target_remote)
+        tb = _check_opt(target_bridge, "target-bridge")
+        ts = _check_opt(target_storage, "target-storage")
+        if not tb.strip() or not ts.strip():
+            raise ProximoError(
+                "remote-migrate requires non-empty target_bridge and target_storage mappings "
+                "(e.g. 'vmbr0:vmbr0', 'local-lvm:local-lvm')"
+            )
+        # target-bridge/target-storage are repeatable mapping params — PDM's typed API rejects
+        # a scalar ("Expected array - got scalar value", 400). Send single-element arrays.
+        body: dict = {"target": tr, "target-bridge": [tb], "target-storage": [ts]}
+        if target_vmid is not None:
+            body["target-vmid"] = _check_vmid(target_vmid)
+        if online:
+            body["online"] = True
+        if delete:
+            body["delete"] = True
+        return self._pve_remote_post(remote, f"{k}/{v}/remote-migrate", body)
+
+    def snapshot_create(self, remote: str, kind: str, vmid: int | str, snapname: str,
+                        description: str | None = None, vmstate: bool = False) -> str:
+        """POST /pve/remotes/{remote}/{kind}/{vmid}/snapshot → task UPID.
+
+        `vmstate` includes the VM's RAM state (qemu). This is also the auto-UNDO
+        primitive: a safety snapshot taken before a rollback.
+        """
+        k = _check_kind(kind)
+        v = _check_vmid(vmid)
+        s = _check_snapname(snapname)
+        body: dict = {"snapname": s}
+        if description is not None:
+            body["description"] = _check_opt(description, "description")
+        if vmstate:
+            body["vmstate"] = True
+        return self._pve_remote_post(remote, f"{k}/{v}/snapshot", body)
+
+    def snapshot_delete(self, remote: str, kind: str, vmid: int | str, snapname: str) -> str:
+        """DELETE /pve/remotes/{remote}/{kind}/{vmid}/snapshot/{snapname} → task UPID.
+
+        Not reversible (a deleted snapshot cannot be recovered) — no UNDO primitive.
+        """
+        k = _check_kind(kind)
+        v = _check_vmid(vmid)
+        s = _check_snapname(snapname)
+        return self._pve_remote_delete(remote, f"{k}/{v}/snapshot/{s}")
+
+    def snapshot_rollback(self, remote: str, kind: str, vmid: int | str, snapname: str) -> str:
+        """POST /pve/remotes/{remote}/{kind}/{vmid}/snapshot/{snapname}/rollback → task UPID.
+
+        DESTRUCTIVE: discards current state back to the snapshot. The tool takes an
+        auto safety-snapshot first (fail-closed), so the pre-rollback state is recoverable.
+        """
+        k = _check_kind(kind)
+        v = _check_vmid(vmid)
+        s = _check_snapname(snapname)
+        return self._pve_remote_post(remote, f"{k}/{v}/snapshot/{s}/rollback")
+
+    def task_status(self, remote: str, upid: str) -> dict:
+        """GET /pve/remotes/{remote}/tasks/{upid}/status → proxied task status.
+
+        Used by the auto-undo path to WAIT for a safety snapshot to actually finish
+        before a rollback (fail-closed). The UPID is opaque but must be a single path
+        segment — reject control chars and any '/'.
+        """
+        u = _check_upid(upid)
+        return self._pve_remote_get(remote, f"tasks/{u}/status") or {}

@@ -54,6 +54,11 @@ Before wiring in an agent, check what your token can actually do (read-only pref
 uvx proximo-proxmox doctor
 ```
 
+Don't have a token yet? `proximo mint` prints the exact five-step runbook — create a
+least-privilege credential, write it in the format Proximo reads (the `=`/`:`/password
+trap, per product), grant a scoped role, wire it, verify. Print-only: it makes no API
+call and never touches the secret itself.
+
 Start with a **read-only token** — Proximo is useful long before you grant it write. Full token-first
 walkthrough (create the least-privilege token, verify, widen deliberately): **[SETUP.md](SETUP.md)**.
 More install paths (pip, Docker/GHCR, from source): [Install & run](#install--run).
@@ -133,18 +138,20 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.16.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.16.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.17.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.17.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.16.0 — the last two "unproven by design" claims are now live-proven.** Online
-> (zero-downtime) live-migration and softdog HA fencing, both proven end-to-end on a real 3-node
-> PVE 9.2 cluster with NFS-backed shared storage: a running guest migrated node→node in ~9s and
-> never stopped; a fenced node's HA guest recovered on a survivor. Plus **five safe-runbook prompts**
-> — user-invoked front doors (migrate, provision, back up, diagnose, review the receipts) that walk
-> the guarded path: check capacity, plan first, verify after.
+> **New in 0.17.0 — governed fleet control, and a one-command way in.** The Proxmox Datacenter
+> Manager plane goes from read-only to **governed guest control** (**+12 tools → 364**): power,
+> snapshot create/rollback (auto safety-snapshot first), in-cluster migrate, and **cross-remote,
+> datacenter-to-datacenter migrate** — every op dry-run-first, receipt-logged, task-backed. The
+> first governed PDM write surface in the field, **live-proven end-to-end** against a real PDM 1.1.4
+> + nested PVE 9.2 — including a real cross-datacenter *move*. Plus **`proximo mint`**: a print-only
+> onboarding runbook (`create → write → grant → wire → verify`) for a least-privilege token on any
+> of the four products — it makes no API call and never touches the secret.
 >
-> Recent: **0.15.0** added **cert-fingerprint pinning** on every surface (PVE · PBS · PMG · PDM) —
-> pin a box by its exact certificate instead of shipping a CA, wire-enforced and live-proven. See
-> [SECURITY.md](SECURITY.md) for which controls are on by default and what each honestly holds.
+> Recent: **0.16.0** live-proved online (zero-downtime) live-migration and softdog HA fencing on a
+> real 3-node cluster, and added five safe-runbook prompts. **0.15.0** added **cert-fingerprint
+> pinning** on every surface. See [SECURITY.md](SECURITY.md) for what each control honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -170,7 +177,7 @@ uv pip install -e .          # or: pip install -e .
 
 > **Safe by default:** Proximo is **API-only** out of the box. The near-root edges are **opt-in** and say so plainly: the LXC exec edge (`PROXIMO_ENABLE_EXEC=1`) grants near-root on the host, and the VM qemu-guest-agent edge (`PROXIMO_ENABLE_AGENT=1`) grants near-root inside a guest.
 >
-> **Big surface, scoped context:** 352 tools is the whole estate — you don't have to load it.
+> **Big surface, scoped context:** 364 tools is the whole estate — you don't have to load it.
 > `PROXIMO_SURFACES=pve,exec` registers **only those planes** (e.g. that pair = 194 tools; `pbs,exec` = 38) —
 > unpicked planes are removed from the registry before serving, so they never touch your context window.
 > `audit_verify` always stays; a typo'd surface name refuses startup instead of silently serving the wrong set.
@@ -215,6 +222,11 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
+- 🩸 **0.17.0** — **governed PDM fleet control** (+12 → 364 tools): power, snapshot/rollback,
+  in-cluster and **cross-remote datacenter-to-datacenter migrate** through the Datacenter Manager
+  proxy — dry-run-first, receipt-logged, **live-proven** on real PDM 1.1.4 + nested PVE 9.2 (a real
+  cross-DC *move* included). Plus **`proximo mint`**, a print-only least-privilege-token onboarding
+  runbook for all four products.
 - 🩸 **0.16.0** — **the last two "unproven by design" claims, live-proven**: online (zero-downtime)
   live-migration and softdog HA fencing on a real 3-node PVE 9.2 cluster. Plus **five safe-runbook
   prompts** — plan-first, verify-after front doors for the common operations.
@@ -226,13 +238,13 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 - 🩸 **0.13.0** — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT,
   all opt-in and fail-closed. Plus the off-box PROVE anchor.
 - _Earlier: native multi-target (one instance → many PVE/PBS/PMG/PDM boxes) and the ACME plane
-  grew the tree to its current 352 tools; `0.1.1` "Spaniard" was the first public cut, 2026-06-10._
+  grew the tree to its current 364 tools; `0.1.1` "Spaniard" was the first public cut, 2026-06-10._
 
 The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed. The
 opt-in six (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md))
 ship off until configured.
 
-**The numbers, honestly:** 352 MCP tools. 5,000+ tests, ruff + pyright clean — but those tests
+**The numbers, honestly:** 364 MCP tools. 5,000+ tests, ruff + pyright clean — but those tests
 are **mock/in-process**: they prove the *shapes*, not live behavior. The real-Proxmox proofs
 below are a separate, by-hand live-smoke harness — not in that count, not in CI.
 
@@ -260,7 +272,7 @@ back to a bare confirm.
   rounds, including safe mutations with full create→verify→clean-up cycles.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
-**Not yet proven — said plainly:** the remaining 352-tool surface runs against mocks for shapes
+**Not yet proven — said plainly:** the remaining 364-tool surface runs against mocks for shapes
 the live smokes don't reach: *hardware*-watchdog fencing (iTCO/IPMI — needs real hardware) and
 behavior at production scale. Softdog fencing and online live-migration ARE live-proven
 (2026-07-05, on a quorate 3-node PVE 9.2 cluster with NFS shared storage: a running guest

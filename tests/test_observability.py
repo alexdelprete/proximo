@@ -487,32 +487,34 @@ def test_node_certificates_info_returns_empty_list_on_none():
 
 # ---------------------------------------------------------------------------
 # node_service_control (mutation)
+# Schema-verified 2026-07-06 (pve-docs api-viewer): mutations are
+# POST /nodes/{node}/services/{service}/{action}; /state is the GET-only status endpoint.
 # ---------------------------------------------------------------------------
 
 
 def test_node_service_control_correct_path_restart():
     api = _api()
     node_service_control(api, "sshd", "restart")
-    assert api.seen["path"] == "/nodes/pve/services/sshd/state/restart"
+    assert api.seen["path"] == "/nodes/pve/services/sshd/restart"
     assert api.seen["method"] == "POST"
 
 
 def test_node_service_control_correct_path_start():
     api = _api()
     node_service_control(api, "cron", "start")
-    assert api.seen["path"] == "/nodes/pve/services/cron/state/start"
+    assert api.seen["path"] == "/nodes/pve/services/cron/start"
 
 
 def test_node_service_control_correct_path_stop():
     api = _api()
     node_service_control(api, "cron", "stop")
-    assert api.seen["path"] == "/nodes/pve/services/cron/state/stop"
+    assert api.seen["path"] == "/nodes/pve/services/cron/stop"
 
 
 def test_node_service_control_correct_path_reload():
     api = _api()
     node_service_control(api, "pveproxy", "reload")
-    assert api.seen["path"] == "/nodes/pve/services/pveproxy/state/reload"
+    assert api.seen["path"] == "/nodes/pve/services/pveproxy/reload"
 
 
 def test_node_service_control_uses_explicit_node():

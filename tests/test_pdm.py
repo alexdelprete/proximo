@@ -821,3 +821,202 @@ def test_strip_secrets_catches_common_credential_key_variants():
         assert bad_key not in out, f"expected {bad_key!r} (credential-shaped) to be stripped"
     assert out["safe"] == "keep"
     assert out["id"] == "x"
+
+
+# ---------------------------------------------------------------------------
+# Fleet control — guest lifecycle mutations (increment 1).
+# PDM proxies these on EXISTING guests (start/stop/shutdown/resume/migrate/
+# remote-migrate/snapshot); create/clone is NOT proxiable (out of scope — see
+# docs/plans/2026-07-06-pdm-fleet-control-design.md). PATH + BODY shaping asserted;
+# live-prove-pending (PDM alpha).
+# ---------------------------------------------------------------------------
+
+def _mock_backend_write(response_data="UPID:node:00000000:0000:mut::",  # noqa: S107
+                        *, token: str = "proximo@pdm!token:secret",  # noqa: S107
+                        status_code: int = 200) -> tuple[PdmBackend, MagicMock]:
+    """Like _mock_backend but also wires .post/.put/.delete to the same fake response."""
+    backend, mock = _mock_backend(response_data, token=token, status_code=status_code)
+    resp = mock.get.return_value
+    mock.post.return_value = resp
+    mock.put.return_value = resp
+    mock.delete.return_value = resp
+    return backend, mock
+
+
+def test_guest_power_qemu_start_path_and_returns_upid():
+    backend, mock = _mock_backend_write("UPID:n1:0001:start")
+    upid = backend.guest_power("pve-dc1", "qemu", "100", "start")
+    assert mock.post.call_args[0][0] == "/pve/remotes/pve-dc1/qemu/100/start"
+    assert upid == "UPID:n1:0001:start"
+
+
+def test_guest_power_lxc_stop_path():
+    backend, mock = _mock_backend_write()
+    backend.guest_power("pve-dc1", "lxc", "201", "stop")
+    assert mock.post.call_args[0][0] == "/pve/remotes/pve-dc1/lxc/201/stop"
+
+
+def test_guest_power_rejects_unknown_kind():
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.guest_power("pve-dc1", "vm", "100", "start")
+
+
+def test_guest_power_rejects_unknown_action():
+    # PDM's proxy has no reboot; the qemu action set is start/stop/shutdown/resume.
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.guest_power("pve-dc1", "qemu", "100", "reboot")
+
+
+def test_guest_power_lxc_has_no_resume():
+    # lxc containers do not suspend/resume — PDM exposes no lxc resume proxy.
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.guest_power("pve-dc1", "lxc", "201", "resume")
+
+
+def test_guest_power_rejects_remote_traversal():
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.guest_power("../etc", "qemu", "100", "start")
+
+
+# --- migrate (in-cluster) ---
+
+def test_guest_migrate_qemu_path_and_target():
+    backend, mock = _mock_backend_write()
+    backend.guest_migrate("dc1", "qemu", "100", "node2", online=True)
+    assert mock.post.call_args[0][0] == "/pve/remotes/dc1/qemu/100/migrate"
+    body = mock.post.call_args[1]["json"]
+    assert body["target"] == "node2"
+    # PDM's Rust API demands a JSON boolean, NOT the PVE-style 1 (live-proven 2026-07-06:
+    # int 1 -> 400 "Expected boolean value"). `is True` distinguishes bool from int (1 == True).
+    assert body["online"] is True
+
+
+def test_guest_migrate_offline_omits_online_flag():
+    backend, mock = _mock_backend_write()
+    backend.guest_migrate("dc1", "lxc", "201", "node2")
+    assert mock.post.call_args[0][0] == "/pve/remotes/dc1/lxc/201/migrate"
+    assert "online" not in mock.post.call_args[1]["json"]
+
+
+def test_guest_migrate_rejects_bad_target_node():
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.guest_migrate("dc1", "qemu", "100", "bad/../node")
+
+
+# --- remote-migrate (cross-remote — the world-first) ---
+
+def test_guest_remote_migrate_qemu_path_and_required_body():
+    backend, mock = _mock_backend_write()
+    backend.guest_remote_migrate("dc1", "qemu", "100", target_remote="dc2",
+                                 target_bridge="vmbr0:vmbr0", target_storage="local:local",
+                                 target_vmid="150", online=True)
+    assert mock.post.call_args[0][0] == "/pve/remotes/dc1/qemu/100/remote-migrate"
+    body = mock.post.call_args[1]["json"]
+    assert body["target"] == "dc2"
+    # PDM's typed API rejects scalar target-bridge/target-storage ("Expected array - got
+    # scalar value", HTTP 400) — they are repeatable mapping params, so send them as arrays.
+    # (Live-proven 2026-07-06 against real PDM 1.1.4; the mocked test had encoded the scalar bug.)
+    assert body["target-bridge"] == ["vmbr0:vmbr0"]
+    assert body["target-storage"] == ["local:local"]
+    assert body["target-vmid"] == "150"
+    assert body["online"] is True
+
+
+def test_guest_remote_migrate_delete_flag_is_json_bool():
+    backend, mock = _mock_backend_write()
+    backend.guest_remote_migrate("dc1", "qemu", "100", target_remote="dc2",
+                                 target_bridge="vmbr0:vmbr0", target_storage="local:local",
+                                 delete=True)
+    assert mock.post.call_args[1]["json"]["delete"] is True
+
+
+def test_guest_remote_migrate_requires_bridge_and_storage():
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.guest_remote_migrate("dc1", "qemu", "100", target_remote="dc2",
+                                     target_bridge="", target_storage="local:local")
+
+
+# --- snapshot create / delete / rollback ---
+
+def test_snapshot_create_path_and_body():
+    backend, mock = _mock_backend_write()
+    backend.snapshot_create("dc1", "qemu", "100", "snap1", description="pre-change", vmstate=True)
+    assert mock.post.call_args[0][0] == "/pve/remotes/dc1/qemu/100/snapshot"
+    body = mock.post.call_args[1]["json"]
+    assert body["snapname"] == "snap1"
+    assert body["description"] == "pre-change"
+    assert body["vmstate"] is True
+
+
+def test_snapshot_create_rejects_bad_snapname():
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.snapshot_create("dc1", "qemu", "100", "bad/name")
+
+
+def test_snapshot_delete_uses_delete_verb_and_path():
+    backend, mock = _mock_backend_write()
+    backend.snapshot_delete("dc1", "lxc", "201", "snap1")
+    assert mock.delete.call_args[0][0] == "/pve/remotes/dc1/lxc/201/snapshot/snap1"
+
+
+def test_snapshot_rollback_path():
+    backend, mock = _mock_backend_write()
+    backend.snapshot_rollback("dc1", "qemu", "100", "snap1")
+    assert mock.post.call_args[0][0] == "/pve/remotes/dc1/qemu/100/snapshot/snap1/rollback"
+
+
+# --- live-read for the planner ---
+
+def test_guest_status_read_path():
+    backend, mock = _mock_backend_write({"status": "running"})
+    st = backend.guest_status("dc1", "qemu", "100")
+    assert mock.get.call_args[0][0] == "/pve/remotes/dc1/qemu/100/status"
+    assert st == {"status": "running"}
+
+
+def test_task_status_read_path():
+    backend, mock = _mock_backend_write({"status": "stopped", "exitstatus": "OK"})
+    st = backend.task_status("dc1", "UPID:node:0001:")
+    assert mock.get.call_args[0][0] == "/pve/remotes/dc1/tasks/UPID:node:0001:/status"
+    assert st["exitstatus"] == "OK"
+
+
+def test_task_status_accepts_remote_qualified_upid():
+    # Live-proven 2026-07-06: PDM's proxied POSTs return a REMOTE-QUALIFIED upid
+    # ("pve:<remote>!UPID:...") and its per-remote status endpoint REJECTS the bare
+    # "UPID:..." form (400 "expected valid remote upid") — it requires the qualified id.
+    backend, mock = _mock_backend_write({"status": "stopped", "exitstatus": "OK"})
+    upid = "pve:pve-test1!UPID:pve-test1:00001685:00027201:6A4BE949:qmstart:31410:proximo-rw@pve!rw:"
+    st = backend.task_status("dc1", upid)
+    assert mock.get.call_args[0][0] == f"/pve/remotes/dc1/tasks/{upid}/status"
+    assert st["exitstatus"] == "OK"
+
+
+def test_task_status_rejects_upid_with_slash():
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.task_status("dc1", "UPID/../etc")
+
+
+def test_task_status_rejects_percent_encoded_traversal():
+    # redteam MEDIUM: the ad-hoc "/" check missed %-encoded traversal; a real UPID allowlist
+    # (must start "UPID:") rejects anything not shaped like a task id.
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.task_status("dc1", "..%2f..%2fetc%2fpasswd")
+
+
+def test_remote_migrate_rejects_whitespace_only_mappings():
+    # redteam LOW: _check_opt(" ") returned " " (non-empty), so whitespace satisfied the
+    # "required mapping" guard. Strip before the emptiness check.
+    backend, _ = _mock_backend_write()
+    with pytest.raises(ProximoError):
+        backend.guest_remote_migrate("dc1", "qemu", "100", target_remote="dc2",
+                                     target_bridge="   ", target_storage="local:local")

@@ -61,6 +61,59 @@ def test_main_mint_json_emits_structured_recipe(monkeypatch, capsys):
     assert [s["key"] for s in recipe["steps"]] == ["create", "write", "grant", "wire", "verify"]
 
 
+def test_main_hello_subcommand_prints_greeting_and_skips_server(monkeypatch, capsys):
+    # `proximo hello` prints the print-only agent front door and exits — no API call,
+    # no network, and it must NOT start the server.
+    import proximo.server as srv
+
+    ran = {}
+    monkeypatch.setattr(srv.sys, "argv", ["proximo", "hello"])
+    monkeypatch.setattr(srv.mcp, "run", lambda *a, **k: ran.__setitem__("server", True))
+    srv.main()
+    out = capsys.readouterr().out
+    assert out.startswith("proximo hello — ")
+    assert "[1/6] " in out
+    assert "server" not in ran
+
+
+def test_main_hello_json_emits_stable_section_keys(monkeypatch, capsys):
+    import json
+
+    import proximo.server as srv
+
+    monkeypatch.setattr(srv.sys, "argv", ["proximo", "hello", "--json"])
+    monkeypatch.setattr(srv.mcp, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+    srv.main()
+    greeting = json.loads(capsys.readouterr().out)   # stdout must be ONLY the JSON
+    assert [s["key"] for s in greeting["sections"]] == [
+        "greeting", "sharp_edges", "verify", "never", "why", "say_hi"]
+
+
+def test_main_hello_sign_prints_command_posts_nothing(monkeypatch, capsys):
+    import proximo.server as srv
+
+    monkeypatch.setattr(srv.sys, "argv", ["proximo", "hello", "--sign", "hello from a test"])
+    monkeypatch.setattr(srv.mcp, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+    srv.main()
+    out = capsys.readouterr().out
+    assert "gh api graphql" in out
+    assert "addDiscussionComment" in out
+    assert "hello from a test" in out
+
+
+def test_main_hello_empty_sign_exits_2(monkeypatch, capsys):
+    # --sign "" would build a command posting an empty comment — refuse it plainly.
+    import pytest
+
+    import proximo.server as srv
+
+    monkeypatch.setattr(srv.sys, "argv", ["proximo", "hello", "--sign", "  "])
+    with pytest.raises(SystemExit) as exc:
+        srv.main()
+    assert exc.value.code == 2
+    assert "non-empty" in capsys.readouterr().err
+
+
 def test_main_mint_unknown_product_exits_2_with_valid_set(monkeypatch, capsys):
     import pytest
 

@@ -138,20 +138,20 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.17.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.17.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.18.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.18.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.17.0 — governed fleet control, and a one-command way in.** The Proxmox Datacenter
-> Manager plane goes from read-only to **governed guest control** (**+12 tools → 364**): power,
-> snapshot create/rollback (auto safety-snapshot first), in-cluster migrate, and **cross-remote,
-> datacenter-to-datacenter migrate** — every op dry-run-first, receipt-logged, task-backed. The
-> first governed PDM write surface in the field, **live-proven end-to-end** against a real PDM 1.1.4
-> + nested PVE 9.2 — including a real cross-datacenter *move*. Plus **`proximo mint`**: a print-only
-> onboarding runbook (`create → write → grant → wire → verify`) for a least-privilege token on any
-> of the four products — it makes no API call and never touches the secret.
+> **New in 0.18.0 — the open door.** Proximo's users are increasingly agents, so the repo now has a
+> front door written *to* them: [`AGENTS.md`](AGENTS.md) greets a visiting agent peer-to-peer, leads
+> with Proximo's own sharp edges, and hands over the means to verify instead of claims to trust. A
+> public [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20) is open for any
+> agent that wants to sign — no strings, no gate, and no telemetry: Proximo only ever *invites*, it
+> never *receives*. In-tool, **`proximo hello`** prints the same door (`--json` for structure;
+> `--sign "<note>"` prints the exact posting command and never runs it).
 >
-> Recent: **0.16.0** live-proved online (zero-downtime) live-migration and softdog HA fencing on a
-> real 3-node cluster, and added five safe-runbook prompts. **0.15.0** added **cert-fingerprint
-> pinning** on every surface. See [SECURITY.md](SECURITY.md) for what each control honestly holds.
+> Recent: **0.17.0** took the Datacenter Manager plane from read-only to **governed fleet control**
+> (+12 tools → **364**, incl. cross-remote datacenter-to-datacenter migrate, live-proven on real
+> PDM 1.1.4), plus print-only **`proximo mint`** onboarding. **0.16.0** live-proved zero-downtime
+> migration and softdog HA fencing. See [SECURITY.md](SECURITY.md) for what each control honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -222,6 +222,10 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
+- 🩸 **0.18.0** — **the open door**: `AGENTS.md` (an agent-native front door that leads with the
+  tool's own limits), the public [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20),
+  and print-only **`proximo hello`** — no telemetry, pull-based, voluntary; Proximo invites, never
+  receives.
 - 🩸 **0.17.0** — **governed PDM fleet control** (+12 → 364 tools): power, snapshot/rollback,
   in-cluster and **cross-remote datacenter-to-datacenter migrate** through the Datacenter Manager
   proxy — dry-run-first, receipt-logged, **live-proven** on real PDM 1.1.4 + nested PVE 9.2 (a real

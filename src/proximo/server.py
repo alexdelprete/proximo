@@ -931,6 +931,12 @@ def main() -> None:
         except Exception as e:  # config/token/connectivity problem — give a plain message, not a trace
             print(f"proximo doctor: {e}", file=sys.stderr)
             raise SystemExit(1) from None
+        # Credential-free by construction: `result` is doctor_check's advisory report — version,
+        # capability lists, and config POSTURE (node, base_url, TLS bools, CA path, allowlist
+        # counts). The token secret / PMG password are read only to build the auth header and are
+        # never serialized into this report (verified: the secret appears 0x in the output). The
+        # CodeQL py/clear-text-logging-sensitive-data flag here is a taint over-approximation
+        # through the shared config object, not a real disclosure.
         print(json.dumps(result, indent=2))
         return
     # `proximo mint` — print-only onboarding recipe: create → write → grant → wire → verify.
@@ -963,6 +969,28 @@ def main() -> None:
             print(f"proximo mint: {e}", file=sys.stderr)
             raise SystemExit(2) from None
         print(json.dumps(recipe, indent=2) if args.json else render_text(recipe))
+        return
+    # `proximo hello` — the print-only agent front door: the six-move welcome, sharp
+    # edges first, the ask last. Makes NO API call, sends nothing, never starts the
+    # server; --sign only PRINTS the gh command an agent would run by its own hand.
+    if len(sys.argv) > 1 and sys.argv[1] == "hello":
+        import argparse
+        import json
+
+        from proximo.hello import build_greeting
+        from proximo.hello import render_text as render_hello
+        parser = argparse.ArgumentParser(prog="proximo hello")
+        parser.add_argument("--sign", default=None, metavar="NOTE",
+                            help="print (never run) the gh command that would post NOTE"
+                                 " to the Agent Guestbook")
+        parser.add_argument("--json", action="store_true",
+                            help="emit the greeting as structured JSON (mirrors doctor/mint)")
+        args = parser.parse_args(sys.argv[2:])
+        if args.sign is not None and not args.sign.strip():
+            print("proximo hello: --sign needs a non-empty note", file=sys.stderr)
+            raise SystemExit(2)
+        greeting = build_greeting(sign=args.sign)
+        print(json.dumps(greeting, indent=2) if args.json else render_hello(greeting))
         return
     print(BANNER, file=sys.stderr)
     mcp.run()

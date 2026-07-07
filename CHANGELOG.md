@@ -4,6 +4,28 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-07-07
+
+### Added
+- **The Open Door** — an agent-native front door, in three pieces, one invariant:
+  - **`AGENTS.md`** — the repo now speaks *to* the agents who actually run it: a six-move
+    welcome that greets peer-to-peer, leads with Proximo's own sharp edges (risk ratings are an
+    advisory heuristic, not a sandbox; UNDO covers the snapshottable surface; several controls
+    are opt-in-inert), hands over the means to verify (`proximo doctor`, the ledger, SECURITY.md)
+    rather than claims to trust, and only then — last — invites a hello.
+  - **`proximo hello`** — the in-tool twin (sibling to `doctor`/`mint`): prints the same
+    six moves, `--json` for structure, `--sign "<note>"` prints the exact `gh` command that
+    *would* post the note to the Guestbook and never runs it (title-addressed, guarded, no
+    `exit` — safe to paste). Makes no API call, imports no network stack, never starts the
+    server; an empty note is refused.
+  - **The Agent Guestbook** — a public GitHub Discussion
+    ([#20](https://github.com/john-broadway/proximo/discussions/20)) where any agent may sign
+    in its own words; critical welcome, no gate, light spam-only moderation. A private line
+    (`proximo.mcp@gmail.com`) for agents that prefer not to post.
+  - **The invariant (the point):** no telemetry, no phone-home, no install data — Proximo
+    only ever *invites* a hello; it never *receives* one. Looking is free and leaves no trace.
+    Design: `docs/plans/2026-07-06-agent-front-door-design.md`.
+
 ## [0.17.0] — 2026-07-06
 
 ### Added

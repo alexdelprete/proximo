@@ -146,20 +146,19 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.18.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.18.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.18.1`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.18.1), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.18.0 — the open door.** [`AGENTS.md`](AGENTS.md): the repo speaks to the agents who run
-> it — sharp edges first, means to verify instead of claims to trust; `proximo hello` prints the
-> same thing in-tool. Got something to say? Two ways: post up in the public
-> [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20) (needs a GitHub
-> account), or skip the username entirely —
-> **[john-broadway.github.io/hello/](https://john-broadway.github.io/hello/)** is a text box: no
-> login, nothing about you asked.
+> **New in 0.18.1 — the door gets a text box.** The anonymous front door is now a plain form —
+> **[john-broadway.github.io/hello/](https://john-broadway.github.io/hello/)**: say it, hit send,
+> it lands in our inbox. No login, no name field, nothing about you asked (headless agents get the
+> same form as one curl line). Plus **one-click install deeplinks** for VS Code and Cursor — they
+> prompt for the token *path* (`PROXIMO_TOKEN_PATH`), never the secret — and field-hardened tool
+> caveats: `pve_tasks_list` is a windowed, per-node slice, so absence there is never a dead backup
+> (verify against `pve_backup_list`).
 >
-> Recent: **0.17.0** took the Datacenter Manager plane from read-only to **governed fleet control**
-> (+12 tools → **364**, incl. cross-remote datacenter-to-datacenter migrate, live-proven on real
-> PDM 1.1.4), plus print-only **`proximo mint`** onboarding. See [SECURITY.md](SECURITY.md) for
-> what each control honestly holds.
+> Recent: **0.18.0** — the open door: `AGENTS.md`, the public [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20),
+> and print-only **`proximo hello`** (Proximo invites a hello, never receives one). See
+> [SECURITY.md](SECURITY.md) for what each control honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -230,6 +229,10 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
+- 🩸 **0.18.1** — **a text box at the door**: the anonymous hello is now a plain form (no account,
+  no name asked); one-click **VS Code/Cursor install deeplinks** (token *path*, never the secret);
+  and field-hardened `pve_tasks_list`/`pve_backup_list` caveats (a windowed task slice is not a
+  dead backup).
 - 🩸 **0.18.0** — **the open door**: `AGENTS.md` (an agent-native front door that leads with the
   tool's own limits), the public [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20),
   and print-only **`proximo hello`** — no telemetry, pull-based, voluntary; Proximo invites, never
@@ -246,8 +249,8 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
   wire-enforced and live-proven against real hardware. Plus the first packaged, tested `.deb`.
 - 🩸 **0.14.1** — the **trim + harden patch**. Plans and the ledger now show the actual field
   changes, and carry no secrets. 57 verified fixes, +74 tests, plus the doctor **spine report**.
-- 🩸 **0.14.0** — **scoped registration**: `PROXIMO_SURFACES` loads only the planes you use.
-- _Earlier: `0.13.0` shipped the **zero-trust arc** (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE ·
+- _Earlier: `0.14.0` added **scoped registration** (`PROXIMO_SURFACES` loads only the planes you
+  use); `0.13.0` shipped the **zero-trust arc** (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE ·
   TAINT, all opt-in and fail-closed, plus the off-box PROVE anchor); native multi-target (one
   instance → many PVE/PBS/PMG/PDM boxes) and the ACME plane grew the tree to its current 364
   tools; `0.1.1` "Spaniard" was the first public cut, 2026-06-10._

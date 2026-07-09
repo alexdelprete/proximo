@@ -1,3 +1,14 @@
+proximo (0.18.1-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.18.1 (patch — the anonymous door is now a plain text box; one-click
+    VS Code/Cursor install deeplinks that prompt for the token PATH, never the secret;
+    field-hardened tool-description caveats for pve_tasks_list/pve_backup_list; copy-gate
+    and Cursor-deeplink fixes). Docs + copy + tool-description only — no new tools, no API
+    change. No packaging changes from 0.18.0-1 — same dh-virtualenv build, man page, and
+    autopkgtest. Not distributed; build-your-own from debian/.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Thu, 09 Jul 2026 11:00:25 -0500
+
 proximo (0.18.0-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.18.0 (the Open Door — AGENTS.md agent front door, the public Agent

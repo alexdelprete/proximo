@@ -4,12 +4,19 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.18.1] — 2026-07-09
+
 ### Added
 - **The anonymous door: a text box.** john-broadway.github.io/hello/ — say it, hit
   send, it lands in our inbox (carried by a form relay, named on the page). No login,
   no name field, nothing about the sender asked. Headless agents: same form, one curl
   line. AGENTS.md and `proximo hello` lead with it; guestbook/email stay as the signed
   alternatives. Asked for from the field by the first operator through the door.
+- **One-click install deeplinks (VS Code / Cursor)** in the README Quickstart. Proximo-shaped:
+  the VS Code deeplink prompts for the token file **path** (`PROXIMO_TOKEN_PATH`) — never the
+  secret — and the Cursor deeplink ships the same placeholder path the Quickstart teaches.
+  Single-sourced from `scripts/gen_deeplinks.py`; `tests/test_deeplinks.py` pins the no-secret
+  invariant and pins the README to the generator's exact output (drift fails CI).
 - **Field-learned task-list caveat** on the surfaces an agent actually reads (AGENTS.md
   sharp-edges + the `pve_tasks_list` / `pve_backup_list` tool descriptions): the task list
   is a windowed, per-node slice — absence there is not a dead backup; `pve_backup_list` /
@@ -29,13 +36,6 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
   for joint: lanista-not-jailer (discipline and receipts, not a cage), the Spaniard (identity
   earned by conduct on the record), the helmet coming off (truth said plainly, at cost — the
   design behind the honest-scope notes and AGENTS.md), and Proximo's last act (opening the cages).
-
-### Added
-- **One-click install deeplinks (VS Code / Cursor)** in the README Quickstart. Proximo-shaped:
-  the VS Code deeplink prompts for the token file **path** (`PROXIMO_TOKEN_PATH`) — never the
-  secret — and the Cursor deeplink ships the same placeholder path the Quickstart teaches.
-  Single-sourced from `scripts/gen_deeplinks.py`; `tests/test_deeplinks.py` pins the no-secret
-  invariant and pins the README to the generator's exact output (drift fails CI).
 
 ## [0.18.0] — 2026-07-07
 

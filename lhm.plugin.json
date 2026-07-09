@@ -2,7 +2,7 @@
   "identifier": "john-broadway-proximo",
   "name": "Proximo",
   "description": "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway + Datacenter Manager on one clean surface: every dangerous op planned, undoable, and audited.",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "tools": [
     {
       "name": "ct_exec",
@@ -10184,7 +10184,7 @@
     },
     {
       "name": "pve_backup_list",
-      "description": "List backup archives in a storage (read).",
+      "description": "List backup archives in a storage (read). Ground truth for whether a backup exists —\na backup missing from a pve_tasks_list slice (other node, or outside its limit window)\nstill shows here.",
       "inputSchema": {
         "properties": {
           "storage": {
@@ -12291,7 +12291,7 @@
     },
     {
       "name": "pve_tasks_list",
-      "description": "List recent tasks on a node (read). limit 1-1000 (clamped).",
+      "description": "List recent tasks on a node (read). limit 1-1000 (clamped).\n\nCaveat: this is a windowed, per-node slice — node defaults to the configured node, and\nonly the `limit` most-recent tasks return. A task on another node or outside the window\nis absent without being dead. Never conclude a backup failed from absence here — verify\nagainst pve_backup_list or pbs_snapshots_list.",
       "inputSchema": {
         "properties": {
           "node": {

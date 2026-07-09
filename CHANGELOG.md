@@ -4,6 +4,26 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+### Added
+- **The anonymous door: a text box.** john-broadway.github.io/hello/ — say it, hit
+  send, it lands in our inbox (carried by a form relay, named on the page). No login,
+  no name field, nothing about the sender asked. Headless agents: same form, one curl
+  line. AGENTS.md and `proximo hello` lead with it; guestbook/email stay as the signed
+  alternatives. Asked for from the field by the first operator through the door.
+- **Field-learned task-list caveat** on the surfaces an agent actually reads (AGENTS.md
+  sharp-edges + the `pve_tasks_list` / `pve_backup_list` tool descriptions): the task list
+  is a windowed, per-node slice — absence there is not a dead backup; `pve_backup_list` /
+  `pbs_snapshots_list` are the ground truth. Verified against PVE source before shipping
+  (CLI-invoked `vzdump` does register a UPID; the trap is node-locality + the window).
+
+### Fixed
+- **Copy-gate blind spot:** the tool-count check exempted any line containing "→", so a
+  stale total could hide behind an arrow. Replaced with precise semantics — `+N tools`
+  deltas are increments, non-current Status bullets are pinned history, only the named
+  scoped-registration examples stay exempt.
+- **Cursor deeplink** now uses the canonical `cursor.com/install-mcp` path (the `/en/`
+  form worked only via redirect).
+
 ### Changed
 - **Credits — the full Gladiator weave.** The naming section now carries the whole story, joint
   for joint: lanista-not-jailer (discipline and receipts, not a cage), the Spaniard (identity

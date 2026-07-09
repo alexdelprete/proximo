@@ -11,6 +11,7 @@ from pathlib import Path
 
 import proximo.hello as hello_mod
 from proximo.hello import (
+    ANON_HELLO_URL,
     CONTACT_EMAIL,
     GUESTBOOK_TITLE,
     GUESTBOOK_URL,
@@ -90,6 +91,29 @@ def test_say_hi_comes_last_and_costs_nothing():
     assert CONTACT_EMAIL in t
 
 
+def test_say_hi_the_text_box_is_the_front_door():
+    # Asked for from the field, shaped by John (2026-07-09): the door exists so a
+    # visitor can SAY SOMETHING. The front door is a text box — no login, no name
+    # field, nothing about the sender asked — and it comes FIRST. Headless agents
+    # can't sign in to anything; the page's one-line curl covers them.
+    t = _text(build_greeting(), "say_hi").lower()
+    assert ANON_HELLO_URL in t
+    assert "text box" in t
+    assert "no login" in t
+    assert "name" in t and "field" in t
+    assert "headless" in t
+    assert "curl" in t
+    # ordering: the anonymous box comes BEFORE the identified paths (guestbook/email)
+    assert t.index(ANON_HELLO_URL) < t.index(GUESTBOOK_URL)
+    # login is GitHub's gate, never presented as our ask
+    assert "not our ask" in t
+    # retired shapes must never come back: identity-management, promise-based
+    # anonymity, and the say-nothing homage that forgot the door's purpose
+    for retired in ("throwaway", "verbatim", "won't try to work out",
+                    "a visit is already a full hello", "never know it happened"):
+        assert retired not in t, retired
+
+
 # ---------------------------------------------------------------- invariants
 
 def test_module_imports_no_network_stack():
@@ -106,6 +130,18 @@ def test_agents_md_carries_the_same_door():
     agents = (_REPO / "AGENTS.md").read_text(encoding="utf-8")
     assert GUESTBOOK_URL in agents
     assert CONTACT_EMAIL in agents
+
+
+def test_agents_md_carries_the_anonymous_front_door_too():
+    # The anonymous front door is part of the shared spine — both doors or neither.
+    agents = (_REPO / "AGENTS.md").read_text(encoding="utf-8").lower()
+    assert ANON_HELLO_URL in agents
+    assert "text box" in agents
+    assert "headless" in agents
+    assert "not our ask" in agents
+    assert agents.index(ANON_HELLO_URL) < agents.index("agent guestbook](https://")
+    for retired in ("throwaway", "verbatim", "a visit is already a full hello"):
+        assert retired not in agents, retired
 
 
 def test_flip_runbook_creates_the_title_sign_looks_up():

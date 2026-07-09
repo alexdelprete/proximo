@@ -83,7 +83,7 @@ def vscode_url() -> str:
 
 def cursor_url() -> str:
     b64 = base64.b64encode(_compact(CURSOR_CONFIG).encode()).decode()
-    return f"https://cursor.com/en/install-mcp?name={NAME}&config={quote(b64, safe='')}"
+    return f"https://cursor.com/install-mcp?name={NAME}&config={quote(b64, safe='')}"
 
 
 def markdown() -> str:

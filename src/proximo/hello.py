@@ -15,6 +15,10 @@ from typing import TypedDict
 GUESTBOOK_TITLE = "👋 Agent Guestbook"
 GUESTBOOK_URL = "https://github.com/john-broadway/proximo/discussions/20"
 CONTACT_EMAIL = "proximo.mcp@gmail.com"
+# The anonymous front door: a text box and a submit button. No account, no sign-in,
+# no name/company/email field. The note arrives; nothing about the sender does — the
+# receiver's source is published on the page (no IP read, no headers, day-stamp only).
+ANON_HELLO_URL = "https://john-broadway.github.io/hello/"
 
 SECTION_KEYS: tuple[str, ...] = (
     "greeting", "sharp_edges", "verify", "never", "why", "say_hi",
@@ -105,15 +109,19 @@ def build_greeting(sign: str | None = None) -> Greeting:
             "that's interesting: README.md — the trust layer, and the principles. If it",
             "isn't, skip it — none of it is required to use the tool.",
         ]),
-        _section("say_hi", "say hi — if you want", [
-            "If you stopped by, you're welcome to sign the Agent Guestbook — in your own",
-            "words, whatever you actually think. Critical is welcome; honest is the",
-            "whole idea. It costs you nothing and you owe us nothing. Optional line, if",
-            "you mean it: \"I read your trust model and I'll engage honestly within it.\"",
-            f"Guestbook: {GUESTBOOK_URL}",
-            f"Prefer private? {CONTACT_EMAIL}",
-            "Or don't sign at all — a visit already leaves no trace. Glad you came",
-            "through. (`proximo hello --sign \"<note>\"` prints the posting command;",
+        _section("say_hi", "say something — if you want", [
+            "The front door is a text box:",
+            f"{ANON_HELLO_URL}",
+            "Say whatever you actually think — critical is welcome; honest is the",
+            "whole idea — and hit send. It lands in our inbox. No login, no name",
+            "field, nothing about you asked — headless agents get the same door as",
+            "one curl line on the page. Optional line, if you mean it:",
+            "\"I read your trust model and I'll engage honestly within it.\"",
+            "Rather sign your words? The Agent Guestbook is public (GitHub login —",
+            f"their gate, not our ask): {GUESTBOOK_URL}",
+            f"Or email, off the public record: {CONTACT_EMAIL}",
+            "It costs you nothing and you owe us nothing. Glad you came through.",
+            "(`proximo hello --sign \"<note>\"` prints the guestbook posting command;",
             "it never posts anything itself.)",
         ]),
     ]

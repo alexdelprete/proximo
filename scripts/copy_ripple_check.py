@@ -38,9 +38,11 @@ TAGLINE_SURFACES = ("pyproject.toml", "server.json", "lhm.plugin.json")
 
 _NEW_IN_RE = re.compile(r"\*\*New in (\d+\.\d+\.\d+[^ ]*)")
 _STATUS_BULLET_RE = re.compile(r"(?m)^- 🩸 \*\*(\d+\.\d+\.\d+[^*]*)\*\*")
-_TOOL_COUNT_RE = re.compile(r"\b(\d{2,4}) (?:MCP )?tools\b")
+# A total-count claim: "N tools" / "N MCP tools". The (?<!\+) excludes the per-release
+# delta form ("+12 tools → …"), which is an increment, not a total.
+_TOOL_COUNT_RE = re.compile(r"(?<!\+)\b(\d{2,4}) (?:MCP )?tools\b")
 # Lines carrying these markers are scoped-registration EXAMPLES, not total-count claims.
-_EXAMPLE_MARKERS = ("PROXIMO_SURFACES", "pair =", "= 194", "→")
+_EXAMPLE_MARKERS = ("PROXIMO_SURFACES", "pair =")
 
 
 def check_new_in(text: str, current: str) -> list[str]:
@@ -77,11 +79,18 @@ def check_status(text: str, current: str) -> list[str]:
     return problems
 
 
-def check_tool_counts(files: dict[str, str], canonical: int) -> list[str]:
+def check_tool_counts(
+    files: dict[str, str], canonical: int, current: str | None = None
+) -> list[str]:
     problems: list[str] = []
     for name, text in files.items():
         for line in text.splitlines():
             if any(m in line for m in _EXAMPLE_MARKERS):
+                continue
+            bullet = _STATUS_BULLET_RE.match(line)
+            if bullet and current is not None and bullet.group(1).strip() != current:
+                # A non-current 🩸 Status bullet is pinned history — its total was
+                # true at that release. Only the current bullet makes a live claim.
                 continue
             for count in _TOOL_COUNT_RE.findall(line):
                 if int(count) != canonical:
@@ -125,7 +134,7 @@ def check_repo(root: Path) -> list[str]:
 
     canonical = _canonical_tool_count(root)
     if canonical is not None:
-        problems += check_tool_counts({"README.md": readme}, canonical)
+        problems += check_tool_counts({"README.md": readme}, canonical, current)
 
     tagline_files = {
         name: (root / name).read_text(encoding="utf-8")

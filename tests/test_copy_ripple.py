@@ -61,6 +61,37 @@ def test_tool_count_ignores_scoped_registration_examples():
     assert copy_ripple_check.check_tool_counts({"README.md": text}, canonical=364) == []
 
 
+def test_tool_count_arrow_line_is_not_a_blanket_exemption():
+    # Regression (redteam 2026-07-09): the gate exempted ANY line containing "→",
+    # so a stale total could hide behind an arrow. Arrows are not an exemption.
+    text = "The estate grew → 300 tools in this wave."
+    problems = copy_ripple_check.check_tool_counts({"README.md": text}, canonical=364)
+    assert any("300" in p for p in problems), problems
+
+
+def test_tool_count_delta_form_is_not_a_total_claim():
+    # "+12 tools" is a per-release increment, not a total — never checked as one.
+    text = "> (+12 tools → **364**, incl. cross-remote migrate)"
+    assert copy_ripple_check.check_tool_counts({"README.md": text}, canonical=364) == []
+
+
+def test_tool_count_historical_status_bullets_are_pinned_history():
+    # A non-current 🩸 bullet is a point-in-time fact; its old total is not drift.
+    hist = "- 🩸 **0.17.0** — fleet control (+12 → 300 tools): power\n"
+    assert (
+        copy_ripple_check.check_tool_counts(
+            {"README.md": hist}, canonical=364, current="0.18.0"
+        )
+        == []
+    )
+    # But the CURRENT bullet's total is a live claim and must agree.
+    cur = "- 🩸 **0.18.0** — this wave (grew to 300 tools)\n"
+    problems = copy_ripple_check.check_tool_counts(
+        {"README.md": cur}, canonical=364, current="0.18.0"
+    )
+    assert any("300" in p for p in problems), problems
+
+
 def test_tagline_must_survive_on_metadata_surfaces():
     files = {"pyproject.toml": 'description = "A cool Proxmox helper."'}
     problems = copy_ripple_check.check_tagline(files)

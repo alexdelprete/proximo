@@ -68,7 +68,9 @@ def pve_backup(vmid: str, storage: str, mode: str = "snapshot", compress: str = 
 
 @tool()
 def pve_backup_list(storage: str, node: str | None = None) -> list[dict]:
-    """List backup archives in a storage (read)."""
+    """List backup archives in a storage (read). Ground truth for whether a backup exists —
+    a backup missing from a pve_tasks_list slice (other node, or outside its limit window)
+    still shows here."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_backup_list", storage, lambda: backup_list(api, storage, node))
 

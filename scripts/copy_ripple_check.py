@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Copy-drift gate — pins copy SHAPE the way version_tools.py pins version strings.
+
+Canon (what these rules mean and why): docs/plans/internal/COPY-CANON.md (internal-only; not in the public tree).
+The rules, mechanically:
+
+  - README carries exactly ONE "New in <current>" callout — REPLACEd per release,
+    never stacked.
+  - The "Status — the arena record" section holds at most 6 🩸 bullets and the top
+    one names the current version (older releases roll into the ``_Earlier:_`` line).
+  - Every TOTAL tool-count claim agrees with the canonical count (the LobeHub
+    manifest's tools array). Scoped-registration *examples* ("that pair = 194
+    tools") are exempt by their context markers.
+  - The tagline phrase "hand the keys" survives on every metadata surface
+    (pyproject / server.json / lhm.plugin.json descriptions).
+
+Usage:
+  python scripts/copy_ripple_check.py check                    # in-repo gate (also in tests)
+  python scripts/copy_ripple_check.py satellites PATH [PATH…]  # each file must carry vCURRENT
+
+Consumed by tests/test_copy_ripple.py (always-on) and the release ripple. Stdlib only.
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import version_tools  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+MAX_STATUS_BULLETS = 6
+TAGLINE_PHRASE = "hand the keys"
+TAGLINE_SURFACES = ("pyproject.toml", "server.json", "lhm.plugin.json")
+
+_NEW_IN_RE = re.compile(r"\*\*New in (\d+\.\d+\.\d+[^ ]*)")
+_STATUS_BULLET_RE = re.compile(r"(?m)^- 🩸 \*\*(\d+\.\d+\.\d+[^*]*)\*\*")
+_TOOL_COUNT_RE = re.compile(r"\b(\d{2,4}) (?:MCP )?tools\b")
+# Lines carrying these markers are scoped-registration EXAMPLES, not total-count claims.
+_EXAMPLE_MARKERS = ("PROXIMO_SURFACES", "pair =", "= 194", "→")
+
+
+def check_new_in(text: str, current: str) -> list[str]:
+    hits = _NEW_IN_RE.findall(text)
+    if not hits:
+        return [f'README has no "New in {current}" callout — the ripple did not run.']
+    problems: list[str] = []
+    if len(hits) > 1:
+        problems.append(
+            f'README carries {len(hits)} "New in" blocks ({", ".join(hits)}) — '
+            f"exactly one is allowed; REPLACE the callout, never stack releases."
+        )
+    if hits[0] != current:
+        problems.append(
+            f'README "New in {hits[0]}" does not match current version {current}.'
+        )
+    return problems
+
+
+def check_status(text: str, current: str) -> list[str]:
+    bullets = _STATUS_BULLET_RE.findall(text)
+    if not bullets:
+        return ["README Status section has no 🩸 bullets — did the section move?"]
+    problems: list[str] = []
+    if len(bullets) > MAX_STATUS_BULLETS:
+        problems.append(
+            f"README Status has {len(bullets)} 🩸 bullets — max is {MAX_STATUS_BULLETS}; "
+            f"roll the oldest into the _Earlier:_ line."
+        )
+    if bullets[0].strip() != current:
+        problems.append(
+            f"README Status top bullet is {bullets[0].strip()} — current is {current}."
+        )
+    return problems
+
+
+def check_tool_counts(files: dict[str, str], canonical: int) -> list[str]:
+    problems: list[str] = []
+    for name, text in files.items():
+        for line in text.splitlines():
+            if any(m in line for m in _EXAMPLE_MARKERS):
+                continue
+            for count in _TOOL_COUNT_RE.findall(line):
+                if int(count) != canonical:
+                    problems.append(
+                        f"{name}: claims {count} tools but the canonical count is "
+                        f"{canonical} (LobeHub manifest) — stale total-count claim."
+                    )
+    return problems
+
+
+def check_tagline(files: dict[str, str]) -> list[str]:
+    return [
+        f'{name}: tagline phrase "{TAGLINE_PHRASE}" is missing — the pitch line was '
+        f"rewritten; restore the pinned description (see COPY-CANON.md)."
+        for name, text in files.items()
+        if TAGLINE_PHRASE not in text
+    ]
+
+
+def check_satellite_text(text: str, current: str, name: str) -> list[str]:
+    if current not in text:
+        return [f"{name}: does not mention {current} — satellite copy is stale."]
+    return []
+
+
+def _canonical_tool_count(root: Path) -> int | None:
+    manifest = root / "lhm.plugin.json"
+    if not manifest.exists():
+        return None
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    tools = data.get("tools")
+    return len(tools) if isinstance(tools, list) else None
+
+
+def check_repo(root: Path) -> list[str]:
+    current = version_tools.read_pyproject_version(root)
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    problems = check_new_in(readme, current)
+    problems += check_status(readme, current)
+
+    canonical = _canonical_tool_count(root)
+    if canonical is not None:
+        problems += check_tool_counts({"README.md": readme}, canonical)
+
+    tagline_files = {
+        name: (root / name).read_text(encoding="utf-8")
+        for name in TAGLINE_SURFACES
+        if (root / name).exists()
+    }
+    problems += check_tagline(tagline_files)
+    return problems
+
+
+def _main(argv: list[str]) -> int:
+    if argv[:1] == ["check"]:
+        problems = check_repo(REPO_ROOT)
+    elif argv[:1] == ["satellites"] and len(argv) > 1:
+        current = version_tools.read_pyproject_version(REPO_ROOT)
+        problems = []
+        for p in argv[1:]:
+            path = Path(p)
+            problems += check_satellite_text(
+                path.read_text(encoding="utf-8"), current, path.name
+            )
+    else:
+        print(__doc__)
+        return 2
+    for p in problems:
+        print(f"COPY DRIFT: {p}", file=sys.stderr)
+    if problems:
+        return 1
+    print("copy: consistent")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main(sys.argv[1:]))

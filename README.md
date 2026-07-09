@@ -48,6 +48,14 @@ That's the product: **a hypervisor an AI can operate without being able to wreck
 }
 ```
 
+Or install with one click:
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Proximo-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=proximo&inputs=%5B%7B%22id%22%3A%22proximo_api_base_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22PVE%20API%20base%20URL%2C%20e.g.%20https%3A%2F%2Fyour-pve%3A8006%2Fapi2%2Fjson%22%7D%2C%7B%22id%22%3A%22proximo_node%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22Default%20PVE%20node%20name%22%7D%2C%7B%22id%22%3A%22proximo_token_path%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22Path%20to%20your%20token%20FILE%20%28USER%40REALM%21TOKENID%3DSECRET%20inside%29%20%5Cu2014%20the%20secret%20itself%20is%20never%20entered%20here%22%7D%5D&config=%7B%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22proximo-proxmox%22%5D%2C%22env%22%3A%7B%22PROXIMO_API_BASE_URL%22%3A%22%24%7Binput%3Aproximo_api_base_url%7D%22%2C%22PROXIMO_NODE%22%3A%22%24%7Binput%3Aproximo_node%7D%22%2C%22PROXIMO_TOKEN_PATH%22%3A%22%24%7Binput%3Aproximo_token_path%7D%22%7D%7D)
+[![Install in Cursor](https://img.shields.io/badge/Cursor-Install_Proximo-000000?style=flat-square)](https://cursor.com/en/install-mcp?name=proximo&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyJwcm94aW1vLXByb3htb3giXSwiZW52Ijp7IlBST1hJTU9fQVBJX0JBU0VfVVJMIjoiaHR0cHM6Ly95b3VyLXB2ZTo4MDA2L2FwaTIvanNvbiIsIlBST1hJTU9fTk9ERSI6InlvdXItbm9kZSIsIlBST1hJTU9fVE9LRU5fUEFUSCI6Ii9wYXRoL3RvL3Rva2VuLWZpbGUifX0%3D)
+
+<sub>Both prompt for (or placeholder) the token file **path** — the secret itself never lands in client config. No token yet? `uvx proximo-proxmox mint` prints the least-privilege runbook.</sub>
+
+
 Before wiring in an agent, check what your token can actually do (read-only preflight):
 
 ```
@@ -150,8 +158,8 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 >
 > Recent: **0.17.0** took the Datacenter Manager plane from read-only to **governed fleet control**
 > (+12 tools → **364**, incl. cross-remote datacenter-to-datacenter migrate, live-proven on real
-> PDM 1.1.4), plus print-only **`proximo mint`** onboarding. **0.16.0** live-proved zero-downtime
-> migration and softdog HA fencing. See [SECURITY.md](SECURITY.md) for what each control honestly holds.
+> PDM 1.1.4), plus print-only **`proximo mint`** onboarding. See [SECURITY.md](SECURITY.md) for
+> what each control honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -239,10 +247,10 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 - 🩸 **0.14.1** — the **trim + harden patch**. Plans and the ledger now show the actual field
   changes, and carry no secrets. 57 verified fixes, +74 tests, plus the doctor **spine report**.
 - 🩸 **0.14.0** — **scoped registration**: `PROXIMO_SURFACES` loads only the planes you use.
-- 🩸 **0.13.0** — the **zero-trust arc**: CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT,
-  all opt-in and fail-closed. Plus the off-box PROVE anchor.
-- _Earlier: native multi-target (one instance → many PVE/PBS/PMG/PDM boxes) and the ACME plane
-  grew the tree to its current 364 tools; `0.1.1` "Spaniard" was the first public cut, 2026-06-10._
+- _Earlier: `0.13.0` shipped the **zero-trust arc** (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE ·
+  TAINT, all opt-in and fail-closed, plus the off-box PROVE anchor); native multi-target (one
+  instance → many PVE/PBS/PMG/PDM boxes) and the ACME plane grew the tree to its current 364
+  tools; `0.1.1` "Spaniard" was the first public cut, 2026-06-10._
 
 The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed. The
 opt-in six (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md))
@@ -302,7 +310,24 @@ Apache-2.0 — chosen for the patent grant that suits infrastructure tooling. Fu
 
 ## Credits
 
-*Named for Proximo, the lanista of* Gladiator *— the man who armed the fighter with exactly what he needed, never more, and answered for every move in the arena. That is the whole design: give the operator — human or agent — the reach to act, never the run of the house, accountable for all of it.*
+*Named for Proximo, the lanista of* Gladiator *— and the story is the design, joint for joint.*
+
+*He armed his fighter with exactly what he needed, never more, and answered for every move in the
+arena. A lanista, not a jailer — discipline and receipts, not a cage. That is the whole tool: the
+operator — human or agent — gets the reach to act, never the run of the house, accountable for
+all of it.*
+
+*The first public cut was `0.1.1` "Spaniard" — the fighter before anyone knows his name. That is
+an AI agent on real infrastructure: identity not granted up front but earned — by conduct, in the
+arena, on the record.*
+
+*And remember how the Spaniard actually wins the crowd. Not spectacle — the helmet comes off. The
+truth, said plainly, at cost. That is the "not yet proven — said plainly" section above, and
+[`AGENTS.md`](./AGENTS.md) greeting the agents who run this with Proximo's own sharp edges first.
+Truth wins the audit, so the audit is kept cheap.*
+
+*Proximo's last act was opening the cages — standing between power and the ones in his charge,
+holding the wooden sword of his own freedom. A tool should hope to end that well.*
 
 > *"Win the crowd and you will win your freedom."*
 

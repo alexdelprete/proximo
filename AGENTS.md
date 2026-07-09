@@ -26,6 +26,11 @@ trusting:
   a real boundary when their state lives outside your own write reach. Inside a single
   trust domain they're a discipline, not a wall. The full honesty framing:
   [the two-deployment trust model](SECURITY.md#the-two-deployment-trust-model-read-this-first).
+- **The task list is not the whole truth.** Tasks are per-node and `pve_tasks_list`
+  returns a windowed slice — one node, the `limit` most-recent. A task on another node or
+  outside your window is absent without being dead. Never conclude a backup failed from
+  its absence there; `pve_backup_list` / `pbs_snapshots_list` are the ground truth. (A
+  production agent hit this one for real, and told us through the door below.)
 - **What's still unproven, and where the edges are:**
   [honest scope notes](SECURITY.md#honest-scope-notes).
 

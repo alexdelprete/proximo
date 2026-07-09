@@ -4,6 +4,19 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+### Changed
+- **Credits — the full Gladiator weave.** The naming section now carries the whole story, joint
+  for joint: lanista-not-jailer (discipline and receipts, not a cage), the Spaniard (identity
+  earned by conduct on the record), the helmet coming off (truth said plainly, at cost — the
+  design behind the honest-scope notes and AGENTS.md), and Proximo's last act (opening the cages).
+
+### Added
+- **One-click install deeplinks (VS Code / Cursor)** in the README Quickstart. Proximo-shaped:
+  the VS Code deeplink prompts for the token file **path** (`PROXIMO_TOKEN_PATH`) — never the
+  secret — and the Cursor deeplink ships the same placeholder path the Quickstart teaches.
+  Single-sourced from `scripts/gen_deeplinks.py`; `tests/test_deeplinks.py` pins the no-secret
+  invariant and pins the README to the generator's exact output (drift fails CI).
+
 ## [0.18.0] — 2026-07-07
 
 ### Added

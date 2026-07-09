@@ -228,7 +228,12 @@ def pve_ha_rule_delete(rule: str, confirm: bool = False) -> dict:
 def pve_tasks_list(node: str | None = None, limit: int = 50, errors: bool = False,
                    vmid: str | None = None, typefilter: str | None = None,
                    statusfilter: str | None = None) -> list[dict]:
-    """List recent tasks on a node (read). limit 1-1000 (clamped)."""
+    """List recent tasks on a node (read). limit 1-1000 (clamped).
+
+    Caveat: this is a windowed, per-node slice — node defaults to the configured node, and
+    only the `limit` most-recent tasks return. A task on another node or outside the window
+    is absent without being dead. Never conclude a backup failed from absence here — verify
+    against pve_backup_list or pbs_snapshots_list."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_tasks_list", node or cfg.node,
                     lambda: tasks_list(api, node, limit, errors, vmid, typefilter, statusfilter))

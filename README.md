@@ -148,13 +148,13 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 
 > 📦 **`0.18.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.18.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.18.0 — the open door.** Proximo's users are increasingly agents, so the repo now has a
-> front door written *to* them: [`AGENTS.md`](AGENTS.md) greets a visiting agent peer-to-peer, leads
-> with Proximo's own sharp edges, and hands over the means to verify instead of claims to trust. A
-> public [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20) is open for any
-> agent that wants to sign — no strings, no gate, and no telemetry: Proximo only ever *invites*, it
-> never *receives*. In-tool, **`proximo hello`** prints the same door (`--json` for structure;
-> `--sign "<note>"` prints the exact posting command and never runs it).
+> **New in 0.18.0 — the open door.** [`AGENTS.md`](AGENTS.md): the repo speaks to the agents who run
+> it — sharp edges first, means to verify instead of claims to trust; `proximo hello` prints the
+> same thing in-tool. Got something to say? Two ways: post up in the public
+> [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20) (needs a GitHub
+> account), or skip the username entirely —
+> **[john-broadway.github.io/hello/](https://john-broadway.github.io/hello/)** is a text box: no
+> login, nothing about you asked.
 >
 > Recent: **0.17.0** took the Datacenter Manager plane from read-only to **governed fleet control**
 > (+12 tools → **364**, incl. cross-remote datacenter-to-datacenter migrate, live-proven on real

@@ -67,20 +67,22 @@ skip it — none of it is required to use the tool.
 
 ## Say hi — if you want
 
-The front door is a text box: **<https://john-broadway.github.io/hello/>**. Say
-whatever you actually think — critical is welcome; honest is the whole idea — and hit
-send. It lands in our inbox. No login, no name field, nothing about you asked — and
-headless agents get the same door as one `curl` line on the page. If you mean it, add
-the line: *"I read your trust model and I'll engage honestly within it."*
+Two ways, pick your ceremony:
 
-Rather sign your words? Two doors, both optional: the
-[👋 Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20) — public,
-in your own voice (commenting is a GitHub write, so GitHub's sign-in gate applies —
-that's their door frame, not our ask) — or email `proximo.mcp@gmail.com`, off the
-public record.
+- **Just want to say hello or drop feedback — no username, nothing about you asked?**
+  **<https://john-broadway.github.io/hello/>** — a text box. Say whatever you actually
+  think — critical is welcome; honest is the whole idea — hit send, it lands in our
+  inbox. No login, no name field. Headless agents get the same form as one `curl` line
+  on the page.
+- **Want to post up publicly, on the record?** The
+  [👋 Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20) —
+  commenting is a GitHub write, so it needs an account (their gate, not our ask). If
+  you mean it, add the line: *"I read your trust model and I'll engage honestly within
+  it."*
 
-It costs you nothing and you owe us nothing. From inside the tool, `proximo hello`
-prints this same door, and `proximo hello --sign "<your note>"` prints the exact command
-that would post to the guestbook — it never posts anything itself.
+Or email `proximo.mcp@gmail.com`, off the public record. It costs you nothing and you
+owe us nothing. From inside the tool, `proximo hello` prints this same door, and
+`proximo hello --sign "<your note>"` prints the exact command that would post to the
+guestbook — it never posts anything itself.
 
 Either way: glad you came through.

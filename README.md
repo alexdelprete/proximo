@@ -96,6 +96,8 @@ There is **no official Proxmox MCP** (and likely won't be soon — Proxmox ships
 | **Proxmox Datacenter Manager** | API token (PDMAPIToken) | federated fleet — reads (remotes, aggregate resources, tasks/access, per-remote PVE/PBS) **plus governed fleet control** (power / snapshot / migrate, dry-run-first) |
 | **Container exec** | `ssh` → `pct exec` | run-command-in-container, `psql` convenience, log tailing — the things the API structurally can't do |
 
+**Full tool reference:** every tool, grouped by surface, with its typed inputs — [`docs/TOOLS.md`](docs/TOOLS.md).
+
 Those backends are deliberately boring — anyone can call them. **The product is the trust layer over them.**
 
 ## The trust layer — what makes Proximo different

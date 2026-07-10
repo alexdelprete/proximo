@@ -23,10 +23,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # gh release upload of the SBOM (read is enough for everything else)
+      contents: write      # gh release upload of the SBOM + signed provenance
+      id-token: write      # OIDC — keyless (sigstore) signing of the release provenance
+      attestations: write  # record the build-provenance attestation
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
@@ -51,12 +53,12 @@ jobs:
           /tmp/sbom-env/bin/python -m cyclonedx_py environment --of JSON \
             -o "sbom/proximo-proxmox-${GITHUB_REF_NAME#v}-sbom.cdx.json" /tmp/sbom-env/bin/python
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dist
           path: dist/
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sbom
           path: sbom/
@@ -67,6 +69,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" sbom/*.cdx.json --clobber
 
+      # PROVE, at the artifact layer: a sigstore-signed build-provenance attestation
+      # over the exact sdist + wheel that ship. Verifiable with
+      # `gh attestation verify <file> --owner john-broadway`. This is the same
+      # first-party action the GHCR image already uses (release.yml).
+      - name: Attest build provenance for the release artifacts (real releases only)
+        if: github.event_name == 'release'
+        id: attest
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: dist/*
+
+      # Attach the signed provenance bundle to the GitHub Release so it travels with
+      # the artifacts. Named *.intoto.jsonl so the OpenSSF Scorecard Signed-Releases
+      # check recognizes the release as carrying provenance.
+      - name: Attach signed provenance to the GitHub release (real releases only)
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE" "proximo-proxmox-${GITHUB_REF_NAME#v}.intoto.jsonl"
+          gh release upload "$GITHUB_REF_NAME" \
+            "proximo-proxmox-${GITHUB_REF_NAME#v}.intoto.jsonl" --clobber
+
   publish-testpypi:
     needs: build
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
@@ -75,11 +101,11 @@ jobs:
     permissions:
       id-token: write   # OIDC — no token/secret
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
 
@@ -91,8 +117,8 @@ jobs:
     permissions:
       id-token: write    # OIDC — no token/secret
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1

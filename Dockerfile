@@ -1,6 +1,10 @@
 # Proximo — self-contained, sovereign, on-demand.
 # The MCP client launches it per session: `docker run -i --rm ... proximo` (stdio).
-FROM python:3.13-slim
+# Base pinned by digest for reproducible builds; the readable tag stays for humans.
+# Dependabot's `docker` ecosystem bumps the digest weekly and Trivy re-scans the base
+# on every push to main + weekly, so it still receives upstream security updates
+# without floating at build time.
+FROM python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280
 
 # openssh-client powers the in-container exec edge (ssh -> pct). Everything else is bundled by pip,
 # so the image is self-contained and the host stays untouched.

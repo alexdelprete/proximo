@@ -4,9 +4,9 @@ name: OpenSSF Scorecard
 # permissions, dangerous workflow patterns, SAST coverage, and more. Publishes the
 # score to the public OpenSSF Scorecard dashboard (powers the badge). It deliberately
 # does NOT upload findings to the GitHub Security tab — those are posture
-# *recommendations*, not vulnerabilities, and several conflict with this repo's
-# intentional convention of floating first-party GitHub Actions (see release.yml). The
-# Security tab stays focused on actual vulnerabilities (CodeQL + Trivy). Informational —
+# *recommendations*, not vulnerabilities, and several (Contributors, Fuzzing,
+# Code-Review) don't apply to a solo-maintained project. The Security tab stays
+# focused on actual vulnerabilities (CodeQL + Trivy). Informational —
 # it scores the repo's practices; it does not gate the build.
 on:
   branch_protection_rule:
@@ -24,7 +24,7 @@ jobs:
       id-token: write          # publish results to the public Scorecard API (the badge)
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
 

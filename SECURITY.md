@@ -171,7 +171,8 @@ direction, not yet built.
 
 **Please do not open a public issue for a security report.**
 
-Use GitHub's private vulnerability reporting:
+Use GitHub's private vulnerability reporting — open a report directly at
+**https://github.com/john-broadway/proximo/security/advisories/new** — or:
 
 1. Go to the repository's **Security** tab → **Report a vulnerability**.
 2. Describe the issue, the affected version/commit, and a reproduction if you have one.

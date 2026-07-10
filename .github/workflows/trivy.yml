@@ -24,9 +24,9 @@ jobs:
       contents: read
       security-events: write   # upload SARIF to the Security tab
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       # Build the amd64 image locally (load, never pushed) purely to scan it. The
       # release pipeline builds + signs the multi-arch image it actually ships; this
@@ -53,13 +53,16 @@ jobs:
           # reasoning: every Trivy analysis on `main` since this job's first run
           # (17/17, 2026-06-24 -> 2026-06-30, `results_count: 0` each time per
           # `gh api repos/.../code-scanning/analyses?tool_name=Trivy`) found zero
-          # fixable CRITICAL/HIGH findings, across multiple pulls of the unpinned
-          # python:3.13-slim base — so this isn't one lucky scan. A new CVE now
-          # reds CI until patched, which is the point of the gate.
+          # fixable CRITICAL/HIGH findings, across multiple pulls of the
+          # python:3.13-slim base — so this isn't one lucky scan. The base is now
+          # digest-pinned (Dockerfile) and bumped weekly by Dependabot; this job
+          # re-scans the pinned digest on every push to main and weekly (not on the
+          # bump PR itself — no pull_request trigger here), so a newly-disclosed base
+          # CVE reds CI on the next main run — which is the point of the gate.
           exit-code: '1'
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
         if: always()
         with:
           sarif_file: trivy-results.sarif

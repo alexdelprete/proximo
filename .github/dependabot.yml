@@ -16,3 +16,13 @@ updates:
       interval: weekly
     commit-message:
       prefix: deps
+
+  # Keep the Docker base image digest current. The Dockerfile pins python:3.13-slim
+  # by sha256 (reproducible builds); without this the base would never receive
+  # upstream security updates. Each bump PR is re-scanned by the Trivy workflow.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

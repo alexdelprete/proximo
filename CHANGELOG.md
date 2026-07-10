@@ -2,7 +2,30 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
-## [Unreleased]
+## [0.19.0] — 2026-07-09
+
+### Added
+- **`pve_backup_freshness` — the backup-freshness fence** (+1 tool → 365): a read-only check
+  that walks the ACTUAL backup archives per guest (every job-referenced storage, every node)
+  and compares their age against what the enabled backup jobs promise. A job or task reporting
+  OK is never treated as evidence a backup exists — only an archive on storage counts. Verdicts
+  per guest: `fresh | stale | never | uncovered | unknown`, with PVE's own `not-backed-up`
+  read as a cross-check on the coverage parse and every disagreement flagged. It never fails
+  toward "fresh": an unreadable storage yields `unknown` + `complete: false`, not a clean bill.
+  Born from the field: a real nightly job reported OK for a month while producing nothing —
+  this check would have caught it on day two.
+  - **Token-sight guard, live-found on day one:** PVE hides backup volumes from the content
+    listing per-volume (200 + empty, no error) unless the token holds `Datastore.AllocateSpace`
+    on the storage AND `VM.Backup` on the guest (or `Datastore.Allocate` on the storage) —
+    verified against `pve-storage`'s `check_volume_access`. A read-only PVEAuditor token walked
+    a healthy PBS storage and read every guest as "never backed up". The fence now proves the
+    token could have SEEN an archive before trusting its absence: blind absence verdicts
+    degrade to `unknown` with a flag naming the exact grants to fix it.
+  - **Population honesty, live-found the same day:** the guest list itself is permission-
+    filtered — PVE silently omits guests the token cannot `VM.Audit`, and a deeper-path ACL
+    grant REPLACES inherited privileges (a scoped `/vms` grant shrank a real fleet's visible
+    population from 25 to 6 with no error). The report now carries `guests_visible` and the
+    note tells operators to compare it against the fleet size they expect.
 
 ## [0.18.1] — 2026-07-09
 

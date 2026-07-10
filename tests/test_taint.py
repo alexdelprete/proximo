@@ -34,6 +34,7 @@ _EXPECTED_ADVERSARIAL = frozenset({
     # config free-text + logs
     "pve_node_syslog", "pve_node_journal", "pve_task_log", "pve_list_guests",
     "pve_guest_config_get", "pve_cluster_resources", "pve_snapshot_list",
+    "pve_backup_freshness",  # embeds guest names (free text) in verdicts/flags
     "pve_storage_content", "pdm_pve_qemu_config", "pdm_pve_lxc_config",
     "pdm_pve_qemu_list", "pdm_pve_lxc_list", "pdm_pve_resources", "pbs_snapshots_list",
 })

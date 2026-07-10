@@ -43,6 +43,7 @@ from proximo.backup_schedules import (
 from proximo.backup_schedules import (
     pbs_realm_sync as pbs_realm_sync_op,
 )
+from proximo.freshness import backup_freshness
 from proximo.server import (
     _audited,
     _plan,
@@ -73,6 +74,19 @@ def pve_backup_list(storage: str, node: str | None = None) -> list[dict]:
     still shows here."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_backup_list", storage, lambda: backup_list(api, storage, node))
+
+
+@tool()
+def pve_backup_freshness(max_age_hours: float | None = None, grace_hours: float = 6.0) -> dict:
+    """Backup-freshness fence (read): walks ACTUAL backup archives per guest and compares their
+    age against what enabled backup jobs promise. A job or task reporting OK is never treated as
+    evidence a backup exists — only an archive on storage counts. Verdicts per guest:
+    fresh | stale | never | uncovered | unknown; an unreadable storage yields unknown +
+    complete=false, never a clean bill. max_age_hours overrides the schedule-derived expectation;
+    grace_hours pads each job's parsed cadence."""
+    _, api, _, _ = _proximo_server._svc()
+    return _audited("pve_backup_freshness", "cluster/backup-freshness",
+                    lambda: backup_freshness(api, max_age_hours, grace_hours))
 
 
 @tool()

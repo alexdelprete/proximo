@@ -32,7 +32,7 @@ from pathlib import Path
 
 import proximo.server as server
 
-EXPECTED_TOOL_COUNT = 364
+EXPECTED_TOOL_COUNT = 365  # +1: pve_backup_freshness — the backup-freshness fence
 
 _TOOLS_DIR = Path(__file__).resolve().parent.parent / "src" / "proximo" / "tools"
 _SOURCE_FILES = [Path(server.__file__), *sorted(_TOOLS_DIR.glob("*.py"))]

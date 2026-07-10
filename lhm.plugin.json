@@ -2,7 +2,7 @@
   "identifier": "john-broadway-proximo",
   "name": "Proximo",
   "description": "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway + Datacenter Manager on one clean surface: every dangerous op planned, undoable, and audited.",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "tools": [
     {
       "name": "ct_exec",
@@ -10220,6 +10220,45 @@
           "storage"
         ],
         "title": "pve_backup_listArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pve_backup_freshness",
+      "description": "Backup-freshness fence (read): walks ACTUAL backup archives per guest and compares their\nage against what enabled backup jobs promise. A job or task reporting OK is never treated as\nevidence a backup exists — only an archive on storage counts. Verdicts per guest:\nfresh | stale | never | uncovered | unknown; an unreadable storage yields unknown +\ncomplete=false, never a clean bill. max_age_hours overrides the schedule-derived expectation;\ngrace_hours pads each job's parsed cadence.",
+      "inputSchema": {
+        "properties": {
+          "max_age_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Age Hours"
+          },
+          "grace_hours": {
+            "default": 6.0,
+            "title": "Grace Hours",
+            "type": "number"
+          },
+          "proximo_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proximo Target"
+          }
+        },
+        "title": "pve_backup_freshnessArguments",
         "type": "object"
       }
     },

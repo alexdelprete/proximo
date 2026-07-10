@@ -146,19 +146,19 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.18.1`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.18.1), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.19.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.19.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.18.1 — the door gets a text box.** The anonymous front door is now a plain form —
-> **[john-broadway.github.io/hello/](https://john-broadway.github.io/hello/)**: say it, hit send,
-> it lands in our inbox. No login, no name field, nothing about you asked (headless agents get the
-> same form as one curl line). Plus **one-click install deeplinks** for VS Code and Cursor — they
-> prompt for the token *path* (`PROXIMO_TOKEN_PATH`), never the secret — and field-hardened tool
-> caveats: `pve_tasks_list` is a windowed, per-node slice, so absence there is never a dead backup
-> (verify against `pve_backup_list`).
+> **New in 0.19.0 — the backup-freshness fence.** `pve_backup_freshness` (+1 → 365 tools): a
+> read-only check that walks the *actual* backup archives per guest and compares their age against
+> what the enabled jobs promise — a task reporting OK is never treated as evidence a backup exists.
+> Live-proven day one, it also caught two silent Proxmox permission traps: the content listing hides
+> backup volumes from tokens lacking `VM.Backup` + `Datastore.AllocateSpace` (or `Datastore.Allocate`)
+> — 200 + empty, no error — and the guest list omits guests a token can't audit. Blind absence verdicts degrade to
+> `unknown` with the exact grants named; `guests_visible` makes a shrunken fleet detectable.
 >
-> Recent: **0.18.0** — the open door: `AGENTS.md`, the public [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20),
-> and print-only **`proximo hello`** (Proximo invites a hello, never receives one). See
-> [SECURITY.md](SECURITY.md) for what each control honestly holds.
+> Recent: **0.18.1** — the anonymous hello became a plain [text box](https://john-broadway.github.io/hello/)
+> (nothing about you asked) plus one-click VS Code/Cursor install deeplinks (token *path*, never the
+> secret). See [SECURITY.md](SECURITY.md) for what each control honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -184,7 +184,7 @@ uv pip install -e .          # or: pip install -e .
 
 > **Safe by default:** Proximo is **API-only** out of the box. The near-root edges are **opt-in** and say so plainly: the LXC exec edge (`PROXIMO_ENABLE_EXEC=1`) grants near-root on the host, and the VM qemu-guest-agent edge (`PROXIMO_ENABLE_AGENT=1`) grants near-root inside a guest.
 >
-> **Big surface, scoped context:** 364 tools is the whole estate — you don't have to load it.
+> **Big surface, scoped context:** 365 tools is the whole estate — you don't have to load it.
 > `PROXIMO_SURFACES=pve,exec` registers **only those planes** (e.g. that pair = 194 tools; `pbs,exec` = 38) —
 > unpicked planes are removed from the registry before serving, so they never touch your context window.
 > `audit_verify` always stays; a typo'd surface name refuses startup instead of silently serving the wrong set.
@@ -229,6 +229,10 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
+- 🩸 **0.19.0** — **the backup-freshness fence**: `pve_backup_freshness` (+1 → 365 tools) walks the
+  actual archives per guest against what the jobs promise — "task OK" is never evidence. Found and
+  fenced two silent PVE permission traps live (hidden backup volumes, hidden guests): blind absence
+  verdicts degrade to `unknown` with the grants named, and `guests_visible` exposes a shrunken fleet.
 - 🩸 **0.18.1** — **a text box at the door**: the anonymous hello is now a plain form (no account,
   no name asked); one-click **VS Code/Cursor install deeplinks** (token *path*, never the secret);
   and field-hardened `pve_tasks_list`/`pve_backup_list` caveats (a windowed task slice is not a
@@ -247,19 +251,19 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
   prompts** — plan-first, verify-after front doors for the common operations.
 - 🩸 **0.15.0** — **cert-fingerprint pinning across all four surfaces** (PVE · PBS · PMG · PDM),
   wire-enforced and live-proven against real hardware. Plus the first packaged, tested `.deb`.
-- 🩸 **0.14.1** — the **trim + harden patch**. Plans and the ledger now show the actual field
-  changes, and carry no secrets. 57 verified fixes, +74 tests, plus the doctor **spine report**.
-- _Earlier: `0.14.0` added **scoped registration** (`PROXIMO_SURFACES` loads only the planes you
-  use); `0.13.0` shipped the **zero-trust arc** (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE ·
-  TAINT, all opt-in and fail-closed, plus the off-box PROVE anchor); native multi-target (one
-  instance → many PVE/PBS/PMG/PDM boxes) and the ACME plane grew the tree to its current 364
-  tools; `0.1.1` "Spaniard" was the first public cut, 2026-06-10._
+- _Earlier: `0.14.1` was the **trim + harden patch** (plans/ledger show actual field changes, carry
+  no secrets; 57 verified fixes, +74 tests, the doctor **spine report**); `0.14.0` added **scoped
+  registration** (`PROXIMO_SURFACES` loads only the planes you use); `0.13.0` shipped the
+  **zero-trust arc** (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT, all opt-in and
+  fail-closed, plus the off-box PROVE anchor); native multi-target (one instance → many
+  PVE/PBS/PMG/PDM boxes) and the ACME plane grew the tree to its 364-tool shape; `0.1.1` "Spaniard" was the
+  first public cut, 2026-06-10._
 
 The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed. The
 opt-in six (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md))
 ship off until configured.
 
-**The numbers, honestly:** 364 MCP tools. 5,000+ tests, ruff + pyright clean — but those tests
+**The numbers, honestly:** 365 MCP tools. 5,000+ tests, ruff + pyright clean — but those tests
 are **mock/in-process**: they prove the *shapes*, not live behavior. The real-Proxmox proofs
 below are a separate, by-hand live-smoke harness — not in that count, not in CI.
 
@@ -287,7 +291,7 @@ back to a bare confirm.
   rounds, including safe mutations with full create→verify→clean-up cycles.
 - Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
 
-**Not yet proven — said plainly:** the remaining 364-tool surface runs against mocks for shapes
+**Not yet proven — said plainly:** the remaining 365-tool surface runs against mocks for shapes
 the live smokes don't reach: *hardware*-watchdog fencing (iTCO/IPMI — needs real hardware) and
 behavior at production scale. Softdog fencing and online live-migration ARE live-proven
 (2026-07-05, on a quorate 3-node PVE 9.2 cluster with NFS shared storage: a running guest

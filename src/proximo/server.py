@@ -1222,6 +1222,7 @@ from proximo.tools.pve_backup import (  # noqa: E402,F401
     pbs_realm_sync,
     pve_backup,
     pve_backup_delete,
+    pve_backup_freshness,
     pve_backup_job_create,
     pve_backup_job_delete,
     pve_backup_job_list,

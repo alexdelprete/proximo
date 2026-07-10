@@ -19,10 +19,15 @@ updates:
 
   # Keep the Docker base image digest current. The Dockerfile pins python:3.13-slim
   # by sha256 (reproducible builds); without this the base would never receive
-  # upstream security updates. Each bump PR is re-scanned by the Trivy workflow.
+  # upstream security updates. Merged bumps are re-scanned by the Trivy workflow on
+  # push to main. Stay on the 3.13 line — take digest/patch, not a 3.14 tag jump
+  # (moving the Python minor in the shipped image is a deliberate, reviewed change).
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
     commit-message:
       prefix: ci
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

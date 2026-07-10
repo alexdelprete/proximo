@@ -68,28 +68,37 @@ from proximo.server import (
 
 @tool()
 def pve_users_list() -> list[dict]:
-    """List all Proxmox users (read)."""
+    """List all Proxmox users across every realm (read-only). Returns each user's id (user@realm),
+    enabled flag, expiry, group membership, email, and comment. Use pve_user_get for one user's
+    full config, tokens, and effective ACL."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_users_list", "access/users", lambda: access_users_list(api))
 
 
 @tool()
 def pve_roles_list() -> list[dict]:
-    """List all Proxmox roles and their privileges (read)."""
+    """List all Proxmox roles and their privileges (read-only). Returns each role's id, privilege
+    set, and whether it is built-in. Use pve_role_create/update/delete to modify roles; use
+    pve_acl_list to see which principals hold which roles at which paths."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_roles_list", "access/roles", lambda: access_roles_list(api))
 
 
 @tool()
 def pve_acl_list() -> list[dict]:
-    """List all ACL entries on the Proxmox cluster (read)."""
+    """List all ACL entries on the Proxmox cluster (read-only). Returns each entry's path (resource
+    scope), roleid (privilege set), principal (user/group/token), type, and propagate flag. Use
+    pve_acl_modify to grant/revoke; use pve_overbroad_grants to flag Administrator or root-path
+    grants."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_acl_list", "access/acl", lambda: access_acl_list(api))
 
 
 @tool()
 def pve_tokens_list(userid: str) -> list[dict]:
-    """List API tokens for a specific user (read). userid: 'user@realm'."""
+    """List API tokens for a specific user (read-only). Returns each token's id, comment, expiry,
+    and privsep (privilege separation) flag — NOT the secret (shown only at creation). userid
+    format: 'user@realm'. Use pve_token_create/revoke to manage tokens."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_tokens_list", f"access/users/{userid}/token",
                     lambda: access_tokens_list(api, userid))
@@ -202,21 +211,26 @@ def pve_token_revoke(userid: str, tokenid: str, confirm: bool = False) -> dict:
 
 @tool()
 def pve_user_get(userid: str) -> dict:
-    """Get a user's config, groups, and tokens (read)."""
+    """Get a user's full config (read-only). Returns userid, enabled flag, expiry, email, comment,
+    group membership, API tokens, and firstname/lastname. Use pve_user_create/update/delete to
+    modify the user; use pve_acl_list to see their effective permissions."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_user_get", f"user/{userid}", lambda: user_get(api, userid))
 
 
 @tool()
 def pve_groups_list() -> list[dict]:
-    """List all groups (read)."""
+    """List all Proxmox groups (read-only). Returns each group's id, comment, and member count.
+    Use pve_group_get for full member list; use pve_group_create/update/delete to manage groups."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_groups_list", "access/groups", lambda: groups_list(api))
 
 
 @tool()
 def pve_group_get(groupid: str) -> dict:
-    """Get a group's config and members (read)."""
+    """Get a group's full config (read-only). Returns groupid, comment, and member list (users in
+    the group). Use pve_group_create/update/delete to manage the group; use pve_acl_list to see
+    ACL entries referencing this group."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_group_get", f"group/{groupid}", lambda: group_get(api, groupid))
 
@@ -278,7 +292,9 @@ def pve_user_delete(userid: str, confirm: bool = False) -> dict:
 
 @tool()
 def pve_group_create(groupid: str, comment: str | None = None, confirm: bool = False) -> dict:
-    """MUTATION: create an (empty) group. Dry-run by default (additive, LOW). confirm=True."""
+    """MUTATION: create an (empty) group. Dry-run by default (additive, LOW risk).
+    Returns the plan preview; confirm=True to execute. The group is inert until users are
+    added or an ACL entry grants it privileges."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"group/{groupid}"
     plan = _plan("pve_group_create", tgt, lambda: plan_group_create(groupid, comment))
@@ -291,7 +307,8 @@ def pve_group_create(groupid: str, comment: str | None = None, confirm: bool = F
 
 @tool()
 def pve_group_update(groupid: str, comment: str | None = None, confirm: bool = False) -> dict:
-    """MUTATION: update a group's comment. Dry-run by default. confirm=True."""
+    """MUTATION: update a group's comment. Dry-run by default (additive, LOW risk).
+    Returns the plan preview; confirm=True to execute. Does not modify group membership."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"group/{groupid}"
     plan = _plan("pve_group_update", tgt, lambda: plan_group_update(groupid, comment))
@@ -320,28 +337,36 @@ def pve_group_delete(groupid: str, confirm: bool = False) -> dict:
 
 @tool()
 def pve_realms_list() -> list[dict]:
-    """List authentication realms/domains (read)."""
+    """List authentication realms/domains configured in Proxmox (read-only). Returns each realm's
+    type (pam/pve/ldap/ad/openid), comment, TFA setting, and default flag. Use pve_realm_get for
+    type-specific config; use pve_realm_create/update/delete to manage realms."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_realms_list", "access/domains", lambda: realms_list(api))
 
 
 @tool()
 def pve_realm_get(realm: str) -> dict:
-    """Get a realm's config (read)."""
+    """Get a realm's full config (read-only). Returns realm type, comment, TFA requirement, and
+    type-specific settings (server/base_dn for ldap; domain/server1 for ad; issuer-url/client-id
+    for openid). Use pve_realm_create/update/delete to manage realms."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_realm_get", f"realm/{realm}", lambda: realm_get(api, realm))
 
 
 @tool()
 def pve_tfa_list() -> list[dict]:
-    """List per-user TFA (two-factor) entries across the cluster (read)."""
+    """List all per-user TFA (two-factor) entries across the cluster (read-only). Returns each
+    entry's userid, factor type (totp/webauthn/yubico/recovery), factor id, and metadata. Use pve_tfa_get
+    for one user's entries; use pve_tfa_delete (confirm=True) to remove a factor (RISK_HIGH)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_tfa_list", "access/tfa", lambda: tfa_list(api))
 
 
 @tool()
 def pve_tfa_get(userid: str, tfa_id: str | None = None) -> object:
-    """Read a user's TFA entries, or one entry (read). GET /access/tfa/{userid}[/{tfa_id}]."""
+    """Read a user's TFA entries (read-only). Returns list of entries if tfa_id is omitted; a
+    single entry dict if tfa_id is specified. Each entry includes factor type, id, and metadata.
+    Use pve_tfa_delete (confirm=True) to remove a factor (RISK_HIGH — can lock the user out)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_tfa_get", f"access/tfa/{userid}", lambda: tfa_get(api, userid, tfa_id))
 
@@ -371,7 +396,9 @@ def pve_tfa_delete(
 
 @tool()
 def pve_role_create(roleid: str, privs: str | None = None, confirm: bool = False) -> dict:
-    """MUTATION: create a custom role. Dry-run by default. confirm=True to execute."""
+    """MUTATION: create a custom role with an optional privilege set. Dry-run by default (MEDIUM
+    risk — inert until an ACL entry references it). Returns the plan preview; confirm=True to
+    execute. privs format: comma-separated privilege names (e.g. 'VM.PowerMgmt,VM.Config.Disk')."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"role/{roleid}"
     plan = _plan("pve_role_create", tgt, lambda: plan_role_create(roleid, privs))

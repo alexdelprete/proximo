@@ -13,6 +13,9 @@ import inspect
 import os
 import tomllib
 from functools import lru_cache
+from typing import Annotated
+
+from pydantic import Field
 
 from .backends import ProximoError
 
@@ -88,8 +91,18 @@ def resolve_target_fields(name: str, expected_kind: str) -> dict:
 
 
 # Real type object (NOT a string) so FastMCP's inspect.signature(..., eval_str=True) is a no-op for it.
+# The Field description propagates into EVERY target-aware tool's input schema at once — without it,
+# `proximo_target` shows up undocumented on ~all multi-target tools (0% schema coverage).
+_TARGET_DESC = (
+    "Which configured Proxmox target to run this call against — a target name from your "
+    "multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default "
+    "target from the environment; the selection applies only to this call."
+)
 _TARGET_PARAM = inspect.Parameter(
-    "proximo_target", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=str | None
+    "proximo_target",
+    inspect.Parameter.KEYWORD_ONLY,
+    default=None,
+    annotation=Annotated[str | None, Field(description=_TARGET_DESC)],
 )
 
 

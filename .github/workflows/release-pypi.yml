@@ -22,6 +22,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # gh release upload of the SBOM (read is enough for everything else)
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -37,10 +39,33 @@ jobs:
           python -m pip install build
           python -m build
 
+      # Receipts: a CycloneDX SBOM for the *published wheel's* dependency tree —
+      # generated from a clean venv with exactly the wheel installed, kept OUT of
+      # dist/ so the PyPI publish step never sees it. (The container image already
+      # ships an SPDX SBOM; this covers the pip/uvx install path.)
+      - name: Generate CycloneDX SBOM for the wheel
+        run: |
+          python -m venv /tmp/sbom-env
+          /tmp/sbom-env/bin/pip install --quiet dist/*.whl cyclonedx-bom
+          mkdir -p sbom
+          /tmp/sbom-env/bin/python -m cyclonedx_py environment --of JSON \
+            -o "sbom/proximo-proxmox-${GITHUB_REF_NAME#v}-sbom.cdx.json" /tmp/sbom-env/bin/python
+
       - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom/
+
+      - name: Attach SBOM to the GitHub release (real releases only)
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" sbom/*.cdx.json --clobber
 
   publish-testpypi:
     needs: build

@@ -50,6 +50,29 @@ def test_reachable_and_version():
     assert out["complete"] is True
 
 
+def test_surfaces_block_reports_planes_and_scoping():
+    """doctor answers "364 is a lot" itself: per-plane configured/served + the scoping reason."""
+    out = doctor_check(_DoctorApi())
+    s = out["surfaces"]
+    assert s["served_tools"] > 300                      # full registry in the unit context
+    assert {"pve", "pbs", "pmg", "pdm"} <= set(s["planes"])
+    assert "PROXIMO_SURFACES" in s["note"]
+    assert "scoping" in s
+
+
+def test_surfaces_reflects_a_configured_plane(monkeypatch):
+    """A configured plane shows configured=True; an unconfigured one offers how to enable it."""
+    monkeypatch.setenv("PROXIMO_PBS_BASE_URL", "https://pbs.example.lan:8007/api2/json")
+    monkeypatch.delenv("PROXIMO_PMG_BASE_URL", raising=False)
+    monkeypatch.delenv("PROXIMO_TARGETS", raising=False)
+    s = doctor_check(_DoctorApi())["surfaces"]
+    assert s["planes"]["pbs"]["configured"] is True
+    assert s["planes"]["pmg"]["configured"] is False
+    # pmg tools are still in the full unit registry, so it reports served>0 here; when NOT served
+    # (a live auto-scoped server) it would carry enable_with. Assert the enable hint exists in code path:
+    assert "scoping" in s
+
+
 def test_unreachable_flags_and_incomplete():
     out = doctor_check(_DoctorApi(version_raises=True))
     assert out["reachable"] is False

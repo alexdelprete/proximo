@@ -82,11 +82,50 @@ def test_apply_surfaces_prunes_a_registry(monkeypatch):
     assert sorted(removed) == ["ct_exec", "pbs_prune"]
 
 
-def test_apply_surfaces_unset_touches_nothing(monkeypatch):
-    monkeypatch.delenv("PROXIMO_SURFACES", raising=False)
+def test_apply_surfaces_nothing_configured_touches_nothing(monkeypatch):
+    """No PROXIMO_SURFACES and no plane configured → serve the full surface, touch nothing."""
+    for var in ("PROXIMO_SURFACES", "PROXIMO_API_BASE_URL", "PROXIMO_PBS_BASE_URL",
+                "PROXIMO_PMG_BASE_URL", "PROXIMO_PDM_BASE_URL", "PROXIMO_ENABLE_EXEC",
+                "PROXIMO_TARGETS"):
+        monkeypatch.delenv(var, raising=False)
 
     class _FakeMCP:
         def remove_tool(self, name: str) -> None:  # pragma: no cover — must not be called
-            raise AssertionError("remove_tool called with PROXIMO_SURFACES unset")
+            raise AssertionError("remove_tool called with nothing configured")
 
     server._apply_surfaces(_FakeMCP())
+
+
+def test_apply_surfaces_autoscope_off_touches_nothing(monkeypatch):
+    """PROXIMO_AUTOSCOPE=off serves the full surface even with a plane configured."""
+    monkeypatch.delenv("PROXIMO_SURFACES", raising=False)
+    monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://pve.example.lan:8006/api2/json")
+    monkeypatch.setenv("PROXIMO_AUTOSCOPE", "off")
+
+    class _FakeMCP:
+        def remove_tool(self, name: str) -> None:  # pragma: no cover — must not be called
+            raise AssertionError("remove_tool called with PROXIMO_AUTOSCOPE=off")
+
+    server._apply_surfaces(_FakeMCP())
+
+
+def test_autoscope_prunes_to_configured_planes(monkeypatch):
+    """A PVE+PBS-only box auto-serves just those planes' tools — no PROXIMO_SURFACES flag."""
+    from mcp.server.fastmcp import FastMCP
+    for var in ("PROXIMO_SURFACES", "PROXIMO_AUTOSCOPE", "PROXIMO_PMG_BASE_URL",
+                "PROXIMO_PDM_BASE_URL", "PROXIMO_ENABLE_EXEC", "PROXIMO_TARGETS"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://pve.example.lan:8006/api2/json")
+    monkeypatch.setenv("PROXIMO_PBS_BASE_URL", "https://pbs.example.lan:8007/api2/json")
+
+    m = FastMCP("probe")
+    m._tool_manager._tools = dict(server.mcp._tool_manager._tools)  # mirror the full surface
+    full = len(m._tool_manager._tools)
+    server._apply_surfaces(m)
+    kept = set(m._tool_manager._tools)
+
+    assert len(kept) < full                                   # it narrowed
+    assert not any(n.startswith(("pmg_", "pdm_")) for n in kept)   # unconfigured planes gone
+    assert any(n.startswith("pve_") for n in kept)            # configured planes stay
+    assert any(n.startswith("pbs_") for n in kept)
+    assert "audit_verify" in kept                             # always-registered survives

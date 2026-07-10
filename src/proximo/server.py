@@ -59,7 +59,13 @@ from .qemu_agent import (
     plan_agent_exec,
 )
 from .taint import fence_output, is_adversarial, mark_tainted, taint_tracking_on
-from .targets import active_target, ledger_remote, resolve_target_fields, target_aware
+from .targets import (
+    active_target,
+    ledger_remote,
+    load_registry,
+    resolve_target_fields,
+    target_aware,
+)
 
 BANNER = (
     "Proximo — the ethical Proxmox MCP\n"
@@ -896,18 +902,64 @@ def surface_keep(names: Iterable[str], spec: str | None) -> set[str]:
     return {n for n in names if n.startswith(prefixes) or n in _ALWAYS_REGISTERED}
 
 
-def _apply_surfaces(server_mcp=mcp) -> None:
-    """Prune the live registry to the configured surfaces. ValueError propagates to main()."""
-    spec = os.environ.get("PROXIMO_SURFACES")
-    if spec is None or not spec.strip():
-        return
+_TRUEISH = frozenset({"1", "true", "yes", "on"})
+
+
+def configured_surfaces() -> set[str]:
+    """Which planes are actually configured on this box — detected, not declared.
+
+    A plane counts as configured when its env base URL is present OR a target of that
+    kind exists in PROXIMO_TARGETS. `exec` counts only when PROXIMO_ENABLE_EXEC is on.
+    This is what lets a PVE+PBS-only box auto-serve just those planes' tools — no flag.
+    """
+    found: set[str] = set()
+    for plane, env in (("pve", "PROXIMO_API_BASE_URL"), ("pbs", "PROXIMO_PBS_BASE_URL"),
+                       ("pmg", "PROXIMO_PMG_BASE_URL"), ("pdm", "PROXIMO_PDM_BASE_URL")):
+        if os.environ.get(env, "").strip():
+            found.add(plane)
+    try:  # a target of any kind configures that plane; a broken registry must not crash startup
+        for fields in load_registry().values():
+            kind = fields.get("kind")
+            if kind in SURFACES:
+                found.add(kind)
+    except Exception:  # noqa: S110 — broken registry surfaces elsewhere; detection must not crash startup
+        pass
+    if os.environ.get("PROXIMO_ENABLE_EXEC", "").strip().lower() in _TRUEISH:
+        found.add("exec")
+    return found
+
+
+def _prune_registry(server_mcp, keep: set[str], reason: str) -> None:
     registry = server_mcp._tool_manager._tools
     total = len(registry)
-    keep = surface_keep(registry.keys(), spec)
     for name in [n for n in registry if n not in keep]:
         server_mcp.remove_tool(name)
-    print(f"proximo: PROXIMO_SURFACES={spec.strip()} — {len(keep)} of {total} tools registered",
-          file=sys.stderr)
+    print(f"proximo: {reason} — {len(keep)} of {total} tools registered", file=sys.stderr)
+
+
+def _apply_surfaces(server_mcp=mcp) -> None:
+    """Scope the live registry to the planes in use. ValueError propagates to main().
+
+    Precedence: (1) explicit PROXIMO_SURFACES wins verbatim — including `all` to force the
+    full surface; (2) otherwise auto-scope to the *configured* planes (default-on; disable
+    with PROXIMO_AUTOSCOPE=off); (3) if nothing is detectable, serve everything (never
+    surprise an operator with an empty server when config is ambiguous)."""
+    spec = os.environ.get("PROXIMO_SURFACES")
+    if spec and spec.strip():
+        if spec.strip().lower() == "all":   # explicit escape hatch: serve the full surface
+            return
+        registry = server_mcp._tool_manager._tools
+        _prune_registry(server_mcp, surface_keep(registry.keys(), spec), f"PROXIMO_SURFACES={spec.strip()}")
+        return
+    if os.environ.get("PROXIMO_AUTOSCOPE", "").strip().lower() in ("off", "0", "false", "no"):
+        return
+    planes = configured_surfaces()
+    if not (planes - {"exec"}):   # no data plane detected → ambiguous, serve all (touch nothing)
+        return
+    registry = server_mcp._tool_manager._tools
+    keep = surface_keep(registry.keys(), ",".join(sorted(planes)))
+    if len(keep) < len(registry):   # only announce/prune when it actually narrows
+        _prune_registry(server_mcp, keep, f"auto-scoped to configured planes ({','.join(sorted(planes))})")
 
 
 def main() -> None:

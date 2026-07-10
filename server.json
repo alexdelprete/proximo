@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.john-broadway/proximo-proxmox",
-  "title": "Proximo",
+  "title": "Proximo — the Proxmox MCP you can hand the keys",
   "description": "The Proxmox MCP you can hand the keys: VE/PBS/PMG/PDM, every op planned, audited, undoable.",
   "repository": {
     "url": "https://github.com/john-broadway/proximo",
     "source": "github"
   },
-  "version": "0.19.1",
+  "version": "0.20.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "proximo-proxmox",
-      "version": "0.19.1",
+      "version": "0.20.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

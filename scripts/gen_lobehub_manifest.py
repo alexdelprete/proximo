@@ -30,7 +30,10 @@ MANIFEST = ROOT / "lhm.plugin.json"
 # listing — never invent it; keep name/description in sync with the README lead.
 BASE = {
     "identifier": "john-broadway-proximo",
-    "name": "Proximo",
+    # "Proxmox" must appear in the NAME, not just the description — LobeHub/Glama
+    # keyword search matches the name field, and "Proximo" doesn't contain the
+    # substring "proxmox" (2026-07-10 community audit: invisible in "proxmox" search).
+    "name": "Proximo — the Proxmox MCP you can hand the keys",
     "description": (
         "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway "
         "+ Datacenter Manager on one clean surface: every dangerous op planned, "
@@ -53,6 +56,10 @@ def list_capabilities(timeout: float = 90.0) -> dict[str, list[dict]]:
     import selectors
 
     env = {k: v for k, v in os.environ.items() if not k.startswith("PROXIMO")}
+    # The marketplace listing must declare the FULL catalog, not a surface auto-scoped to this
+    # box. main() re-loads ~/.config/proximo/proximo.env from disk (bypassing the strip above),
+    # so its PROXIMO_API_BASE_URL would trigger auto-scope → a truncated tool list. Force full.
+    env["PROXIMO_SURFACES"] = "all"
     proc = subprocess.Popen(
         ["uv", "run", "proximo"],  # noqa: S603, S607  # dev/release helper; fixed argv, uv on PATH
         cwd=ROOT,

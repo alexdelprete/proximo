@@ -60,7 +60,9 @@ from proximo.tasks_pools import (
 
 @tool()
 def pve_cluster_status() -> list[dict]:
-    """Overall cluster status — nodes, quorum, version (read)."""
+    """Retrieve the cluster's overall status: nodes, quorum state, and the corosync
+    config version (read-only). Returns a list of status dicts with node names, types, online
+    status, and quorum info. Use pve_cluster_resources to list all resources across the cluster."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_cluster_status", "cluster/status", lambda: cluster_status(api))
 
@@ -92,7 +94,10 @@ def pve_ha_rules_list() -> list[dict]:
 
 @tool()
 def pve_ha_resources_list() -> list[dict]:
-    """List all HA resources (managed guests) (read)."""
+    """List all guests managed by HA (High Availability) with their current HA settings
+    (read-only). Returns a list of HA resource dicts with SID, type, state, group, and restart
+    settings. Use pve_ha_groups_list or pve_ha_rules_list to view HA placement rules, not for
+    resource enumeration."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_ha_resources_list", "cluster/ha/resources",
                     lambda: ha_resources_list(api))
@@ -242,7 +247,9 @@ def pve_tasks_list(node: str | None = None, limit: int = 50, errors: bool = Fals
 @tool()
 def pve_task_log(upid: str, node: str | None = None, start: int = 0,
                  limit: int = 50) -> list[dict]:
-    """Retrieve the log lines for a task (read)."""
+    """Retrieve a task's log output by UPID (read-only). Returns the task's log lines with
+    line numbers, paginated via start/limit. Use pve_task_wait for completion polling, or
+    pve_tasks_list to find a UPID."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_task_log", upid, lambda: task_log(api, upid, node, start, limit))
 
@@ -274,14 +281,18 @@ def pve_task_wait(upid: str, node: str | None = None, timeout: int = 120,
 
 @tool()
 def pve_pools_list() -> list[dict]:
-    """List all resource pools (cluster-scoped) (read)."""
+    """List all resource pools defined cluster-wide (read-only). Returns a list of pool dicts
+    with pool IDs and optional comments. Use pve_pool_get to fetch a pool's detailed
+    configuration and complete member list."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_pools_list", "cluster/pools", lambda: pools_list(api))
 
 
 @tool()
 def pve_pool_get(poolid: str) -> dict:
-    """Get a resource pool's config and member list (read)."""
+    """Retrieve a single resource pool's configuration and complete member list by pool ID
+    (read-only). Returns the pool's config including all VMs and storage resources assigned.
+    Use pve_pools_list to enumerate all pools."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_pool_get", f"pool/{poolid}", lambda: pool_get(api, poolid))
 
@@ -352,7 +363,9 @@ def pve_pool_delete(poolid: str, confirm: bool = False) -> dict:
 
 @tool()
 def pve_storage_config_list() -> list[dict]:
-    """List the cluster storage definitions (storage.cfg) (read)."""
+    """List all storage definitions from storage.cfg cluster-wide (read-only). Returns a list
+    of storage dicts with IDs, types, paths, and server addresses. Use
+    pve_storage_config_get to fetch a single storage's complete configuration."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_storage_config_list", "cluster/storage",
                     lambda: storage_config_list(api))
@@ -360,7 +373,9 @@ def pve_storage_config_list() -> list[dict]:
 
 @tool()
 def pve_storage_config_get(storage: str) -> dict:
-    """Get one storage definition (read)."""
+    """Retrieve a single storage definition from storage.cfg by storage ID (read-only).
+    Returns the storage's complete configuration including type, paths, servers, and access
+    settings. Use pve_storage_config_list to enumerate all storages."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_storage_config_get", f"storage/{storage}",
                     lambda: storage_config_get(api, storage))

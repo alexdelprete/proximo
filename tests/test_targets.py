@@ -108,10 +108,13 @@ def test_target_aware_injects_proximo_target_into_fastmcp_schema():
         captured["active"] = targets.active_target()
         return {"vmid": vmid, "node": node}
 
-    # 1. The generated input schema advertises proximo_target.
+    # 1. The generated input schema advertises proximo_target — WITH a description, so it
+    #    isn't an undocumented parameter on every multi-target tool (Glama/agent legibility).
     tools = anyio.run(m.list_tools)
     sample_tool = next(t for t in tools if t.name == "sample")
-    assert "proximo_target" in sample_tool.inputSchema["properties"]
+    target_schema = sample_tool.inputSchema["properties"]["proximo_target"]
+    assert target_schema.get("description"), "proximo_target must carry a schema description"
+    assert "target" in target_schema["description"].lower()
 
     # 2. Calling with proximo_target routes the contextvar; the body never sees the kwarg.
     anyio.run(lambda: m.call_tool("sample", {"vmid": "131", "proximo_target": "edge-pve"}))

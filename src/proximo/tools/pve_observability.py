@@ -68,7 +68,8 @@ from proximo.server import (
 
 @tool()
 def pve_node_services_list(node: str | None = None) -> list[dict]:
-    """List all services on a PVE node, with state (read)."""
+    """List all services on a PVE node (read-only). Returns a list of service dicts
+    with name, state (running/dead/inactive), and description for each service."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_services_list", node or cfg.node,
                     lambda: node_services_list(api, node))
@@ -85,7 +86,10 @@ def pve_node_service_status(service: str, node: str | None = None) -> dict:
 @tool()
 def pve_node_rrddata(node: str | None = None, timeframe: str = "hour",
                      cf: str | None = None) -> list[dict]:
-    """Get RRD telemetry (time-series) for a PVE node (read). timeframe: hour/day/week/month/year."""
+    """Fetch RRD (round-robin database) time-series telemetry for a PVE node
+    (read-only). Returns a list of data-point dicts with timestamps and metrics
+    (cpu, memory, disk, network) over the specified timeframe, optionally
+    aggregated by consolidation function (AVERAGE or MAX)."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_rrddata", node or cfg.node,
                     lambda: node_rrddata(api, node, timeframe, cf))
@@ -110,14 +114,17 @@ def pve_node_syslog(node: str | None = None, limit: int = 100) -> list[dict]:
 
 @tool()
 def pve_node_dns(node: str | None = None) -> dict:
-    """Get the DNS configuration of a PVE node (read)."""
+    """Read a Proxmox node's DNS configuration (read-only). Returns a dict with
+    search domain and configured nameservers (dns1/dns2/dns3). Use pve_node_dns_set
+    to change it."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_dns", node or cfg.node, lambda: node_dns_get(api, node))
 
 
 @tool()
 def pve_node_subscription(node: str | None = None) -> dict:
-    """Get the subscription status of a PVE node (read)."""
+    """Read a Proxmox node's subscription status (read-only). Returns a dict with
+    status, product name, check time, next due date, and subscription level."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_subscription", node or cfg.node,
                     lambda: node_subscription(api, node))
@@ -125,7 +132,9 @@ def pve_node_subscription(node: str | None = None) -> dict:
 
 @tool()
 def pve_node_certificates(node: str | None = None) -> list[dict]:
-    """List TLS certificates configured on a PVE node (read)."""
+    """List TLS certificates configured on a Proxmox node (read-only). Returns a
+    list of certificate dicts with filename, subject, issuer, validity dates
+    (notbefore/notafter), SANs, and fingerprint."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_certificates", node or cfg.node,
                     lambda: node_certificates_info(api, node))
@@ -156,7 +165,9 @@ def pve_node_service_control(service: str, action: str, node: str | None = None,
 
 @tool()
 def pve_notification_endpoint_list() -> list[dict]:
-    """List all PVE notification endpoints (gotify/smtp/sendmail/webhook) (read)."""
+    """List all PVE notification endpoints (read-only). Returns a list of dicts for
+    each configured delivery channel (gotify, SMTP, sendmail, webhook), containing
+    type, name, and endpoint-specific configuration."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_notification_endpoint_list", "cluster/notifications/endpoints",
                     lambda: notification_endpoint_list(api))
@@ -267,7 +278,9 @@ def pve_notification_test(name: str, confirm: bool = False) -> dict:
 
 @tool()
 def pve_metrics_server_list() -> list[dict]:
-    """List all PVE metrics server definitions (influxdb, graphite, etc.) (read)."""
+    """List all PVE metrics server definitions (read-only). Returns a list of dicts
+    for each configured metrics forwarding target (InfluxDB, Graphite, etc.), with
+    id, type, server address, and port."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_metrics_server_list", "cluster/metrics/server",
                     lambda: metrics_server_list(api))
@@ -325,7 +338,9 @@ def pve_hardware_list(node: str, hw_type: str = "pci") -> dict:
 
 @tool()
 def pve_mapping_pci_list() -> list[dict]:
-    """List all PCI cluster hardware mappings (read)."""
+    """List all PCI device mappings at cluster scope (read-only). Returns a list of
+    dicts defining passthrough mappings for PCI devices assignable to VMs/LXCs,
+    each with mapping ID, device list, and description."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_mapping_pci_list", "cluster/mapping/pci",
                     lambda: mapping_pci_list(api))
@@ -333,7 +348,9 @@ def pve_mapping_pci_list() -> list[dict]:
 
 @tool()
 def pve_mapping_usb_list() -> list[dict]:
-    """List all USB cluster hardware mappings (read)."""
+    """List all USB device mappings at cluster scope (read-only). Returns a list of
+    dicts defining passthrough mappings for USB devices assignable to VMs/LXCs,
+    each with mapping ID, device list, and description."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_mapping_usb_list", "cluster/mapping/usb",
                     lambda: mapping_usb_list(api))

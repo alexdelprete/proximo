@@ -48,7 +48,8 @@ from proximo.server import (
 
 @tool()
 def pve_network_list(node: str | None = None, iface_type: str | None = None) -> list[dict]:
-    """List network interfaces on a node (bridges, bonds, VLANs, etc.) (read)."""
+    """List network interfaces on a node (read-only). Returns iface name, type
+    (bridge/bond/vlan/eth/alias), method, and address. Filter by type with iface_type."""
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"nodes/{node or cfg.node}/network"
     return _audited("pve_network_list", tgt, lambda: network_list(api, node, iface_type))
@@ -56,14 +57,18 @@ def pve_network_list(node: str | None = None, iface_type: str | None = None) -> 
 
 @tool()
 def pve_sdn_zones_list() -> list[dict]:
-    """List SDN zones (cluster-scoped) (read)."""
+    """List SDN zones in the cluster (read-only). Returns zone id, type
+    (simple/vlan/qinq/vxlan/evpn/faucet), and state. Use pve_sdn_zone_create to add and
+    pve_sdn_apply to commit."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_sdn_zones_list", "cluster/sdn/zones", lambda: sdn_zones_list(api))
 
 
 @tool()
 def pve_sdn_vnets_list() -> list[dict]:
-    """List SDN virtual networks (cluster-scoped) (read)."""
+    """List SDN vnets in the cluster (read-only). Returns vnet name, zone, tag,
+    alias, and vlanaware state. Use pve_sdn_vnet_create to add and pve_sdn_apply
+    to commit."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_sdn_vnets_list", "cluster/sdn/vnets", lambda: sdn_vnets_list(api))
 
@@ -72,7 +77,9 @@ def pve_sdn_vnets_list() -> list[dict]:
 
 @tool()
 def pve_sdn_subnet_list(vnet: str) -> list[dict]:
-    """List subnets in an SDN vnet (read)."""
+    """List subnets in a vnet (read-only). Returns subnet CIDR, gateway, dhcp,
+    snat, and dns settings. Use pve_sdn_subnet_create to add and pve_sdn_apply to
+    commit."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_sdn_subnet_list", f"sdn/vnets/{vnet}/subnets",
                     lambda: sdn_subnet_list(api, vnet))
@@ -153,7 +160,9 @@ def pve_sdn_vnet_update(
     vnet: str, options: dict | None = None, delete: list[str] | None = None,
     digest: str | None = None, lock_token: str | None = None, confirm: bool = False,
 ) -> dict:
-    """MUTATION: update an SDN vnet (PENDING). Dry-run by default. RISK_LOW (staging)."""
+    """MUTATION: update an SDN vnet (PENDING — inert until pve_sdn_apply).
+    Options sets fields (tag/alias/vlanaware/etc), delete removes keys. Dry-run
+    by default. RISK_LOW (staging, no live network effect)."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/vnets/{vnet}"
     plan = _plan("pve_sdn_vnet_update", tgt, lambda: plan_sdn_vnet_update(vnet, options, delete))

@@ -2,6 +2,55 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
+## [0.20.0] — 2026-07-10
+
+The receipts release. Proximo's pitch has always been "hand an AI agent the keys; keep the
+receipts" — this release makes the receipts something you can *run*, not something you have
+to believe. Every safety claim is now paired with a command that proves it, against the
+artifacts, without our word for any of it. No tool-count change (still 365); this is about
+making the existing guarantees checkable and the supply chain legible. The field is filling
+up with "AI on Proxmox, but safe" tools, and that's good — the answer isn't to shrink anyone,
+it's to raise the floor everyone stands on: whatever you run, make it prove itself.
+
+### Added
+- **`VERIFY.md` — the freedom doc.** Every claim paired with the command that checks it:
+  cold-introspect the 365 tool count; forge a byte of the audit ledger and watch `verify()`
+  refuse; grep the entire outbound surface to see there's no phone-home; verify the image's
+  sigstore build-provenance attestation; check the PyPI PEP 740 provenance; read the OpenSSF
+  Scorecard. Linked from the README lead.
+- **`THREAT_MODEL.md`** — assets, trust boundaries (the two-deployment model), adversaries,
+  a threat→mitigation map, and residual risks stated plainly. The named file a security
+  reviewer expects, cross-linked to `SECURITY.md` and `VERIFY.md`.
+- **CycloneDX SBOM for the published wheel**, generated from a clean environment holding
+  exactly the wheel and attached to the GitHub release — the pip/uvx install path now ships
+  a dependency manifest, matching the container image's existing SPDX SBOM.
+- **OpenSSF Scorecard badge** in the README, surfacing the weekly third-party scan that was
+  already running.
+- **`scripts/mutation_smoke.py`** — a reproducible mutation test of the audit ledger's
+  tamper-detection core: four hand-picked mutants at the heart of `verify()`, all killed by
+  the existing suite. Proof that PROVE is test-defended, not just implemented.
+
+### Changed
+- **`proximo_target` is now documented in every tool's input schema.** The shared
+  multi-target selector was injected into ~all tools with no description — undocumented on
+  each one. It now carries a schema description (one change, propagated to all 364
+  target-aware tools), so an agent reading any tool knows what the parameter selects.
+- **Proximo now auto-scopes its tool surface to the planes you've configured.** A PVE+PBS-only
+  box serves ~224 tools instead of 365 — pmg_/pdm_ tools aren't registered when PMG/PDM aren't
+  configured (no env base URL and no target of that kind), with **no flag to set**. A plane is
+  "configured" when its `PROXIMO_*_BASE_URL` is present or a target of that kind exists.
+  Precedence: an explicit `PROXIMO_SURFACES` still wins verbatim (`PROXIMO_SURFACES=all` forces
+  the full surface); `PROXIMO_AUTOSCOPE=off` disables auto-scoping; if nothing is detectable the
+  full surface is served (never a surprise-empty server). This is context hygiene, not an
+  authorization control — the token ACL stays the real boundary.
+- **`proximo doctor` now reports the tool-surface picture** — served-tool count, per-plane
+  configured/served status, the scoping reason, and how to light up a hidden plane. The "one
+  plane over four products, scoped to what you actually run" answer is printed by the server
+  itself when you inspect it — no hidden tool is ever a mystery.
+- **52 terse tool descriptions expanded.** The short read/list tool docstrings (e.g. "List all
+  groups (read).") now state what the tool returns and how it differs from its siblings, so an
+  agent picking a tool has the context to choose right. Documentation only — no behavior change.
+
 ## [0.19.1] — 2026-07-10
 
 A self-audit release: a multi-agent pass over v0.19.0 (find → adversarially verify → fix,

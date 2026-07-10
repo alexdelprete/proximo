@@ -69,21 +69,28 @@ from proximo.storage import (
 
 @tool()
 def pve_node_status(node: str | None = None) -> dict:
-    """Health and resource status of a Proxmox node."""
+    """Read Proxmox node health and resource status (read-only). Returns node metrics including
+    total capacity, current usage, CPU, memory, disk state, and operational status. See pve_diagnose
+    for detailed per-node diagnostics including failed tasks."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_status", node or cfg.node, lambda: api.node_status(node))
 
 
 @tool()
 def pve_list_guests(node: str | None = None) -> list[dict]:
-    """List all VMs and LXC containers on a node, with state."""
+    """List all VMs and LXC containers on a node with their current state (read-only). Returns
+    a list of guest objects, each with VMID, name, type (lxc or qemu), and status. Works across
+    both kinds in a single call."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_list_guests", node or cfg.node, lambda: api.list_guests(node))
 
 
 @tool()
 def pve_guest_status(vmid: str, kind: str = "lxc", node: str | None = None) -> dict:
-    """Status/config of one guest (kind = 'lxc' or 'qemu')."""
+    """Read the operational status and current configuration of a single guest (kind='lxc' or
+    'qemu') (read-only). Returns the guest's runtime state and resource utilization
+    (CPU/memory/disk/network/uptime) — operational metrics, not its stored configuration.
+    Use pve_guest_config_get for the full configuration."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_guest_status", f"{kind}/{vmid}", lambda: api.guest_status(vmid, kind, node))
 
@@ -117,7 +124,9 @@ def pve_guest_power(
 
 @tool()
 def pve_snapshot_list(vmid: str, kind: str = "lxc", node: str | None = None) -> list[dict]:
-    """List a guest's snapshots (read)."""
+    """List a guest's snapshots (read-only). Returns each snapshot's name, description, parent,
+    and creation time, plus the synthetic 'current' node showing live state. Works for both VMs
+    and containers (kind='qemu' or 'lxc'). Use pve_snapshot_create / pve_rollback to act on them."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_snapshot_list", f"{kind}/{vmid}", lambda: api.snapshot_list(vmid, kind, node))
 
@@ -178,7 +187,9 @@ def pve_task_status(upid: str, node: str | None = None) -> dict:
 
 @tool()
 def ct_logs(ctid: str, unit: str, lines: int = 50) -> dict:
-    """Tail journalctl for a systemd unit inside a container (read-only)."""
+    """Tail journalctl for a systemd unit inside a container (read-only). Returns the command's
+    returncode, stdout, and stderr. Container-specific diagnostic; gated by the CTID allowlist
+    when PROXIMO_ENABLE_EXEC is set. Fails closed if exec is disabled."""
     cfg, _, exec_, _ = _proximo_server._svc()
     detail = {"unit": unit, "lines": lines}
     if not cfg.enable_exec:
@@ -308,7 +319,9 @@ def pve_storage_content(storage: str, node: str | None = None,
 
 @tool()
 def pve_storage_status(storage: str, node: str | None = None) -> dict:
-    """Status of a storage — total/used/avail/enabled (read)."""
+    """Read a storage backend's capacity and state (read-only). Returns total size, used space,
+    available free space, and enabled status. Use pve_storage_content to list ISOs, templates,
+    and backups stored on it."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_storage_status", storage, lambda: storage_status(api, storage, node))
 
@@ -350,7 +363,10 @@ def pve_storage_content_delete(storage: str, volid: str, node: str | None = None
 
 @tool()
 def pve_guest_config_get(vmid: str, kind: str = "lxc", node: str | None = None) -> dict:
-    """Read a guest's current config (kind = 'lxc' or 'qemu') (read)."""
+    """Read a guest's current configuration (kind='lxc' or 'qemu') (read-only). Returns the
+    complete config dict with cores, memory, network, disks, metadata, and all settings. Use
+    pve_guest_config_set to mutate; capture the returned dict to enable rollback via
+    pve_guest_config_revert."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_guest_config_get", f"{kind}/{vmid}",
                     lambda: guest_config_get(api, vmid, kind, node))
@@ -429,7 +445,10 @@ def pve_disk_move(vmid: str, disk: str, target_storage: str, kind: str = "lxc",
 
 @tool()
 def pve_cloudinit_get(vmid: str, node: str | None = None, kind: str = "qemu") -> dict:
-    """Read a QEMU guest's cloud-init config (secret fields are masked) (read)."""
+    """Read a QEMU guest's cloud-init configuration (read-only). Returns cloud-init fields
+    (ciuser, sshkeys, ipconfigN, cipassword placeholder) with secret fields masked for safety.
+    Use pve_cloudinit_set to mutate it; the set operation auto-captures an undo record for
+    rollback."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_cloudinit_get", f"{kind}/{vmid}",
                     lambda: cloudinit_get(api, vmid, node, kind))

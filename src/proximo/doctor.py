@@ -190,6 +190,70 @@ def doctor_check(api) -> dict:
         ),
     }
 
+    report["surfaces"] = _surfaces_report()
+
     report["flags"] = flags
     report["complete"] = complete
     return report
+
+
+def _surfaces_report() -> dict:
+    """The tool-surface picture: what this server serves, per plane, and why.
+
+    Answers the "364 tools is a lot" reaction in-band: Proximo is one audited plane over
+    all four Proxmox products, but it **auto-scopes to the planes you've configured** — a
+    PVE+PBS-only box serves just those tools, no flag. This block shows which planes are
+    configured vs served and how to light up a hidden one. Degrades to a note on any error.
+    """
+    try:
+        from . import server  # deferred: server imports doctor, so import here, not at module top
+        registry = list(server.mcp._tool_manager._tools.keys())
+        configured = server.configured_surfaces()
+
+        def _served(plane: str) -> int:
+            prefixes = server.SURFACES[plane]
+            return sum(1 for n in registry if n.startswith(prefixes))
+
+        enable = {
+            "pbs": "set PROXIMO_PBS_BASE_URL (or add a pbs target to PROXIMO_TARGETS)",
+            "pmg": "set PROXIMO_PMG_BASE_URL (or add a pmg target)",
+            "pdm": "set PROXIMO_PDM_BASE_URL (or add a pdm target)",
+            "pve": "set PROXIMO_API_BASE_URL (or add a pve target)",
+            "exec": "set PROXIMO_ENABLE_EXEC=1 (grants near-root in-container exec)",
+        }
+        planes: dict[str, dict] = {}
+        for plane in server.SURFACES:
+            served = _served(plane)
+            row = {"configured": plane in configured, "served_tools": served}
+            if served == 0:
+                row["enable_with"] = enable.get(plane, "")
+            planes[plane] = row
+
+        spec = os.environ.get("PROXIMO_SURFACES", "").strip()
+        autoscope_off = os.environ.get("PROXIMO_AUTOSCOPE", "").strip().lower() in (
+            "off", "0", "false", "no")
+        if spec.lower() == "all":
+            scoping = "PROXIMO_SURFACES=all — full surface (auto-scope overridden)"
+        elif spec:
+            scoping = f"PROXIMO_SURFACES={spec} — explicit"
+        elif autoscope_off:
+            scoping = "PROXIMO_AUTOSCOPE=off — full surface"
+        elif configured - {"exec"}:
+            scoping = "auto-scoped to configured planes"
+        else:
+            scoping = "no plane configured yet — serving the full surface"
+
+        return {
+            "served_tools": len(registry),
+            "scoping": scoping,
+            "planes": planes,
+            "note": (
+                "One audited plane over all four Proxmox products; Proximo serves only the "
+                "planes you've configured. Light up a plane with its PROXIMO_*_BASE_URL (or a "
+                "target); force the full surface with PROXIMO_SURFACES=all; pin an exact set "
+                "with PROXIMO_SURFACES=pve,pbs. Scoping is context hygiene, not an authorization "
+                "control — the token ACL stays the real boundary."
+            ),
+        }
+    except Exception as e:  # never let introspection break a read-only preflight
+        return {"note": f"tool surface not introspectable here ({type(e).__name__})"}

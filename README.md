@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/john-broadway/proximo/actions/workflows/ci.yml/badge.svg)](https://github.com/john-broadway/proximo/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/john-broadway/proximo/actions/workflows/codeql.yml/badge.svg)](https://github.com/john-broadway/proximo/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/john-broadway/proximo/badge)](https://scorecard.dev/viewer/?uri=github.com/john-broadway/proximo)
 [![Release](https://img.shields.io/github/v/release/john-broadway/proximo)](https://github.com/john-broadway/proximo/releases)
 [![PyPI](https://img.shields.io/pypi/v/proximo-proxmox)](https://pypi.org/project/proximo-proxmox/)
 [![MCP Badge](https://lobehub.com/badge/mcp/john-broadway-proximo?style=plastic)](https://lobehub.com/mcp/john-broadway-proximo)
@@ -13,6 +14,8 @@
 > **The Proxmox MCP you can hand the keys.**
 >
 > The others make you choose: a read-only inspector that's safe because it can't touch anything — or a loaded gun aimed at a cluster you care about. Proximo refuses the trade. Every dangerous move is **planned** (see the blast radius first) and **proven** (a tamper-evident record of every move), and **undoable wherever the platform can snapshot** (it snapshots *before* it acts) — trust built into the substrate, not bolted on after. **Hand an AI agent the keys; keep the receipts.**
+
+**Don't take our word for any of it — [verify it yourself](VERIFY.md).** Every claim here is paired with the command that proves it.
 
 ---
 
@@ -146,18 +149,19 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.19.1`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.19.1), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.20.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.20.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.19.1 — a self-audit release.** A multi-agent pass over v0.19.0 (find → adversarially
-> verify → fix, test-first) found and fixed **23** real issues — no tool-count change (still 365).
-> The headline: **restore/prune from PBS work again** — a volid check rejected PBS archives whose
-> snapshot timestamp carries colons, a bug our own tests had enshrined. Plus the freshness fence
-> stopped calling sub-daily backups "fresh", the PDM plane is honestly labeled reads + governed
-> control (not "read-only"), and a run of PLAN previews were truthed up to match the code. On-brand
-> for a project whose whole claim is honest scope: we pointed it at ourselves.
+> **New in 0.20.0 — the receipts release.** Every safety claim is now paired with a command that
+> proves it. New **[VERIFY.md](VERIFY.md)**: forge a byte of the audit ledger and watch `verify()`
+> refuse, grep the whole outbound surface to see there's no phone-home, verify the image's sigstore
+> provenance — checks you run against the artifacts, not our word. Plus **THREAT_MODEL.md**, a
+> CycloneDX SBOM on the wheel, an OpenSSF Scorecard badge, and a trust-core mutation smoke (4/4
+> tamper-detection mutants killed). No tool-count change (still 365) — this makes the existing
+> guarantees checkable. The field is filling with "AI on Proxmox, but safe"; the answer is to raise
+> the floor, not shrink anyone: whatever you run, make it prove itself.
 >
-> Recent: **0.19.0** — the backup-freshness fence: `pve_backup_freshness` walks the *actual* backup
-> archives per guest against what the jobs promise; a task reporting OK is never evidence a backup exists.
+> Recent: **0.19.1** — a self-audit release: a multi-agent pass over v0.19.0 found and fixed 23 real
+> issues (headline: restore/prune from PBS work again), no tool-count change.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -228,6 +232,11 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
+- 🩸 **0.20.0** — **the receipts release**: every safety claim now paired with a command that proves
+  it. **[VERIFY.md](VERIFY.md)** (forge a ledger byte → `verify()` refuses; grep the outbound surface
+  → no phone-home; verify image provenance), **THREAT_MODEL.md**, a wheel CycloneDX SBOM, an OpenSSF
+  Scorecard badge, and a trust-core mutation smoke (**4/4** tamper-detection mutants killed). No
+  tool-count change (still 365) — the guarantees didn't grow, they got checkable.
 - 🩸 **0.19.1** — **a self-audit release**: a multi-agent pass over v0.19.0 found and fixed **23**
   issues, no tool-count change (still 365). Headline: **restore/prune from PBS work again** (a volid
   check rejected PBS archives whose snapshot timestamp carries colons — a bug our own tests had
@@ -250,10 +259,9 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
   proxy — dry-run-first, receipt-logged, **live-proven** on real PDM 1.1.4 + nested PVE 9.2 (a real
   cross-DC *move* included). Plus **`proximo mint`**, a print-only least-privilege-token onboarding
   runbook for all four products.
-- 🩸 **0.16.0** — **the last two "unproven by design" claims, live-proven**: online (zero-downtime)
-  live-migration and softdog HA fencing on a real 3-node PVE 9.2 cluster. Plus **five safe-runbook
-  prompts** — plan-first, verify-after front doors for the common operations.
-- _Earlier: `0.15.0` was **cert-fingerprint pinning across all four surfaces** + the first packaged
+- _Earlier: `0.16.0` **live-proved the last two "unproven by design" claims** (zero-downtime
+  live-migration + softdog HA fencing on a real 3-node PVE 9.2 cluster) and added five safe-runbook
+  prompts; `0.15.0` was **cert-fingerprint pinning across all four surfaces** + the first packaged
   `.deb`; `0.14.1` was the **trim + harden patch** (plans/ledger show actual field changes, carry
   no secrets; 57 verified fixes, +74 tests, the doctor **spine report**); `0.14.0` added **scoped
   registration** (`PROXIMO_SURFACES` loads only the planes you use); `0.13.0` shipped the

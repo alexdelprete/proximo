@@ -1,8 +1,8 @@
 {
   "identifier": "john-broadway-proximo",
-  "name": "Proximo",
+  "name": "Proximo — the Proxmox MCP you can hand the keys",
   "description": "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway + Datacenter Manager on one clean surface: every dangerous op planned, undoable, and audited.",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "tools": [
     {
       "name": "ct_exec",
@@ -40,6 +40,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -89,6 +90,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -170,6 +172,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -183,7 +186,7 @@
     },
     {
       "name": "pbs_datastores_list",
-      "description": "List all datastores on the PBS server (read). Needs PROXIMO_PBS_* config.",
+      "description": "List all PBS datastores (read-only). Returns datastore objects with store name,\nbackend type, and mount status. Use pbs_datastore_status for runtime usage statistics\nor pbs_datastore_get for full configuration. Needs PROXIMO_PBS_* config.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -196,6 +199,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -205,7 +209,7 @@
     },
     {
       "name": "pbs_datastore_status",
-      "description": "Get usage statistics for a PBS datastore (read).",
+      "description": "Get runtime usage statistics for one PBS datastore (read-only). Returns total\ncapacity, used bytes, and available bytes. Use pbs_datastores_list to enumerate\ndatastores (with backend type) or pbs_gc_status for garbage-collection state.",
       "inputSchema": {
         "properties": {
           "store": {
@@ -222,6 +226,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -234,7 +239,7 @@
     },
     {
       "name": "pbs_gc_status",
-      "description": "Get garbage-collection status for a PBS datastore (read).",
+      "description": "Get garbage-collection status for one PBS datastore (read-only). Returns GC\nschedule, current state, disk/index statistics, and pending/removed chunk counts.\nUse pbs_gc_start to execute garbage collection or pbs_datastore_status for capacity.",
       "inputSchema": {
         "properties": {
           "store": {
@@ -251,6 +256,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -263,7 +269,7 @@
     },
     {
       "name": "pbs_snapshots_list",
-      "description": "List backup snapshots in a PBS datastore, with optional filters (read).",
+      "description": "List backup snapshots in a PBS datastore with optional filters (read-only). Returns\nsnapshot metadata including backup type, ID, timestamp, size, owner, and protection\nstatus; filter by namespace, backup_type (vm/ct/host), or backup_id.",
       "inputSchema": {
         "properties": {
           "store": {
@@ -316,6 +322,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -328,7 +335,7 @@
     },
     {
       "name": "pbs_namespaces_list",
-      "description": "List namespaces within a PBS datastore (read).",
+      "description": "List namespaces within a PBS datastore with optional hierarchical filtering (read-only).\nReturns each namespace's hierarchical path (the `ns` field); optionally filter by\nparent namespace or limit recursion depth. Use pbs_namespace_create to add namespaces.",
       "inputSchema": {
         "properties": {
           "store": {
@@ -369,6 +376,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -394,6 +402,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -420,6 +429,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -432,7 +442,7 @@
     },
     {
       "name": "pbs_traffic_controls_list",
-      "description": "List all PBS traffic-control bandwidth rules (read). Needs PROXIMO_PBS_* config.",
+      "description": "List all PBS traffic-control bandwidth-limit rules (read-only). Returns active rules\nwith their rate-in/rate-out limits, network targets, and comment. Use\npbs_traffic_control_upsert to create or modify rules. Needs PROXIMO_PBS_* config.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -445,6 +455,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -471,6 +482,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -537,6 +549,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -563,6 +576,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -597,6 +611,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -667,6 +682,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -802,6 +818,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -860,6 +877,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -913,6 +931,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -957,6 +976,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1044,6 +1064,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1127,6 +1148,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1171,6 +1193,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1233,6 +1256,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1299,6 +1323,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1361,6 +1386,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1446,6 +1472,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1555,6 +1582,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1589,6 +1617,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1707,6 +1736,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1741,6 +1771,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1766,6 +1797,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1788,6 +1820,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1815,6 +1848,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1837,6 +1871,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1863,6 +1898,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1892,6 +1928,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1917,6 +1954,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1939,6 +1977,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -1977,6 +2016,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2006,6 +2046,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2035,6 +2076,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2076,6 +2118,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2138,6 +2181,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2180,6 +2224,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2242,6 +2287,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2272,6 +2318,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2301,6 +2348,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2346,6 +2394,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2372,6 +2421,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2411,6 +2461,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2433,6 +2484,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2460,6 +2512,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2499,6 +2552,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2543,6 +2597,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2592,6 +2647,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2641,6 +2697,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2715,6 +2772,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2731,7 +2789,7 @@
     },
     {
       "name": "pdm_pve_lxc_remote_migrate",
-      "description": "MUTATION: migrate a container to a DIFFERENT PDM-registered remote (datacenter-to-datacenter).",
+      "description": "MUTATION: migrate a container to a DIFFERENT PDM-registered remote\n(datacenter-to-datacenter).\n\ntarget_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',\n'local-lvm:local-lvm'). delete=True removes the source after a successful move\n(destructive). Dry-run by default (PLAN); confirm=True to submit.\n",
       "inputSchema": {
         "properties": {
           "remote": {
@@ -2791,6 +2849,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2854,6 +2913,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2910,6 +2970,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2954,6 +3015,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -2998,6 +3060,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3042,6 +3105,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3086,6 +3150,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3125,6 +3190,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3159,6 +3225,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3181,6 +3248,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3203,6 +3271,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3225,6 +3294,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3247,6 +3317,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3293,6 +3364,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3339,6 +3411,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3385,6 +3458,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3412,6 +3486,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3446,6 +3521,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3489,6 +3565,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3527,6 +3604,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3565,6 +3643,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3604,6 +3683,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3626,6 +3706,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3664,6 +3745,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3710,6 +3792,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3744,6 +3827,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3809,6 +3893,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3844,6 +3929,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3890,6 +3976,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -3924,6 +4011,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4086,6 +4174,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4120,6 +4209,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4163,6 +4253,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4209,6 +4300,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4255,6 +4347,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4305,6 +4398,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4432,6 +4526,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4494,6 +4589,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4555,6 +4651,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4613,6 +4710,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4635,6 +4733,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4657,6 +4756,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4708,6 +4808,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4759,6 +4860,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4829,6 +4931,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4899,6 +5002,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -4993,6 +5097,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5043,6 +5148,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5176,6 +5282,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5225,6 +5332,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5247,6 +5355,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5273,6 +5382,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5302,6 +5412,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5331,6 +5442,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5360,6 +5472,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5389,6 +5502,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5418,6 +5532,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5443,6 +5558,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5469,6 +5585,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5498,6 +5615,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5523,6 +5641,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5549,6 +5668,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5578,6 +5698,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5603,6 +5724,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5629,6 +5751,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5658,6 +5781,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5683,6 +5807,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5705,6 +5830,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5772,6 +5898,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5854,6 +5981,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5888,6 +6016,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -5958,6 +6087,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6040,6 +6170,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6074,6 +6205,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6144,6 +6276,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6226,6 +6359,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6260,6 +6394,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6394,6 +6529,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6533,6 +6669,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6573,6 +6710,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6696,6 +6834,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6823,6 +6962,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6863,6 +7003,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6906,6 +7047,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6954,6 +7096,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -6995,6 +7138,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7058,6 +7202,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7141,6 +7286,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7195,6 +7341,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7255,6 +7402,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7328,6 +7476,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7405,6 +7554,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7483,6 +7633,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7578,6 +7729,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7652,6 +7804,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7747,6 +7900,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7781,6 +7935,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -7932,6 +8087,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8111,6 +8267,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8145,6 +8302,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8183,6 +8341,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8222,6 +8381,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8261,6 +8421,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8300,6 +8461,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8339,6 +8501,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8378,6 +8541,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8417,6 +8581,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8456,6 +8621,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8495,6 +8661,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8534,6 +8701,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8547,7 +8715,7 @@
     },
     {
       "name": "pve_users_list",
-      "description": "List all Proxmox users (read).",
+      "description": "List all Proxmox users across every realm (read-only). Returns each user's id (user@realm),\nenabled flag, expiry, group membership, email, and comment. Use pve_user_get for one user's\nfull config, tokens, and effective ACL.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -8560,6 +8728,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8569,7 +8738,7 @@
     },
     {
       "name": "pve_roles_list",
-      "description": "List all Proxmox roles and their privileges (read).",
+      "description": "List all Proxmox roles and their privileges (read-only). Returns each role's id, privilege\nset, and whether it is built-in. Use pve_role_create/update/delete to modify roles; use\npve_acl_list to see which principals hold which roles at which paths.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -8582,6 +8751,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8591,7 +8761,7 @@
     },
     {
       "name": "pve_acl_list",
-      "description": "List all ACL entries on the Proxmox cluster (read).",
+      "description": "List all ACL entries on the Proxmox cluster (read-only). Returns each entry's path (resource\nscope), roleid (privilege set), principal (user/group/token), type, and propagate flag. Use\npve_acl_modify to grant/revoke; use pve_overbroad_grants to flag Administrator or root-path\ngrants.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -8604,6 +8774,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8613,7 +8784,7 @@
     },
     {
       "name": "pve_tokens_list",
-      "description": "List API tokens for a specific user (read). userid: 'user@realm'.",
+      "description": "List API tokens for a specific user (read-only). Returns each token's id, comment, expiry,\nand privsep (privilege separation) flag — NOT the secret (shown only at creation). userid\nformat: 'user@realm'. Use pve_token_create/revoke to manage tokens.",
       "inputSchema": {
         "properties": {
           "userid": {
@@ -8630,6 +8801,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8655,6 +8827,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8709,6 +8882,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8783,6 +8957,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8851,6 +9026,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8890,6 +9066,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8903,7 +9080,7 @@
     },
     {
       "name": "pve_user_get",
-      "description": "Get a user's config, groups, and tokens (read).",
+      "description": "Get a user's full config (read-only). Returns userid, enabled flag, expiry, email, comment,\ngroup membership, API tokens, and firstname/lastname. Use pve_user_create/update/delete to\nmodify the user; use pve_acl_list to see their effective permissions.",
       "inputSchema": {
         "properties": {
           "userid": {
@@ -8920,6 +9097,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8932,7 +9110,7 @@
     },
     {
       "name": "pve_groups_list",
-      "description": "List all groups (read).",
+      "description": "List all Proxmox groups (read-only). Returns each group's id, comment, and member count.\nUse pve_group_get for full member list; use pve_group_create/update/delete to manage groups.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -8945,6 +9123,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -8954,7 +9133,7 @@
     },
     {
       "name": "pve_group_get",
-      "description": "Get a group's config and members (read).",
+      "description": "Get a group's full config (read-only). Returns groupid, comment, and member list (users in\nthe group). Use pve_group_create/update/delete to manage the group; use pve_acl_list to see\nACL entries referencing this group.",
       "inputSchema": {
         "properties": {
           "groupid": {
@@ -8971,6 +9150,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9089,6 +9269,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9219,6 +9400,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9253,6 +9435,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9265,7 +9448,7 @@
     },
     {
       "name": "pve_group_create",
-      "description": "MUTATION: create an (empty) group. Dry-run by default (additive, LOW). confirm=True.",
+      "description": "MUTATION: create an (empty) group. Dry-run by default (additive, LOW risk).\nReturns the plan preview; confirm=True to execute. The group is inert until users are\nadded or an ACL entry grants it privileges.",
       "inputSchema": {
         "properties": {
           "groupid": {
@@ -9299,6 +9482,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9311,7 +9495,7 @@
     },
     {
       "name": "pve_group_update",
-      "description": "MUTATION: update a group's comment. Dry-run by default. confirm=True.",
+      "description": "MUTATION: update a group's comment. Dry-run by default (additive, LOW risk).\nReturns the plan preview; confirm=True to execute. Does not modify group membership.",
       "inputSchema": {
         "properties": {
           "groupid": {
@@ -9345,6 +9529,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9379,6 +9564,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9391,7 +9577,7 @@
     },
     {
       "name": "pve_realms_list",
-      "description": "List authentication realms/domains (read).",
+      "description": "List authentication realms/domains configured in Proxmox (read-only). Returns each realm's\ntype (pam/pve/ldap/ad/openid), comment, TFA setting, and default flag. Use pve_realm_get for\ntype-specific config; use pve_realm_create/update/delete to manage realms.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -9404,6 +9590,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9413,7 +9600,7 @@
     },
     {
       "name": "pve_realm_get",
-      "description": "Get a realm's config (read).",
+      "description": "Get a realm's full config (read-only). Returns realm type, comment, TFA requirement, and\ntype-specific settings (server/base_dn for ldap; domain/server1 for ad; issuer-url/client-id\nfor openid). Use pve_realm_create/update/delete to manage realms.",
       "inputSchema": {
         "properties": {
           "realm": {
@@ -9430,6 +9617,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9442,7 +9630,7 @@
     },
     {
       "name": "pve_tfa_list",
-      "description": "List per-user TFA (two-factor) entries across the cluster (read).",
+      "description": "List all per-user TFA (two-factor) entries across the cluster (read-only). Returns each\nentry's userid, factor type (totp/webauthn/yubico/recovery), factor id, and metadata. Use pve_tfa_get\nfor one user's entries; use pve_tfa_delete (confirm=True) to remove a factor (RISK_HIGH).",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -9455,6 +9643,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9464,7 +9653,7 @@
     },
     {
       "name": "pve_tfa_get",
-      "description": "Read a user's TFA entries, or one entry (read). GET /access/tfa/{userid}[/{tfa_id}].",
+      "description": "Read a user's TFA entries (read-only). Returns list of entries if tfa_id is omitted; a\nsingle entry dict if tfa_id is specified. Each entry includes factor type, id, and metadata.\nUse pve_tfa_delete (confirm=True) to remove a factor (RISK_HIGH — can lock the user out).",
       "inputSchema": {
         "properties": {
           "userid": {
@@ -9493,6 +9682,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9543,6 +9733,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9556,7 +9747,7 @@
     },
     {
       "name": "pve_role_create",
-      "description": "MUTATION: create a custom role. Dry-run by default. confirm=True to execute.",
+      "description": "MUTATION: create a custom role with an optional privilege set. Dry-run by default (MEDIUM\nrisk — inert until an ACL entry references it). Returns the plan preview; confirm=True to\nexecute. privs format: comma-separated privilege names (e.g. 'VM.PowerMgmt,VM.Config.Disk').",
       "inputSchema": {
         "properties": {
           "roleid": {
@@ -9590,6 +9781,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9648,6 +9840,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9682,6 +9875,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9745,6 +9939,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9805,6 +10000,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9839,6 +10035,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9897,6 +10094,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9942,6 +10140,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -9997,6 +10196,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10049,6 +10249,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10104,6 +10305,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10171,6 +10373,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10213,6 +10416,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10255,6 +10459,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10302,6 +10507,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10379,6 +10585,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10406,6 +10613,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10541,6 +10749,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10661,6 +10870,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10695,6 +10905,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10785,6 +10996,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10869,6 +11081,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10903,6 +11116,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -10989,6 +11203,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11064,6 +11279,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11103,6 +11319,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11142,6 +11359,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11201,6 +11419,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11263,6 +11482,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11310,6 +11530,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11344,6 +11565,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11418,6 +11640,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11501,6 +11724,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11535,6 +11759,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11600,6 +11825,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11648,6 +11874,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11692,6 +11919,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11731,6 +11959,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11740,7 +11969,7 @@
     },
     {
       "name": "pve_cluster_status",
-      "description": "Overall cluster status — nodes, quorum, version (read).",
+      "description": "Retrieve the cluster's overall status: nodes, quorum state, and the corosync\nconfig version (read-only). Returns a list of status dicts with node names, types, online\nstatus, and quorum info. Use pve_cluster_resources to list all resources across the cluster.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -11753,6 +11982,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11787,6 +12017,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11809,6 +12040,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11831,6 +12063,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11840,7 +12073,7 @@
     },
     {
       "name": "pve_ha_resources_list",
-      "description": "List all HA resources (managed guests) (read).",
+      "description": "List all guests managed by HA (High Availability) with their current HA settings\n(read-only). Returns a list of HA resource dicts with SID, type, state, group, and restart\nsettings. Use pve_ha_groups_list or pve_ha_rules_list to view HA placement rules, not for\nresource enumeration.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -11853,6 +12086,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11910,6 +12144,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -11998,6 +12233,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12037,6 +12273,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12125,6 +12362,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12272,6 +12510,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12306,6 +12545,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12389,6 +12629,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12398,7 +12639,7 @@
     },
     {
       "name": "pve_task_log",
-      "description": "Retrieve the log lines for a task (read).",
+      "description": "Retrieve a task's log output by UPID (read-only). Returns the task's log lines with\nline numbers, paginated via start/limit. Use pve_task_wait for completion polling, or\npve_tasks_list to find a UPID.",
       "inputSchema": {
         "properties": {
           "upid": {
@@ -12437,6 +12678,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12488,6 +12730,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12500,7 +12743,7 @@
     },
     {
       "name": "pve_pools_list",
-      "description": "List all resource pools (cluster-scoped) (read).",
+      "description": "List all resource pools defined cluster-wide (read-only). Returns a list of pool dicts\nwith pool IDs and optional comments. Use pve_pool_get to fetch a pool's detailed\nconfiguration and complete member list.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -12513,6 +12756,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12522,7 +12766,7 @@
     },
     {
       "name": "pve_pool_get",
-      "description": "Get a resource pool's config and member list (read).",
+      "description": "Retrieve a single resource pool's configuration and complete member list by pool ID\n(read-only). Returns the pool's config including all VMs and storage resources assigned.\nUse pve_pools_list to enumerate all pools.",
       "inputSchema": {
         "properties": {
           "poolid": {
@@ -12539,6 +12783,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12585,6 +12830,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12631,6 +12877,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12694,6 +12941,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12728,6 +12976,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12740,7 +12989,7 @@
     },
     {
       "name": "pve_storage_config_list",
-      "description": "List the cluster storage definitions (storage.cfg) (read).",
+      "description": "List all storage definitions from storage.cfg cluster-wide (read-only). Returns a list\nof storage dicts with IDs, types, paths, and server addresses. Use\npve_storage_config_get to fetch a single storage's complete configuration.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -12753,6 +13002,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12762,7 +13012,7 @@
     },
     {
       "name": "pve_storage_config_get",
-      "description": "Get one storage definition (read).",
+      "description": "Retrieve a single storage definition from storage.cfg by storage ID (read-only).\nReturns the storage's complete configuration including type, paths, servers, and access\nsettings. Use pve_storage_config_list to enumerate all storages.",
       "inputSchema": {
         "properties": {
           "storage": {
@@ -12779,6 +13029,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12887,6 +13138,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -12982,6 +13234,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13016,6 +13269,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13028,7 +13282,7 @@
     },
     {
       "name": "pve_firewall_rules_list",
-      "description": "List all firewall rules for the given scope (cluster/node/guest) (read).",
+      "description": "List firewall rules for the given scope (cluster, node, or guest) (read-only).\n\nReturns the active rules at that scope level, including action, direction, protocol,\nand address/port fields. Use pve_firewall_options_get to read firewall settings\n(enable flag, policy, log rate).\n",
       "inputSchema": {
         "properties": {
           "scope": {
@@ -13082,6 +13336,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13145,6 +13400,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13154,7 +13410,7 @@
     },
     {
       "name": "pve_security_groups_list",
-      "description": "List cluster-wide firewall security groups (read).",
+      "description": "List the cluster's firewall security groups (read-only).\n\nReturns each group's name, comment, and digest. A security group is a reusable\nnamed rule set you attach to a VM/node firewall; use pve_firewall_rules_list to read\na specific scope's active rules.\n",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -13167,6 +13423,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13230,6 +13487,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13384,6 +13642,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13471,6 +13730,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13666,6 +13926,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13741,6 +14002,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13807,6 +14069,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -13895,6 +14158,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14019,6 +14283,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14106,6 +14371,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14193,6 +14459,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14273,6 +14540,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14369,6 +14637,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14461,6 +14730,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14508,6 +14778,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14542,6 +14813,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14653,6 +14925,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14662,7 +14935,7 @@
     },
     {
       "name": "pve_node_status",
-      "description": "Health and resource status of a Proxmox node.",
+      "description": "Read Proxmox node health and resource status (read-only). Returns node metrics including\ntotal capacity, current usage, CPU, memory, disk state, and operational status. See pve_diagnose\nfor detailed per-node diagnostics including failed tasks.",
       "inputSchema": {
         "properties": {
           "node": {
@@ -14687,6 +14960,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14696,7 +14970,7 @@
     },
     {
       "name": "pve_list_guests",
-      "description": "List all VMs and LXC containers on a node, with state.",
+      "description": "List all VMs and LXC containers on a node with their current state (read-only). Returns\na list of guest objects, each with VMID, name, type (lxc or qemu), and status. Works across\nboth kinds in a single call.",
       "inputSchema": {
         "properties": {
           "node": {
@@ -14721,6 +14995,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14730,7 +15005,7 @@
     },
     {
       "name": "pve_guest_status",
-      "description": "Status/config of one guest (kind = 'lxc' or 'qemu').",
+      "description": "Read the operational status and current configuration of a single guest (kind='lxc' or\n'qemu') (read-only). Returns the guest's runtime state and resource utilization\n(CPU/memory/disk/network/uptime) — operational metrics, not its stored configuration.\nUse pve_guest_config_get for the full configuration.",
       "inputSchema": {
         "properties": {
           "vmid": {
@@ -14764,6 +15039,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14819,6 +15095,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14832,7 +15109,7 @@
     },
     {
       "name": "pve_snapshot_list",
-      "description": "List a guest's snapshots (read).",
+      "description": "List a guest's snapshots (read-only). Returns each snapshot's name, description, parent,\nand creation time, plus the synthetic 'current' node showing live state. Works for both VMs\nand containers (kind='qemu' or 'lxc'). Use pve_snapshot_create / pve_rollback to act on them.",
       "inputSchema": {
         "properties": {
           "vmid": {
@@ -14866,6 +15143,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14933,6 +15211,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -14989,6 +15268,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15050,6 +15330,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15092,6 +15373,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15104,7 +15386,7 @@
     },
     {
       "name": "ct_logs",
-      "description": "Tail journalctl for a systemd unit inside a container (read-only).",
+      "description": "Tail journalctl for a systemd unit inside a container (read-only). Returns the command's\nreturncode, stdout, and stderr. Container-specific diagnostic; gated by the CTID allowlist\nwhen PROXIMO_ENABLE_EXEC is set. Fails closed if exec is disabled.",
       "inputSchema": {
         "properties": {
           "ctid": {
@@ -15130,6 +15412,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15177,6 +15460,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15214,6 +15498,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15236,6 +15521,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15300,6 +15586,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15361,6 +15648,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15457,6 +15745,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15519,6 +15808,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15572,6 +15862,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15584,7 +15875,7 @@
     },
     {
       "name": "pve_storage_status",
-      "description": "Status of a storage — total/used/avail/enabled (read).",
+      "description": "Read a storage backend's capacity and state (read-only). Returns total size, used space,\navailable free space, and enabled status. Use pve_storage_content to list ISOs, templates,\nand backups stored on it.",
       "inputSchema": {
         "properties": {
           "storage": {
@@ -15613,6 +15904,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15695,6 +15987,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15748,6 +16041,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15761,7 +16055,7 @@
     },
     {
       "name": "pve_guest_config_get",
-      "description": "Read a guest's current config (kind = 'lxc' or 'qemu') (read).",
+      "description": "Read a guest's current configuration (kind='lxc' or 'qemu') (read-only). Returns the\ncomplete config dict with cores, memory, network, disks, metadata, and all settings. Use\npve_guest_config_set to mutate; capture the returned dict to enable rollback via\npve_guest_config_revert.",
       "inputSchema": {
         "properties": {
           "vmid": {
@@ -15795,6 +16089,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15851,6 +16146,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15908,6 +16204,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -15968,6 +16265,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16034,6 +16332,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16048,7 +16347,7 @@
     },
     {
       "name": "pve_cloudinit_get",
-      "description": "Read a QEMU guest's cloud-init config (secret fields are masked) (read).",
+      "description": "Read a QEMU guest's cloud-init configuration (read-only). Returns cloud-init fields\n(ciuser, sshkeys, ipconfigN, cipassword placeholder) with secret fields masked for safety.\nUse pve_cloudinit_set to mutate it; the set operation auto-captures an undo record for\nrollback.",
       "inputSchema": {
         "properties": {
           "vmid": {
@@ -16082,6 +16381,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16138,6 +16438,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16190,6 +16491,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16202,7 +16504,7 @@
     },
     {
       "name": "pve_network_list",
-      "description": "List network interfaces on a node (bridges, bonds, VLANs, etc.) (read).",
+      "description": "List network interfaces on a node (read-only). Returns iface name, type\n(bridge/bond/vlan/eth/alias), method, and address. Filter by type with iface_type.",
       "inputSchema": {
         "properties": {
           "node": {
@@ -16239,6 +16541,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16248,7 +16551,7 @@
     },
     {
       "name": "pve_sdn_zones_list",
-      "description": "List SDN zones (cluster-scoped) (read).",
+      "description": "List SDN zones in the cluster (read-only). Returns zone id, type\n(simple/vlan/qinq/vxlan/evpn/faucet), and state. Use pve_sdn_zone_create to add and\npve_sdn_apply to commit.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -16261,6 +16564,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16270,7 +16574,7 @@
     },
     {
       "name": "pve_sdn_vnets_list",
-      "description": "List SDN virtual networks (cluster-scoped) (read).",
+      "description": "List SDN vnets in the cluster (read-only). Returns vnet name, zone, tag,\nalias, and vlanaware state. Use pve_sdn_vnet_create to add and pve_sdn_apply\nto commit.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -16283,6 +16587,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16292,7 +16597,7 @@
     },
     {
       "name": "pve_sdn_subnet_list",
-      "description": "List subnets in an SDN vnet (read).",
+      "description": "List subnets in a vnet (read-only). Returns subnet CIDR, gateway, dhcp,\nsnat, and dns settings. Use pve_sdn_subnet_create to add and pve_sdn_apply to\ncommit.",
       "inputSchema": {
         "properties": {
           "vnet": {
@@ -16309,6 +16614,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16372,6 +16678,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16459,6 +16766,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16505,6 +16813,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16568,6 +16877,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16581,7 +16891,7 @@
     },
     {
       "name": "pve_sdn_vnet_update",
-      "description": "MUTATION: update an SDN vnet (PENDING). Dry-run by default. RISK_LOW (staging).",
+      "description": "MUTATION: update an SDN vnet (PENDING — inert until pve_sdn_apply).\nOptions sets fields (tag/alias/vlanaware/etc), delete removes keys. Dry-run\nby default. RISK_LOW (staging, no live network effect).",
       "inputSchema": {
         "properties": {
           "vnet": {
@@ -16655,6 +16965,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16701,6 +17012,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16764,6 +17076,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16855,6 +17168,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16906,6 +17220,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -16970,6 +17285,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17030,6 +17346,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17072,6 +17389,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17099,6 +17417,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17133,6 +17452,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17171,6 +17491,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17217,6 +17538,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17263,6 +17585,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17304,6 +17627,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17366,6 +17690,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           },
           "kw": {
@@ -17426,6 +17751,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17464,6 +17790,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17498,6 +17825,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17541,6 +17869,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17599,6 +17928,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17689,6 +18019,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17754,6 +18085,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17801,6 +18133,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17852,6 +18185,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17903,6 +18237,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17970,6 +18305,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -17982,7 +18318,7 @@
     },
     {
       "name": "pve_node_services_list",
-      "description": "List all services on a PVE node, with state (read).",
+      "description": "List all services on a PVE node (read-only). Returns a list of service dicts\nwith name, state (running/dead/inactive), and description for each service.",
       "inputSchema": {
         "properties": {
           "node": {
@@ -18007,6 +18343,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18045,6 +18382,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18057,7 +18395,7 @@
     },
     {
       "name": "pve_node_rrddata",
-      "description": "Get RRD telemetry (time-series) for a PVE node (read). timeframe: hour/day/week/month/year.",
+      "description": "Fetch RRD (round-robin database) time-series telemetry for a PVE node\n(read-only). Returns a list of data-point dicts with timestamps and metrics\n(cpu, memory, disk, network) over the specified timeframe, optionally\naggregated by consolidation function (AVERAGE or MAX).",
       "inputSchema": {
         "properties": {
           "node": {
@@ -18099,6 +18437,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18162,6 +18501,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18201,6 +18541,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18210,7 +18551,7 @@
     },
     {
       "name": "pve_node_dns",
-      "description": "Get the DNS configuration of a PVE node (read).",
+      "description": "Read a Proxmox node's DNS configuration (read-only). Returns a dict with\nsearch domain and configured nameservers (dns1/dns2/dns3). Use pve_node_dns_set\nto change it.",
       "inputSchema": {
         "properties": {
           "node": {
@@ -18235,6 +18576,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18244,7 +18586,7 @@
     },
     {
       "name": "pve_node_subscription",
-      "description": "Get the subscription status of a PVE node (read).",
+      "description": "Read a Proxmox node's subscription status (read-only). Returns a dict with\nstatus, product name, check time, next due date, and subscription level.",
       "inputSchema": {
         "properties": {
           "node": {
@@ -18269,6 +18611,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18278,7 +18621,7 @@
     },
     {
       "name": "pve_node_certificates",
-      "description": "List TLS certificates configured on a PVE node (read).",
+      "description": "List TLS certificates configured on a Proxmox node (read-only). Returns a\nlist of certificate dicts with filename, subject, issuer, validity dates\n(notbefore/notafter), SANs, and fingerprint.",
       "inputSchema": {
         "properties": {
           "node": {
@@ -18303,6 +18646,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18350,6 +18694,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18363,7 +18708,7 @@
     },
     {
       "name": "pve_notification_endpoint_list",
-      "description": "List all PVE notification endpoints (gotify/smtp/sendmail/webhook) (read).",
+      "description": "List all PVE notification endpoints (read-only). Returns a list of dicts for\neach configured delivery channel (gotify, SMTP, sendmail, webhook), containing\ntype, name, and endpoint-specific configuration.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -18376,6 +18721,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18436,6 +18782,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18500,6 +18847,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18539,6 +18887,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18586,6 +18935,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18620,6 +18970,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18654,6 +19005,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18666,7 +19018,7 @@
     },
     {
       "name": "pve_metrics_server_list",
-      "description": "List all PVE metrics server definitions (influxdb, graphite, etc.) (read).",
+      "description": "List all PVE metrics server definitions (read-only). Returns a list of dicts\nfor each configured metrics forwarding target (InfluxDB, Graphite, etc.), with\nid, type, server address, and port.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -18679,6 +19031,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18770,6 +19123,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18804,6 +19158,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18838,6 +19193,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18850,7 +19206,7 @@
     },
     {
       "name": "pve_mapping_pci_list",
-      "description": "List all PCI cluster hardware mappings (read).",
+      "description": "List all PCI device mappings at cluster scope (read-only). Returns a list of\ndicts defining passthrough mappings for PCI devices assignable to VMs/LXCs,\neach with mapping ID, device list, and description.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -18863,6 +19219,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18872,7 +19229,7 @@
     },
     {
       "name": "pve_mapping_usb_list",
-      "description": "List all USB cluster hardware mappings (read).",
+      "description": "List all USB device mappings at cluster scope (read-only). Returns a list of\ndicts defining passthrough mappings for USB devices assignable to VMs/LXCs,\neach with mapping ID, device list, and description.",
       "inputSchema": {
         "properties": {
           "proximo_target": {
@@ -18885,6 +19242,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -18940,6 +19298,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -19010,6 +19369,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -19044,6 +19404,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -19102,6 +19463,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -19172,6 +19534,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },
@@ -19206,6 +19569,7 @@
               }
             ],
             "default": null,
+            "description": "Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call.",
             "title": "Proximo Target"
           }
         },

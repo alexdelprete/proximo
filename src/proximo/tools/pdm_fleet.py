@@ -248,7 +248,13 @@ def pdm_pve_lxc_remote_migrate(remote: str, vmid: str, target_remote: str, targe
                                target_storage: str, target_vmid: str | None = None,
                                online: bool = False, delete: bool = False,
                                confirm: bool = False) -> dict:
-    """MUTATION: migrate a container to a DIFFERENT PDM-registered remote (datacenter-to-datacenter)."""
+    """MUTATION: migrate a container to a DIFFERENT PDM-registered remote
+    (datacenter-to-datacenter).
+
+    target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',
+    'local-lvm:local-lvm'). delete=True removes the source after a successful move
+    (destructive). Dry-run by default (PLAN); confirm=True to submit.
+    """
     return _remote_migrate("lxc", remote, vmid, target_remote, target_bridge, target_storage,
                            target_vmid, online, delete, confirm)
 

@@ -1,3 +1,16 @@
+proximo (0.20.0-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.20.0 (minor — the receipts release: every safety claim is now
+    paired with a command that proves it. No tool-count change (still 365). Adds
+    VERIFY.md (each claim + its runnable check), THREAT_MODEL.md (assets/boundaries/
+    adversaries/residuals), a CycloneDX SBOM for the published wheel attached to the
+    GitHub release, an OpenSSF Scorecard badge, and scripts/mutation_smoke.py (4/4
+    trust-core tamper-detection mutants killed). No packaging changes from 0.19.1-1 —
+    same dh-virtualenv build, man page, and autopkgtest. Not distributed; build-your-own
+    from debian/.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Fri, 10 Jul 2026 15:00:00 +0000
+
 proximo (0.19.1-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.19.1 (patch — self-audit release: 23 findings from a multi-agent

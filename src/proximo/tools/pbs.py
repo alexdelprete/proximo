@@ -153,7 +153,9 @@ from proximo.server import (
 
 @tool()
 def pbs_datastores_list() -> list[dict]:
-    """List all datastores on the PBS server (read). Needs PROXIMO_PBS_* config."""
+    """List all PBS datastores (read-only). Returns datastore objects with store name,
+    backend type, and mount status. Use pbs_datastore_status for runtime usage statistics
+    or pbs_datastore_get for full configuration. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_datastores_list", "pbs/datastores",
                     lambda: pbs_datastore_list_op(pbs))
@@ -161,7 +163,9 @@ def pbs_datastores_list() -> list[dict]:
 
 @tool()
 def pbs_datastore_status(store: str) -> dict:
-    """Get usage statistics for a PBS datastore (read)."""
+    """Get runtime usage statistics for one PBS datastore (read-only). Returns total
+    capacity, used bytes, and available bytes. Use pbs_datastores_list to enumerate
+    datastores (with backend type) or pbs_gc_status for garbage-collection state."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_datastore_status", f"pbs/{store}",
                     lambda: pbs_datastore_status_op(pbs, store))
@@ -169,7 +173,9 @@ def pbs_datastore_status(store: str) -> dict:
 
 @tool()
 def pbs_gc_status(store: str) -> dict:
-    """Get garbage-collection status for a PBS datastore (read)."""
+    """Get garbage-collection status for one PBS datastore (read-only). Returns GC
+    schedule, current state, disk/index statistics, and pending/removed chunk counts.
+    Use pbs_gc_start to execute garbage collection or pbs_datastore_status for capacity."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_gc_status", f"pbs/{store}/gc", lambda: pbs_gc_status_op(pbs, store))
 
@@ -177,7 +183,9 @@ def pbs_gc_status(store: str) -> dict:
 @tool()
 def pbs_snapshots_list(store: str, ns: str | None = None, backup_type: str | None = None,
                        backup_id: str | None = None) -> list[dict]:
-    """List backup snapshots in a PBS datastore, with optional filters (read)."""
+    """List backup snapshots in a PBS datastore with optional filters (read-only). Returns
+    snapshot metadata including backup type, ID, timestamp, size, owner, and protection
+    status; filter by namespace, backup_type (vm/ct/host), or backup_id."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_snapshots_list", f"pbs/{store}",
                     lambda: pbs_snapshots_list_op(pbs, store, ns, backup_type, backup_id))
@@ -186,7 +194,9 @@ def pbs_snapshots_list(store: str, ns: str | None = None, backup_type: str | Non
 @tool()
 def pbs_namespaces_list(store: str, parent: str | None = None,
                         max_depth: int | None = None) -> list[dict]:
-    """List namespaces within a PBS datastore (read)."""
+    """List namespaces within a PBS datastore with optional hierarchical filtering (read-only).
+    Returns each namespace's hierarchical path (the `ns` field); optionally filter by
+    parent namespace or limit recursion depth. Use pbs_namespace_create to add namespaces."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_namespaces_list", f"pbs/{store}",
                     lambda: pbs_namespace_list_op(pbs, store, parent, max_depth))
@@ -212,7 +222,9 @@ def pbs_remote_get(name: str) -> dict:
 
 @tool()
 def pbs_traffic_controls_list() -> list[dict]:
-    """List all PBS traffic-control bandwidth rules (read). Needs PROXIMO_PBS_* config."""
+    """List all PBS traffic-control bandwidth-limit rules (read-only). Returns active rules
+    with their rate-in/rate-out limits, network targets, and comment. Use
+    pbs_traffic_control_upsert to create or modify rules. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_traffic_controls_list", "pbs/config/traffic-control",
                     lambda: pbs_cfg_traffic_controls_list(pbs))

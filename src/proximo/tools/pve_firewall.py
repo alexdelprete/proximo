@@ -54,7 +54,12 @@ def pve_firewall_rules_list(
     scope: str = "cluster", node: str | None = None,
     vmid: str | None = None, kind: str | None = None,
 ) -> list[dict]:
-    """List all firewall rules for the given scope (cluster/node/guest) (read)."""
+    """List firewall rules for the given scope (cluster, node, or guest) (read-only).
+
+    Returns the active rules at that scope level, including action, direction, protocol,
+    and address/port fields. Use pve_firewall_options_get to read firewall settings
+    (enable flag, policy, log rate).
+    """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}"
     return _audited("pve_firewall_rules_list", tgt,
@@ -75,7 +80,12 @@ def pve_firewall_options_get(
 
 @tool()
 def pve_security_groups_list() -> list[dict]:
-    """List cluster-wide firewall security groups (read)."""
+    """List the cluster's firewall security groups (read-only).
+
+    Returns each group's name, comment, and digest. A security group is a reusable
+    named rule set you attach to a VM/node firewall; use pve_firewall_rules_list to read
+    a specific scope's active rules.
+    """
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_security_groups_list", "firewall/cluster/groups",
                     lambda: security_groups_list(api))

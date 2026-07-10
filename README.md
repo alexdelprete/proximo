@@ -5,12 +5,13 @@
 [![CI](https://github.com/john-broadway/proximo/actions/workflows/ci.yml/badge.svg)](https://github.com/john-broadway/proximo/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/john-broadway/proximo/actions/workflows/codeql.yml/badge.svg)](https://github.com/john-broadway/proximo/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/john-broadway/proximo/badge)](https://scorecard.dev/viewer/?uri=github.com/john-broadway/proximo)
-[![Glama](https://glama.ai/mcp/servers/john-broadway/proximo/badges/score.svg)](https://glama.ai/mcp/servers/john-broadway/proximo)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13564/badge)](https://www.bestpractices.dev/projects/13564)
 [![Release](https://img.shields.io/github/v/release/john-broadway/proximo)](https://github.com/john-broadway/proximo/releases)
 [![PyPI](https://img.shields.io/pypi/v/proximo-proxmox)](https://pypi.org/project/proximo-proxmox/)
-[![MCP Badge](https://lobehub.com/badge/mcp/john-broadway-proximo?style=plastic)](https://lobehub.com/mcp/john-broadway-proximo)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](./pyproject.toml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+[![Glama](https://glama.ai/mcp/servers/john-broadway/proximo/badges/score.svg)](https://glama.ai/mcp/servers/john-broadway/proximo)
+[![MCP Badge](https://lobehub.com/badge/mcp/john-broadway-proximo?style=flat)](https://lobehub.com/mcp/john-broadway-proximo)
 
 > **The Proxmox MCP you can hand the keys.**
 >

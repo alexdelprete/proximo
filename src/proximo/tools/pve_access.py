@@ -116,7 +116,7 @@ def pve_acl_modify(
     REPLACES inherited grants (SHADOW) and revoking can RESTORE them (WIDEN). Re-call with
     confirm=True to execute. Synchronous.
 
-    kind='user' (default) or 'token'. delete=False = grant; delete=True = revoke.
+    kind='user' (default), 'group', or 'token'. delete=False = grant; delete=True = revoke.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"acl:{path}:{target}"

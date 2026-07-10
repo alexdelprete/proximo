@@ -962,21 +962,27 @@ def plan_sdn_zone_delete(api, zone: str) -> Plan:
     removal that an apply would enact; PVE refuses if a vnet still references the zone."""
     zone = _check_sdn_id(zone, "zone")
     current: dict = {}
+    read_failed = False
     try:
         current = next((z for z in (sdn_zones_list(api) or []) if z.get("zone") == zone), {})
     except Exception:
         current = {}
+        read_failed = True  # 2026-07-10 audit L16: disclose a swallowed read, don't imply complete
+    blast = [
+        f"stages REMOVAL of SDN zone '{zone}' (pending)",
+        "takes effect on pve_sdn_apply; if the zone is live-applied, applying removes its networking",
+        "PVE refuses to delete a zone still referenced by a vnet",
+        "no UNDO at config level: re-create the zone to revert",
+    ]
+    if read_failed:
+        blast.append("could not read the current SDN zone config — prior value UNKNOWN; no revert baseline")
     return Plan(
         action="pve_sdn_zone_delete", target=f"sdn/zones/{zone}",
         change=f"delete SDN zone '{zone}' (pending)", current=current,
-        blast_radius=[
-            f"stages REMOVAL of SDN zone '{zone}' (pending)",
-            "takes effect on pve_sdn_apply; if the zone is live-applied, applying removes its networking",
-            "PVE refuses to delete a zone still referenced by a vnet",
-            "no UNDO at config level: re-create the zone to revert",
-        ],
+        blast_radius=blast,
         risk=RISK_MEDIUM,
         risk_reasons=["staging removal of an SDN zone — an apply would disrupt its networking"],
+        complete=not read_failed,
     )
 
 
@@ -1020,21 +1026,27 @@ def plan_sdn_vnet_delete(api, vnet: str) -> Plan:
     """Preview deleting an SDN vnet. Reads current vnets (one safe read). RISK_MEDIUM."""
     vnet = _check_sdn_id(vnet, "vnet")
     current: dict = {}
+    read_failed = False
     try:
         current = next((v for v in (sdn_vnets_list(api) or []) if v.get("vnet") == vnet), {})
     except Exception:
         current = {}
+        read_failed = True  # 2026-07-10 audit L16
+    blast = [
+        f"stages REMOVAL of SDN vnet '{vnet}' (pending)",
+        "takes effect on pve_sdn_apply; if applied, removes the vnet's virtual network",
+        "PVE refuses to delete a vnet still referenced by a subnet",
+        "no UNDO at config level: re-create the vnet to revert",
+    ]
+    if read_failed:
+        blast.append("could not read the current SDN vnet config — prior value UNKNOWN; no revert baseline")
     return Plan(
         action="pve_sdn_vnet_delete", target=f"sdn/vnets/{vnet}",
         change=f"delete SDN vnet '{vnet}' (pending)", current=current,
-        blast_radius=[
-            f"stages REMOVAL of SDN vnet '{vnet}' (pending)",
-            "takes effect on pve_sdn_apply; if applied, removes the vnet's virtual network",
-            "PVE refuses to delete a vnet still referenced by a subnet",
-            "no UNDO at config level: re-create the vnet to revert",
-        ],
+        blast_radius=blast,
         risk=RISK_MEDIUM,
         risk_reasons=["staging removal of an SDN vnet — an apply would disrupt its networking"],
+        complete=not read_failed,
     )
 
 

@@ -15,7 +15,24 @@ from __future__ import annotations
 
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
 from .blast import guest_destroy_blast
+from .cluster_ops import cluster_resources
 from .planning import RISK_HIGH, RISK_MEDIUM, Plan
+
+
+def _cluster_guests(api, node: str | None) -> tuple[list[dict], str | None, bool]:
+    """Guest list for VMID collision / source-exists checks. PVE VMIDs are CLUSTER-unique, so read
+    cluster-wide (cluster_resources) first; fall back to the node-scoped list_guests if that read
+    fails, disclosing the narrower scope. 2026-07-10 audit L14: the check used to be node-scoped only,
+    so a vmid taken on another node slipped through and the plan wrongly promised a clean create.
+    Returns (guests, check_error, node_scoped_only)."""
+    try:
+        return cluster_resources(api, "vm") or [], None, False
+    except Exception:  # noqa: S110 — cluster-wide read unavailable; fall back to the node-scoped read
+        pass
+    try:
+        return api.list_guests(node) or [], None, True
+    except Exception as e:
+        return [], type(e).__name__, True
 
 # ---------------------------------------------------------------------------
 # Local validators
@@ -195,14 +212,9 @@ def plan_create(
     kind = _check_kind(kind)
     _check_node(node)
 
-    taken = False
-    check_error: str | None = None
-    try:
-        guests = api.list_guests(node) or []
-        # Proxmox returns vmid as int; compare numerically so '0500' vs 500 can't slip the check.
-        taken = any(_same_vmid(g.get("vmid"), vmid) for g in guests)
-    except Exception as e:
-        check_error = type(e).__name__
+    guests, check_error, node_scoped_only = _cluster_guests(api, node)
+    # Proxmox returns vmid as int; compare numerically so '0500' vs 500 can't slip the check.
+    taken = check_error is None and any(_same_vmid(g.get("vmid"), vmid) for g in guests)
 
     if check_error is not None:
         blast = [
@@ -219,6 +231,11 @@ def plan_create(
     else:
         blast = [f"new {kind}/{vmid} will be created, consuming resources (disk, memory, CPU allocation)"]
         reasons = [f"resource consumption: creates a new {kind} {vmid}"]
+    if node_scoped_only and check_error is None:
+        blast = blast + [
+            f"collision check was NODE-SCOPED to {node!r} only (cluster-wide read unavailable) — a "
+            "vmid already used on ANOTHER node would not be caught here (VMIDs are cluster-unique)"
+        ]
 
     options = options or {}
     privileged = bool(options.get("privileged"))
@@ -279,16 +296,10 @@ def plan_clone(
     kind = _check_kind(kind)
     _check_node(node)
 
-    taken = False
-    source_found = True
-    check_error: str | None = None
-    try:
-        guests = api.list_guests(node) or []
-        # Compare numerically (Proxmox returns int); check BOTH that newid is free and the source exists.
-        taken = any(_same_vmid(g.get("vmid"), newid) for g in guests)
-        source_found = any(_same_vmid(g.get("vmid"), vmid) for g in guests)
-    except Exception as e:
-        check_error = type(e).__name__
+    guests, check_error, node_scoped_only = _cluster_guests(api, node)
+    # Compare numerically (Proxmox returns int); check BOTH that newid is free and the source exists.
+    taken = check_error is None and any(_same_vmid(g.get("vmid"), newid) for g in guests)
+    source_found = check_error is not None or any(_same_vmid(g.get("vmid"), vmid) for g in guests)
 
     if check_error is not None:
         blast = [
@@ -319,6 +330,11 @@ def plan_clone(
         reasons = [
             f"linked clone of {kind}/{vmid} to {newid} — requires the source to be a template "
             "(use full=True for an independent copy)"
+        ]
+    if node_scoped_only and check_error is None:
+        blast = blast + [
+            f"collision/source check was NODE-SCOPED to {node!r} only (cluster-wide read unavailable) "
+            "— a newid used on another node, or a source template on another node, may be missed"
         ]
 
     if storage is not None:

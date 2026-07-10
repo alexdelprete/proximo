@@ -383,7 +383,8 @@ def pmg_quarantine_blocklist_list(pmail: str | None = None) -> list[dict]:
     Needs PROXIMO_PMG_* config.
 
     PMG 9.1 live-verified path via pmgsh ls: /quarantine/blocklist.
-    pmail is passed to the API only if provided.
+    pmail: scopes the read to one user's blocklist; ALWAYS sent, defaulting to the authenticated
+    PMG user when omitted — so an empty result means "none for that user", not "none globally".
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_blocklist_list", "pmg/quarantine/blocklist",
@@ -405,7 +406,7 @@ def pmg_quarantine_blocklist_add(
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/blocklist"
     plan = _plan("pmg_quarantine_blocklist_add", tgt,
-                 lambda: pmg_plan_quarantine_blocklist_add(address, pmail))
+                 lambda: pmg_plan_quarantine_blocklist_add(address, pmail, pmg.config.username))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_quarantine_blocklist_add", tgt,
@@ -699,7 +700,7 @@ def pmg_quarantine_welcomelist_add(
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/welcomelist"
     plan = _plan("pmg_quarantine_welcomelist_add", tgt,
-                 lambda: pmg_plan_quarantine_welcomelist_add(address, pmail))
+                 lambda: pmg_plan_quarantine_welcomelist_add(address, pmail, pmg.config.username))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_quarantine_welcomelist_add", tgt,
@@ -722,7 +723,7 @@ def pmg_quarantine_welcomelist_remove(
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/welcomelist"
     plan = _plan("pmg_quarantine_welcomelist_remove", tgt,
-                 lambda: pmg_plan_quarantine_welcomelist_remove(address, pmail))
+                 lambda: pmg_plan_quarantine_welcomelist_remove(address, pmail, pmg.config.username))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_quarantine_welcomelist_remove", tgt,
@@ -745,7 +746,7 @@ def pmg_quarantine_blocklist_remove(
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/blocklist"
     plan = _plan("pmg_quarantine_blocklist_remove", tgt,
-                 lambda: pmg_plan_quarantine_blocklist_remove(address, pmail))
+                 lambda: pmg_plan_quarantine_blocklist_remove(address, pmail, pmg.config.username))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pmg_quarantine_blocklist_remove", tgt,
@@ -929,7 +930,9 @@ def pmg_statistics_sender(
     """Get per-sender mail statistics (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 live-verified path via pmgsh ls: GET /statistics/sender.
-    filter_: optional search string; orderby: raw sort spec passthrough.
+    filter_: optional search string. orderby: accepted for compatibility but IGNORED —
+    PMG 9.1 rejects orderby on /statistics/sender (HTTP 400), so rows come back in PMG's
+    default order (unlike pmg_statistics_receiver, which does pass orderby through).
     Maps start/end Unix epoch → starttime/endtime query params.
     """
     _, pmg = _proximo_server._pmg()
@@ -1123,11 +1126,12 @@ def pmg_ruledb_rule_when_list(id_: str) -> list[dict]:
 def pmg_ruledb_rule_actions_list(id_: str) -> list[dict]:
     """List the 'actions' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/actions.
+    PMG 9.1: reads GET /config/ruledb/rules/{id}/config and extracts the embedded 'action' list —
+    the dedicated .../actions path returns HTTP 501 (not implemented), so it is NOT used.
     id_: rule ID (positive integer string, e.g. '100').
     """
     _, pmg = _proximo_server._pmg()
-    return _audited("pmg_ruledb_rule_actions_list", f"pmg/config/ruledb/rules/{id_}/actions",
+    return _audited("pmg_ruledb_rule_actions_list", f"pmg/config/ruledb/rules/{id_}/config",
                     lambda: pmg_ruledb_rule_actions_list_op(pmg, id_))
 
 
@@ -1147,7 +1151,7 @@ def pmg_who_group_get(ogroup: str) -> dict:
     """Get a PMG RuleDB 'who' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/config.
-    ogroup: object group name.
+    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_who_group_get", f"pmg/config/ruledb/who/{ogroup}/config",
@@ -1159,7 +1163,7 @@ def pmg_who_group_objects(ogroup: str) -> list[dict]:
     """List the objects in a PMG RuleDB 'who' object group (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/objects.
-    ogroup: object group name.
+    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_who_group_objects", f"pmg/config/ruledb/who/{ogroup}/objects",
@@ -1182,7 +1186,7 @@ def pmg_what_group_get(ogroup: str) -> dict:
     """Get a PMG RuleDB 'what' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/config.
-    ogroup: object group name.
+    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_what_group_get", f"pmg/config/ruledb/what/{ogroup}/config",
@@ -1194,7 +1198,7 @@ def pmg_what_group_objects(ogroup: str) -> list[dict]:
     """List the objects in a PMG RuleDB 'what' object group (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/objects.
-    ogroup: object group name.
+    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_what_group_objects", f"pmg/config/ruledb/what/{ogroup}/objects",
@@ -1217,7 +1221,7 @@ def pmg_when_group_get(ogroup: str) -> dict:
     """Get a PMG RuleDB 'when' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/config.
-    ogroup: object group name.
+    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_when_group_get", f"pmg/config/ruledb/when/{ogroup}/config",
@@ -1229,7 +1233,7 @@ def pmg_when_group_objects(ogroup: str) -> list[dict]:
     """List the objects in a PMG RuleDB 'when' object group (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/objects.
-    ogroup: object group name.
+    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_when_group_objects", f"pmg/config/ruledb/when/{ogroup}/objects",

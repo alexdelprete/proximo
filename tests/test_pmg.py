@@ -4938,3 +4938,83 @@ class TestPlanRuledbRuleActionDetach:
     def test_risk_is_medium(self):
         p = plan_ruledb_rule_action_detach("100", "13")
         assert p.risk == RISK_MEDIUM
+
+
+class TestQuarantinePlanScopeHonesty:
+    """H1 (2026-07-10 audit): PMG quarantine block/welcomelist entries are PER-USER. The executor
+    always sends pmail, defaulting to the authenticated user (api.config.username), so the effect is
+    NEVER global. The PLAN preview (the trust surface the operator confirms against) must not claim a
+    global/all-users block, and when the effective default user is known it must name that per-user
+    scope so the preview matches the exact request that will be executed."""
+
+    @staticmethod
+    def _txt(p):
+        return (" ".join(p.blast_radius) + " " + p.change).lower()
+
+    def test_blocklist_add_not_falsely_global(self):
+        assert "global" not in self._txt(plan_quarantine_blocklist_add("spam@evil.com"))
+
+    def test_blocklist_remove_not_falsely_global(self):
+        assert "global" not in self._txt(plan_quarantine_blocklist_remove("spam@evil.com"))
+
+    def test_welcomelist_add_not_falsely_global(self):
+        assert "global" not in self._txt(plan_quarantine_welcomelist_add("ok@good.com"))
+
+    def test_welcomelist_remove_not_falsely_global(self):
+        assert "global" not in self._txt(plan_quarantine_welcomelist_remove("ok@good.com"))
+
+    def test_blocklist_add_names_default_user_when_pmail_omitted(self):
+        # The plan must preview the SAME per-user scope the executor sends (root@pam here).
+        assert "root@pam" in self._txt(
+            plan_quarantine_blocklist_add("spam@evil.com", default_pmail="root@pam"))
+
+    def test_welcomelist_add_names_default_user_when_pmail_omitted(self):
+        assert "root@pam" in self._txt(
+            plan_quarantine_welcomelist_add("ok@good.com", default_pmail="root@pam"))
+
+    def test_explicit_pmail_still_shown(self):
+        # Regression guard: an explicitly-passed pmail must still appear as the per-user scope.
+        assert "alice@corp" in self._txt(
+            plan_quarantine_blocklist_add("spam@evil.com", pmail="alice@corp"))
+
+
+class TestStatisticsSenderOrderbyDocHonesty:
+    """M2 (2026-07-10 audit): the backend statistics_sender SILENTLY DROPS orderby (PMG 9.1 rejects it;
+    pinned by test_orderby_not_sent_to_api). The agent-facing tool description must not promise a
+    'passthrough' it does not perform — that made agents trust a sort that never happens."""
+
+    def test_sender_description_does_not_claim_orderby_passthrough(self):
+        import asyncio
+
+        import proximo.server as server
+
+        tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+        desc = tools["pmg_statistics_sender"].description.lower()
+        assert "passthrough" not in desc, "sender orderby is dropped, not passed through"
+        assert any(w in desc for w in ("ignored", "not sent", "rejected")), \
+            "sender description must disclose orderby is accepted-but-ignored"
+
+
+class TestLowFindingDocHonesty20260710:
+    """LOW findings from the 2026-07-10 audit: plan/doc surfaces must match code behavior."""
+
+    def test_who_object_add_plan_renders_ogroup_value_not_literal(self):
+        # L3: the WARNING blast line was a plain string -> the {ogroup} placeholder printed literally.
+        p = plan_who_object_add("7", "email", email="ceo@example.com")
+        text = " ".join(p.blast_radius)
+        assert "{ogroup}" not in text
+        assert "7" in text
+
+    def test_group_get_object_tools_document_numeric_id_not_name(self):
+        # L4: these six read tools require a NUMERIC ogroup ID; the old doc said "object group name",
+        # which makes PMG return HTTP 400 and steers agents wrong on every call.
+        import asyncio
+
+        import proximo.server as server
+
+        tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+        for name in ["pmg_who_group_get", "pmg_who_group_objects", "pmg_what_group_get",
+                     "pmg_what_group_objects", "pmg_when_group_get", "pmg_when_group_objects"]:
+            desc = tools[name].description.lower()
+            assert "numeric id" in desc, f"{name} must document ogroup as a numeric ID"
+            assert "object group name" not in desc, f"{name} still says 'object group name'"

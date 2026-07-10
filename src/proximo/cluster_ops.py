@@ -27,6 +27,20 @@ import httpx
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
 from .planning import RISK_HIGH, RISK_MEDIUM, RISK_NONE, Plan, _max_risk
 
+# HA rule comments are stored in pmxcfs line-based config — a control char/newline can corrupt it,
+# the SAME threat class the access modules guard (deliberate per-module duplication). 2026-07-10 L9.
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _check_freetext(value: str, field: str) -> str:
+    """Reject control characters/newlines in an HA freetext field (raw value, no strip)."""
+    s = str(value)
+    if _CONTROL_RE.search(s):
+        raise ProximoError(
+            f"invalid {field}: {value!r} — control characters and newlines are not allowed"
+        )
+    return s
+
 # ---------------------------------------------------------------------------
 # Local validators
 # ---------------------------------------------------------------------------
@@ -654,7 +668,7 @@ def ha_rule_create(
     resources = _check_ha_resources(resources)
     data: dict = {"rule": rule, "type": rule_type, "resources": resources}
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     if disable:
         data["disable"] = 1
     if rule_type == "node-affinity":
@@ -695,7 +709,7 @@ def ha_rule_update(
     rule = _check_ha_rule(rule)
     data: dict = {}
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     if disable is not None:
         data["disable"] = 1 if disable else 0
     if resources is not None:

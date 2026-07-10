@@ -66,12 +66,19 @@ class _ListApi:
         self.list_calls: list = []
 
     def list_guests(self, node=None):
+        # Node-scoped, like the real ApiBackend: a guest carrying a different 'node' is NOT returned
+        # (guests without a 'node' key are returned for any node — keeps older tests unchanged).
         self.list_calls.append(node)
         if self._raise:
             raise RuntimeError("api unavailable")
-        return self._guests
+        return [g for g in self._guests if g.get("node") in (None, node)]
 
     def _get(self, path):
+        # cluster_resources(api, "vm") -> cluster-wide guest list (VMIDs are cluster-unique).
+        if "cluster/resources" in path:
+            if self._raise:
+                raise RuntimeError("api unavailable")
+            return self._guests
         # plan_clone reads the source guest config to disclose its NIC bridges; other paths -> {}.
         return (self._vm_config or {}) if path.endswith("/config") else {}
 
@@ -467,10 +474,26 @@ def test_plan_create_discloses_unavailable_check():
     assert "could not confirm" in text or "unavailable" in text or "collision check" in text
 
 
-def test_plan_create_passes_node_to_list_guests():
+def test_plan_create_collision_check_is_cluster_wide():
+    # L14 (2026-07-10 audit): VMIDs are cluster-unique. A vmid taken on ANOTHER node must be caught —
+    # the old node-scoped check missed it and the plan wrongly promised a clean create.
+    api = _ListApi([{"vmid": 500, "node": "othernode"}])
+    p = plan_create(api, "500", node="pve2")
+    assert any("already in use" in b.lower() or "fail" in b.lower() for b in p.blast_radius)
+
+
+def test_plan_create_falls_back_to_node_scope_and_discloses(monkeypatch):
+    # When the cluster-wide read is unavailable, fall back to the node-scoped check AND disclose it.
+    import proximo.provisioning as prov
+
+    def _boom(_api, _rtype=None):
+        raise RuntimeError("cluster read unavailable")
+
+    monkeypatch.setattr(prov, "cluster_resources", _boom)
     api = _ListApi([])
-    plan_create(api, "500", node="pve2")
+    p = plan_create(api, "500", node="pve2")
     assert api.list_calls[-1] == "pve2"
+    assert any("node-scoped" in b.lower() for b in p.blast_radius)
 
 
 def test_plan_create_uses_config_node_for_target_when_none():

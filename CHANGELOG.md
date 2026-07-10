@@ -2,6 +2,64 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
+## [0.19.1] — 2026-07-10
+
+A self-audit release: a multi-agent pass over v0.19.0 (find → adversarially verify → fix,
+test-first) surfaced 23 real findings — all fixed here, no tool-count change (still 365).
+The theme was the honest-scope brand's own failure mode: the code was sound, but some PLAN
+previews and tool docstrings drifted from what the code actually does. Fleet 5447 green.
+
+### Fixed
+- **Restore and prune from PBS work again.** `_check_volid` rejected any volume-id with more
+  than one colon — but a PBS archive volid embeds an RFC3339 snapshot time (`pbs:backup/vm/100/
+  2026-07-09T02:00:00Z`) whose `HH:MM:SS` carries colons, so `pve_restore` and `pve_backup_delete`
+  refused every PBS-backed archive (the standard PBS deployment's disaster-recovery path). The
+  validator now partitions on the first colon: strict storage id, colons allowed in the path.
+  A test had enshrined the wrong rule; it now asserts PBS volids are accepted. Same fix in the
+  storage plane's volid check.
+- **Backup-freshness fence — three honesty gaps closed** in the fence itself: sub-daily schedules
+  (`*:0/30`, `0/4:00`) are parsed instead of assumed daily (a 12h-stale hourly backup now reads
+  `stale`, not `fresh`); a permission-collapsed node enumeration (200 + empty) sets `complete:
+  false` with a flag instead of silently walking one node; and a `stale` verdict degrades to
+  `unknown` when a covering storage was unreadable (a newer archive may exist there).
+- **`pbs_realm_sync`** sent underscored parameter names PBS rejects — now translated to the
+  hyphenated wire form (`remove-vanished`, `dry-run`); the non-existent `scope` param was dropped.
+- **`plan_pbs_job_run`** rated every job `RISK_LOW`; a prune run permanently deletes snapshots, so
+  it is now `RISK_HIGH` (sync `RISK_MEDIUM`, verify `RISK_LOW`).
+- **Plan completeness:** `plan_firewall_options_set`, the SDN zone/vnet delete plans, and the alias
+  update/delete plans no longer present a failed current-state read as an empty `current` with
+  `complete: true` — a read failure now sets `complete: false` and is disclosed.
+- **VMID collision check is cluster-wide** in `plan_create` / `plan_clone` (PVE VMIDs are
+  cluster-unique — the node-scoped check missed a vmid taken on another node), with a disclosed
+  node-scoped fallback.
+- **Ledger coherence:** the recorded `planned` entry now carries the wrapper's authoritative target
+  (like it already did the action), so the planned and executed entries pair under one target.
+- Doc/preview truth-ups: a `plan_who_object_add` warning printed a literal `{ogroup}`; six PMG
+  group read-tools said "object group name" where the code requires a numeric ID; `pbs_ruledb_rule
+  _actions_list` documented and ledger-logged an endpoint (`.../actions`, a 501) the code never
+  calls (real path is `.../config`); PVE token `expire` is documented as an absolute epoch, not a
+  TTL, and a duration-shaped value now warns it would be already-expired; the BCC `original` flag
+  and `pmg_quarantine_blocklist_list` pmail default are described accurately.
+
+### Changed
+- **PDM is no longer labeled "read-only."** The README and the surface comment now say the plane
+  serves reads **plus** governed fleet control — it registers 13 mutation tools (power / snapshot /
+  migrate). The A2A slice rationale no longer calls `snapshot_delete` "reversible" (it removes a
+  restore point permanently; the runtime slice was always correct).
+- README hero copy: the UNDO claim and "the plan refuses destructive ops" were reworded to match
+  what the code does (a destructive op returns its blast radius as a plan; snapshot/rollback where
+  the platform supports it).
+- `pve_acl_modify` now documents `kind='group'` (already supported); `pmg_statistics_sender`
+  documents that `orderby` is accepted-but-ignored (PMG rejects it).
+
+### Security
+- The control-character/newline freetext guard the access modules use on line-based config fields
+  is now also applied to firewall and HA-rule comment fields (same `cluster.fw` / pmxcfs threat
+  class).
+- `SECURITY.md` now discloses the SCOPE gate's absent-file behavior honestly: a present-but-garbled
+  scope file fails closed, but an **absent** file reads as no-scope (the transitional armed-not-
+  written window) — unlike LEASE, which fails closed on an absent token.
+
 ## [0.19.0] — 2026-07-09
 
 ### Added

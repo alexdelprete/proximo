@@ -32,7 +32,7 @@ _STORAGE_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
 
 # volid: "storeid:path/component" — colon required; path segment may use letters, digits, dot,
 # hyphen, underscore, forward-slash. \Z (not $) to block embedded newlines.
-_VOLID_RE = re.compile(r"^[A-Za-z0-9._-]+:[A-Za-z0-9._/-]+\Z")
+_VOLID_RE = re.compile(r"^[A-Za-z0-9._-]+:[A-Za-z0-9._:/-]+\Z")  # ':' allowed in path (PBS RFC3339 times)
 
 # Content types for the listing/filter endpoint.
 _CONTENT_LIST_TYPES = frozenset({"iso", "vztmpl", "backup"})

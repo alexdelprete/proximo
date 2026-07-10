@@ -46,7 +46,7 @@ from proximo.backup_schedules import (
     replication_get,
     replication_update,
 )
-from proximo.planning import RISK_LOW, RISK_MEDIUM
+from proximo.planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM
 
 # ---------------------------------------------------------------------------
 # Recording fakes
@@ -478,18 +478,21 @@ class TestPbsRealmSync:
         assert pbs.posts[0][0] == "/access/domains/company-ad/sync"
         assert result == "UPID:pbs:post"
 
-    def test_kwargs_passed(self):
+    def test_kwargs_use_hyphenated_pbs_wire_names(self):
+        # M4/M8 (2026-07-10 audit): PBS wire fields are hyphenated. The op must TRANSLATE the
+        # pythonic kwargs — sending remove_vanished/dry_run verbatim makes PBS reject the request.
         pbs = _Pbs()
-        pbs_realm_sync(pbs, "ldap1", scope="users", remove_vanished=True)
+        pbs_realm_sync(pbs, "ldap1", remove_vanished=True, dry_run=True)
         _, data = pbs.posts[0]
-        assert data["scope"] == "users"
-        assert data["remove_vanished"] is True
+        assert data["remove-vanished"] is True
+        assert data["dry-run"] is True
+        assert "remove_vanished" not in data and "dry_run" not in data
 
     def test_none_kwargs_excluded(self):
         pbs = _Pbs()
-        pbs_realm_sync(pbs, "ldap1", scope=None)
+        pbs_realm_sync(pbs, "ldap1", remove_vanished=None)
         _, data = pbs.posts[0]
-        assert "scope" not in data
+        assert "remove-vanished" not in data and "remove_vanished" not in data
 
     def test_invalid_realm_raises(self):
         pbs = _Pbs()
@@ -639,10 +642,22 @@ class TestPlanPbsJobs:
         assert plan.risk == RISK_LOW
         assert "id" in plan.current
 
-    def test_run_is_low_risk(self):
+    def test_run_prune_is_high_risk(self):
+        # M5 (2026-07-10 audit): running a prune job permanently deletes snapshots per retention —
+        # that is a real state change, NOT RISK_LOW ("no state change").
         plan = plan_pbs_job_run("prune", "prune1")
-        assert plan.risk == RISK_LOW
+        assert plan.risk == RISK_HIGH
         assert "prune" in plan.change
+
+    def test_run_verify_is_low_risk(self):
+        # A verify job is read-only-ish (checks integrity) — LOW is correct there.
+        plan = plan_pbs_job_run("verify", "verify1")
+        assert plan.risk == RISK_LOW
+
+    def test_run_sync_is_medium_risk(self):
+        # A sync job can remove vanished users/data — MEDIUM, not LOW.
+        plan = plan_pbs_job_run("sync", "sync1")
+        assert plan.risk == RISK_MEDIUM
 
     def test_run_mentions_prune_may_delete(self):
         plan = plan_pbs_job_run("prune", "prune1")

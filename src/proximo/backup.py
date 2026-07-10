@@ -25,17 +25,22 @@ _VALID_COMPRESS = frozenset({"zstd", "gzip", "lzo", "0", "1"})
 
 # volid looks like:  local:backup/vzdump-lxc-102-2026_06_08.tar.zst
 # Allowed characters: alnum, ':', '/', '.', '_', '-'  (no other shell-special chars)
-# Must contain exactly one ':' separating storage-name from path, no '..' components.
-# Using \Z (not $) to prevent trailing-newline bypass (redteam lesson).
+# A volid is '<storage>:<path>'. The storage id (before the FIRST colon) is a plain id; the path
+# MAY contain further colons — PBS volids embed an RFC3339 snapshot time (…/2026-07-09T02:00:00Z)
+# whose HH:MM:SS carries colons. No '..' components. \Z (not $) prevents trailing-newline bypass.
 _VOLID_RE = re.compile(r"^[A-Za-z0-9._:/-]+\Z")
+_STORAGE_PART_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")  # storage id: no ':' or '/'
 
 
 def _check_volid(volid: str) -> str:
-    """Validate a Proxmox volume-id (e.g. local:backup/vzdump-lxc-102-2026_06_08.tar.zst).
+    """Validate a Proxmox volume-id (e.g. local:backup/vzdump-lxc-102-2026_06_08.tar.zst, or a PBS
+    archive like pbs:backup/vm/100/2026-07-09T02:00:00Z).
 
-    Two layers:
-    1. Character-set + format validation (must contain exactly one ':', rejects shell-specials).
-    2. Explicit traversal rejection ('..').
+    Layers:
+    1. Character-set validation (rejects shell-specials) + explicit traversal rejection ('..').
+    2. Partition on the FIRST colon: the storage id is validated strictly (no ':' / '/'); the path
+       part may itself contain ':' (PBS RFC3339 snapshot times). 2026-07-10 audit H1: the old
+       `count(':') != 1` rule rejected every PBS-backed archive, disabling restore/prune from PBS.
     Returns the raw volid (not URL-encoded); callers must quote() before inserting into a path.
     """
     v = str(volid)
@@ -45,13 +50,15 @@ def _check_volid(volid: str) -> str:
         raise ProximoError(
             f"invalid volid: {volid!r} (unexpected characters — expected alnum plus : / . _ -)"
         )
-    if v.count(":") != 1:
+    storage_part, sep, path_part = v.partition(":")
+    if not sep or not storage_part or not path_part:
         raise ProximoError(
-            f"invalid volid: {volid!r} (expected exactly one ':' separating storage:path)"
+            f"invalid volid: {volid!r} (expected 'storage:path' with both parts non-empty)"
         )
-    storage_part, _, path_part = v.partition(":")
-    if not storage_part or not path_part:
-        raise ProximoError(f"invalid volid: {volid!r} (storage and path must both be non-empty)")
+    if not _STORAGE_PART_RE.match(storage_part):
+        raise ProximoError(
+            f"invalid volid: {volid!r} (storage id must be letters/digits/._- with no ':' or '/')"
+        )
     if any(seg == "" for seg in path_part.split("/")):
         raise ProximoError(f"invalid volid: {volid!r} (empty path segment rejected)")
     return v

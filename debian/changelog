@@ -1,3 +1,16 @@
+proximo (0.19.1-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.19.1 (patch — self-audit release: 23 findings from a multi-agent
+    audit of 0.19.0, all fixed, no tool-count change (still 365). Headline: _check_volid
+    accepts PBS archive volids (RFC3339 snapshot times carry colons) so restore/prune
+    from PBS work again; the freshness fence parses sub-daily schedules and degrades a
+    stale verdict to unknown on an unreadable storage; pbs_realm_sync uses the hyphenated
+    PBS field names; prune-job runs are rated HIGH; the PDM plane is honestly labeled
+    reads + governed control. No packaging changes from 0.19.0-1 — same dh-virtualenv
+    build, man page, and autopkgtest. Not distributed; build-your-own from debian/.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Fri, 10 Jul 2026 06:18:14 +0000
+
 proximo (0.19.0-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.19.0 (minor — new tool pve_backup_freshness, the backup-freshness

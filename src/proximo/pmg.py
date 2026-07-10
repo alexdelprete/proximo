@@ -757,13 +757,32 @@ def postfix_flush(api: PmgBackend, node: str) -> object:
 # W2 PLAN functions — pure factories; no mutation; the PLAN pillar
 # ---------------------------------------------------------------------------
 
-def plan_quarantine_blocklist_add(address: str, pmail: str | None = None) -> Plan:
+def _quarantine_scope(pmail: str | None, default_pmail: str | None, list_name: str) -> tuple[str, str]:
+    """Truthful per-user scope for the quarantine block/welcomelist PLANs. PMG {block,welcome}lists are
+    PER-USER; the executor always sends pmail, defaulting to the authenticated user (api.config.username)
+    — so the effect is NEVER global. Returns (change_suffix, blast_line). ``default_pmail`` is the
+    executor's default (the authenticated PMG user); when known it is named so the preview matches the
+    exact request that will run. Earlier versions rendered '(global)/all users' here — a false blast
+    radius on the PLAN surface (2026-07-10 audit H1)."""
+    effective = pmail if pmail is not None else default_pmail
+    who = effective or "the authenticated PMG user"
+    suffix = f" for {who}"
+    line = (
+        f"scope: per-user ({who}) — this is {who}'s personal {list_name}, NOT a site-wide filter"
+        + ("" if pmail is not None else "; pmail defaulted to the authenticated PMG user")
+    )
+    return suffix, line
+
+
+def plan_quarantine_blocklist_add(
+    address: str, pmail: str | None = None, default_pmail: str | None = None
+) -> Plan:
     """Preview adding an address to the quarantine blocklist.  PURE — no API call.
 
     RISK_LOW: adds an entry to the blocklist; does not delete any existing messages.
     Only future mail from the address is affected.
     """
-    scope = f" for {pmail}" if pmail else " (global)"
+    scope, scope_line = _quarantine_scope(pmail, default_pmail, "blocklist")
     return Plan(
         action="pmg_quarantine_blocklist_add",
         target="quarantine/blocklist",
@@ -771,7 +790,7 @@ def plan_quarantine_blocklist_add(address: str, pmail: str | None = None) -> Pla
         current={},
         blast_radius=[
             f"future messages from '{address}' will be blocked and quarantined",
-            f"scope: {'per-user (' + pmail + ')' if pmail else 'global blocklist (all users)'}",
+            scope_line,
             "additive: does not delete any existing quarantine entries or messages",
             "only future inbound mail matching this address/domain is affected",
         ],
@@ -1288,12 +1307,14 @@ def plan_spam_config_update(**kwargs: object) -> Plan:
     )
 
 
-def plan_quarantine_welcomelist_add(address: str, pmail: str | None = None) -> Plan:
+def plan_quarantine_welcomelist_add(
+    address: str, pmail: str | None = None, default_pmail: str | None = None
+) -> Plan:
     """Preview adding an address to the quarantine welcomelist.  PURE — no API call.
 
     RISK_LOW: additive — adds a welcomelist entry; future mail from the address bypasses quarantine.
     """
-    scope = f" for {pmail}" if pmail else " (global)"
+    scope, scope_line = _quarantine_scope(pmail, default_pmail, "welcomelist")
     return Plan(
         action="pmg_quarantine_welcomelist_add",
         target="quarantine/welcomelist",
@@ -1301,7 +1322,7 @@ def plan_quarantine_welcomelist_add(address: str, pmail: str | None = None) -> P
         current={},
         blast_radius=[
             f"future messages from '{address}' will bypass quarantine checks",
-            f"scope: {'per-user (' + pmail + ')' if pmail else 'global (all users)'}",
+            scope_line,
             "additive: does not delete any existing quarantine entries or messages",
             "only future inbound mail matching this address/domain is affected",
         ],
@@ -1314,12 +1335,14 @@ def plan_quarantine_welcomelist_add(address: str, pmail: str | None = None) -> P
     )
 
 
-def plan_quarantine_welcomelist_remove(address: str, pmail: str | None = None) -> Plan:
+def plan_quarantine_welcomelist_remove(
+    address: str, pmail: str | None = None, default_pmail: str | None = None
+) -> Plan:
     """Preview removing an address from the quarantine welcomelist.  PURE — no API call.
 
     RISK_LOW: removes a welcomelist entry; mail from the address is re-evaluated normally.
     """
-    scope = f" for {pmail}" if pmail else " (global)"
+    scope, scope_line = _quarantine_scope(pmail, default_pmail, "welcomelist")
     return Plan(
         action="pmg_quarantine_welcomelist_remove",
         target="quarantine/welcomelist",
@@ -1327,7 +1350,7 @@ def plan_quarantine_welcomelist_remove(address: str, pmail: str | None = None) -
         current={},
         blast_radius=[
             f"future messages from '{address}' will again be subject to spam/quarantine checks",
-            f"scope: {'per-user (' + pmail + ')' if pmail else 'global (all users)'}",
+            scope_line,
             "existing quarantine state is unaffected — only future mail is re-evaluated",
         ],
         risk=RISK_LOW,
@@ -1339,7 +1362,9 @@ def plan_quarantine_welcomelist_remove(address: str, pmail: str | None = None) -
     )
 
 
-def plan_quarantine_blocklist_remove(address: str, pmail: str | None = None) -> Plan:
+def plan_quarantine_blocklist_remove(
+    address: str, pmail: str | None = None, default_pmail: str | None = None
+) -> Plan:
     """Preview removing an address from the quarantine blocklist.  PURE — no API call.
 
     RISK_LOW: removes a blocklist entry; mail from the address will be re-evaluated normally.
@@ -1347,7 +1372,7 @@ def plan_quarantine_blocklist_remove(address: str, pmail: str | None = None) -> 
     The executor (quarantine_blocklist_remove) was added in W2; this plan function
     completes the PLAN pillar so the server tool can gate with dry-run.
     """
-    scope = f" for {pmail}" if pmail else " (global)"
+    scope, scope_line = _quarantine_scope(pmail, default_pmail, "blocklist")
     return Plan(
         action="pmg_quarantine_blocklist_remove",
         target="quarantine/blocklist",
@@ -1355,7 +1380,7 @@ def plan_quarantine_blocklist_remove(address: str, pmail: str | None = None) -> 
         current={},
         blast_radius=[
             f"future messages from '{address}' will no longer be automatically blocked",
-            f"scope: {'per-user (' + pmail + ')' if pmail else 'global (all users)'}",
+            scope_line,
             "existing quarantine entries are unaffected — only future mail is re-evaluated",
         ],
         risk=RISK_LOW,
@@ -2818,7 +2843,7 @@ def plan_who_object_add(
         blast_radius=[
             f"adds one {type_} object to 'who' group {ogroup}",
             "additive: no existing objects are removed or modified",
-            "WARNING: if group {ogroup} is already bound to a rule, the new object "
+            f"WARNING: if group {ogroup} is already bound to a rule, the new object "
             "affects mail matching immediately on add",
         ],
         risk=RISK_LOW,
@@ -3193,7 +3218,9 @@ def action_bcc_create(
     name: action object name.
     target: target email address for BCC.
     info: optional description.
-    original: if True, BCC the original sender (not the recipient).
+    original: if True, send the ORIGINAL, unmodified message to the BCC target (PMG's "send original
+        mail" flag) instead of the processed/modified copy — it controls WHICH version is sent, not who
+        receives it (the recipient is always `target`).
     """
     body: dict = {"name": name, "target": target}
     if info is not None:

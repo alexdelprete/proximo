@@ -751,9 +751,10 @@ def plan_token_create(
     privsep=False: token inherits ALL of the owner's permissions. The token
     effectively IS the user — RISK_HIGH, flagged as over-broad.
 
-    expire: token lifetime in seconds from creation (PVE absolute epoch or 0=never).
-    Absent/None and 0 both mean the token NEVER expires — surfaced explicitly in the
-    plan so the operator can make an informed decision (L03 fix).
+    expire: ABSOLUTE UNIX timestamp (seconds since epoch) at which the token expires; 0 or
+    absent = never. This is NOT a TTL/duration — a duration-shaped value like 86400 is a date
+    in Jan 1970 (already expired). Absent/None and 0 both mean the token NEVER expires — surfaced
+    explicitly in the plan so the operator can make an informed decision (L03 fix; 2026-07-10 L8).
 
     NOTE: the token secret value does NOT appear in the plan (it doesn't exist yet).
     The value surfaces once in the token_create result. Plans are safe to log.
@@ -784,12 +785,26 @@ def plan_token_create(
     # L03: surface expiry visibility — expire=None/0 both mean "never expires" in PVE
     if not expire:
         blast.append(
-            f"token {userid}!{tokenid} has NO expiration (expire={expire!r}) — "
-            "it never expires; set expire to a positive TTL if a limited lifetime is required"
+            f"token {userid}!{tokenid} has NO expiration (expire={expire!r}) — it never expires; "
+            "set expire to an absolute UNIX timestamp (seconds since epoch) in the future for a "
+            "limited lifetime — it is a DATE, not a duration/TTL"
         )
         expire_desc = "never"
     else:
         expire_desc = str(expire)
+        # 2026-07-10 audit L8: PVE 'expire' is an absolute epoch, not a TTL. A duration-shaped value
+        # (e.g. 3600 / 86400 / 2592000) is a date in the past -> the token is created ALREADY EXPIRED.
+        # 1_000_000_000 = Sept 2001; any real future expiry is well above it. Pure/deterministic guard.
+        try:
+            _e = int(expire)
+        except (TypeError, ValueError):
+            _e = None
+        if _e is not None and 0 < _e < 1_000_000_000:
+            blast.append(
+                f"WARNING: expire={expire!r} looks like a TTL/duration, but PVE treats it as an "
+                "ABSOLUTE UNIX timestamp (seconds since epoch) — this token would be created ALREADY "
+                "EXPIRED (a date in the past). Use a future epoch timestamp instead."
+            )
 
     change = f"create token {userid}!{tokenid} (privsep={privsep}, expire={expire_desc})"
     if comment:

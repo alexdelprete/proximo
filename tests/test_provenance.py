@@ -558,6 +558,22 @@ def test_plan_dry_run_not_gated(tmp_path, monkeypatch):
     assert any(e["outcome"] == "planned" for e in entries)
 
 
+def test_plan_records_wrapper_target_not_factory_target(tmp_path, monkeypatch):
+    # L15 (2026-07-10 audit): the wrapper's target is authoritative — the recorded 'planned' entry
+    # must carry it, not the plan factory's internal (possibly different) target, so the planned and
+    # executed ledger entries pair under ONE target (as the action already does).
+    _led, log = _wire_server(tmp_path, monkeypatch)
+
+    def _build():
+        return Plan(action="factory_action", target="node/pve/factory-target", change="x",
+                    current={}, blast_radius=[], risk=RISK_NONE, risk_reasons=[])
+
+    plan = server._plan("pve_node_service_control", "svc/pve/sshd", _build)
+    assert plan.target == "svc/pve/sshd"
+    planned = [e for e in _entries(log) if e["outcome"] == "planned"]
+    assert planned and planned[-1]["target"] == "svc/pve/sshd"
+
+
 # Pre-existing tools ALREADY use a `scope` parameter for something unrelated to provenance: the
 # Proxmox firewall plane's own "cluster/node/guest" domain selector (`scope: str = "cluster"`,
 # e.g. pve_firewall_rules_list, pve_firewall_rule_add, pve_firewall_set_enabled, ...) and

@@ -6,8 +6,11 @@ a2a-sdk import, so it is importable everywhere and the trust guard is unit-testa
 Two load-bearing properties live here, on purpose:
 
 1. THE SLICE (not the whole 145). An external agent gets a deliberately conservative subset:
-   reads/diagnostics + REVERSIBLE mutations (power, snapshot create/delete, config set/revert,
-   backup). The irreversible / lockout-class / secret-bearing tools (delete_guest, rollback,
+   reads/diagnostics + bounded, non-lockout mutations (power, snapshot create/delete, config
+   set/revert, backup). NB: snapshot *delete* removes a restore point permanently — it is bounded
+   (one guest's snapshot), not lockout-class, but it is NOT reversible; the "conservative" property
+   here is bounded blast radius, not undoability. The irreversible-AND-lockout / secret-bearing tools
+   (delete_guest, rollback,
    template_convert, firewall toggles, token create/revoke, acl_modify, network/sdn apply,
    storage delete, in-container exec/psql, PBS mutations) are NOT exposed over A2A in v1 — they
    stay MCP-only. This is a documented boundary, not a silent omission (see EXCLUDED_FROM_SLICE).

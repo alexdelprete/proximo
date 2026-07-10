@@ -27,7 +27,7 @@ Reproduce it yourself: <a href="./scripts/demo/demo.py"><code>scripts/demo/demo.
 
 Ask, in plain English, *"why is ct 105 thrashing?"* — and an AI agent pulls node and guest status, tails the logs, and runs a diagnostic *inside* the container to find out. If there's a fix, it shows you the plan before it touches anything, snapshots first, applies, and hands you a signed receipt of exactly what changed.
 
-That's the product: **a hypervisor an AI can operate without being able to wreck it.** Read-only by default. No mutation without a plan first, and the plan refuses destructive ops. It snapshots before any state change, wherever the platform can snapshot. A tamper-evident receipt for every change. The comparison isn't Proximo vs. the GUI — it's **Proximo vs. handing an LLM your root token and hoping.**
+That's the product: **a hypervisor an AI can operate without being able to wreck it.** Read-only by default. No mutation runs on the first call — it returns its blast radius as a plan for you to see first. It can snapshot before a change and roll back where the platform supports it. A tamper-evident receipt for every change. The comparison isn't Proximo vs. the GUI — it's **Proximo vs. handing an LLM your root token and hoping.**
 
 ## Quickstart
 
@@ -89,7 +89,7 @@ There is **no official Proxmox MCP** (and likely won't be soon — Proxmox ships
 | **Proxmox VE** | REST API + scoped token | node/guest lifecycle, storage, SDN, identity, HA, firewall |
 | **Proxmox Backup Server** | REST API + scoped token | datastores, namespaces, snapshots, sync jobs, GC, verify |
 | **Proxmox Mail Gateway** | Ticket auth (PMGAuthCookie) | mail flow, quarantine, filtering rules, domains, services |
-| **Proxmox Datacenter Manager** | API token (PDMAPIToken) | **read-only** federated fleet — remotes, aggregate resources, tasks/access, per-remote PVE/PBS reads |
+| **Proxmox Datacenter Manager** | API token (PDMAPIToken) | federated fleet — reads (remotes, aggregate resources, tasks/access, per-remote PVE/PBS) **plus governed fleet control** (power / snapshot / migrate, dry-run-first) |
 | **Container exec** | `ssh` → `pct exec` | run-command-in-container, `psql` convenience, log tailing — the things the API structurally can't do |
 
 Those backends are deliberately boring — anyone can call them. **The product is the trust layer over them.**
@@ -129,7 +129,7 @@ One container is the demo. A cluster is the point.
 - **One tamper-evident record of every change, across every node.** This is what a human at the CLI never walks away with: every mutation Proximo makes — any node, any operator or agent — lands in a single hash-chained PROVE ledger, and `audit_verify` proves it wasn't edited, reordered, or truncated. *"Show me every state-changing action on the cluster this month, and prove the log wasn't touched"* becomes a query you can actually answer.
 - **Where the time comes back.** On one node, a senior at the CLI is faster — and that's fine. Across a dozen nodes and hundreds of guests the tedium multiplies and there's no unified record; that's where delegating execution to a *bounded, audited* agent earns its keep.
 
-Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster — offline guest migration, HA lifecycle, governance plane), **PBS 4.2** (datastores, snapshots, GC, namespaces, prune/verify, sync), **PMG 9.1** (auth, read shapes, CRUD cycles, service control, RuleDB, quarantine), and **PDM** (read-only federated fleet — remotes, aggregate resources, tasks/access, per-remote PVE/PBS reads — against a Datacenter Manager federating 3 PVE remotes + 1 PBS) — every step recorded and verified through PROVE.
+Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster — offline guest migration, HA lifecycle, governance plane), **PBS 4.2** (datastores, snapshots, GC, namespaces, prune/verify, sync), **PMG 9.1** (auth, read shapes, CRUD cycles, service control, RuleDB, quarantine), and **PDM** (federated fleet — reads plus governed control: power / snapshot / migrate incl. a real cross-datacenter move — against a Datacenter Manager federating 3 PVE remotes + 1 PBS) — every step recorded and verified through PROVE.
 
 > **Honest scope:** The single-cluster view above (`pve_cluster_resources`, one ledger across its nodes) is per-endpoint — "fleet" there means **a cluster and its nodes**. To reach **separate, independent** clusters from one Proximo, use [native multi-target](#multiple-targets-one-proximo-many-boxes): each call names its box, so one process spans many clusters while every call still lands on exactly one.
 
@@ -146,19 +146,18 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.19.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.19.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.19.1`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.19.1), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.19.0 — the backup-freshness fence.** `pve_backup_freshness` (+1 → 365 tools): a
-> read-only check that walks the *actual* backup archives per guest and compares their age against
-> what the enabled jobs promise — a task reporting OK is never treated as evidence a backup exists.
-> Live-proven day one, it also caught two silent Proxmox permission traps: the content listing hides
-> backup volumes from tokens lacking `VM.Backup` + `Datastore.AllocateSpace` (or `Datastore.Allocate`)
-> — 200 + empty, no error — and the guest list omits guests a token can't audit. Blind absence verdicts degrade to
-> `unknown` with the exact grants named; `guests_visible` makes a shrunken fleet detectable.
+> **New in 0.19.1 — a self-audit release.** A multi-agent pass over v0.19.0 (find → adversarially
+> verify → fix, test-first) found and fixed **23** real issues — no tool-count change (still 365).
+> The headline: **restore/prune from PBS work again** — a volid check rejected PBS archives whose
+> snapshot timestamp carries colons, a bug our own tests had enshrined. Plus the freshness fence
+> stopped calling sub-daily backups "fresh", the PDM plane is honestly labeled reads + governed
+> control (not "read-only"), and a run of PLAN previews were truthed up to match the code. On-brand
+> for a project whose whole claim is honest scope: we pointed it at ourselves.
 >
-> Recent: **0.18.1** — the anonymous hello became a plain [text box](https://john-broadway.github.io/hello/)
-> (nothing about you asked) plus one-click VS Code/Cursor install deeplinks (token *path*, never the
-> secret). See [SECURITY.md](SECURITY.md) for what each control honestly holds.
+> Recent: **0.19.0** — the backup-freshness fence: `pve_backup_freshness` walks the *actual* backup
+> archives per guest against what the jobs promise; a task reporting OK is never evidence a backup exists.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -185,7 +184,7 @@ uv pip install -e .          # or: pip install -e .
 > **Safe by default:** Proximo is **API-only** out of the box. The near-root edges are **opt-in** and say so plainly: the LXC exec edge (`PROXIMO_ENABLE_EXEC=1`) grants near-root on the host, and the VM qemu-guest-agent edge (`PROXIMO_ENABLE_AGENT=1`) grants near-root inside a guest.
 >
 > **Big surface, scoped context:** 365 tools is the whole estate — you don't have to load it.
-> `PROXIMO_SURFACES=pve,exec` registers **only those planes** (e.g. that pair = 194 tools; `pbs,exec` = 38) —
+> `PROXIMO_SURFACES=pve,exec` registers **only those planes** (e.g. that pair = 195 tools; `pbs,exec` = 38) —
 > unpicked planes are removed from the registry before serving, so they never touch your context window.
 > `audit_verify` always stays; a typo'd surface name refuses startup instead of silently serving the wrong set.
 >
@@ -229,6 +228,11 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 
 ## Status — the arena record
 
+- 🩸 **0.19.1** — **a self-audit release**: a multi-agent pass over v0.19.0 found and fixed **23**
+  issues, no tool-count change (still 365). Headline: **restore/prune from PBS work again** (a volid
+  check rejected PBS archives whose snapshot timestamp carries colons — a bug our own tests had
+  enshrined). PDM honestly labeled reads + governed control; the fence stopped calling sub-daily
+  backups "fresh". We pointed the tool at itself.
 - 🩸 **0.19.0** — **the backup-freshness fence**: `pve_backup_freshness` (+1 → 365 tools) walks the
   actual archives per guest against what the jobs promise — "task OK" is never evidence. Found and
   fenced two silent PVE permission traps live (hidden backup volumes, hidden guests): blind absence
@@ -249,9 +253,8 @@ pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
 - 🩸 **0.16.0** — **the last two "unproven by design" claims, live-proven**: online (zero-downtime)
   live-migration and softdog HA fencing on a real 3-node PVE 9.2 cluster. Plus **five safe-runbook
   prompts** — plan-first, verify-after front doors for the common operations.
-- 🩸 **0.15.0** — **cert-fingerprint pinning across all four surfaces** (PVE · PBS · PMG · PDM),
-  wire-enforced and live-proven against real hardware. Plus the first packaged, tested `.deb`.
-- _Earlier: `0.14.1` was the **trim + harden patch** (plans/ledger show actual field changes, carry
+- _Earlier: `0.15.0` was **cert-fingerprint pinning across all four surfaces** + the first packaged
+  `.deb`; `0.14.1` was the **trim + harden patch** (plans/ledger show actual field changes, carry
   no secrets; 57 verified fixes, +74 tests, the doctor **spine report**); `0.14.0` added **scoped
   registration** (`PROXIMO_SURFACES` loads only the planes you use); `0.13.0` shipped the
   **zero-trust arc** (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT, all opt-in and

@@ -40,7 +40,7 @@ back-port branch.
 
 | Version                                       | Supported    |
 | ---------------------------------------------- | ------------ |
-| latest release (`0.18.1` as of this writing)   | ✅           |
+| latest release (`0.19.1` as of this writing)   | ✅           |
 | anything older                                 | ❌ — upgrade |
 
 ## Security controls & defaults
@@ -66,7 +66,7 @@ the configured paths back — a hijacked session shouldn't learn where you put y
 | **CONSENT** | An agent — compromised, confused, or persuaded by injected instructions — confirming its own mutation with no independent, out-of-band grant | **Off** | `PROXIMO_CONSENT_DIR` (+ `PROXIMO_CONSENT_TTL_SECONDS` for grant expiry) |
 | **CONTAIN** (kill-switch) | Needing to halt *every* mutation immediately, mid-incident, without a redeploy or restart | **Off** | `PROXIMO_CONTAIN_TRIP_PATH` |
 | **LEASE** (arm-TTL) | A write-armed token staying armed indefinitely after the operator meant to hand it back to read-only | **Off** | `PROXIMO_ARM_TTL` (also requires `PROXIMO_TOKEN_PATH` — an unresolvable path fails closed, never "assume fresh") |
-| **SCOPE / provenance** | An agent mutating a target outside the box(es) the operator authorized at arm-time | **Off** | `PROXIMO_SCOPE_PATH` |
+| **SCOPE / provenance** | An agent mutating a target outside the box(es) the operator authorized at arm-time | **Off** | `PROXIMO_SCOPE_PATH` — a present-but-unreadable/garbled/empty scope file fails **closed**; an **absent** file reads as no-scope (unrestricted) — the transitional armed-not-written window. NB this differs from LEASE, which fails closed on an absent token: set the scope file before relying on SCOPE. |
 | **ENVELOPE** (FORBID + RATE) | Blast radius under hijack — unlimited-speed mutation, or an explicitly forbidden action, from an agent that's been compromised or gone off-script | **Off** | `PROXIMO_FORBID` (global floor, always checked once set) + `PROXIMO_RATE_MAX` / `PROXIMO_RATE_WINDOW` (per-box budget) |
 | **TAINT** (untrusted-read coupling) | Prompt injection riding in on adversarial read output (guest logs, quarantine mail, free-text config) then steering a mutation the agent confirms for itself | **Off** | `PROXIMO_TAINT_TRACK` (mark + record a sticky taint on an adversarial read) then, once tainted, `PROXIMO_TAINT_FORBID` (actions refused outright — the primary, no consent escape) and/or `PROXIMO_TAINT_REQUIRE_CONSENT` (any mutation now needs an out-of-band grant). `PROXIMO_TAINT_FENCE` adds an advisory content-fence. |
 

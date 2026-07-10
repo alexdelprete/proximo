@@ -1041,3 +1041,11 @@ def test_plan_migrate_not_found_does_not_run_engine():
     p = plan_migrate(api, "100", "pveB", kind="qemu", online=True)
     assert p.affected == []
     assert p.risk == RISK_HIGH
+
+
+def test_ha_rule_create_rejects_newline_in_comment():
+    # L9 (2026-07-10 audit): HA rule comments are stored in pmxcfs line-based config, same threat
+    # class the access modules guard — reject control chars/newlines here too.
+    api = _api()
+    with pytest.raises(ProximoError):
+        ha_rule_create(api, "pin-web", "node-affinity", "vm:100", nodes="pve1", comment="bad\ncomment")

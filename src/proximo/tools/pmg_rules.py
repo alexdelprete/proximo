@@ -817,7 +817,8 @@ def pmg_action_bcc_create(
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/bcc.
     name: action object name. target: BCC recipient email address.
-    info: optional description. original: if True, BCC the original sender.
+    info: optional description. original: if True, send the ORIGINAL unmodified mail to the BCC
+    target (PMG's "send original mail" flag), not the processed copy — controls which version is sent.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/action/bcc"

@@ -518,3 +518,68 @@ def test_jobs_are_reported_with_cadence():
     assert j["cadence_hours"] == 24.0
     assert j["max_age_hours"] == 30.0
     assert j["enabled"] is True
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-10 audit — fence gaps (M3 sub-daily cadence, M6 node-sight, L13, L21)
+# ---------------------------------------------------------------------------
+
+def test_cadence_sub_daily_every_30_min_is_hourly_or_tighter():
+    # M3: '*:0/30' = every 30 min. Falling back to assumed-daily (24h) makes a 12h-stale hourly
+    # backup read 'fresh' — a false-fresh, the fence's cardinal sin.
+    hrs, _ = _cadence_hours("*:0/30")
+    assert hrs <= 1.0
+
+
+def test_cadence_hourly_star_minute():
+    hrs, _ = _cadence_hours("*:00")
+    assert hrs <= 1.0
+
+
+def test_cadence_every_4_hours_step_form():
+    hrs, _ = _cadence_hours("0/4:00")
+    assert hrs == 4.0
+
+
+def test_sub_daily_schedule_stale_not_falsely_fresh():
+    # M3 end-to-end: hourly job, newest archive 12h old -> STALE, not fresh.
+    api = _FenceApi(jobs=[_job(vmid="101", schedule="*:00")], guests=[_guest(101)],
+                    content={("pve", "pbs"): [_entry(101, 12)]})
+    out = backup_freshness(api)
+    assert _one(out, 101)["verdict"] == "stale"
+
+
+def test_empty_node_enumeration_flags_and_incomplete():
+    # M6: a token that cannot list cluster nodes gets 200 + [] -> the archive walk silently collapses
+    # to one node. Must flag it and set complete=False, not report false never/stale as complete.
+    api = _FenceApi(jobs=[_job(vmid="101")], guests=[_guest(101)], nodes=[],
+                    content={("pve", "pbs"): [_entry(101, 2)]})
+    out = backup_freshness(api)
+    assert out["complete"] is False
+    assert any("node" in f.lower() for f in out["flags"])
+
+
+def test_stale_becomes_unknown_when_a_covering_storage_is_unreadable():
+    # L13: newest VISIBLE archive is old (stale), but a covering storage was unreadable — a newer
+    # archive may exist there, so the verdict must degrade to 'unknown', not assert 'stale'.
+    api = _FenceApi(
+        jobs=[_job(job_id="j1", vmid="101", storage="pbs"),
+              _job(job_id="j2", vmid="101", storage="pbs2")],
+        guests=[_guest(101)],
+        content={("pve", "pbs"): [_entry(101, 80)]},
+        fail_paths=("/storage/pbs2/",),
+    )
+    out = backup_freshness(api)
+    assert _one(out, 101)["verdict"] == "unknown"
+
+
+def test_guest_list_unreadable_is_fatal_and_incomplete():
+    # L21: the guest list itself is unreadable -> the fence cannot run: complete=False, all counts
+    # zero, a clear flag, and nothing claimed verified. (Characterization test for the fatal path.)
+    api = _FenceApi(jobs=[_job(vmid="101")], guests=[_guest(101)],
+                    fail_paths=("resources?type=vm",))
+    out = backup_freshness(api)
+    assert out["complete"] is False
+    assert out["guests_visible"] == 0
+    assert all(v == 0 for v in out["counts"].values())
+    assert any("cannot run" in f.lower() or "unreadable" in f.lower() for f in out["flags"])

@@ -39,6 +39,12 @@ _VERDICTS = ("fresh", "stale", "never", "uncovered", "unknown")
 _DAY_TOKEN_RE = re.compile(r"\b(mon|tue|wed|thu|fri|sat|sun)\b")
 # "*/N:MM" — every N hours.
 _EVERY_N_HOURS_RE = re.compile(r"^\*/(\d{1,2}):")
+# "*:MM", "*:0/30", "*:00" — the hour field is a wildcard => runs every hour OR tighter (sub-hourly
+# minute steps). Conservatively modeled as hourly (1.0h) — the tightest cadence the fence tracks.
+# (2026-07-10 audit M3: these previously fell back to assumed-daily, reporting sub-daily backups fresh.)
+_SUB_DAILY_RE = re.compile(r"^\*:")
+# "H/step:MM" — every `step` hours (e.g. "0/4:00" = 00:00,04:00,08:00,…). The hour STEP is the cadence.
+_STEP_HOURS_RE = re.compile(r"^\d{1,2}/(\d{1,2}):")
 # Bare wall-clock time(s), each "H", "HH" or "H:MM" — "02:30", "21:00,03:00", "2,22:30" (live
 # form found on real infra 2026-07-09: hour-only entries are valid PVE calendar events) — daily.
 _DAILY_TIMES_RE = re.compile(r"^\d{1,2}(:\d{2})?(,\d{1,2}(:\d{2})?)*$")
@@ -54,9 +60,14 @@ def _cadence_hours(schedule: object) -> tuple[float, str]:
         return 24.0, "assumed-daily (no schedule)"
     if "hourly" in s:
         return 1.0, "hourly"
+    if _SUB_DAILY_RE.match(s):
+        return 1.0, "sub-daily (hourly or tighter)"
     m = _EVERY_N_HOURS_RE.match(s)
     if m and int(m.group(1)) > 0:
         return float(m.group(1)), f"every {int(m.group(1))}h"
+    ms = _STEP_HOURS_RE.match(s)
+    if ms and int(ms.group(1)) > 0:
+        return float(ms.group(1)), f"every {int(ms.group(1))}h (step)"
     if "monthly" in s:
         return 744.0, "monthly"
     if "weekly" in s or _DAY_TOKEN_RE.search(s):
@@ -121,6 +132,12 @@ def _parse_jobs(raw_jobs: list[dict], guests: list[dict], max_age_hours: float |
         if enabled:
             for v in vmids:
                 coverage.setdefault(v, []).append((jid, max_age, storage))
+            if vmids and source.startswith("assumed-daily (unrecognized"):
+                flags.append(
+                    f"backup job {jid!r} has an unrecognized schedule {j.get('schedule')!r} — "
+                    f"freshness for its {len(vmids)} guest(s) uses an ASSUMED daily cadence, which "
+                    "may be too lenient if the real schedule is tighter; verify the schedule"
+                )
         elif vmids:
             flags.append(
                 f"backup job {jid!r} is DISABLED but selects {len(vmids)} guest(s) — "
@@ -129,13 +146,27 @@ def _parse_jobs(raw_jobs: list[dict], guests: list[dict], max_age_hours: float |
     return job_rows, coverage
 
 
-def _walk_archives(api, storages: list[str], flags: list[str]) -> tuple[dict[str, dict], list[dict]]:
+def _walk_archives(api, storages: list[str],
+                   flags: list[str]) -> tuple[dict[str, dict], list[dict], list[str], bool]:
     """The EVIDENCE — actual archives on every job-referenced storage, on every node (local
     storages hold different archives per node; shared entries dedupe by volid).
-    Returns ({vmid: newest {volid, storage, ctime}}, [unreadable {node, storage, error}])."""
+    Returns ({vmid: newest {volid, storage, ctime}}, [unreadable {node, storage, error}],
+    nodes_walked, node_sight_ok). node_sight_ok is False when the node list could not be trusted
+    (read failed, OR a 200 + empty response — a token without the privilege to list cluster nodes
+    gets that, and the walk then silently collapses to one node; 2026-07-10 audit M6)."""
+    node_sight_ok = True
     try:
         nodes = [str(n.get("node")) for n in api._get("/cluster/resources?type=node") or []]
+        if not nodes:
+            node_sight_ok = False
+            flags.append(
+                "node enumeration returned no nodes (200 + empty) — the token likely lacks the "
+                "privilege to list cluster nodes; the archive walk is limited to the configured "
+                f"node {getattr(api.config, 'node', None)!r}, so guests on OTHER nodes may falsely "
+                "read never/stale. Verdicts are advisory only (complete=False)."
+            )
     except Exception as e:
+        node_sight_ok = False
         nodes = []
         flags.append(
             f"node list unreadable ({type(e).__name__}) — archive walk limited to the "
@@ -171,7 +202,7 @@ def _walk_archives(api, storages: list[str], flags: list[str]) -> tuple[dict[str
             f"{len(unreadable)} storage read(s) failed ({pairs}) — freshness for guests "
             "relying on them is UNKNOWN, not fresh"
         )
-    return newest, unreadable
+    return newest, unreadable, nodes, node_sight_ok
 
 
 def _sight_privs(api, flags: list[str]) -> dict[str, list[str]] | None:
@@ -258,6 +289,10 @@ def _evidence_verdict(g: dict, cov: list, nb: dict | None, expected: float | Non
         )
         return "never"
     if expected is not None and nb["age_hours"] > expected:
+        if cov_storages & unreadable_storages:
+            # A newer archive may live on the covering storage we could not read — 'stale' would
+            # assert no newer archive exists, which we cannot prove (2026-07-10 audit L13).
+            return "unknown"
         if blind:
             blind_unknowns.append(g["vmid"])
             return "unknown"
@@ -325,10 +360,13 @@ def backup_freshness(api, max_age_hours: float | None = None, grace_hours: float
 
     # 4) The evidence walk — plus proof the token could even SEE the evidence.
     storages = sorted({r["storage"] for r in job_rows if r["storage"]})
-    newest, unreadable = _walk_archives(api, storages, flags)
+    newest, unreadable, nodes_walked, node_sight_ok = _walk_archives(api, storages, flags)
     report["unreadable"] = unreadable
+    report["nodes_walked"] = nodes_walked
     unreadable_storages = {u["storage"] for u in unreadable}
     if unreadable:
+        complete = False
+    if not node_sight_ok:
         complete = False
     privs = _sight_privs(api, flags)
 

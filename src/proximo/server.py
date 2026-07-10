@@ -352,11 +352,14 @@ def _plan(action: str, target: str, build: Callable[[], Plan]) -> Plan:
         audit.record(action, target=target, mutation=True, outcome="error",
                      detail={"error": type(e).__name__, "phase": "planning"}, remote=ledger_remote())
         raise
-    # The server tool name is AUTHORITATIVE for the ledger: stamp it onto the plan so the "planned"
-    # entry pairs with the later "submitted"/"ok" entry under ONE action (PROVE coherence) — a plan_*
-    # helper's internal label can never drift the audit trail (and shared helpers like plan_create,
-    # used by both pve_create_container and pve_create_vm, record under the right tool each time).
+    # The server tool name + target are AUTHORITATIVE for the ledger: stamp them onto the plan so the
+    # "planned" entry pairs with the later "submitted"/"ok" entry under ONE action AND ONE target
+    # (PROVE coherence) — a plan_* helper's internal label can never drift the audit trail (and shared
+    # helpers like plan_create, used by both pve_create_container and pve_create_vm, record under the
+    # right tool each time). 2026-07-10 audit L15: the node-lifecycle plane's factory target differed
+    # from the wrapper's, so the planned and executed ledger entries carried mismatched targets.
     plan.action = action
+    plan.target = target
     _record_plan(plan)
     # CONSENT: thread this plan's content id to the mutation seams and reset the per-operation
     # satisfied flag, so enforce_consent can require a per-plan out-of-band human grant. No-op
@@ -870,7 +873,7 @@ SURFACES: dict[str, tuple[str, ...]] = {
     "pve": ("pve_",),   # Proxmox VE (includes the pve_agent_* qemu-agent edge)
     "pbs": ("pbs_",),   # Proxmox Backup Server
     "pmg": ("pmg_",),   # Proxmox Mail Gateway
-    "pdm": ("pdm_",),   # Proxmox Datacenter Manager (read-only plane)
+    "pdm": ("pdm_",),   # Proxmox Datacenter Manager (reads + governed fleet control: power/snapshot/migrate)
     "exec": ("ct_",),   # in-container exec/psql/logs/diagnose (ssh -> pct)
 }
 _ALWAYS_REGISTERED = frozenset({"audit_verify"})
@@ -997,7 +1000,8 @@ def main() -> None:
 
 
 # --- Re-exports: every tool moved to proximo.tools.* is re-imported here by name so that
-# (a) importing proximo.server still registers all 352 tools with FastMCP as a side effect,
+# (a) importing proximo.server still registers every tool with FastMCP as a side effect
+#     (the exact count is machine-checked by tests/test_tool_count.py, not asserted in prose here),
 # and (b) the existing `server.<tool_name>` surface (direct-call tests, CLI, introspection
 # sweeps that do `getattr(server, name)`) keeps working unchanged. ---
 from proximo import prompts as _prompts  # noqa: E402,F401  # safe-runbook MCP prompts (registration side effect)

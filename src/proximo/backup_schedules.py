@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 from .backends import ProximoError
-from .planning import RISK_LOW, RISK_MEDIUM, Plan
+from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
 # ---------------------------------------------------------------------------
 # Validators
@@ -328,12 +328,17 @@ def pbs_realm_sync(pbs, realm: str, **kw) -> str:
     """Sync PBS auth realm (LDAP/AD) users. Returns a UPID (async task).
 
     POST /access/domains/{realm}/sync
-    Body: {scope?, remove-vanished?, dry-run?}  (Smoke-confirm: exact field names and defaults)
+    Body: {remove-vanished?, dry-run?}  (Smoke-confirm: exact field names and defaults)
     Smoke-confirm: exact path, body params, and UPID response shape.
     MUTATION — confirm-gated + audited at the server layer.
+
+    2026-07-10 audit M4/M8: PBS wire fields are HYPHENATED — the pythonic kwargs (remove_vanished,
+    dry_run) are translated here; previously they were sent verbatim and PBS rejected them. There is
+    no 'scope' field on this endpoint, so it is dropped rather than sent as an unknown parameter.
     """
     _check_realm(realm)
-    data = {k: v for k, v in kw.items() if v is not None}
+    _WIRE = {"remove_vanished": "remove-vanished", "dry_run": "dry-run"}
+    data = {_WIRE.get(k, k): v for k, v in kw.items() if v is not None and k != "scope"}
     # MUTATION — confirm-gated + audited at the server layer.
     return pbs._post(f"/access/domains/{realm}/sync", data) or ""
 
@@ -533,9 +538,19 @@ def plan_pbs_job_delete(pbs, job_type: str, job_id: str) -> Plan:
 
 
 def plan_pbs_job_run(job_type: str, job_id: str) -> Plan:
-    """Plan triggering a PBS scheduled job immediately (async, UPID)."""
+    """Plan triggering a PBS scheduled job immediately (async, UPID).
+
+    2026-07-10 audit M5: risk is by job_type, not a flat LOW — a prune run permanently DELETES
+    snapshots (RISK_HIGH), a sync run may add/remove users/data (RISK_MEDIUM), a verify run is
+    integrity-only (RISK_LOW). LOW means "no state change"; a prune is not that.
+    """
     job_type = _check_pbs_job_type(job_type)
     _check_pbs_job_id(job_id)
+    risk = {"prune": RISK_HIGH, "sync": RISK_MEDIUM}.get(job_type, RISK_LOW)
+    reason = {
+        "prune": "prune runs DELETE snapshots per the retention policy — permanent, not undoable",
+        "sync": "sync may add or remove (remove-vanished) users/data — a real directory change",
+    }.get(job_type, "verify is integrity-only — no data change")
     return Plan(
         action="pbs_job_run",
         target=f"pbs/admin/{job_type}/{job_id}",
@@ -545,8 +560,8 @@ def plan_pbs_job_run(job_type: str, job_id: str) -> Plan:
             f"starts a {job_type} run immediately (async task) — may consume I/O and CPU",
             "for prune jobs: may delete backup snapshots per the job's retention policy",
         ],
-        risk=RISK_LOW,
-        risk_reasons=["triggers the configured job now; prune may remove old snapshots per policy"],
+        risk=risk,
+        risk_reasons=[reason],
         note=(
             "Async — returns a UPID. Use pve_task_wait to poll completion. "
             "Prune runs delete snapshots per the configured retention policy — not undoable."

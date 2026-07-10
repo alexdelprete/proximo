@@ -524,10 +524,19 @@ def test_check_volid_rejects_no_colon():
         _check_volid("localbackupfile.tar.zst")
 
 
-def test_check_volid_rejects_two_colons():
+def test_check_volid_accepts_pbs_snapshot_volid():
+    # HIGH (2026-07-10 audit): PBS volids embed an RFC3339 snapshot time whose HH:MM:SS adds colons
+    # to the PATH part — the exact volid qmrestore/pct restore consume and pve_backup_list returns.
+    # The validator must accept them (colon allowed in the path, not the storage id).
+    from proximo.backup import _check_volid
+    v = "pbs:backup/vm/100/2026-07-09T02:00:00Z"
+    assert _check_volid(v) == v
+
+def test_check_volid_rejects_colon_or_slash_in_storage_part():
+    # The STORAGE id (before the first colon) must still be strict — no slash/traversal smuggling.
     from proximo.backup import _check_volid
     with pytest.raises(ProximoError):
-        _check_volid("local:backup:extra.tar.zst")
+        _check_volid("bad/storage:backup/vm/100/2026-07-09T02:00:00Z")
 
 
 def test_check_volid_rejects_shell_expansion():

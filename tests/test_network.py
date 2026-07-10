@@ -44,6 +44,7 @@ from proximo.network import (
     plan_sdn_subnet_delete,
     plan_sdn_subnet_update,
     plan_sdn_vnet_create,
+    plan_sdn_vnet_delete,
     plan_sdn_vnet_update,
     plan_sdn_zone_create,
     plan_sdn_zone_delete,
@@ -1116,6 +1117,25 @@ def test_plan_sdn_zone_delete_is_medium_pending():
     plan = plan_sdn_zone_delete(api, "myzone")
     assert plan.risk == RISK_MEDIUM
     assert any("pending" in b.lower() for b in plan.blast_radius)
+
+
+def _boom_api():
+    def _boom(_path):
+        raise RuntimeError("api unavailable")
+    return SimpleNamespace(config=SimpleNamespace(node="pve"), _get=_boom)
+
+
+def test_plan_sdn_zone_delete_read_failure_is_incomplete():
+    # L16 (2026-07-10 audit): a swallowed current-state read must set complete=False + disclose it.
+    plan = plan_sdn_zone_delete(_boom_api(), "myzone")
+    assert plan.complete is False
+    assert any("could not read" in b.lower() or "unknown" in b.lower() for b in plan.blast_radius)
+
+
+def test_plan_sdn_vnet_delete_read_failure_is_incomplete():
+    plan = plan_sdn_vnet_delete(_boom_api(), "myvnet")
+    assert plan.complete is False
+    assert any("could not read" in b.lower() or "unknown" in b.lower() for b in plan.blast_radius)
 
 
 # --- vnets ---

@@ -1689,3 +1689,90 @@ def test_plan_options_set_enable_true_triggers_lockout_engine():
     api = _LockoutApi(node_names=("pve1",), node_rules={"pve1": []})
     p = plan_firewall_options_set(api, scope="cluster", options={"enable": 1})
     assert any(a["node"] == "pve1" and a["state"] == "lockout" for a in p.affected)
+
+
+class TestFirewallRuleDigestPinning:
+    """M1 (2026-07-10 audit): firewall_rule_remove/update fetch the config digest at OP time, so the
+    'optimistic lock' always matches current config and cannot detect the concurrent rule-insert that
+    happens in the plan->confirm window (positions shift -> the WRONG rule is removed, e.g. the SSH/8006
+    ACCEPT -> lockout). Fix: accept a caller-pinned digest (read at PLAN time) and use it verbatim; the
+    plan must surface the digest so the caller can pin it on confirm."""
+
+    def test_remove_uses_caller_pinned_digest(self):
+        # A pinned digest must be sent verbatim, NOT the fake's op-time default 'test-digest-abc'.
+        api = _api()
+        firewall_rule_remove(api, 3, digest="pinned-123")
+        assert api.seen["params"]["digest"] == "pinned-123"
+
+    def test_remove_falls_back_to_optime_digest_when_unpinned(self):
+        # Backward compat: no pinned digest -> current op-time fetch behavior (fake default).
+        api = _api()
+        firewall_rule_remove(api, 3)
+        assert api.seen["params"]["digest"] == "test-digest-abc"
+
+    def test_update_uses_caller_pinned_digest(self):
+        api = _api()
+        firewall_rule_update(api, 3, comment="note", digest="pinned-xyz")
+        assert api.seen["data"]["digest"] == "pinned-xyz"
+
+    def test_update_falls_back_to_optime_digest_when_unpinned(self):
+        api = _api()
+        firewall_rule_update(api, 3, comment="note")
+        assert api.seen["data"]["digest"] == "test-digest-abc"
+
+    def test_plan_remove_surfaces_digest_for_pinning(self):
+        # The operator must be able to read the digest off the dry-run and pin it on confirm.
+        api = _RulesApi([{"pos": 0, "digest": "test-digest-abc", "action": "ACCEPT", "type": "in"}])
+        p = plan_firewall_rule_remove(api, 0)
+        blob = str(p.current) + " " + " ".join(p.blast_radius)
+        assert "test-digest-abc" in blob
+
+    def test_plan_update_surfaces_digest_for_pinning(self):
+        api = _RulesApi([{"pos": 0, "digest": "test-digest-abc", "action": "ACCEPT", "type": "in"}])
+        p = plan_firewall_rule_update(api, 0, comment="note")
+        blob = str(p.current) + " " + " ".join(p.blast_radius)
+        assert "test-digest-abc" in blob
+
+
+class TestPlanReadFailureCompleteness:
+    """2026-07-10 audit M7/L17: plan factories must not present a failed current-state read as an
+    empty current with complete=True — a failed read means the revert baseline is UNKNOWN."""
+
+    def test_options_set_read_failure_is_incomplete(self):
+        # M7: HIGH-risk lockout-class mutation; a swallowed options read must set complete=False.
+        api = _OptionsApi(None, raise_on_get=True)
+        p = plan_firewall_options_set(api, scope="cluster", options={"log_level_in": "info"})
+        assert p.complete is False
+        assert any("could not read" in b.lower() or "unknown" in b.lower() for b in p.blast_radius)
+
+    def test_alias_update_read_failure_is_incomplete(self):
+        # L17: _find_alias merged 'absent' with 'read failed' — a read failure must be disclosed.
+        api = _RulesApi([], raise_on_list=True)
+        p = plan_alias_update(api, "web", cidr="10.0.0.0/8")
+        assert p.complete is False
+
+    def test_alias_delete_read_failure_is_incomplete(self):
+        api = _RulesApi([], raise_on_list=True)
+        p = plan_alias_delete(api, "web")
+        assert p.complete is False
+
+
+class TestFirewallCommentFreetextGuard:
+    """L9 (2026-07-10 audit): firewall comment fields are stored in PVE's line-based config, the same
+    threat class the access modules already guard with _check_freetext. Reject control chars/newlines
+    here too, so the repo's own stated threat model is enforced consistently."""
+
+    def test_alias_create_rejects_newline_in_comment(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            alias_create(api, "web", "10.0.0.0/8", comment="x\n[RULES]\nIN ACCEPT -p tcp")
+
+    def test_rule_add_rejects_newline_in_comment(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            firewall_rule_add(api, "ACCEPT", comment="bad\ncomment")
+
+    def test_alias_create_allows_normal_comment(self):
+        api = _api()
+        alias_create(api, "web", "10.0.0.0/8", comment="web servers")
+        assert api.seen["method"] == "POST"

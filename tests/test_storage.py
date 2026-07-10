@@ -427,3 +427,11 @@ def test_plan_content_delete_in_use_disk_escalates_and_names_guest():
     p = plan_content_delete(api, "local-lvm", "local-lvm:vm-101-disk-0")
     assert p.risk == RISK_HIGH
     assert any(a["vmid"] == "101" for a in p.affected)
+
+
+def test_storage_check_volid_accepts_pbs_snapshot_volid():
+    # HIGH (2026-07-10 audit): pve_storage_content_delete must accept PBS volids whose RFC3339
+    # snapshot timestamp puts colons in the path part.
+    from proximo.storage import _check_volid
+    v = "pbs:backup/vm/100/2026-07-09T02:00:00Z"
+    assert _check_volid(v) == v

@@ -330,21 +330,21 @@ def pbs_job_run(job_type: str, job_id: str, confirm: bool = False) -> dict:
 
 @tool()
 def pbs_realm_sync(realm: str, remove_vanished: bool | None = None,
-                   dry_run: bool | None = None, scope: str | None = None,
-                   confirm: bool = False) -> dict:
+                   dry_run: bool | None = None, confirm: bool = False) -> dict:
     """MUTATION: sync PBS auth realm (LDAP/AD) users. Dry-run by default.
     confirm=True to execute. Async — returns UPID. Needs PROXIMO_PBS_* config.
-    remove_vanished=True also removes PBS users no longer in the directory."""
+    remove_vanished=True also removes PBS users no longer in the directory.
+    (2026-07-10 audit: the old 'scope' param was dropped — PBS /sync has no such field.)"""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/access/domains/{realm}"
     plan = _plan("pbs_realm_sync", tgt,
                  lambda: plan_pbs_realm_sync(realm,
                                              remove_vanished=remove_vanished,
-                                             dry_run=dry_run, scope=scope))
+                                             dry_run=dry_run))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pbs_realm_sync", tgt,
                     lambda: pbs_realm_sync_op(pbs, realm,
                                               remove_vanished=remove_vanished,
-                                              dry_run=dry_run, scope=scope),
+                                              dry_run=dry_run),
                     mutation=True, outcome="submitted", detail={"confirmed": True})

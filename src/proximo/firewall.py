@@ -45,6 +45,22 @@ from . import blast as blast_engine
 from .backends import ProximoError, _check_kind, _check_node, _check_vmid
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan, _max_risk
 
+# Firewall comment/freetext fields are stored in PVE's line-based config files (cluster.fw, guest .fw).
+# A newline or other control character can corrupt that config — the SAME threat class the access
+# modules guard with their own _check_freetext (deliberate per-module duplication of the tiny helper,
+# matching that pattern). 2026-07-10 audit L9: the guard was present in access_* but absent here.
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _check_freetext(value: str, field: str) -> str:
+    """Reject control characters/newlines in a firewall freetext field (raw value, no strip)."""
+    s = str(value)
+    if _CONTROL_RE.search(s):
+        raise ProximoError(
+            f"invalid {field}: {value!r} — control characters and newlines are not allowed"
+        )
+    return s
+
 # ---------------------------------------------------------------------------
 # Module-level validators
 # ---------------------------------------------------------------------------
@@ -279,7 +295,7 @@ def firewall_rule_add(
     if sport is not None:
         data["sport"] = sport
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     # MUTATION — confirm-gated + audited at the server layer.
     return api._post(f"{base}/rules", data)
 
@@ -307,6 +323,7 @@ def firewall_rule_remove(
     node: str | None = None,
     vmid: str | None = None,
     kind: str | None = None,
+    digest: str | None = None,
 ) -> None:
     """Delete a firewall rule by position.
 
@@ -321,12 +338,17 @@ def firewall_rule_remove(
 
     WARNING: positions shift after inserts/deletes. Always verify the current rule
     list before removing by position to avoid removing the wrong rule.
+
+    digest: caller-pinned PVE optimistic-lock digest (read from the dry-run PLAN). When given it is
+    used verbatim so PVE rejects the delete if the rule list changed since the preview — closing the
+    plan->confirm window. When None, falls back to an op-time re-read (which cannot detect that
+    window; 2026-07-10 audit M1).
     """
     pos = _check_pos(pos)
     base = _fw_base(api, scope, node, vmid, kind)
-    digest = _fetch_rules_digest(api, base, "firewall_rule_remove")
+    effective_digest = digest if digest is not None else _fetch_rules_digest(api, base, "firewall_rule_remove")
     # MUTATION — confirm-gated + audited at the server layer.
-    return api._delete(f"{base}/rules/{pos}", {"digest": digest})
+    return api._delete(f"{base}/rules/{pos}", {"digest": effective_digest})
 
 
 def firewall_rule_update(
@@ -345,6 +367,7 @@ def firewall_rule_update(
     sport: str | None = None,
     comment: str | None = None,
     enable: bool | None = None,
+    digest: str | None = None,
 ) -> None:
     """Update an existing firewall rule at position `pos`.
 
@@ -382,13 +405,15 @@ def firewall_rule_update(
     if sport is not None:
         data["sport"] = sport
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     if enable is not None:
         data["enable"] = 1 if enable else 0
     if not data:
         raise ProximoError("firewall_rule_update requires at least one field to update")
     # The empty-data guard runs BEFORE we fetch the digest so that guard stays reliable.
-    data["digest"] = _fetch_rules_digest(api, base, "firewall_rule_update")
+    # A caller-pinned digest (from the dry-run PLAN) is used verbatim so PVE rejects a plan->confirm
+    # concurrent change; None falls back to an op-time re-read (2026-07-10 audit M1).
+    data["digest"] = digest if digest is not None else _fetch_rules_digest(api, base, "firewall_rule_update")
     # MUTATION — confirm-gated + audited at the server layer.
     return api._put(f"{base}/rules/{pos}", data)
 
@@ -499,17 +524,20 @@ _RULE_SNAPSHOT_KEYS = (
 
 def _find_rule_at_pos(
     api, pos: int, scope: str, node: str | None, vmid: str | None, kind: str | None,
-) -> tuple[dict | None, dict, str | None]:
+) -> tuple[dict | None, dict, str | None, str | None]:
     """One safe read of the rule list for plan_firewall_rule_remove/update: return
-    (found_rule_or_None, current_snapshot_dict, check_error). check_error is the raising
-    exception's class name, or None if the read succeeded."""
+    (found_rule_or_None, current_snapshot_dict, check_error, digest). check_error is the raising
+    exception's class name, or None if the read succeeded. digest is the PVE optimistic-lock digest
+    from this read (or None), surfaced so the caller can PIN it on confirm — an op-time re-read always
+    matches current config and cannot detect a plan->confirm concurrent change (2026-07-10 audit M1)."""
     try:
         rules = firewall_rules_list(api, scope, node, vmid, kind) or []
         found = next((r for r in rules if r.get("pos") == pos), None)
         current = {k: found[k] for k in _RULE_SNAPSHOT_KEYS if k in found} if found else {}
-        return found, current, None
+        digest = next((r.get("digest") for r in rules if r.get("digest")), None)
+        return found, current, None, digest
     except Exception as e:
-        return None, {}, type(e).__name__
+        return None, {}, type(e).__name__, None
 
 
 def plan_firewall_rule_add(
@@ -601,7 +629,7 @@ def plan_firewall_rule_remove(
     scope_label = _scope_label(scope, node, vmid, kind)
     rule_desc = f"rule at position {pos}"
 
-    found, current, check_error = _find_rule_at_pos(api, pos, scope, node, vmid, kind)
+    found, current, check_error, digest = _find_rule_at_pos(api, pos, scope, node, vmid, kind)
     if found:
         rule_desc = (
             f"rule at pos={pos}: action={found.get('action', '?')}, "
@@ -658,6 +686,14 @@ def plan_firewall_rule_remove(
             "absence of HIGH is NOT a safety signal (heuristic only)",
         ]
 
+    if digest:
+        current = {**current, "digest": digest}
+        blast = [
+            *blast,
+            f"optimistic-lock digest: {digest} — pass digest={digest!r} to pve_firewall_rule_remove "
+            "on confirm so PVE rejects the removal if the rule list moved since this preview (positions "
+            "shift and the WRONG rule can be removed otherwise)",
+        ]
     return Plan(
         action="pve_firewall_rule_remove",
         target=f"firewall/{scope}/rules/{pos}",
@@ -699,7 +735,7 @@ def plan_firewall_rule_update(
     scope_label = _scope_label(scope, node, vmid, kind)
     rule_desc = f"rule at position {pos}"
 
-    found, current, check_error = _find_rule_at_pos(api, pos, scope, node, vmid, kind)
+    found, current, check_error, digest = _find_rule_at_pos(api, pos, scope, node, vmid, kind)
     if found:
         rule_desc = (
             f"rule at pos={pos}: action={found.get('action', '?')}, "
@@ -753,6 +789,14 @@ def plan_firewall_rule_update(
             "absence of HIGH is NOT a safety signal (heuristic only)",
         ]
 
+    if digest:
+        current = {**current, "digest": digest}
+        blast = [
+            *blast,
+            f"optimistic-lock digest: {digest} — pass digest={digest!r} to pve_firewall_rule_update "
+            "on confirm so PVE rejects the update if the rule list moved since this preview (positions "
+            "shift and the WRONG rule can be updated otherwise)",
+        ]
     return Plan(
         action="pve_firewall_rule_update",
         target=f"firewall/{scope}/rules/{pos}",
@@ -943,7 +987,7 @@ def alias_create(
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {"name": name, "cidr": cidr}
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     return api._post(f"{base}/aliases", data)
 
 
@@ -972,7 +1016,7 @@ def alias_update(
     if cidr is not None:
         data["cidr"] = _check_cidr(cidr)
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     if rename is not None:
         data["rename"] = _check_fw_name(rename, "alias rename")
     if not data:
@@ -1005,16 +1049,17 @@ def alias_delete(
     return api._delete(f"{base}/aliases/{name}", params)
 
 
-def _find_alias(api, name: str, scope, node, vmid, kind) -> dict:
-    """One safe read: return the current alias dict (relevant keys) or {} if absent/unreadable."""
+def _find_alias(api, name: str, scope, node, vmid, kind) -> tuple[dict, bool]:
+    """One safe read: return (current alias dict or {}, read_failed). 2026-07-10 audit L17: a failed
+    read must be distinguishable from 'alias absent' — both used to return {} and read complete."""
     try:
         aliases = alias_list(api, scope, node, vmid, kind) or []
     except Exception:
-        return {}
+        return {}, True
     found = next((a for a in aliases if a.get("name") == name), None)
     if not found:
-        return {}
-    return {k: found[k] for k in ("name", "cidr", "comment", "ipversion") if k in found}
+        return {}, False
+    return {k: found[k] for k in ("name", "cidr", "comment", "ipversion") if k in found}, False
 
 
 def plan_alias_create(
@@ -1061,7 +1106,7 @@ def plan_alias_update(
     name = _check_fw_name(name, "alias name")
     _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
-    current = _find_alias(api, name, scope, node, vmid, kind)
+    current, read_failed = _find_alias(api, name, scope, node, vmid, kind)
     changes = []
     if cidr is not None:
         changes.append(f"cidr -> {cidr}")
@@ -1070,20 +1115,24 @@ def plan_alias_update(
     if rename is not None:
         changes.append(f"rename -> {rename}")
     change_summary = ", ".join(changes) if changes else "(no fields)"
+    blast = [
+        f"updates alias '{name}' on {scope_label}: {change_summary}",
+        "any firewall rule referencing this alias changes what it matches — silently",
+        "no UNDO: revert by updating the alias back to its previous value",
+    ]
+    if read_failed:
+        blast.append("could not read the current alias — prior value UNKNOWN; no guided revert baseline")
     return Plan(
         action="pve_firewall_alias_update",
         target=f"firewall/{scope}/aliases/{name}",
         change=f"update alias '{name}' on {scope_label}: {change_summary}",
         current=current,
-        blast_radius=[
-            f"updates alias '{name}' on {scope_label}: {change_summary}",
-            "any firewall rule referencing this alias changes what it matches — silently",
-            "no UNDO: revert by updating the alias back to its previous value",
-        ],
+        blast_radius=blast,
         risk=RISK_MEDIUM,
         risk_reasons=[
             "changing an alias alters every referencing rule's match set — connectivity risk",
         ],
+        complete=not read_failed,
     )
 
 
@@ -1100,21 +1149,25 @@ def plan_alias_delete(
     name = _check_fw_name(name, "alias name")
     _check_alias_ipset_scope(scope)
     scope_label = _scope_label(scope, node, vmid, kind)
-    current = _find_alias(api, name, scope, node, vmid, kind)
+    current, read_failed = _find_alias(api, name, scope, node, vmid, kind)
+    blast = [
+        f"removes alias '{name}' from {scope_label}",
+        "PVE refuses the delete while any rule still references this alias",
+        "no UNDO: re-create the alias to revert",
+    ]
+    if read_failed:
+        blast.append("could not read the current alias — prior value UNKNOWN; no guided revert baseline")
     return Plan(
         action="pve_firewall_alias_delete",
         target=f"firewall/{scope}/aliases/{name}",
         change=f"delete alias '{name}' from {scope_label}",
         current=current,
-        blast_radius=[
-            f"removes alias '{name}' from {scope_label}",
-            "PVE refuses the delete while any rule still references this alias",
-            "no UNDO: re-create the alias to revert",
-        ],
+        blast_radius=blast,
         risk=RISK_MEDIUM,
         risk_reasons=[
             "a referencing rule would break if the alias is removed — verify nothing uses it",
         ],
+        complete=not read_failed,
     )
 
 
@@ -1155,7 +1208,7 @@ def ipset_create(
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {"name": name}
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     return api._post(f"{base}/ipset", data)
 
 
@@ -1206,7 +1259,7 @@ def ipset_entry_add(
     base = _fw_base(api, scope, node, vmid, kind)
     data: dict = {"cidr": cidr}
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     if nomatch:
         data["nomatch"] = 1
     return api._post(f"{base}/ipset/{name}", data)
@@ -1409,7 +1462,7 @@ def security_group_create(api, group: str, comment: str | None = None) -> None:
     group = _check_fw_name(group, "security group name")
     data: dict = {"group": group}
     if comment is not None:
-        data["comment"] = comment
+        data["comment"] = _check_freetext(comment, "comment")
     return api._post("/cluster/firewall/groups", data)
 
 
@@ -1598,6 +1651,7 @@ def plan_firewall_options_set(
     scope_label = _scope_label(scope, node, vmid, kind)
 
     current: dict = {}
+    read_failed = False
     try:
         current = firewall_options_get(api, scope, node, vmid, kind) or {}
         # keep only the keys this change touches, so the preview stays focused
@@ -1605,6 +1659,7 @@ def plan_firewall_options_set(
         current = {k: v for k, v in current.items() if k in touched}
     except Exception:
         current = {}
+        read_failed = True  # 2026-07-10 audit M7: a swallowed read is disclosed, not silent
 
     high = _options_set_is_high(options.keys(), delete_keys)
     set_summary = ", ".join(f"{k}={options[k]}" for k in options) or "(none)"
@@ -1626,12 +1681,17 @@ def plan_firewall_options_set(
     # Lockout blast: if this change moves toward default-DROP (enable / policy_in=DROP / unset
     # policy_in) at cluster/node scope, name the nodes that would lose management access.
     affected: list[dict] = []
-    complete = True
+    complete = not read_failed
+    if read_failed:
+        blast.append(
+            "could not read the current firewall options — prior values are UNKNOWN, so there is "
+            "no guided revert baseline; verify before confirming"
+        )
     if scope in ("cluster", "node") and _is_lockout_trigger(options, delete_keys):
         lock = blast_engine.firewall_lockout_blast(api, scope, node)
         blast.extend(lock.summary_lines)
         affected = lock.affected
-        complete = lock.complete
+        complete = complete and lock.complete
 
     return Plan(
         action="pve_firewall_options_set",

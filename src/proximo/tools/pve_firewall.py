@@ -126,10 +126,14 @@ def pve_firewall_rule_add(
 @tool()
 def pve_firewall_rule_remove(
     pos: int, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None, confirm: bool = False,
+    vmid: str | None = None, kind: str | None = None, digest: str | None = None,
+    confirm: bool = False,
 ) -> dict:
     """MUTATION: delete a firewall rule by position. Dry-run by default — the PLAN shows the rule
-    at that position. Positions SHIFT after inserts/deletes — verify before confirming. Synchronous.
+    at that position AND the optimistic-lock digest. Positions SHIFT after inserts/deletes — pass the
+    digest from the plan back as `digest=` on confirm so PVE rejects the delete if the rule list moved
+    since the preview (otherwise a concurrent insert can shift positions and remove the wrong rule).
+    Synchronous.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/rules/{pos}"
@@ -138,7 +142,7 @@ def pve_firewall_rule_remove(
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_firewall_rule_remove", tgt,
-                    lambda: firewall_rule_remove(api, pos, scope, node, vmid, kind),
+                    lambda: firewall_rule_remove(api, pos, scope, node, vmid, kind, digest),
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 
@@ -149,10 +153,12 @@ def pve_firewall_rule_update(
     action: str | None = None, direction: str | None = None,
     source: str | None = None, dest: str | None = None, proto: str | None = None,
     dport: str | None = None, sport: str | None = None, comment: str | None = None,
-    enable: bool | None = None, confirm: bool = False,
+    enable: bool | None = None, digest: str | None = None, confirm: bool = False,
 ) -> dict:
     """MUTATION: update an existing firewall rule at position `pos`. Dry-run by default — the PLAN
-    shows the rule's current state and the fields being changed. Synchronous.
+    shows the rule's current state, the fields being changed, AND the optimistic-lock digest. Pass the
+    digest from the plan back as `digest=` on confirm so PVE rejects the update if the rule list moved
+    since the preview (positions shift and the wrong rule can be updated otherwise). Synchronous.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/rules/{pos}"
@@ -181,7 +187,7 @@ def pve_firewall_rule_update(
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_firewall_rule_update", tgt,
-                    lambda: firewall_rule_update(api, pos, scope, node, vmid, kind, **changes),
+                    lambda: firewall_rule_update(api, pos, scope, node, vmid, kind, digest=digest, **changes),
                     mutation=True, outcome="ok", detail={"confirmed": True})
 
 

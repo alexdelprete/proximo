@@ -955,3 +955,32 @@ def test_plan_acl_modify_read_failure_sets_complete_false():
     api = _acl_api([], raise_on_get=True)
     plan = plan_acl_modify(api, "/vms/100", "PVEVMUser", "user@pam")
     assert plan.complete is False and plan.risk == RISK_HIGH
+
+
+class TestTokenExpireEpochHonesty:
+    """L8 (2026-07-10 audit): PVE token 'expire' is an ABSOLUTE UNIX timestamp, not a TTL/duration.
+    The plan must not advise a 'TTL', and a duration-shaped value (which lands in 1970 = already
+    expired) must warn."""
+
+    def test_plan_expire_described_as_epoch_not_ttl(self):
+        p = plan_token_create("admin@pam", "tok")  # expire None -> "never" branch
+        text = " ".join(p.blast_radius).lower()
+        assert "positive ttl" not in text, "plan must not advise a TTL; PVE expire is an absolute epoch"
+        assert "epoch" in text or "timestamp" in text
+
+    def test_plan_ttl_like_expire_warns_already_expired(self):
+        p = plan_token_create("admin@pam", "tok", expire=86400)  # epoch 86400 = Jan 1970 (past)
+        text = " ".join(p.blast_radius).lower()
+        assert "already expired" in text or "in the past" in text
+
+
+def test_acl_modify_description_documents_group_kind():
+    # L10 (2026-07-10 audit): acl_modify supports kind='group'; the tool description omitted it,
+    # so an agent asked to grant a group role can't discover the capability.
+    import asyncio
+
+    import proximo.server as server
+
+    tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+    desc = tools["pve_acl_modify"].description.lower()
+    assert "'group'" in desc

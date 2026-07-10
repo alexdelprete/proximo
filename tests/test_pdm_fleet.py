@@ -255,3 +255,25 @@ def test_rollback_auto_undo_snapshot_is_refused_when_contained(tmp_path, monkeyp
     # the safety snapshot must NEVER have fired under an active containment trip
     assert "snapc" not in [c[0] for c in pdm.calls]
     assert "rollback" not in [c[0] for c in pdm.calls]
+
+
+@pytest.mark.parametrize("gate", [
+    "enforce_scope", "enforce_lease", "enforce_envelope_forbid",
+    "enforce_consent", "enforce_envelope_rate",
+])
+def test_rollback_auto_undo_snapshot_refused_when_any_gate_blocks(tmp_path, monkeypatch, gate):
+    """M12 (2026-07-10 audit): _pdm_auto_undo clears SIX gates before its safety snapshot, but only
+    CONTAIN was covered. Each of the other five must also refuse BEFORE the snapshot fires — prove it
+    by making each gate refuse and asserting the real snapshot_create never happened."""
+    import proximo.tools.pdm_fleet as pf
+
+    pdm, _, _ = _wire(tmp_path, monkeypatch)
+
+    def _refuse(*_a, **_k):
+        raise ProximoError(f"{gate} refused")
+
+    monkeypatch.setattr(pf, gate, _refuse)
+    with pytest.raises(ProximoError, match="refused"):
+        server.pdm_pve_qemu_snapshot_rollback("dc1", "100", "snap1", confirm=True)
+    assert "snapc" not in [c[0] for c in pdm.calls]
+    assert "rollback" not in [c[0] for c in pdm.calls]

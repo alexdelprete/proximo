@@ -19,16 +19,21 @@ from proximo.server import (
 
 @tool()
 def pdm_ping() -> str:
-    """DIAGNOSE (LOW): health check the PDM appliance. Returns 'pong' on success.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: health check the PDM appliance.
+
+    No state change. Returns the string 'pong' on success; raises on connection/auth failure.
+    For version details instead of a bare health check, use pdm_version. Needs PROXIMO_PDM_*
+    config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_ping", "pdm/ping", lambda: pdm.ping())
 
 
 @tool()
 def pdm_version() -> dict:
-    """DIAGNOSE (LOW): get PDM appliance version (release, repoid, version).
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: get the PDM appliance's own version info.
+
+    No state change. Returns a dict with release, repoid, and version. For a lightweight health
+    check instead, use pdm_ping. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_version", "pdm/version", lambda: pdm.version())
 
@@ -37,17 +42,22 @@ def pdm_version() -> dict:
 def pdm_node_status(
     node: Annotated[str, Field(description="PDM node name; PDM is single-node so this defaults to 'localhost'.")] = "localhost",
 ) -> dict:
-    """DIAGNOSE (LOW): get resource stats for a PDM node. Defaults to 'localhost'
-    (PDM is a single-node appliance). Shape equals PVE node status;
-    live-prove-pending. Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: get resource stats for the PDM appliance's own node (not a managed remote's node).
+
+    No state change. Returns a dict shaped like PVE node status; live-prove-pending (not yet
+    confirmed live). Defaults to node='localhost' since PDM is single-node. For a managed PVE
+    node's status instead, use pve_node_status. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_node_status", f"pdm/nodes/{node}", lambda: pdm.node_status(node))
 
 
 @tool()
 def pdm_remotes_list() -> list[dict]:
-    """DIAGNOSE (LOW): list all PVE/PBS remotes registered in PDM.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list all PVE/PBS remotes registered in PDM (the datacenters/backup targets it manages).
+
+    No state change. Returns a list of remote dicts; credential-shaped keys (token/password/secret)
+    are stripped before returning. For one remote's version or config use pdm_remote_version /
+    pdm_remote_config_get. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_remotes_list", "pdm/remotes", lambda: pdm.remotes_list())
 
@@ -56,9 +66,10 @@ def pdm_remotes_list() -> list[dict]:
 def pdm_remote_version(
     remote_id: Annotated[str, Field(description="Remote name as shown in pdm_remotes_list.")],
 ) -> dict:
-    """DIAGNOSE (LOW): get version info for one PDM-registered remote.
-    remote_id: the remote name as shown in pdm_remotes_list.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: get version info for one PDM-registered remote, proxied through PDM.
+
+    No state change. Returns a dict (the remote's own /version response). To see all registered
+    remotes first, use pdm_remotes_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_remote_version", f"pdm/remotes/{remote_id}",
                     lambda: pdm.remote_version(remote_id))
@@ -68,9 +79,11 @@ def pdm_remote_version(
 def pdm_remote_config_get(
     remote_id: Annotated[str, Field(description="Remote name as shown in pdm_remotes_list.")],
 ) -> dict:
-    """DIAGNOSE (LOW): get configuration for one PDM-registered remote (no secrets returned).
-    remote_id: the remote name as shown in pdm_remotes_list.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: get configuration for one PDM-registered remote.
+
+    No state change. Returns a dict; credential-shaped keys (token/password/secret) are stripped
+    before returning. To see all registered remotes first, use pdm_remotes_list. Needs
+    PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_remote_config_get", f"pdm/remotes/{remote_id}",
                     lambda: pdm.remote_config_get(remote_id))
@@ -78,16 +91,22 @@ def pdm_remote_config_get(
 
 @tool()
 def pdm_resources_list() -> list[dict]:
-    """DIAGNOSE (LOW): list all fleet resources (VMs, LXCs, storage, etc.) across all remotes.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list every fleet resource (VMs, LXCs, storage, etc.) across ALL PDM-registered remotes.
+
+    No state change. Returns a flat list of resource dicts. For counters instead of the full
+    list, use pdm_resources_status; to scope to one remote, use pdm_pve_resources. Needs
+    PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_resources_list", "pdm/resources/list", lambda: pdm.resources_list())
 
 
 @tool()
 def pdm_resources_status() -> dict:
-    """DIAGNOSE (LOW): aggregated fleet status counters (running VMs, LXCs, failed remotes, etc.).
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: aggregated fleet status counters (running VMs, LXCs, failed remotes, etc.)
+    across all PDM-registered remotes.
+
+    No state change. Returns a dict of counters. For the underlying per-resource list, use
+    pdm_resources_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_resources_status", "pdm/resources/status",
                     lambda: pdm.resources_status())
@@ -98,11 +117,11 @@ def pdm_pve_resources(
     remote: Annotated[str, Field(description="PDM-registered PVE remote name, from pdm_remotes_list.")],
     kind: Annotated[str | None, Field(description="Optional resource-type filter, e.g. 'vm', 'storage', 'node', 'sdn'.")] = None,
 ) -> list[dict]:
-    """DIAGNOSE (LOW): list resources on a PDM-registered PVE remote.
-    remote: remote name from pdm_remotes_list.
-    kind: optional filter (vm, storage, node, sdn, ...).
-    Shape equals PVE cluster/resources; live-proven 2026-06-27 against a registered PVE remote.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list resources on ONE PDM-registered PVE remote, proxied through PDM.
+
+    No state change. Returns a list of dicts shaped like PVE's cluster/resources (live-proven
+    2026-06-27); kind optionally filters by type (vm, storage, node, sdn, ...). To query the
+    cluster directly without PDM, use pve_cluster_resources. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pve_resources", f"pdm/pve/{remote}/resources",
                     lambda: pdm.pve_resources(remote, kind))
@@ -112,10 +131,11 @@ def pdm_pve_resources(
 def pdm_pve_cluster_status(
     remote: Annotated[str, Field(description="PDM-registered PVE remote name, from pdm_remotes_list.")],
 ) -> list[dict]:
-    """DIAGNOSE (LOW): get cluster status for a PDM-registered PVE remote.
-    remote: remote name from pdm_remotes_list.
-    Shape equals PVE cluster/status; live-proven 2026-06-27 against a registered PVE remote.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: get cluster status for ONE PDM-registered PVE remote, proxied through PDM.
+
+    No state change. Returns a list of dicts shaped like PVE's cluster/status (live-proven
+    2026-06-27). To query the cluster directly without PDM, use pve_cluster_status. Needs
+    PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pve_cluster_status", f"pdm/pve/{remote}/cluster-status",
                     lambda: pdm.pve_cluster_status(remote))
@@ -125,10 +145,10 @@ def pdm_pve_cluster_status(
 def pdm_pve_node_list(
     remote: Annotated[str, Field(description="PDM-registered PVE remote name, from pdm_remotes_list.")],
 ) -> list[dict]:
-    """DIAGNOSE (LOW): list nodes in a PDM-registered PVE remote.
-    remote: remote name from pdm_remotes_list.
-    Shape equals PVE /nodes; live-proven 2026-06-27 against a registered PVE remote.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list PVE nodes in a PDM-registered remote's cluster, proxied through PDM.
+
+    No state change. Returns a list of dicts shaped like PVE's /nodes endpoint (live-proven
+    2026-06-27). Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pve_node_list", f"pdm/pve/{remote}/nodes",
                     lambda: pdm.pve_node_list(remote))
@@ -139,10 +159,12 @@ def pdm_pve_qemu_list(
     remote: Annotated[str, Field(description="PDM-registered PVE remote name, from pdm_remotes_list.")],
     node: Annotated[str | None, Field(description="Optional PVE node name to restrict the listing to; omit to list cluster-wide.")] = None,
 ) -> list[dict]:
-    """DIAGNOSE (LOW): list VMs across a PDM-registered PVE remote (cluster-wide).
-    remote: remote name. node: OPTIONAL filter to one PVE node.
-    Shape equals PVE qemu list; live-proven 2026-06-27 against a registered PVE remote.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list VMs across a PDM-registered PVE remote (cluster-wide), proxied through PDM.
+
+    No state change. Returns a list of dicts shaped like PVE's qemu list (live-proven
+    2026-06-27); node optionally filters to one PVE node. For one VM's config use
+    pdm_pve_qemu_config; to query the cluster directly without PDM, use pve_list_guests. Needs
+    PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pve_qemu_list", f"pdm/pve/{remote}/qemu",
                     lambda: pdm.pve_qemu_list(remote, node))
@@ -156,11 +178,11 @@ def pdm_pve_qemu_config(
     snapshot: Annotated[str | None, Field(description="Optional snapshot name to read config from instead of the live config.")] = None,
     state: Annotated[str, Field(description="PDM config-state selector, required by the PDM API; 'active' returns the current config.")] = "active",
 ) -> dict:
-    """DIAGNOSE (LOW): get VM config from a PDM-registered PVE remote.
-    remote: remote name. vmid: numeric VM ID.
-    node, snapshot: optional query params (node is NOT required).
-    state: REQUIRED by PDM ("active" = current config) — defaults to "active"; PDM 400s if omitted.
-    Live-proven 2026-06-27 against a registered PVE remote. Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: get a VM's config from a PDM-registered PVE remote, proxied through PDM.
+
+    No state change. Returns a dict (live-proven 2026-06-27). state defaults to "active" and is
+    REQUIRED by PDM's API (it 400s if omitted); node/snapshot are optional. To query the cluster
+    directly without PDM, use pve_guest_config_get. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pve_qemu_config", f"pdm/pve/{remote}/qemu/{vmid}",
                     lambda: pdm.pve_qemu_config(remote, vmid, node, snapshot, state))
@@ -171,10 +193,12 @@ def pdm_pve_lxc_list(
     remote: Annotated[str, Field(description="PDM-registered PVE remote name, from pdm_remotes_list.")],
     node: Annotated[str | None, Field(description="Optional PVE node name to restrict the listing to; omit to list cluster-wide.")] = None,
 ) -> list[dict]:
-    """DIAGNOSE (LOW): list LXC containers across a PDM-registered PVE remote (cluster-wide).
-    remote: remote name. node: OPTIONAL filter to one PVE node.
-    Shape equals PVE lxc list; live-proven 2026-06-27 against a registered PVE remote.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list LXC containers across a PDM-registered PVE remote (cluster-wide), proxied
+    through PDM.
+
+    No state change. Returns a list of dicts shaped like PVE's lxc list (live-proven 2026-06-27);
+    node optionally filters to one PVE node. For one container's config use pdm_pve_lxc_config;
+    to query the cluster directly without PDM, use pve_list_guests. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pve_lxc_list", f"pdm/pve/{remote}/lxc",
                     lambda: pdm.pve_lxc_list(remote, node))
@@ -188,11 +212,11 @@ def pdm_pve_lxc_config(
     snapshot: Annotated[str | None, Field(description="Optional snapshot name to read config from instead of the live config.")] = None,
     state: Annotated[str, Field(description="PDM config-state selector, required by the PDM API; 'active' returns the current config.")] = "active",
 ) -> dict:
-    """DIAGNOSE (LOW): get LXC config from a PDM-registered PVE remote.
-    remote: remote name. vmid: numeric CT ID.
-    node, snapshot: optional query params (node is NOT required).
-    state: REQUIRED by PDM ("active" = current config) — defaults to "active"; PDM 400s if omitted.
-    Live-proven 2026-06-27 against a registered PVE remote. Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: get an LXC container's config from a PDM-registered PVE remote, proxied through PDM.
+
+    No state change. Returns a dict (live-proven 2026-06-27). state defaults to "active" and is
+    REQUIRED by PDM's API (it 400s if omitted); node/snapshot are optional. To query the cluster
+    directly without PDM, use pve_guest_config_get. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pve_lxc_config", f"pdm/pve/{remote}/lxc/{vmid}",
                     lambda: pdm.pve_lxc_config(remote, vmid, node, snapshot, state))
@@ -202,10 +226,11 @@ def pdm_pve_lxc_config(
 def pdm_pbs_remote_status(
     remote: Annotated[str, Field(description="PDM-registered PBS remote name, from pdm_remotes_list.")],
 ) -> dict:
-    """DIAGNOSE (LOW): get node status for a PDM-registered PBS remote.
-    remote: remote name from pdm_remotes_list.
-    Live-verified (PDM 1.1 -> PBS 4.2).
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: get node status (cpu/memory/uptime, etc.) for a PDM-registered PBS remote,
+    proxied through PDM.
+
+    No state change. Returns a dict (live-verified, PDM 1.1 -> PBS 4.2). For the remote's
+    datastores, use pdm_pbs_datastores_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pbs_remote_status", f"pdm/pbs/{remote}/status",
                     lambda: pdm.pbs_remote_status(remote))
@@ -215,10 +240,11 @@ def pdm_pbs_remote_status(
 def pdm_pbs_datastores_list(
     remote: Annotated[str, Field(description="PDM-registered PBS remote name, from pdm_remotes_list.")],
 ) -> list[dict]:
-    """DIAGNOSE (LOW): list datastores on a PDM-registered PBS remote.
-    remote: remote name from pdm_remotes_list.
-    Live-verified shape: [{"name","path"}, ...] (PDM 1.1 -> PBS 4.2).
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list datastores on a PDM-registered PBS remote, proxied through PDM.
+
+    No state change. Returns [{"name", "path"}, ...] (live-verified, PDM 1.1 -> PBS 4.2). For
+    snapshots within a datastore use pdm_pbs_snapshots_list; to query PBS directly without PDM,
+    use pbs_datastores_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pbs_datastores_list", f"pdm/pbs/{remote}/datastore",
                     lambda: pdm.pbs_datastores_list(remote))
@@ -230,10 +256,12 @@ def pdm_pbs_snapshots_list(
     datastore: Annotated[str, Field(description="PBS datastore name on the remote to list snapshots from.")],
     ns: Annotated[str | None, Field(description="Optional PBS namespace filter; omit to use the default namespace.")] = None,
 ) -> list[dict]:
-    """DIAGNOSE (LOW): list backup snapshots in a datastore on a PDM-registered PBS remote.
-    remote: remote name. datastore: PBS datastore name. ns: optional namespace filter.
-    Live-verified path (PDM 1.1 -> PBS 4.2); empty datastore returns [].
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list backup snapshots in one datastore on a PDM-registered PBS remote, proxied
+    through PDM.
+
+    No state change. Returns a list of snapshot dicts (empty list if the datastore has none);
+    live-verified (PDM 1.1 -> PBS 4.2). ns optionally filters by namespace. To query PBS
+    directly without PDM, use pbs_snapshots_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_pbs_snapshots_list",
                     f"pdm/pbs/{remote}/datastore/{datastore}/snapshots",
@@ -242,8 +270,11 @@ def pdm_pbs_snapshots_list(
 
 @tool()
 def pdm_tasks_list() -> list[dict]:
-    """DIAGNOSE (LOW): list recent PDM tasks across all remotes.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list recent PDM tasks (queued/running/finished operations) across all
+    registered remotes.
+
+    No state change. Returns a list of task dicts. For a target remote's own task list directly
+    (without going through PDM), use pve_tasks_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_tasks_list", "pdm/remotes/tasks", lambda: pdm.tasks_list())
 
@@ -253,9 +284,11 @@ def pdm_acl_list(
     path: Annotated[str | None, Field(description="Optional ACL path filter, e.g. '/'; omit to list all entries.")] = None,
     exact: Annotated[bool, Field(description="If true, match the given path exactly rather than including sub-paths.")] = False,
 ) -> list[dict]:
-    """DIAGNOSE (LOW): list PDM access control entries.
-    path: optional ACL path filter (e.g. '/'). exact: if True, exact path only.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list PDM's own access control entries (who can use PDM, not a managed remote's ACL).
+
+    No state change. Returns a list of ACL entry dicts. exact=True restricts to the given path
+    instead of including sub-paths. For a managed PVE cluster's ACL instead of PDM's own, use
+    pve_acl_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_acl_list", "pdm/access/acl",
                     lambda: pdm.acl_list(path, exact))
@@ -263,8 +296,10 @@ def pdm_acl_list(
 
 @tool()
 def pdm_roles_list() -> list[dict]:
-    """DIAGNOSE (LOW): list all roles and their privileges defined in PDM.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list PDM's own roles and their privileges (not a managed remote's roles).
+
+    No state change. Returns a list of role dicts. For a managed PVE cluster's roles instead of
+    PDM's own, use pve_roles_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_roles_list", "pdm/access/roles", lambda: pdm.roles_list())
 
@@ -273,9 +308,11 @@ def pdm_roles_list() -> list[dict]:
 def pdm_users_list(
     include_tokens: Annotated[bool, Field(description="If true, include API token entries alongside user accounts.")] = False,
 ) -> list[dict]:
-    """DIAGNOSE (LOW): list all PDM users.
-    include_tokens: if True, include API token entries.
-    Needs PROXIMO_PDM_* config."""
+    """READ-ONLY: list PDM's own user accounts (not a managed remote's users).
+
+    No state change. Returns a list of user dicts; credential-shaped keys are stripped before
+    returning. include_tokens=True also includes API token entries. For a managed PVE cluster's
+    users instead of PDM's own, use pve_users_list. Needs PROXIMO_PDM_* config."""
     _, pdm = _proximo_server._pdm()
     return _audited("pdm_users_list", "pdm/access/users",
                     lambda: pdm.users_list(include_tokens))

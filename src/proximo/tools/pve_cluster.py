@@ -75,8 +75,11 @@ def pve_cluster_status() -> list[dict]:
 def pve_cluster_resources(
     resource_type: Annotated[str | None, Field(description="Optional filter: 'vm', 'storage', 'node', or 'sdn'; omit to list all resource types.")] = None,
 ) -> list[dict]:
-    """List all resources across the cluster (VMs, nodes, storage, SDN).
-    resource_type: optional filter — 'vm', 'storage', 'node', or 'sdn' (read)."""
+    """READ-ONLY: list all resources across the cluster (VMs, nodes, storage, SDN).
+
+    resource_type: optional filter — 'vm', 'storage', 'node', or 'sdn'; omit for all types.
+    No state change. Returns a list of PVE resource dicts (shape varies by type). For overall
+    cluster health/quorum use pve_cluster_status; to list only guests use pve_list_guests."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/resources/{resource_type or 'all'}"
     return _audited("pve_cluster_resources", tgt,
@@ -85,8 +88,10 @@ def pve_cluster_resources(
 
 @tool()
 def pve_ha_groups_list() -> list[dict]:
-    """List all HA resource groups (read). PVE-8 only — PVE 9 migrated groups to rules
-    (use pve_ha_rules_list); on PVE 9 this raises a clear error pointing there."""
+    """READ-ONLY: list all HA resource groups. PVE-8 only — PVE 9 migrated groups to rules
+    (use pve_ha_rules_list); on PVE 9 this raises a clear ProximoError pointing there instead
+    of a raw 500. No state change. Returns a list of group dicts (group, nodes, restricted,
+    comment) on PVE 8."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_ha_groups_list", "cluster/ha/groups", lambda: ha_groups_list(api))
 
@@ -126,7 +131,8 @@ def pve_guest_migrate(
     """MUTATION: migrate a guest to a different node. Dry-run by default — the PLAN shows the
     guest's live state, the source→target, and the honest blast radius (LXC 'online' is
     stop→move→start, NOT zero-downtime; QEMU live migration requires shared storage).
-    confirm=True to execute. Async — returns a task UPID.
+    confirm=True to execute. Async — returns a task UPID; poll with pve_task_status. To drive
+    the same move through PDM instead, use pdm_pve_lxc_migrate or pdm_pve_qemu_migrate.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"{kind}/{vmid}->{target}"
@@ -151,7 +157,8 @@ def pve_ha_resource_add(
 ) -> dict:
     """MUTATION: add a guest to HA management. Dry-run by default — the PLAN shows the SID,
     group, initial state, and blast radius (state='stopped' is HIGH: CRM will stop the guest).
-    confirm=True to execute. Synchronous (pmxcfs config write; CRM enforces state asynchronously).
+    confirm=True to execute. Synchronous (pmxcfs config write; CRM enforces state asynchronously) —
+    typically returns null, not a UPID. To remove HA management use pve_ha_resource_remove.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"ha:{kind}/{vmid}"
@@ -172,7 +179,8 @@ def pve_ha_resource_remove(
 ) -> dict:
     """MUTATION: remove a guest from HA management. Dry-run by default — the PLAN shows the SID
     and that this loses automated failover protection (guest itself is NOT stopped).
-    confirm=True to execute. Synchronous (pmxcfs config write).
+    confirm=True to execute. Synchronous (pmxcfs config write) — typically returns null, not a
+    UPID. To re-add HA management use pve_ha_resource_add.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"ha:{kind}/{vmid}"
@@ -200,7 +208,8 @@ def pve_ha_rule_create(
     """MUTATION: create an HA rule (the PVE 9 replacement for HA groups). Dry-run by default — the
     PLAN shows the rule type, resources, and placement effect. `rule_type` is 'node-affinity'
     (needs `nodes`; optional `strict`) or 'resource-affinity' (needs `affinity` positive|negative).
-    confirm=True to execute. Synchronous (pmxcfs config write). RISK_MEDIUM — constrains CRM placement.
+    confirm=True to execute. Synchronous (pmxcfs config write, no UPID). RISK_MEDIUM — constrains
+    CRM placement. View rules with pve_ha_rules_list; change one with pve_ha_rule_update.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"ha/rules/{rule}"
@@ -229,8 +238,9 @@ def pve_ha_rule_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
 ) -> dict:
     """MUTATION: update an HA rule. Dry-run by default — the PLAN shows the current rule and the
-    fields being changed. `delete` unsets keys. confirm=True to execute. Synchronous.
-    RISK_MEDIUM — may trigger CRM migration of affected resources.
+    fields being changed. `delete` unsets keys. confirm=True to execute. Synchronous (pmxcfs
+    config write, no UPID). RISK_MEDIUM — may trigger CRM migration of affected resources.
+    To create a new rule use pve_ha_rule_create; to remove one use pve_ha_rule_delete.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"ha/rules/{rule}"
@@ -252,7 +262,8 @@ def pve_ha_rule_delete(
 ) -> dict:
     """MUTATION: delete an HA rule. Dry-run by default — the PLAN shows the current rule and that
     its resources lose this placement constraint (CRM may migrate them). confirm=True to execute.
-    Synchronous. RISK_MEDIUM.
+    Synchronous (pmxcfs config write, no UPID) — no undo; re-create with pve_ha_rule_create to
+    revert. RISK_MEDIUM.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"ha/rules/{rule}"
@@ -275,7 +286,8 @@ def pve_tasks_list(
     typefilter: Annotated[str | None, Field(description="Optional task-type filter, e.g. 'vzdump', 'qmigrate' (PVE task type string).")] = None,
     statusfilter: Annotated[str | None, Field(description="Optional status filter, e.g. 'running', 'stopped'.")] = None,
 ) -> list[dict]:
-    """List recent tasks on a node (read). limit 1-1000 (clamped).
+    """READ-ONLY: list recent tasks on a node. limit max 1000 (higher is truncated; 0 or negative
+    is rejected). No state change; returns a list of task dicts. Use pve_task_log for a task's full log.
 
     Caveat: this is a windowed, per-node slice — node defaults to the configured node, and
     only the `limit` most-recent tasks return. A task on another node or outside the window
@@ -357,7 +369,8 @@ def pve_task_stop(
 ) -> dict:
     """MUTATION (HIGH): stop (cancel) a running task. Dry-run by default — the PLAN warns that
     stopping a backup/restore/migration/clone mid-flight can leave the target inconsistent, with
-    NO undo. confirm=True to execute. Synchronous cancellation signal (returns null)."""
+    NO undo. confirm=True to execute. Synchronous cancellation signal (returns null, not a UPID) —
+    the task may run briefly before it sees the signal. Find UPIDs to stop via pve_tasks_list."""
     _, api, _, _ = _proximo_server._svc()
     plan = _plan("pve_task_stop", upid, lambda: plan_task_stop(upid, node))
     if not confirm:
@@ -374,7 +387,8 @@ def pve_pool_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the creation.")] = False,
 ) -> dict:
     """MUTATION: create an (empty) resource pool. Dry-run by default (PLAN = additive, LOW).
-    confirm=True to execute. Synchronous."""
+    confirm=True to execute. Synchronous — typically returns null, no members yet; add
+    guests/storage with pve_pool_update."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"pool/{poolid}"
     plan = _plan("pve_pool_create", tgt, lambda: plan_pool_create(poolid, comment))
@@ -394,8 +408,9 @@ def pve_pool_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
 ) -> dict:
     """MUTATION: add (delete=False) or remove (delete=True) pool members. Dry-run by default —
-    the PLAN notes membership re-scopes ACL coverage. confirm=True to execute. Synchronous.
-    delete=True with no vms/storage is refused (ambiguous)."""
+    the PLAN notes membership re-scopes ACL coverage. confirm=True to execute. Synchronous, no
+    UPID. delete=True with no vms/storage is refused (ambiguous). To remove the pool itself use
+    pve_pool_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"pool/{poolid}"
     plan = _plan("pve_pool_update", tgt,
@@ -413,8 +428,8 @@ def pve_pool_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion.")] = False,
 ) -> dict:
     """MUTATION: delete a resource pool. Dry-run by default — the PLAN warns ACLs on /pool/{poolid}
-    are orphaned and the pool must be empty first (members are NOT deleted). confirm=True to
-    execute. Synchronous."""
+    are orphaned and the pool must be empty first (members are NOT deleted; empty it first with
+    pve_pool_update). confirm=True to execute. Synchronous — returns null."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"pool/{poolid}"
     plan = _plan("pve_pool_delete", tgt, lambda: plan_pool_delete(api, poolid))
@@ -429,8 +444,8 @@ def pve_pool_delete(
 
 @tool()
 def pve_storage_config_list() -> list[dict]:
-    """List all storage definitions from storage.cfg cluster-wide (read-only). Returns a list
-    of storage dicts with IDs, types, paths, and server addresses. Use
+    """READ-ONLY: list all storage definitions from storage.cfg cluster-wide. No state change.
+    Returns a list of storage dicts with IDs, types, paths, and server addresses. Use
     pve_storage_config_get to fetch a single storage's complete configuration."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_storage_config_list", "cluster/storage",
@@ -465,8 +480,9 @@ def pve_storage_create(
     This registers a storage *definition* the cluster can use; it does NOT format disks or provision
     a backend — to create a disk-backed backend (lvm/zfs/directory) on a node use
     pve_node_storage_backend_create. Required params depend on storage_type (dir needs `path`; nfs
-    needs `server`+`export`). Additive (LOW risk) — no existing data is touched. Dry-run by default
-    (returns a PLAN); confirm=True writes storage.cfg. Returns the resulting config/plan dict."""
+    needs `server`+`export`). MEDIUM risk — a bad definition can fail to mount and slow cluster
+    storage enumeration; no existing data is touched. Dry-run by default (returns a PLAN);
+    confirm=True writes storage.cfg (the confirm result payload is typically null)."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"storage/{storage}"
     plan = _plan("pve_storage_create", tgt,
@@ -491,7 +507,9 @@ def pve_storage_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
 ) -> dict:
     """MUTATION: update a storage definition. Dry-run by default (disable=True warns guests lose
-    disk access). confirm=True to execute."""
+    disk access cluster-wide; a `nodes` change strands guests on excluded nodes). confirm=True to
+    execute (synchronous, no UPID). The storage type itself can't be changed here — use
+    pve_storage_delete then pve_storage_create instead."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"storage/{storage}"
     plan = _plan("pve_storage_update", tgt,
@@ -509,7 +527,9 @@ def pve_storage_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion.")] = False,
 ) -> dict:
     """MUTATION (HIGH): remove a storage definition cluster-wide. Dry-run by default — the PLAN
-    warns guest disks/backups living only there become inaccessible (data not erased). confirm=True."""
+    warns guest disks/backups living only there become inaccessible (data not erased). confirm=True
+    executes — typically returns null; no undo except re-adding via pve_storage_create with the
+    same config."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"storage/{storage}"
     plan = _plan("pve_storage_delete", tgt, lambda: plan_storage_delete(api, storage))

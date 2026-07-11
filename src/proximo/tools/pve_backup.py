@@ -67,7 +67,8 @@ def pve_backup(
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the backup.")] = False,
 ) -> dict:
     """MUTATION: back up a guest with vzdump. Dry-run by default; confirm=True to execute.
-    mode: snapshot (online, brief) | suspend | stop (HALTS the guest). Async — returns a task UPID."""
+    mode: snapshot (online, brief) | suspend | stop (HALTS the guest). Async — returns a task UPID.
+    This is a one-off run; for a recurring schedule use pve_backup_job_create instead."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}"
     plan = _plan("pve_backup", target, lambda: plan_backup(vmid, storage, mode, kind))
@@ -83,9 +84,9 @@ def pve_backup_list(
     storage: Annotated[str, Field(description="Storage ID to list backup archives from.")],
     node: Annotated[str | None, Field(description="Proxmox node hosting the storage; defaults to the configured node if omitted.")] = None,
 ) -> list[dict]:
-    """List backup archives in a storage (read). Ground truth for whether a backup exists —
+    """READ-ONLY: list backup archives in a storage. Ground truth for whether a backup exists —
     a backup missing from a pve_tasks_list slice (other node, or outside its limit window)
-    still shows here."""
+    still shows here. Returns a list of dicts (volid, size, ctime, …)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_backup_list", storage, lambda: backup_list(api, storage, node))
 
@@ -95,12 +96,12 @@ def pve_backup_freshness(
     max_age_hours: Annotated[float | None, Field(description="Override for max acceptable backup age in hours; if omitted, age expectation is derived from each guest's backup job schedule.")] = None,
     grace_hours: Annotated[float, Field(description="Hours of slack padded onto each job's parsed cadence before a backup is flagged stale.")] = 6.0,
 ) -> dict:
-    """Backup-freshness fence (read): walks ACTUAL backup archives per guest and compares their
-    age against what enabled backup jobs promise. A job or task reporting OK is never treated as
-    evidence a backup exists — only an archive on storage counts. Verdicts per guest:
-    fresh | stale | never | uncovered | unknown; an unreadable storage yields unknown +
-    complete=false, never a clean bill. max_age_hours overrides the schedule-derived expectation;
-    grace_hours pads each job's parsed cadence."""
+    """READ-ONLY: backup-freshness fence — walks ACTUAL backup archives per guest and compares
+    their age against what enabled backup jobs promise; a job or task reporting OK is never
+    treated as evidence a backup exists. Verdicts per guest: fresh | stale | never | uncovered |
+    unknown; an unreadable storage always yields unknown + complete=false, never a clean bill.
+    Returns a dict of {guests, jobs, counts, flags, complete, …}. For the raw archive list use
+    pve_backup_list; for job configuration use pve_backup_job_list."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_backup_freshness", "cluster/backup-freshness",
                     lambda: backup_freshness(api, max_age_hours, grace_hours))
@@ -113,8 +114,10 @@ def pve_backup_delete(
     node: Annotated[str | None, Field(description="Proxmox node hosting the storage; defaults to the configured node if omitted.")] = None,
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the deletion.")] = False,
 ) -> dict:
-    """MUTATION: delete a backup archive (removes a recovery point). Dry-run by default; confirm=True.
-    Async — may return a task UPID or null depending on storage."""
+    """MUTATION: delete a backup archive (removes a recovery point). Dry-run by default; confirm=True
+    to execute. Irreversible — deleting the last backup of a guest leaves no recovery point; the
+    PLAN reports how many other backups of the same guest remain. Check the archive list first with
+    pve_backup_list. Async — may return a task UPID or null depending on storage."""
     _, api, _, _ = _proximo_server._svc()
     plan = _plan("pve_backup_delete", volid, lambda: plan_backup_delete(api, storage, volid))
     if not confirm:
@@ -136,8 +139,9 @@ def pve_restore(
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the restore.")] = False,
 ) -> dict:
     """MUTATION (DESTRUCTIVE if it overwrites an existing guest): restore a guest from a backup
-    archive. Dry-run by default — the PLAN states whether it CREATES or OVERWRITES. confirm=True to
-    execute. Async — returns a task UPID. pool: place the restored guest in a resource pool."""
+    archive. Dry-run by default — the PLAN reads live guest state and states whether it CREATES or
+    OVERWRITES. confirm=True to execute. Async — returns a task UPID. Find the archive's volid
+    first with pve_backup_list."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}"
     plan = _plan("pve_restore", target, lambda: plan_restore(api, vmid, archive, kind, node, force))
@@ -152,8 +156,10 @@ def pve_restore(
 
 @tool()
 def pve_backup_job_list() -> dict:
-    """List all PVE cluster backup jobs and guests not covered by any job (read).
-    Returns {jobs: [...], unprotected_guests: [...]}."""
+    """READ-ONLY: list all PVE cluster backup jobs and guests not covered by any job.
+    Returns {jobs: [...], unprotected_guests: [...]}. For the actual archives on storage use
+    pve_backup_list; for a per-guest freshness verdict against these jobs' promises use
+    pve_backup_freshness."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_backup_job_list", "cluster/backup",
                     lambda: backup_job_list(api))
@@ -174,11 +180,11 @@ def pve_backup_job_create(
     comment: Annotated[str | None, Field(description="Free-text note stored on the job.")] = None,
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the creation.")] = False,
 ) -> dict:
-    """MUTATION: create a PVE cluster backup job. Dry-run by default — shows the plan.
-    confirm=True to execute. Config-only; existing backups are NOT affected.
-    Guest selection is mutually exclusive — pass at most one of: vmid (CSV of guest IDs),
-    all_guests=True (every guest), or pool (a resource pool); PVE requires a selection.
-    exclude (CSV) filters all_guests."""
+    """MUTATION: create a PVE cluster backup job — a persistent vzdump schedule, distinct from a
+    one-off pve_backup run. Dry-run by default; confirm=True to execute and returns synchronously
+    (no task UPID). Config-only; existing backups are NOT affected. Guest selection is mutually
+    exclusive — pass at most one of vmid, all_guests, or pool; exclude filters all_guests. To
+    modify an existing job use pve_backup_job_update; to remove one use pve_backup_job_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/backup/{job_id}"
     # all_guests -> PVE's `all` wire field (the tool name avoids shadowing the builtin).
@@ -209,8 +215,10 @@ def pve_backup_job_update(
     comment: Annotated[str | None, Field(description="New free-text note; omit to leave unchanged.")] = None,
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the update.")] = False,
 ) -> dict:
-    """MUTATION: update a PVE cluster backup job. Dry-run by default — captures current config.
-    confirm=True to execute. Config-only; no impact on existing backups."""
+    """MUTATION: update a PVE cluster backup job. Dry-run by default — the PLAN captures current
+    config so you can revert manually; confirm=True to execute and returns synchronously (no task
+    UPID). Config-only; no impact on existing backups. To create a new job use
+    pve_backup_job_create; to remove one use pve_backup_job_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/backup/{job_id}"
     plan = _plan("pve_backup_job_update", tgt,
@@ -232,8 +240,10 @@ def pve_backup_job_delete(
     job_id: Annotated[str, Field(description="ID of the PVE backup job to delete.")],
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the deletion.")] = False,
 ) -> dict:
-    """MUTATION: delete a PVE cluster backup job. Dry-run by default — captures current config.
-    confirm=True to execute. Schedule removed; existing backups are NOT deleted."""
+    """MUTATION: delete a PVE cluster backup job. Dry-run by default — the PLAN captures current
+    config (no snapshot/UNDO primitive on this plane; re-create with pve_backup_job_create to
+    restore the schedule). confirm=True to execute and returns synchronously (no task UPID).
+    Schedule removed; existing backups are NOT deleted."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/backup/{job_id}"
     plan = _plan("pve_backup_job_delete", tgt,
@@ -256,8 +266,10 @@ def pve_replication_create(
     comment: Annotated[str | None, Field(description="Free-text note stored on the job.")] = None,
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the creation.")] = False,
 ) -> dict:
-    """MUTATION: create a PVE replication job. Dry-run by default.
-    rep_type is typically 'local'. confirm=True to execute."""
+    """MUTATION: create a PVE replication job. Dry-run by default; confirm=True to execute and
+    returns synchronously (no task UPID) — additive, no existing data affected. rep_type is
+    typically 'local'. To modify an existing job use pve_replication_update; to remove one use
+    pve_replication_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/replication/{rep_id}"
     plan = _plan("pve_replication_create", tgt,
@@ -282,8 +294,10 @@ def pve_replication_update(
     comment: Annotated[str | None, Field(description="New free-text note; omit to leave unchanged.")] = None,
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the update.")] = False,
 ) -> dict:
-    """MUTATION: update a PVE replication job. Dry-run by default — captures current config.
-    confirm=True to execute. Config-only; in-flight replication is not immediately disrupted."""
+    """MUTATION: update a PVE replication job. Dry-run by default — the PLAN captures current
+    config for manual revert; confirm=True to execute and returns synchronously (no task UPID).
+    Config-only; in-flight replication is not immediately disrupted. To create a new job use
+    pve_replication_create; to remove one use pve_replication_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/replication/{rep_id}"
     plan = _plan("pve_replication_update", tgt,
@@ -303,8 +317,10 @@ def pve_replication_delete(
     rep_id: Annotated[str, Field(description="ID of the replication job to delete.")],
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the deletion.")] = False,
 ) -> dict:
-    """MUTATION: delete a PVE replication job. Dry-run by default — captures current config.
-    confirm=True to execute. Replication ceases; existing replicated data is NOT removed."""
+    """MUTATION: delete a PVE replication job. Dry-run by default — the PLAN captures current
+    config (no UNDO primitive on this plane; re-create with pve_replication_create to restore).
+    confirm=True to execute and returns synchronously (no task UPID). Replication ceases; existing
+    replicated data on the target is NOT removed."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/replication/{rep_id}"
     plan = _plan("pve_replication_delete", tgt,
@@ -326,8 +342,10 @@ def pbs_job_create(
     comment: Annotated[str | None, Field(description="Free-text note stored on the job.")] = None,
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the creation.")] = False,
 ) -> dict:
-    """MUTATION: create a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PBS_* config. Config-only; no existing data affected."""
+    """MUTATION: create a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default;
+    confirm=True to execute and returns synchronously (no task UPID) — additive, no existing data
+    affected. Needs PROXIMO_PBS_* config. To modify use pbs_job_update, to remove use
+    pbs_job_delete, or to run it once immediately (bypassing the schedule) use pbs_job_run."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/config/{job_type}/{job_id}"
     plan = _plan("pbs_job_create", tgt,
@@ -352,7 +370,9 @@ def pbs_job_update(
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the update.")] = False,
 ) -> dict:
     """MUTATION: update a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
-    captures current config. confirm=True to execute. Needs PROXIMO_PBS_* config."""
+    the PLAN captures current config for manual revert; confirm=True to execute and returns
+    synchronously (no task UPID). Config-only; existing backup data is unaffected. Needs
+    PROXIMO_PBS_* config. To create use pbs_job_create; to remove use pbs_job_delete."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/config/{job_type}/{job_id}"
     plan = _plan("pbs_job_update", tgt,
@@ -374,8 +394,9 @@ def pbs_job_delete(
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the deletion.")] = False,
 ) -> dict:
     """MUTATION: delete a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
-    captures current config. confirm=True to execute. Schedule removed; backup data NOT deleted.
-    Needs PROXIMO_PBS_* config."""
+    the PLAN captures current config (no UNDO primitive; re-create with pbs_job_create to restore
+    the schedule). confirm=True to execute and returns synchronously (no task UPID). Schedule
+    removed, backup data NOT deleted. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/config/{job_type}/{job_id}"
     plan = _plan("pbs_job_delete", tgt,
@@ -393,9 +414,11 @@ def pbs_job_run(
     job_id: Annotated[str, Field(description="ID of the PBS scheduled job to trigger immediately.")],
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the run.")] = False,
 ) -> dict:
-    """MUTATION: trigger a PBS scheduled job immediately. job_type = sync|verify|prune.
-    Dry-run by default. confirm=True to execute. Async — returns UPID.
-    Needs PROXIMO_PBS_* config. Prune runs may delete snapshots per the retention policy."""
+    """MUTATION: trigger a PBS scheduled job immediately, outside its normal schedule.
+    job_type = sync|verify|prune. Dry-run by default; confirm=True to execute. Async — returns
+    a UPID; check progress with pbs_tasks_list. Risk depends on job_type: prune runs permanently
+    DELETE snapshots per the retention policy, sync may add/remove directory data, verify is
+    read-only. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/admin/{job_type}/{job_id}"
     plan = _plan("pbs_job_run", tgt,
@@ -414,10 +437,11 @@ def pbs_realm_sync(
     dry_run: Annotated[bool | None, Field(description="If true, ask PBS itself to preview the sync without applying it (separate from the tool's own confirm gate).")] = None,
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the sync.")] = False,
 ) -> dict:
-    """MUTATION: sync PBS auth realm (LDAP/AD) users. Dry-run by default.
-    confirm=True to execute. Async — returns UPID. Needs PROXIMO_PBS_* config.
-    remove_vanished=True also removes PBS users no longer in the directory.
-    (2026-07-10 audit: the old 'scope' param was dropped — PBS /sync has no such field.)"""
+    """MUTATION: sync PBS auth realm (LDAP/AD) users into PBS. Dry-run by default; confirm=True to
+    execute. Async — returns a UPID; check progress with pbs_tasks_list. remove_vanished=True
+    additionally DELETES PBS users no longer present in the directory (recoverable only by
+    re-sync, not a true undo). Needs PROXIMO_PBS_* config. (2026-07-10 audit: the old 'scope'
+    param was dropped — PBS /sync has no such field.)"""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/access/domains/{realm}"
     plan = _plan("pbs_realm_sync", tgt,

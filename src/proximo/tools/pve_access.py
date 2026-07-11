@@ -136,9 +136,10 @@ def pve_acl_modify(
 ) -> dict:
     """MUTATION: grant or revoke an ACL entry (PUT /access/acl).
 
-    Dry-run by default — the PLAN surfaces the critical Proxmox gotcha: a specific-path ACL
-    REPLACES inherited grants (SHADOW) and revoking can RESTORE them (WIDEN). Re-call with
-    confirm=True to execute. Synchronous.
+    Dry-run by default (returns a PLAN) — it surfaces the critical Proxmox gotcha: a specific-path
+    ACL REPLACES inherited grants (SHADOW) and revoking can RESTORE them (WIDEN). confirm=True
+    executes and returns a dict; synchronous, no UPID. Use pve_acl_list to see current entries,
+    pve_overbroad_grants to find over-broad ones, or pve_acl_prune to narrow/remove one.
 
     kind='user' (default), 'group', or 'token'. delete=False = grant; delete=True = revoke.
     """
@@ -165,9 +166,10 @@ def pve_acl_prune(
 ) -> dict:
     """MUTATION: prune (remove/narrow) an over-broad ACL grant flagged by pve_overbroad_grants.
 
-    Dry-run by default — the PLAN names every principal losing/gaining what, and flags
-    shadow/widen gotchas. Re-call with confirm=True to execute (revoke, then optional
-    narrower re-grant). Synchronous. roleid = the over-broad role to remove (from detection).
+    Dry-run by default (returns a PLAN naming every principal losing/gaining what, and flagging
+    shadow/widen gotchas); confirm=True executes and returns a dict. Non-atomic — a revoke PUT
+    then an optional narrower re-grant PUT — but safe-direction: a partial failure only narrows
+    access, never widens it. Synchronous. roleid = the over-broad role to remove (from detection).
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"acl:prune:{path}:{target}"
@@ -194,8 +196,9 @@ def pve_token_create(
     """MUTATION: create an API token for a user.
 
     Dry-run by default — the PLAN shows risk (privsep=False is HIGH: token inherits ALL owner perms).
-    confirm=True to execute. The token secret (value) is returned ONCE to the caller and is NEVER
-    written to the audit ledger. Synchronous.
+    confirm=True executes and returns a dict whose result carries the token secret (value) ONCE —
+    it is never written to the audit ledger and cannot be retrieved again. Synchronous. Use
+    pve_tokens_list to see a user's existing tokens, or pve_token_revoke to remove one.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"token:{userid}!{tokenid}"
@@ -221,7 +224,8 @@ def pve_token_revoke(
     """MUTATION (IRREVERSIBLE): permanently revoke an API token.
 
     Dry-run by default — the PLAN flags HIGH: revocation is permanent, the secret is gone forever.
-    confirm=True to execute. Synchronous.
+    confirm=True executes and returns a dict; synchronous, no UPID. Use pve_tokens_list to see a
+    user's tokens first, or pve_token_create to issue a new one instead.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"token:{userid}!{tokenid}"
@@ -241,7 +245,8 @@ def pve_user_get(
 ) -> dict:
     """Get a user's full config (read-only). Returns userid, enabled flag, expiry, email, comment,
     group membership, API tokens, and firstname/lastname. Use pve_user_create/update/delete to
-    modify the user; use pve_acl_list to see their effective permissions."""
+    modify the user; use pve_acl_list to see the cluster's raw ACL entries (not a resolved
+    per-user effective-permission view)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_user_get", f"user/{userid}", lambda: user_get(api, userid))
 
@@ -278,7 +283,8 @@ def pve_user_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION: create a user. Dry-run by default (note: password is set separately — the user
-    cannot log in until then). confirm=True to execute."""
+    cannot log in until then). confirm=True executes and returns a dict; synchronous, no UPID.
+    Use pve_user_update to change it afterward, or pve_user_delete to remove it."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"user/{userid}"
     plan = _plan("pve_user_create", tgt,
@@ -306,7 +312,8 @@ def pve_user_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION: update a user (enable=False stops login; group changes re-scope access).
-    Dry-run by default. confirm=True to execute."""
+    Dry-run by default. confirm=True executes and returns a dict; synchronous, no UPID. Use
+    pve_user_get to see current state first, or pve_user_delete to remove the user instead."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"user/{userid}"
     plan = _plan("pve_user_update", tgt,
@@ -326,7 +333,9 @@ def pve_user_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (HIGH): delete a user. Dry-run by default — the PLAN reads the user's ACLs/tokens
-    to show what access vanishes (permanent, no undo; admin = lockout risk). confirm=True."""
+    to show what access vanishes (permanent, no undo; admin = lockout risk). confirm=True executes
+    and returns a dict; synchronous, no UPID. To disable login without deleting, use
+    pve_user_update (enable=False) instead."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"user/{userid}"
     plan = _plan("pve_user_delete", tgt, lambda: plan_user_delete(api, userid))
@@ -343,9 +352,9 @@ def pve_group_create(
     comment: Annotated[str | None, Field(description="Optional free-text comment.")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
-    """MUTATION: create an (empty) group. Dry-run by default (additive, LOW risk).
-    Returns the plan preview; confirm=True to execute. The group is inert until users are
-    added or an ACL entry grants it privileges."""
+    """MUTATION: create an (empty) group. Dry-run by default (additive, LOW risk); confirm=True
+    executes and returns a dict, synchronous with no UPID. The group is inert until users are
+    added (pve_user_update/pve_user_create with groups=) or pve_acl_modify grants it privileges."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"group/{groupid}"
     plan = _plan("pve_group_create", tgt, lambda: plan_group_create(groupid, comment))
@@ -362,8 +371,9 @@ def pve_group_update(
     comment: Annotated[str | None, Field(description="New free-text comment.")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
-    """MUTATION: update a group's comment. Dry-run by default (additive, LOW risk).
-    Returns the plan preview; confirm=True to execute. Does not modify group membership."""
+    """MUTATION: update a group's comment. Dry-run by default (comment-only replace, LOW risk); confirm=True
+    executes and returns a dict, synchronous with no UPID. Does not modify group membership — use
+    pve_user_update (groups=) to add/remove members, or pve_group_get to see current members."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"group/{groupid}"
     plan = _plan("pve_group_update", tgt, lambda: plan_group_update(groupid, comment))
@@ -380,7 +390,8 @@ def pve_group_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (HIGH): delete a group. Dry-run by default — the PLAN reads members and warns ACLs
-    granted to/on the group are orphaned. confirm=True."""
+    granted to/on the group are orphaned (permanent, no undo). confirm=True executes and returns a
+    dict; synchronous, no UPID. Use pve_group_get first to see current members."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"group/{groupid}"
     plan = _plan("pve_group_delete", tgt, lambda: plan_group_delete(api, groupid))
@@ -407,7 +418,7 @@ def pve_realm_get(
     realm: Annotated[str, Field(description="Realm id to look up, e.g. 'pam', 'pve', or a configured ldap/ad/openid realm name.")],
 ) -> dict:
     """Get a realm's full config (read-only). Returns realm type, comment, TFA requirement, and
-    type-specific settings (server/base_dn for ldap; domain/server1 for ad; issuer-url/client-id
+    type-specific settings (server1/base_dn for ldap; domain/server1 for ad; issuer-url/client-id
     for openid). Use pve_realm_create/update/delete to manage realms."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_realm_get", f"realm/{realm}", lambda: realm_get(api, realm))
@@ -415,8 +426,9 @@ def pve_realm_get(
 
 @tool()
 def pve_tfa_list() -> list[dict]:
-    """List all per-user TFA (two-factor) entries across the cluster (read-only). Returns each
-    entry's userid, factor type (totp/webauthn/yubico/recovery), factor id, and metadata. Use pve_tfa_get
+    """List all per-user TFA (two-factor) entries across the cluster (read-only). Returns the
+    configured TFA entries; the exact shape varies by PVE version (typically per-user with a
+    nested `entries` list of factor type/id). Use pve_tfa_get
     for one user's entries; use pve_tfa_delete (confirm=True) to remove a factor (RISK_HIGH)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_tfa_list", "access/tfa", lambda: tfa_list(api))
@@ -444,7 +456,7 @@ def pve_tfa_delete(
     """MUTATION (HIGH RISK): delete a user's TFA factor. Dry-run by default — the PLAN shows how many
     factors remain and warns this WEAKENS the account (and can lock the user out if it's the last
     factor on a TFA-required realm). `password` (if PVE requires it) is passed through but never
-    logged. confirm=True to execute.
+    logged. confirm=True executes and returns a dict; no UNDO (the factor must be re-enrolled).
 
     NOTE (live-verified PVE 9.1.7): PVE requires a ticket-based login session — NOT an API token —
     to mutate TFA, returning `403 ... need proper ticket` under token auth. Proximo is token-authed,
@@ -467,8 +479,9 @@ def pve_role_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION: create a custom role with an optional privilege set. Dry-run by default (MEDIUM
-    risk — inert until an ACL entry references it). Returns the plan preview; confirm=True to
-    execute. privs format: comma-separated privilege names (e.g. 'VM.PowerMgmt,VM.Config.Disk')."""
+    risk — inert until an ACL entry references it). confirm=True executes and returns a dict,
+    synchronous with no UPID. privs format: comma-separated privilege names (e.g.
+    'VM.PowerMgmt,VM.Config.Disk'). Use pve_acl_modify to assign the new role to a principal."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"role/{roleid}"
     plan = _plan("pve_role_create", tgt, lambda: plan_role_create(roleid, privs))
@@ -487,7 +500,9 @@ def pve_role_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION: change a role's privileges. Dry-run by default — built-in roles (Administrator,
-    PVEAdmin, …) are flagged HIGH (changing them re-scopes every ACL using them). confirm=True."""
+    PVEAdmin, …) are flagged HIGH (changing them re-scopes every ACL using them). confirm=True
+    executes and returns a dict; synchronous, no UPID. Use pve_roles_list to see current roles
+    and privileges first."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"role/{roleid}"
     plan = _plan("pve_role_update", tgt, lambda: plan_role_update(api, roleid, privs, append))
@@ -504,7 +519,8 @@ def pve_role_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (HIGH): delete a role. Dry-run by default — the PLAN reads ACLs to count grants
-    that will break, and refuses built-in roles. confirm=True."""
+    that will break, and refuses built-in roles (permanent, no undo). confirm=True executes and
+    returns a dict; synchronous, no UPID. Use pve_acl_list to see which grants reference the role first."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"role/{roleid}"
     plan = _plan("pve_role_delete", tgt, lambda: plan_role_delete(api, roleid))
@@ -523,9 +539,10 @@ def pve_realm_create(
     options: Annotated[dict | None, Field(description="Type-specific config fields passed verbatim to PVE (e.g. ldap: server1/base_dn/user_attr; ad: domain/server1; openid: issuer-url/client-id).")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
-    """MUTATION: create an auth realm. Dry-run by default; confirm=True to execute.
-    `options` carries the type-specific fields PVE requires (ldap: server1/base_dn/user_attr;
-    ad: domain/server1; openid: issuer-url/client-id) — passed verbatim; PVE validates them."""
+    """MUTATION: create an auth realm. Dry-run by default; confirm=True executes and returns a
+    dict, synchronous with no UPID. `options` carries the type-specific fields PVE requires (ldap:
+    server1/base_dn/user_attr; ad: domain/server1; openid: issuer-url/client-id) — passed verbatim;
+    PVE validates them. Use pve_realms_list to see configured realms first."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"realm/{realm}"
     plan = _plan("pve_realm_create", tgt,
@@ -545,8 +562,9 @@ def pve_realm_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION: update a realm. Dry-run by default — built-in pam/pve realms are flagged HIGH
-    (changing them risks breaking logins). confirm=True. `options` carries type-specific fields
-    (server1/base_dn/etc.) passed verbatim; PVE validates them."""
+    (changing them risks breaking logins). confirm=True executes and returns a dict; synchronous,
+    no UPID. `options` carries type-specific fields (server1/base_dn/etc.) passed verbatim; PVE
+    validates them. Use pve_realm_get to see current config first."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"realm/{realm}"
     plan = _plan("pve_realm_update", tgt, lambda: plan_realm_update(api, realm, comment, options))
@@ -563,7 +581,9 @@ def pve_realm_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (HIGH, lockout-class): delete an auth realm. Dry-run by default — the PLAN reads
-    users to count who can no longer log in, and refuses built-in pam/pve. confirm=True."""
+    users to count who can no longer log in, and refuses built-in pam/pve (permanent, no undo).
+    confirm=True executes and returns a dict; synchronous, no UPID. Use pve_users_list to see who
+    authenticates through the realm first."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"realm/{realm}"
     plan = _plan("pve_realm_delete", tgt, lambda: plan_realm_delete(api, realm))

@@ -278,13 +278,10 @@ def pmg_who_group_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a PMG RuleDB 'who' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/who.
-    name: group name.
-    info: optional description.
-    and_: maps to API param 'and' (bool; AND vs OR logic for group members).
-    invert: if True, the group match is inverted.
-    Returns the numeric ogroup ID assigned by PMG on confirm.
+
+    Creates an empty group — add match objects with pmg_who_object_add; list existing groups with
+    pmg_who_groups_list. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+    {"status": "ok", "result": <new ogroup ID assigned by PMG>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/who"
@@ -307,10 +304,11 @@ def pmg_who_group_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a PMG RuleDB 'who' object group config. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/who/{ogroup}/config.
-    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-    Only non-None fields are sent to PMG; omitted fields keep current values.
+
+    Renames or reconfigures the group itself; to change its match objects use
+    pmg_who_object_add/pmg_who_object_update/pmg_who_object_delete. Only non-None fields are
+    sent, others keep their current value. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/who/{ogroup}/config"
@@ -332,10 +330,10 @@ def pmg_who_group_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'who' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/who/{ogroup}.
-    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-    WARNING: also removes all objects within the group.
+
+    Irreversible — also removes every object within the group. List groups first with
+    pmg_who_groups_list; to remove just one object instead use pmg_who_object_delete.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/who/{ogroup}"
@@ -357,13 +355,10 @@ def pmg_what_group_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a PMG RuleDB 'what' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/what.
-    name: group name.
-    info: optional description.
-    and_: maps to API param 'and' (bool; AND vs OR logic for group members).
-    invert: if True, the group match is inverted.
-    Returns the numeric ogroup ID assigned by PMG on confirm.
+
+    Creates an empty group — add match objects with pmg_what_object_add; list existing groups with
+    pmg_what_groups_list. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+    {"status": "ok", "result": <new ogroup ID assigned by PMG>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/what"
@@ -386,10 +381,11 @@ def pmg_what_group_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a PMG RuleDB 'what' object group config. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/what/{ogroup}/config.
-    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-    Only non-None fields are sent to PMG; omitted fields keep current values.
+
+    Renames or reconfigures the group itself; to change its match objects use
+    pmg_what_object_add/pmg_what_object_update/pmg_what_object_delete. Only non-None fields are
+    sent, others keep their current value. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/what/{ogroup}/config"
@@ -411,10 +407,10 @@ def pmg_what_group_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'what' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/what/{ogroup}.
-    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-    WARNING: also removes all objects within the group.
+
+    Irreversible — also removes every object within the group. List groups first with
+    pmg_what_groups_list; to remove just one object instead use pmg_what_object_delete.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/what/{ogroup}"
@@ -436,13 +432,10 @@ def pmg_when_group_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a PMG RuleDB 'when' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/when.
-    name: group name.
-    info: optional description.
-    and_: maps to API param 'and' (bool; AND vs OR logic for group members).
-    invert: if True, the group match is inverted.
-    Returns the numeric ogroup ID assigned by PMG on confirm.
+
+    Creates an empty group — add timeframe objects with pmg_when_object_add; list existing groups
+    with pmg_when_groups_list. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+    {"status": "ok", "result": <new ogroup ID assigned by PMG>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/when"
@@ -465,10 +458,11 @@ def pmg_when_group_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a PMG RuleDB 'when' object group config. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/when/{ogroup}/config.
-    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-    Only non-None fields are sent to PMG; omitted fields keep current values.
+
+    Renames or reconfigures the group itself; to change its timeframes use
+    pmg_when_object_add/pmg_when_object_update/pmg_when_object_delete. Only non-None fields are
+    sent, others keep their current value. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/when/{ogroup}/config"
@@ -490,10 +484,10 @@ def pmg_when_group_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'when' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/when/{ogroup}.
-    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-    WARNING: also removes all objects within the group.
+
+    Irreversible — also removes every timeframe within the group. List groups first with
+    pmg_when_groups_list; to remove just one timeframe instead use pmg_when_object_delete.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/when/{ogroup}"
@@ -521,12 +515,11 @@ def pmg_who_object_add(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add an object to a PMG RuleDB 'who' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/who/{ogroup}/{type}.
-    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-    type_: email|domain|regex|ip|network|ldap — controls the sub-path.
-    Type-specific fields: email(email), domain(domain), regex(regex), ip(ip),
-    network(cidr), ldap(mode, profile, group).
+
+    To create the group first use pmg_who_group_create; list its objects with
+    pmg_who_group_objects. If the group is already attached to a rule, the new object affects
+    mail matching immediately. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/who/{ogroup}/{type_}"
@@ -564,12 +557,10 @@ def pmg_who_object_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update an object in a PMG RuleDB 'who' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/who/{ogroup}/{type}/{id}.
-    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-    type_: email|domain|regex|ip|network|ldap — controls the sub-path.
-    id_: object ID (numeric string) from pmg_who_group_objects.
-    All type-specific fields optional; only non-None fields are sent.
+
+    id_ comes from pmg_who_group_objects; type_ must match the object's existing type. Only
+    non-None fields are sent, others keep their current value. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/who/{ogroup}/{type_}/{id_}"
@@ -602,11 +593,10 @@ def pmg_who_object_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): delete an object from a PMG RuleDB 'who' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/who/{ogroup}/objects/{id}.
-    ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-    id_: object ID (numeric string) from pmg_who_group_objects.
-    Object DELETE always goes through /objects/{id} regardless of type.
+
+    Irreversible. id_ comes from pmg_who_group_objects; to delete the whole group instead use
+    pmg_who_group_delete. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/who/{ogroup}/objects/{id_}"
@@ -638,13 +628,11 @@ def pmg_what_object_add(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add an object to a PMG RuleDB 'what' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/what/{ogroup}/{type}.
-    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-    type_: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.
-    Type-specific fields: contenttype+only_content (contenttype/archivefilter),
-    field+value+top_part_only (matchfield), spamlevel (spamfilter), filename (filenamefilter/archivefilenamefilter).
-    only_content maps to API param 'only-content'; top_part_only → 'top-part-only'.
+
+    To create the group first use pmg_what_group_create; list its objects with
+    pmg_what_group_objects. If the group is already attached to a rule, the new object affects
+    mail matching immediately. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/what/{ogroup}/{type_}"
@@ -683,13 +671,10 @@ def pmg_what_object_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update an object in a PMG RuleDB 'what' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/what/{ogroup}/{type}/{id}.
-    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-    type_: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.
-    id_: object ID (numeric string) from pmg_what_group_objects.
-    All type-specific fields optional; only non-None fields are sent.
-    only_content → 'only-content'; top_part_only → 'top-part-only'.
+
+    id_ comes from pmg_what_group_objects; type_ must match the object's existing type. Only
+    non-None fields are sent, others keep their current value. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/what/{ogroup}/{type_}/{id_}"
@@ -725,11 +710,10 @@ def pmg_what_object_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): delete an object from a PMG RuleDB 'what' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/what/{ogroup}/objects/{id}.
-    ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-    id_: object ID (numeric string) from pmg_what_group_objects.
-    Object DELETE always goes through /objects/{id} regardless of type.
+
+    Irreversible. id_ comes from pmg_what_group_objects; to delete the whole group instead use
+    pmg_what_group_delete. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/what/{ogroup}/objects/{id_}"
@@ -755,11 +739,10 @@ def pmg_when_object_add(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add a timeframe object to a PMG RuleDB 'when' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/when/{ogroup}/timeframe.
-    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-    start: time in H:i format (e.g. '08:00').
-    end: time in H:i format (e.g. '17:00').
+
+    To create the group first use pmg_when_group_create; list its objects with
+    pmg_when_group_objects. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/when/{ogroup}/timeframe"
@@ -782,11 +765,10 @@ def pmg_when_object_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a timeframe object in a PMG RuleDB 'when' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/when/{ogroup}/timeframe/{id}.
-    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-    id_: object ID (numeric string) from pmg_when_group_objects.
-    Both start and end are required — PMG 9.1 timeframe PUT rejects partial updates (400).
+
+    id_ comes from pmg_when_group_objects; to add a new timeframe instead use
+    pmg_when_object_add. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/when/{ogroup}/timeframe/{id_}"
@@ -808,11 +790,10 @@ def pmg_when_object_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): delete a timeframe object from a PMG RuleDB 'when' object group. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/when/{ogroup}/objects/{id}.
-    ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-    id_: object ID (numeric string) from pmg_when_group_objects.
-    Object DELETE always goes through /objects/{id} regardless of type.
+
+    Irreversible. id_ comes from pmg_when_group_objects; to delete the whole group instead use
+    pmg_when_group_delete. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/when/{ogroup}/objects/{id_}"
@@ -839,11 +820,10 @@ def pmg_action_bcc_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a BCC action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/bcc.
-    name: action object name. target: BCC recipient email address.
-    info: optional description. original: if True, send the ORIGINAL unmodified mail to the BCC
-    target (PMG's "send original mail" flag), not the processed copy — controls which version is sent.
+
+    List existing action objects with pmg_action_objects_list; attach this one to a rule with
+    pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/action/bcc"
@@ -867,10 +847,10 @@ def pmg_action_bcc_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a BCC action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/bcc/{id}.
-    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-    Only non-None fields are sent; omitted fields keep current values.
+
+    id_ comes from pmg_action_objects_list; to create a new one instead use pmg_action_bcc_create.
+    Only non-None fields are sent, others keep their current value. confirm=True executes and
+    returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/bcc/{id_}"
@@ -897,10 +877,10 @@ def pmg_action_field_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a field-modification action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/field.
-    name: action object name. field: mail header field to set. value: value to assign.
-    info: optional description.
+
+    List existing action objects with pmg_action_objects_list; attach this one to a rule with
+    pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/action/field"
@@ -924,10 +904,10 @@ def pmg_action_field_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a field-modification action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/field/{id}.
-    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-    name, field, value all required — PMG 9.1 field action PUT rejects partial updates (400).
+
+    id_ comes from pmg_action_objects_list; to create a new one instead use
+    pmg_action_field_create. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/field/{id_}"
@@ -956,10 +936,10 @@ def pmg_action_notification_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a notification action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/notification.
-    name: action name. to: notification recipient. subject: notification subject.
-    body_text: notification body (maps to API param 'body'). attach: attach original message.
+
+    List existing action objects with pmg_action_objects_list; attach this one to a rule with
+    pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/action/notification"
@@ -987,11 +967,10 @@ def pmg_action_notification_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a notification action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/notification/{id}.
-    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-    name, to, subject, body_text all required — PMG 9.1 notification PUT rejects partial updates (400).
-    body_text maps to API param 'body'.
+
+    id_ comes from pmg_action_objects_list; to create a new one instead use
+    pmg_action_notification_create. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/notification/{id_}"
@@ -1024,10 +1003,10 @@ def pmg_action_disclaimer_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a disclaimer action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/disclaimer.
-    name: action name. disclaimer: disclaimer text. position: start|end.
-    add_separator: maps to API param 'add-separator' (bool).
+
+    List existing action objects with pmg_action_objects_list; attach this one to a rule with
+    pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/action/disclaimer"
@@ -1054,10 +1033,10 @@ def pmg_action_disclaimer_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a disclaimer action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/disclaimer/{id}.
-    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-    position: start|end (validated). add_separator → 'add-separator'. Only non-None fields sent.
+
+    id_ comes from pmg_action_objects_list. Only non-None fields are sent, others keep their
+    current value. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/disclaimer/{id_}"
@@ -1090,11 +1069,10 @@ def pmg_action_removeattachments_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a remove-attachments action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/removeattachments.
-    name: action name. text: replacement text for removed attachments.
-    all_: maps to API param 'all' (bool; remove all attachments).
-    quarantine: if True, quarantine removed attachments.
+
+    List existing action objects with pmg_action_objects_list; attach this one to a rule with
+    pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/action/removeattachments"
@@ -1121,10 +1099,10 @@ def pmg_action_removeattachments_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a remove-attachments action object in the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/removeattachments/{id}.
-    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-    all_: maps to API param 'all' (bool). Only non-None fields are sent.
+
+    id_ comes from pmg_action_objects_list. Only non-None fields are sent, others keep their
+    current value. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/removeattachments/{id_}"
@@ -1153,11 +1131,10 @@ def pmg_action_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): delete an action object from the PMG RuleDB. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/action/objects/{id}.
-    id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-    NOTE: PMG rejects deletion of non-editable (built-in) system action objects.
-    Check 'editable' flag in pmg_action_objects_list before confirming.
+
+    Irreversible. PMG rejects deletion of non-editable (built-in) system action objects — check
+    the 'editable' flag via pmg_action_objects_list first. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/action/objects/{id_}"
@@ -1188,15 +1165,11 @@ def pmg_ruledb_rule_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): create a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules.
-    name: rule name. priority: 0-100 (lower = higher priority).
-    active: DEFAULTS TO FALSE — rules control live mail processing; only activate
-    when the rule configuration and group attachments have been verified.
-    direction: 0=inbound, 1=outbound, 2=both.
-    from_and/from_invert/to_and/to_invert/what_and/what_invert/when_and/when_invert:
-        optional bool flags for AND/invert logic (map to hyphen-param API names).
-    Returns the numeric rule ID assigned by PMG on confirm.
+
+    Creates the rule shell only — attach condition/action groups afterward with
+    pmg_ruledb_rule_from_attach and its sibling attach tools; list existing rules with
+    pmg_ruledb_rules_list. active defaults False (live mail is affected only once active).
+    confirm=True executes and returns {"status": "ok", "result": <new rule ID assigned by PMG>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/ruledb/rules"
@@ -1235,11 +1208,11 @@ def pmg_ruledb_rule_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a PMG RuleDB rule configuration. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: PUT /config/ruledb/rules/{id}/config.
-    id_: rule ID (positive integer string, e.g. '100').
-    All other fields are optional; only non-None values are sent.
-    WARNING: setting active=True activates the rule and begins live mail processing.
+
+    Changes rule-level fields only (name/priority/active/direction/AND-invert flags) — to
+    attach or detach condition/action groups use pmg_ruledb_rule_from_attach and its sibling
+    attach/detach tools. Only non-None fields are sent. confirm=True executes and returns
+    {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/config"
@@ -1274,10 +1247,10 @@ def pmg_ruledb_rule_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}.
-    id_: rule ID (positive integer string, e.g. '100').
-    WARNING: permanently removes the rule and all its group bindings.
+
+    Irreversible — permanently removes the rule and all its group bindings (the who/what/when/
+    action groups themselves survive). List rules first with pmg_ruledb_rules_list.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}"
@@ -1297,10 +1270,10 @@ def pmg_ruledb_rule_from_attach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): attach a 'from' (sender/who) group to a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/from.
-    id_: rule ID. ogroup: numeric who-group ID from pmg_who_groups_list.
-    Only affects mail flow if the rule is active.
+
+    ogroup comes from pmg_who_groups_list; list a rule's current 'from' groups with
+    pmg_ruledb_rule_from_list. Additive — only affects mail flow once the rule is active.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/from"
@@ -1321,10 +1294,10 @@ def pmg_ruledb_rule_from_detach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): detach a 'from' (sender/who) group from a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/from/{ogroup}.
-    id_: rule ID. ogroup: numeric who-group ID to detach.
-    Only affects mail flow if the rule is active.
+
+    Only removes the binding — the who-group itself is untouched (delete it separately with
+    pmg_who_group_delete if desired). List current bindings with pmg_ruledb_rule_from_list.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/from/{ogroup}"
@@ -1345,10 +1318,10 @@ def pmg_ruledb_rule_to_attach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): attach a 'to' (recipient/who) group to a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/to.
-    id_: rule ID. ogroup: numeric who-group ID from pmg_who_groups_list.
-    Only affects mail flow if the rule is active.
+
+    ogroup comes from pmg_who_groups_list; list a rule's current 'to' groups with
+    pmg_ruledb_rule_to_list. Additive — only affects mail flow once the rule is active.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/to"
@@ -1369,10 +1342,10 @@ def pmg_ruledb_rule_to_detach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): detach a 'to' (recipient/who) group from a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/to/{ogroup}.
-    id_: rule ID. ogroup: numeric who-group ID to detach.
-    Only affects mail flow if the rule is active.
+
+    Only removes the binding — the who-group itself is untouched (delete it separately with
+    pmg_who_group_delete if desired). List current bindings with pmg_ruledb_rule_to_list.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/to/{ogroup}"
@@ -1393,10 +1366,10 @@ def pmg_ruledb_rule_what_attach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): attach a 'what' (content) group to a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/what.
-    id_: rule ID. ogroup: numeric what-group ID from pmg_what_groups_list.
-    Only affects mail flow if the rule is active.
+
+    ogroup comes from pmg_what_groups_list; list a rule's current 'what' groups with
+    pmg_ruledb_rule_what_list. Additive — only affects mail flow once the rule is active.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/what"
@@ -1417,10 +1390,10 @@ def pmg_ruledb_rule_what_detach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): detach a 'what' (content) group from a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/what/{ogroup}.
-    id_: rule ID. ogroup: numeric what-group ID to detach.
-    Only affects mail flow if the rule is active.
+
+    Only removes the binding — the what-group itself is untouched (delete it separately with
+    pmg_what_group_delete if desired). List current bindings with pmg_ruledb_rule_what_list.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/what/{ogroup}"
@@ -1441,10 +1414,10 @@ def pmg_ruledb_rule_when_attach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): attach a 'when' (timeframe) group to a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/when.
-    id_: rule ID. ogroup: numeric when-group ID from pmg_when_groups_list.
-    Only affects mail flow if the rule is active.
+
+    ogroup comes from pmg_when_groups_list; list a rule's current 'when' groups with
+    pmg_ruledb_rule_when_list. Additive — only affects mail flow once the rule is active.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/when"
@@ -1465,10 +1438,10 @@ def pmg_ruledb_rule_when_detach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): detach a 'when' (timeframe) group from a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/when/{ogroup}.
-    id_: rule ID. ogroup: numeric when-group ID to detach.
-    Only affects mail flow if the rule is active.
+
+    Only removes the binding — the when-group itself is untouched (delete it separately with
+    pmg_when_group_delete if desired). List current bindings with pmg_ruledb_rule_when_list.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/when/{ogroup}"
@@ -1489,10 +1462,11 @@ def pmg_ruledb_rule_action_attach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): attach an action group to a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 live-verified path: POST /config/ruledb/rules/{id}/action (singular; /actions returns 501).
-    id_: rule ID. ogroup: numeric action group ID from pmg_action_objects_list.
-    Only affects mail flow if the rule is active.
+
+    ogroup comes from pmg_action_objects_list (the integer part before '_' in a compound ID like
+    '13_26'); list a rule's current actions with pmg_ruledb_rule_actions_list. Additive — only
+    affects mail flow once the rule is active. confirm=True executes and returns {"status": "ok",
+    "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/action"
@@ -1513,10 +1487,10 @@ def pmg_ruledb_rule_action_detach(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): detach an action group from a PMG RuleDB rule. Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
-    PMG 9.1 live-verified path: DELETE /config/ruledb/rules/{id}/action/{ogroup} (singular; /actions returns 501).
-    id_: rule ID. ogroup: numeric action group ID to detach.
-    Only affects mail flow if the rule is active.
+
+    Only removes the binding — the action object itself is untouched (delete it separately with
+    pmg_action_delete if desired). List current actions with pmg_ruledb_rule_actions_list.
+    confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/ruledb/rules/{id_}/action/{ogroup}"

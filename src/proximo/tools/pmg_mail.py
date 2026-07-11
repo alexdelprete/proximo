@@ -252,12 +252,12 @@ from proximo.server import (
 
 @tool()
 def pmg_doctor(node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None) -> dict:
-    """PMG connectivity + credential/permission preflight (read). Checks /nodes/{node}/version
-    and /access/users. A successful /version call means ticket login also succeeded —
-    connectivity and credentials are proven together. Needs PROXIMO_PMG_* config.
+    """READ-ONLY: PMG connectivity + credential/permission preflight — checks the global /version
+    endpoint and /access/users. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified: PMG has no /access/permissions endpoint (that is PVE-only);
-    /access/users is the closest equivalent and returns the same user/role information.
+    Returns a dict with "version" and "permissions" keys; a successful call proves connectivity
+    and credentials together. Run this first when diagnosing PMG trouble, before other pmg_* tools.
+    PMG has no /access/permissions endpoint (that is PVE-only); "permissions" here is /access/users.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -270,10 +270,10 @@ def pmg_doctor(node: Annotated[str | None, Field(description="PMG node name; def
 
 @tool()
 def pmg_node_status(node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None) -> dict:
-    """Get PMG node cpu/mem/disk/uptime status (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get PMG node cpu/mem/disk/uptime status. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified: /nodes/{node}/status path and response shape confirmed via
-    pmg-smoke.py W1 round-trip (node_status PASS).
+    Returns a dict with cpu/memory/disk/uptime fields for the node. This is the PMG node
+    (Proxmox Mail Gateway); for a PVE hypervisor node use pve_node_status instead.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -283,9 +283,10 @@ def pmg_node_status(node: Annotated[str | None, Field(description="PMG node name
 
 @tool()
 def pmg_relay_config() -> dict:
-    """Get PMG SMTP relay/smarthost configuration (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get PMG SMTP relay/smarthost configuration. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified: relay/smarthost settings live at /config/mail (not /config/relay).
+    Returns the full mail config section as a dict, including relay host, relay port, and other
+    SMTP delivery settings. Lives at /config/mail — there is no separate /config/relay endpoint.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_relay_config", "pmg/config/mail",
@@ -294,10 +295,10 @@ def pmg_relay_config() -> dict:
 
 @tool()
 def pmg_domains_list() -> list[dict]:
-    """List PMG managed mail domains (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list PMG managed mail domains. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified: /config/domains path and response shape confirmed via
-    pmg-smoke.py W1 round-trip and W3 full domain create/list/delete cycle.
+    Returns a list of domain dicts (domain name + comment). Use pmg_domain_create/pmg_domain_delete
+    to manage domains.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_domains_list", "pmg/config/domains",
@@ -319,12 +320,11 @@ def pmg_statistics_mail() -> dict:
 
 @tool()
 def pmg_quarantine_spam() -> list[dict]:
-    """List PMG quarantined spam messages (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list PMG quarantined spam messages. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified: endpoint is /quarantine/spam (not /quarantine/mails).
-    For virus quarantine use pmg_quarantine_virus; for attachment use pmg_quarantine_attachment.
-    To act on quarantined messages (deliver/delete/mark-seen/blocklist/welcomelist) use
-    pmg_quarantine_action.
+    Returns a list of dicts, one per quarantined message. For virus quarantine use
+    pmg_quarantine_virus; for attachment quarantine use pmg_quarantine_attachment. To act on
+    quarantined messages (deliver/delete/mark-seen/blocklist/welcomelist) use pmg_quarantine_action.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_spam", "pmg/quarantine/spam",
@@ -336,11 +336,11 @@ def pmg_statistics_domains(
     start: Annotated[int | None, Field(description="Unix epoch start of the stats window; omit for no lower bound.")] = None,
     end: Annotated[int | None, Field(description="Unix epoch end of the stats window; omit for no upper bound.")] = None,
 ) -> list[dict]:
-    """Get PMG per-domain mail statistics (read). Optional Unix epoch start/end timespan.
+    """READ-ONLY: get PMG per-domain mail statistics. Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: /statistics/domains.
-    Maps start/end params → starttime/endtime query params.
+    Returns a list of per-domain stat dicts. For overall totals use pmg_statistics_mail; for
+    time-bucketed counts use pmg_statistics_mailcount. start/end map to starttime/endtime.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_statistics_domains", "pmg/statistics/domains",
@@ -352,11 +352,11 @@ def pmg_statistics_virus(
     start: Annotated[int | None, Field(description="Unix epoch start of the stats window; omit for no lower bound.")] = None,
     end: Annotated[int | None, Field(description="Unix epoch end of the stats window; omit for no upper bound.")] = None,
 ) -> list[dict]:
-    """Get PMG virus statistics (read). Optional Unix epoch start/end timespan.
+    """READ-ONLY: get PMG virus statistics. Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: /statistics/virus.
-    Maps start/end params → starttime/endtime query params.
+    Returns a list of dicts with virus-detection counts over the window. For per-message virus
+    quarantine entries use pmg_quarantine_virus instead. start/end map to starttime/endtime.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_statistics_virus", "pmg/statistics/virus",
@@ -368,11 +368,11 @@ def pmg_statistics_spamscores(
     start: Annotated[int | None, Field(description="Unix epoch start of the stats window; omit for no lower bound.")] = None,
     end: Annotated[int | None, Field(description="Unix epoch end of the stats window; omit for no upper bound.")] = None,
 ) -> list[dict]:
-    """Get PMG spam score distribution statistics (read). Optional Unix epoch start/end timespan.
+    """READ-ONLY: get PMG spam score distribution statistics. Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: /statistics/spamscores.
-    Maps start/end params → starttime/endtime query params.
+    Returns a list of dicts bucketing message counts by spam score. For the raw quarantined spam
+    messages use pmg_quarantine_spam instead. start/end map to starttime/endtime.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_statistics_spamscores", "pmg/statistics/spamscores",
@@ -381,9 +381,10 @@ def pmg_statistics_spamscores(
 
 @tool()
 def pmg_statistics_recent(hours: Annotated[int, Field(description="Lookback window in hours, 1-24 (default 1).")] = 1) -> list[dict]:
-    """Get PMG recent mail statistics (read). hours: 1-24 window. Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get PMG recent mail statistics. hours: 1-24 window. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: /statistics/recent.
+    Returns a list of dicts covering only the last `hours`. For today's full aggregate totals use
+    pmg_statistics_mail instead.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_statistics_recent", "pmg/statistics/recent",
@@ -392,12 +393,12 @@ def pmg_statistics_recent(hours: Annotated[int, Field(description="Lookback wind
 
 @tool()
 def pmg_quarantine_blocklist_list(pmail: Annotated[str | None, Field(description="Scope the blocklist read to this user's mailbox; defaults to the authenticated PMG user.")] = None) -> list[dict]:
-    """List PMG quarantine blocklist entries (read). Optional pmail to scope to one user.
+    """READ-ONLY: list PMG quarantine blocklist entries. Optional pmail to scope to one user.
     Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: /quarantine/blocklist.
-    pmail: scopes the read to one user's blocklist; ALWAYS sent, defaulting to the authenticated
-    PMG user when omitted — so an empty result means "none for that user", not "none globally".
+    Returns a list of blocklist-entry dicts. pmail is ALWAYS sent, defaulting to the authenticated
+    PMG user when omitted — an empty result means "none for that user," not "none globally." Use
+    pmg_quarantine_blocklist_add/pmg_quarantine_blocklist_remove to manage entries.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_blocklist_list", "pmg/quarantine/blocklist",
@@ -413,8 +414,9 @@ def pmg_quarantine_blocklist_add(
     """MUTATION (LOW): add an address to the quarantine blocklist. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: POST /quarantine/blocklist.
-    pmail: scope to a per-user blocklist (optional).
+    Dry-run returns a PLAN; confirm=True executes and returns {"status": "ok", "result": ...}.
+    Additive — reverse with pmg_quarantine_blocklist_remove. View current entries with
+    pmg_quarantine_blocklist_list. pmail scopes the entry to a per-user blocklist (optional).
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/blocklist"
@@ -434,13 +436,11 @@ def pmg_quarantine_action(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM; HIGH for action='delete' — permanent, irreversible). Apply an action to
-    quarantined message(s). Dry-run by default.
-    confirm=True to execute. Needs PROXIMO_PMG_* config.
+    quarantined message(s). Dry-run by default; confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    action: one of deliver|delete|mark-seen|mark-unseen|blocklist|welcomelist.
-    mail_ids: single mail ID or comma-separated list.
-    PMG 9.1 live-proven 2026-06-26: POST /quarantine/content — delete and deliver
-    both confirmed against real quarantined GTUBE messages.
+    action: deliver|delete|mark-seen|mark-unseen|blocklist|welcomelist. Get mail_ids from
+    pmg_quarantine_spam (or the virus/attachment quarantine lists). Dry-run returns a PLAN;
+    confirm=True executes and returns {"status": "ok", "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/content"
@@ -456,10 +456,10 @@ def pmg_quarantine_action(
 
 @tool()
 def pmg_postfix_qshape(node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None) -> list[dict]:
-    """Get PMG Postfix queue shape (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get PMG Postfix queue shape. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified: /nodes/{node}/postfix/qshape returns a list of
-    dicts (one row per domain + a TOTAL row with queue-age bucket counts).
+    Returns a list of dicts, one row per domain plus a TOTAL row, each with queue-age bucket
+    counts. To force immediate re-delivery of the queued mail use pmg_postfix_flush.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -475,7 +475,9 @@ def pmg_postfix_flush(
     """MUTATION (LOW): flush all Postfix queues (immediate re-delivery attempt). Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/postfix/flush_queues.
+    Dry-run returns a PLAN; confirm=True executes and returns {"status": "ok", "result": ...}.
+    Triggers redelivery attempts only — does not clear or drop queued mail. Check queue state
+    with pmg_postfix_qshape before and after.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -491,9 +493,10 @@ def pmg_postfix_flush(
 
 @tool()
 def pmg_spam_config() -> dict:
-    """Get PMG spam filter configuration (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get PMG spam filter configuration. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: /config/spam.
+    Returns a dict of the current spam-filter settings (score thresholds, Bayes/AWL/Razor/RBL
+    toggles, etc). Use pmg_spam_config_update to change them.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_spam_config", "pmg/config/spam",
@@ -505,12 +508,11 @@ def pmg_service_status(
     service: Annotated[str, Field(description="PMG service name, e.g. postfix, pmgproxy, pmgdaemon, pmgmirror, pmgtunnel, pmg-smtp-filter, clamav, spamassassin.")],
     node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
 ) -> dict:
-    """Get the status of a PMG system service (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get the status of a PMG system service. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: /nodes/{node}/services/{service}/state.
-    service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon', 'pmgmirror', 'pmgtunnel',
-             'pmg-smtp-filter', 'clamav', 'spamassassin'. No hardcoded enum —
-             pass any valid service name; unknown names return a PMG 404.
+    Returns a dict with the service's state. service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon',
+    'clamav', 'spamassassin' — no hardcoded enum, unknown names return a PMG 404. Use
+    pmg_service_control to start/stop/restart/reload the service.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -527,8 +529,9 @@ def pmg_domain_create(
     """MUTATION (LOW): create a managed mail domain. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: POST /config/domains.
-    domain: domain name to add (e.g. 'example.com').
+    domain: domain name to add (e.g. 'example.com'). Dry-run returns a PLAN; confirm=True executes
+    and returns {"status": "ok", "result": ...}. Additive — reverse with pmg_domain_delete; list
+    current domains with pmg_domains_list.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/domains"
@@ -549,8 +552,9 @@ def pmg_domain_delete(
     """MUTATION (MEDIUM): delete a managed mail domain. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: DELETE /config/domains/{domain}.
-    Mail routing rules referencing this domain may break — review before confirming.
+    Mail routing rules referencing this domain may break — review before confirming. No UNDO
+    primitive; recreate with pmg_domain_create if needed. Dry-run returns a PLAN; confirm=True
+    executes and returns {"status": "ok", "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/domains/{domain}"
@@ -576,10 +580,8 @@ def pmg_transport_create(
     """MUTATION (LOW): create a mail transport rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: POST /config/transport.
-    domain: destination domain. host: next-hop relay host.
-    port: TCP port 1-65535 (default 25). protocol: smtp|lmtp (default smtp).
-    use_mx: use MX lookup for the host (default True).
+    Dry-run returns a PLAN; confirm=True executes and returns {"status": "ok", "result": ...}.
+    Additive — reverse with pmg_transport_delete. Overrides MX-based routing for the given domain.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/transport"
@@ -601,8 +603,9 @@ def pmg_transport_delete(
     """MUTATION (MEDIUM): delete a mail transport rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: DELETE /config/transport/{domain}.
-    Mail for the domain will fall back to default PMG routing (MX lookup).
+    Mail for the domain falls back to default PMG routing (MX lookup) afterward. No UNDO
+    primitive; recreate with pmg_transport_create if needed. Dry-run returns a PLAN; confirm=True
+    executes and returns {"status": "ok", "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/transport/{domain}"
@@ -624,8 +627,9 @@ def pmg_mynetworks_add(
     """MUTATION (LOW): add a CIDR to the PMG mynetworks trusted relay list. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: POST /config/mynetworks.
-    cidr: network in CIDR notation (e.g. '10.0.0.0/8'). Only add CIDRs you control.
+    Only add CIDRs you control — trusted networks bypass spam filtering. Additive — reverse with
+    pmg_mynetworks_remove. Dry-run returns a PLAN; confirm=True executes and returns
+    {"status": "ok", "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/mynetworks"
@@ -646,8 +650,9 @@ def pmg_mynetworks_remove(
     """MUTATION (MEDIUM): remove a CIDR from the PMG mynetworks trusted relay list. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: DELETE /config/mynetworks/{cidr} (CIDR URL-encoded).
-    Internal senders in the range will be subject to spam filtering after removal.
+    Internal senders in the range become subject to spam filtering after removal. No UNDO
+    primitive; re-add with pmg_mynetworks_add if needed. Dry-run returns a PLAN; confirm=True
+    executes and returns {"status": "ok", "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = f"pmg/config/mynetworks/{cidr}"
@@ -678,10 +683,10 @@ def pmg_spam_config_update(
     """MUTATION (MEDIUM): update PMG spam filter configuration. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: PUT /config/spam.
-    Only non-None fields are sent — omitted fields keep their current PMG values.
-    delete: comma-separated list of field names to reset to defaults.
-    Changes take effect immediately on new inbound mail.
+    Only non-None fields are sent — omitted fields keep their current PMG value; delete resets
+    named fields to defaults, effective immediately on new inbound mail. Read current values with
+    pmg_spam_config. Dry-run returns a PLAN; confirm=True executes and returns {"status": "ok",
+    "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/config/spam"
@@ -710,11 +715,12 @@ def pmg_spam_config_update(
 
 @tool()
 def pmg_quarantine_welcomelist_list(pmail: Annotated[str | None, Field(description="Scope the welcomelist read to this user's mailbox; defaults to the authenticated PMG user.")] = None) -> list[dict]:
-    """List PMG quarantine welcomelist entries (read). Optional pmail to scope to one user.
+    """READ-ONLY: list PMG quarantine welcomelist entries. Optional pmail to scope to one user.
     Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/welcomelist.
-    pmail defaults to the authenticated user when not provided.
+    Returns a list of welcomelist-entry dicts; pmail defaults to the authenticated user when
+    omitted. For the blocklist use pmg_quarantine_blocklist_list. Use
+    pmg_quarantine_welcomelist_add/pmg_quarantine_welcomelist_remove to manage entries.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_welcomelist_list", "pmg/quarantine/welcomelist",
@@ -730,8 +736,9 @@ def pmg_quarantine_welcomelist_add(
     """MUTATION (LOW): add an address to the quarantine welcomelist. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: POST /quarantine/welcomelist.
-    pmail: optional per-user scope (defaults to authenticated user).
+    pmail: optional per-user scope (defaults to authenticated user). Additive — reverse with
+    pmg_quarantine_welcomelist_remove. Dry-run returns a PLAN; confirm=True executes and returns
+    {"status": "ok", "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/welcomelist"
@@ -753,8 +760,9 @@ def pmg_quarantine_welcomelist_remove(
     """MUTATION (LOW): remove an address from the quarantine welcomelist. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: DELETE /quarantine/welcomelist.
-    pmail: optional per-user scope (defaults to authenticated user).
+    pmail: optional per-user scope (defaults to authenticated user). No UNDO primitive; re-add
+    with pmg_quarantine_welcomelist_add if needed. Dry-run returns a PLAN; confirm=True executes
+    and returns {"status": "ok", "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/welcomelist"
@@ -776,8 +784,9 @@ def pmg_quarantine_blocklist_remove(
     """MUTATION (LOW): remove an address from the quarantine blocklist. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: DELETE /quarantine/blocklist.
-    pmail: optional per-user scope (defaults to authenticated user).
+    pmail: optional per-user scope (defaults to authenticated user). No UNDO primitive; re-add
+    with pmg_quarantine_blocklist_add if needed. Dry-run returns a PLAN; confirm=True executes
+    and returns {"status": "ok", "result": ...}.
     """
     _, pmg = _proximo_server._pmg()
     tgt = "pmg/quarantine/blocklist"
@@ -800,11 +809,9 @@ def pmg_service_control(
     """MUTATION (MEDIUM): start, stop, restart, or reload a PMG service. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/services/{service}/{action}.
-    service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon', 'clamav', 'spamassassin'.
-    action: start|stop|restart|reload.
-
     WARNING: stop on postfix/pmgproxy/pmgdaemon interrupts mail delivery until manually restarted.
+    Check current state first with pmg_service_status. Dry-run returns a PLAN; confirm=True
+    executes and returns {"status": "ok", "result": ...}.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -831,13 +838,10 @@ def pmg_tracker_list(
     greylist: Annotated[bool | None, Field(description="If set, filter to (or exclude) greylisted entries.")] = None,
     limit: Annotated[int, Field(description="Maximum entries to return, 0-100000 (default 2000).")] = 2000,
 ) -> list[dict]:
-    """List mail tracking entries (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list mail tracking entries. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tracker.
-    Maps start/end Unix epoch → starttime/endtime query params.
-    from_: filter by envelope sender; target: filter by recipient.
-    ndr: NDR filter; greylist: greylisting filter.
-    limit: max results 0–100000 (default 2000).
+    Returns a list of dicts, one per tracked message (up to `limit`, default 2000). Use
+    pmg_tracker_detail for the full delivery trace of one message ID from this list.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -853,12 +857,10 @@ def pmg_tracker_detail(
     start: Annotated[int | None, Field(description="Unix epoch start of the tracker window; omit for no lower bound.")] = None,
     end: Annotated[int | None, Field(description="Unix epoch end of the tracker window; omit for no upper bound.")] = None,
 ) -> list[dict]:
-    """Get tracking detail for a specific mail ID (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get tracking detail for a specific mail ID. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tracker/{id}.
-    id_: mail/queue tracker ID, validated path-segment-safe (rejects '..', '/',
-    control/whitespace chars) before use — see _check_tracker_id.
-    Maps start/end Unix epoch → starttime/endtime query params.
+    Returns a list of delivery-hop dicts for that message. Get id_ from pmg_tracker_list first;
+    it is validated path-segment-safe (rejects '..', '/', control/whitespace chars).
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -872,11 +874,11 @@ def pmg_quarantine_virus(
     start: Annotated[int | None, Field(description="Unix epoch start of the window; omit for no lower bound.")] = None,
     end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
 ) -> list[dict]:
-    """List virus quarantine entries (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list virus quarantine entries. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/virus.
-    pmail: per-user scope — defaults to authenticated user (api.config.username).
-    Maps start/end Unix epoch → starttime/endtime query params.
+    Returns a list of dicts, one per quarantined virus message. pmail defaults to the
+    authenticated user when omitted. For spam quarantine use pmg_quarantine_spam; to act on
+    entries use pmg_quarantine_action.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_virus", "pmg/quarantine/virus",
@@ -889,11 +891,11 @@ def pmg_quarantine_attachment(
     start: Annotated[int | None, Field(description="Unix epoch start of the window; omit for no lower bound.")] = None,
     end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
 ) -> list[dict]:
-    """List attachment quarantine entries (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list attachment quarantine entries. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/attachment.
-    pmail: per-user scope — defaults to authenticated user (api.config.username).
-    Maps start/end Unix epoch → starttime/endtime query params.
+    Returns a list of dicts, one per quarantined attachment. pmail defaults to the authenticated
+    user when omitted. For spam quarantine use pmg_quarantine_spam; to act on entries use
+    pmg_quarantine_action.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_attachment", "pmg/quarantine/attachment",
@@ -902,9 +904,10 @@ def pmg_quarantine_attachment(
 
 @tool()
 def pmg_quarantine_virusstatus() -> dict:
-    """Get virus quarantine status summary (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get virus quarantine status summary. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/virusstatus.
+    Returns a dict of summary counts. For the individual quarantined messages use
+    pmg_quarantine_virus instead.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_virusstatus", "pmg/quarantine/virusstatus",
@@ -913,9 +916,10 @@ def pmg_quarantine_virusstatus() -> dict:
 
 @tool()
 def pmg_quarantine_spamstatus() -> dict:
-    """Get spam quarantine status summary (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get spam quarantine status summary. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/spamstatus.
+    Returns a dict of summary counts. For the individual quarantined messages use
+    pmg_quarantine_spam instead.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_spamstatus", "pmg/quarantine/spamstatus",
@@ -928,11 +932,11 @@ def pmg_quarantine_spamusers(
     end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
     quarantine_type: Annotated[str, Field(description="Quarantine type to list users for: spam|virus|attachment (default spam).")] = "spam",
 ) -> list[dict]:
-    """List users with quarantined mail entries (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list users with quarantined mail entries. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/spamusers.
-    quarantine_type: spam|virus|attachment (default spam) — sent to API as 'quarantine-type'.
-    Maps start/end Unix epoch → starttime/endtime query params.
+    Returns a list of per-user dicts. quarantine_type: spam|virus|attachment (default spam) —
+    sent to the PMG API as 'quarantine-type'. To list one user's messages use pmg_quarantine_spam
+    (pmail scope) or the matching virus/attachment tool.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_quarantine_spamusers", "pmg/quarantine/spamusers",
@@ -945,11 +949,10 @@ def pmg_statistics_mailcount(
     end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
     timespan: Annotated[int, Field(description="Histogram bucket size in seconds, 3600-31622400 (default 3600 = 1 hour).")] = 3600,
 ) -> list[dict]:
-    """Get per-bucket mail count statistics (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get per-bucket mail count statistics. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /statistics/mailcount.
-    timespan: histogram bucket size in seconds, 3600–31622400 (default 3600 = 1 hour).
-    Maps start/end Unix epoch → starttime/endtime query params.
+    Returns a list of time-bucketed count dicts (bucket size set by timespan, default 1 hour).
+    For today's single aggregate total use pmg_statistics_mail instead.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_statistics_mailcount", "pmg/statistics/mailcount",
@@ -963,13 +966,11 @@ def pmg_statistics_sender(
     filter_: Annotated[str | None, Field(description="Optional search string to filter senders.")] = None,
     orderby: Annotated[str | None, Field(description="Accepted for compatibility but ignored — PMG 9.1 rejects orderby on this endpoint.")] = None,
 ) -> list[dict]:
-    """Get per-sender mail statistics (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get per-sender mail statistics. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /statistics/sender.
-    filter_: optional search string. orderby: accepted for compatibility but IGNORED —
-    PMG 9.1 rejects orderby on /statistics/sender (HTTP 400), so rows come back in PMG's
-    default order (unlike pmg_statistics_receiver, which does pass orderby through).
-    Maps start/end Unix epoch → starttime/endtime query params.
+    Returns a list of per-sender stat dicts. orderby is accepted for compatibility but IGNORED —
+    PMG rejects it here (HTTP 400) unlike pmg_statistics_receiver, which does honor it. For
+    per-recipient stats use pmg_statistics_receiver.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_statistics_sender", "pmg/statistics/sender",
@@ -983,11 +984,11 @@ def pmg_statistics_receiver(
     filter_: Annotated[str | None, Field(description="Optional search string to filter recipients.")] = None,
     orderby: Annotated[str | None, Field(description="Raw sort spec passed through to the PMG API.")] = None,
 ) -> list[dict]:
-    """Get per-recipient mail statistics (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get per-recipient mail statistics. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /statistics/receiver.
-    filter_: optional search string; orderby: raw sort spec passthrough.
-    Maps start/end Unix epoch → starttime/endtime query params.
+    Returns a list of per-recipient stat dicts. orderby is a raw sort-spec passthrough here
+    (unlike pmg_statistics_sender, which ignores it). For per-sender stats use
+    pmg_statistics_sender.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_statistics_receiver", "pmg/statistics/receiver",
@@ -1003,11 +1004,10 @@ def pmg_node_syslog(
     until: Annotated[str | None, Field(description="Only return entries at or before this time (journalctl-style time spec).")] = None,
     start: Annotated[int | None, Field(description="Pagination offset into the syslog entries.")] = None,
 ) -> list[dict]:
-    """Get PMG node syslog entries (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get PMG node syslog entries. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/syslog.
-    limit: max entries; service: filter by service name.
-    since/until: time range; start: pagination offset.
+    Returns a list of log-entry dicts. For a PVE hypervisor node's syslog use pve_node_syslog
+    instead; for RRD performance data use pmg_node_rrddata.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -1021,11 +1021,10 @@ def pmg_node_rrddata(
     node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
     cf: Annotated[str | None, Field(description="RRD consolidation function: AVERAGE|MAX.")] = None,
 ) -> list[dict]:
-    """Get PMG node RRD performance data (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get PMG node RRD performance data. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/rrddata.
-    timeframe: REQUIRED — hour|day|week|month|year.
-    cf: consolidation function AVERAGE|MAX (optional).
+    Returns a list of time-series dicts over the given timeframe (hour|day|week|month|year). For
+    a PVE hypervisor node's RRD data use pve_node_rrddata instead.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -1045,11 +1044,10 @@ def pmg_tasks_list(
     until: Annotated[int | None, Field(description="Unix epoch: only tasks started at or before this time.")] = None,
     statusfilter: Annotated[str | None, Field(description="Filter tasks by status text.")] = None,
 ) -> list[dict]:
-    """List PMG tasks on a node (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list PMG tasks on a node. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tasks.
-    start: pagination offset; limit: max entries.
-    errors: True = only failed tasks; userfilter/typefilter/statusfilter: text filters.
+    Returns a list of task dicts. errors=True returns only failed tasks. For a PVE hypervisor
+    node's tasks use pve_tasks_list instead.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -1068,10 +1066,9 @@ def pmg_backup_create(
     """MUTATION (LOW): create a PMG configuration backup. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/backup.
-    notify: always|error|never (default never).
-    statistic: include mail statistics in backup (default True).
-    Backup is written to /var/lib/pmg/backup/ on the target node.
+    Additive — writes a new backup .tar.gz to /var/lib/pmg/backup/ on the target node; does not
+    touch existing backups or live config. Dry-run returns a PLAN; confirm=True executes and
+    returns {"status": "ok", "result": ...}.
     """
     cfg, pmg = _proximo_server._pmg()
     n = node or cfg.node
@@ -1088,10 +1085,11 @@ def pmg_backup_create(
 
 @tool()
 def pmg_ruledb_rules_list() -> list[dict]:
-    """List all PMG RuleDB rules (hydrated rule list) (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list all PMG RuleDB rules (hydrated rule list). Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules.
-    Returns the full hydrated rule list including from/to/what/when/actions for each rule.
+    Returns the full hydrated rule list as dicts, including from/to/what/when/actions for each
+    rule. For one rule use pmg_ruledb_rule_get; to detect drift without the full fetch use
+    pmg_ruledb_digest.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_ruledb_rules_list", "pmg/config/ruledb/rules",
@@ -1100,10 +1098,11 @@ def pmg_ruledb_rules_list() -> list[dict]:
 
 @tool()
 def pmg_ruledb_rule_get(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> dict:
-    """Get a PMG RuleDB rule's configuration (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get a PMG RuleDB rule's configuration. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/config.
-    id_: rule ID (positive integer string, e.g. '100').
+    Returns a dict of the rule's config. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list.
+    For the rule's individual from/to/what/when object lists use pmg_ruledb_rule_from_list and
+    its to/what/when/actions siblings.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_ruledb_rule_get", f"pmg/config/ruledb/rules/{id_}/config",
@@ -1112,10 +1111,10 @@ def pmg_ruledb_rule_get(id_: Annotated[str, Field(description="RuleDB rule ID (p
 
 @tool()
 def pmg_ruledb_rule_from_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
-    """List the 'from' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list the 'from' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/from.
-    id_: rule ID (positive integer string, e.g. '100').
+    Returns a list of object dicts. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list. Use
+    pmg_ruledb_rule_to_list for the 'to' side, and the what/when/actions counterparts for the rest.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_ruledb_rule_from_list", f"pmg/config/ruledb/rules/{id_}/from",
@@ -1124,10 +1123,10 @@ def pmg_ruledb_rule_from_list(id_: Annotated[str, Field(description="RuleDB rule
 
 @tool()
 def pmg_ruledb_rule_to_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
-    """List the 'to' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list the 'to' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/to.
-    id_: rule ID (positive integer string, e.g. '100').
+    Returns a list of object dicts. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list. Use
+    pmg_ruledb_rule_from_list for the 'from' side, and the what/when/actions counterparts for the rest.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_ruledb_rule_to_list", f"pmg/config/ruledb/rules/{id_}/to",
@@ -1136,10 +1135,10 @@ def pmg_ruledb_rule_to_list(id_: Annotated[str, Field(description="RuleDB rule I
 
 @tool()
 def pmg_ruledb_rule_what_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
-    """List the 'what' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list the 'what' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/what.
-    id_: rule ID (positive integer string, e.g. '100').
+    Returns a list of object dicts. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list. Use
+    pmg_ruledb_rule_when_list for the 'when' side, and the from/to/actions counterparts for the rest.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_ruledb_rule_what_list", f"pmg/config/ruledb/rules/{id_}/what",
@@ -1148,10 +1147,10 @@ def pmg_ruledb_rule_what_list(id_: Annotated[str, Field(description="RuleDB rule
 
 @tool()
 def pmg_ruledb_rule_when_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
-    """List the 'when' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list the 'when' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/when.
-    id_: rule ID (positive integer string, e.g. '100').
+    Returns a list of object dicts. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list. Use
+    pmg_ruledb_rule_what_list for the 'what' side, and the from/to/actions counterparts for the rest.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_ruledb_rule_when_list", f"pmg/config/ruledb/rules/{id_}/when",
@@ -1160,11 +1159,11 @@ def pmg_ruledb_rule_when_list(id_: Annotated[str, Field(description="RuleDB rule
 
 @tool()
 def pmg_ruledb_rule_actions_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
-    """List the 'actions' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list the 'actions' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1: reads GET /config/ruledb/rules/{id}/config and extracts the embedded 'action' list —
-    the dedicated .../actions path returns HTTP 501 (not implemented), so it is NOT used.
-    id_: rule ID (positive integer string, e.g. '100').
+    Returns a list of action-object dicts, extracted from the same config pmg_ruledb_rule_get
+    returns — the dedicated .../actions endpoint 501s on PMG 9.1, so this reads /config instead.
+    id_: rule ID (e.g. '100') from pmg_ruledb_rules_list.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_ruledb_rule_actions_list", f"pmg/config/ruledb/rules/{id_}/config",
@@ -1173,9 +1172,10 @@ def pmg_ruledb_rule_actions_list(id_: Annotated[str, Field(description="RuleDB r
 
 @tool()
 def pmg_who_groups_list() -> list[dict]:
-    """List all PMG RuleDB 'who' object groups (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list all PMG RuleDB 'who' object groups. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/who.
+    Returns a list of group dicts (id/name/comment). For 'what' or 'when' groups use
+    pmg_what_groups_list / pmg_when_groups_list. Use pmg_who_group_get for one group's config.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_who_groups_list", "pmg/config/ruledb/who",
@@ -1184,10 +1184,10 @@ def pmg_who_groups_list() -> list[dict]:
 
 @tool()
 def pmg_who_group_get(ogroup: Annotated[str, Field(description="'who' object group numeric ID (e.g. '2') from pmg_who_groups_list — not the group name.")]) -> dict:
-    """Get a PMG RuleDB 'who' object group's configuration (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get a PMG RuleDB 'who' object group's configuration. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/config.
-    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+    Returns a dict of the group's config. ogroup: numeric ID (e.g. '2') from pmg_who_groups_list —
+    NOT the group name. Use pmg_who_group_objects to list the objects inside the group.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_who_group_get", f"pmg/config/ruledb/who/{ogroup}/config",
@@ -1196,10 +1196,10 @@ def pmg_who_group_get(ogroup: Annotated[str, Field(description="'who' object gro
 
 @tool()
 def pmg_who_group_objects(ogroup: Annotated[str, Field(description="'who' object group numeric ID (e.g. '2') from pmg_who_groups_list — not the group name.")]) -> list[dict]:
-    """List the objects in a PMG RuleDB 'who' object group (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list the objects in a PMG RuleDB 'who' object group. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/objects.
-    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+    Returns a list of object dicts. ogroup: numeric ID (e.g. '2') from pmg_who_groups_list — NOT
+    the group name. Use pmg_who_group_get for the group's own config (not its member objects).
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_who_group_objects", f"pmg/config/ruledb/who/{ogroup}/objects",
@@ -1208,9 +1208,10 @@ def pmg_who_group_objects(ogroup: Annotated[str, Field(description="'who' object
 
 @tool()
 def pmg_what_groups_list() -> list[dict]:
-    """List all PMG RuleDB 'what' object groups (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list all PMG RuleDB 'what' object groups. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/what.
+    Returns a list of group dicts (id/name/comment). For 'who' or 'when' groups use
+    pmg_who_groups_list / pmg_when_groups_list. Use pmg_what_group_get for one group's config.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_what_groups_list", "pmg/config/ruledb/what",
@@ -1219,10 +1220,10 @@ def pmg_what_groups_list() -> list[dict]:
 
 @tool()
 def pmg_what_group_get(ogroup: Annotated[str, Field(description="'what' object group numeric ID (e.g. '2') from pmg_what_groups_list — not the group name.")]) -> dict:
-    """Get a PMG RuleDB 'what' object group's configuration (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get a PMG RuleDB 'what' object group's configuration. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/config.
-    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+    Returns a dict of the group's config. ogroup: numeric ID (e.g. '2') from pmg_what_groups_list —
+    NOT the group name. Use pmg_what_group_objects to list the objects inside the group.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_what_group_get", f"pmg/config/ruledb/what/{ogroup}/config",
@@ -1231,10 +1232,10 @@ def pmg_what_group_get(ogroup: Annotated[str, Field(description="'what' object g
 
 @tool()
 def pmg_what_group_objects(ogroup: Annotated[str, Field(description="'what' object group numeric ID (e.g. '2') from pmg_what_groups_list — not the group name.")]) -> list[dict]:
-    """List the objects in a PMG RuleDB 'what' object group (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list the objects in a PMG RuleDB 'what' object group. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/objects.
-    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+    Returns a list of object dicts. ogroup: numeric ID (e.g. '2') from pmg_what_groups_list — NOT
+    the group name. Use pmg_what_group_get for the group's own config (not its member objects).
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_what_group_objects", f"pmg/config/ruledb/what/{ogroup}/objects",
@@ -1243,9 +1244,10 @@ def pmg_what_group_objects(ogroup: Annotated[str, Field(description="'what' obje
 
 @tool()
 def pmg_when_groups_list() -> list[dict]:
-    """List all PMG RuleDB 'when' object groups (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list all PMG RuleDB 'when' object groups. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/when.
+    Returns a list of group dicts (id/name/comment). For 'who' or 'what' groups use
+    pmg_who_groups_list / pmg_what_groups_list. Use pmg_when_group_get for one group's config.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_when_groups_list", "pmg/config/ruledb/when",
@@ -1254,10 +1256,10 @@ def pmg_when_groups_list() -> list[dict]:
 
 @tool()
 def pmg_when_group_get(ogroup: Annotated[str, Field(description="'when' object group numeric ID (e.g. '2') from pmg_when_groups_list — not the group name.")]) -> dict:
-    """Get a PMG RuleDB 'when' object group's configuration (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get a PMG RuleDB 'when' object group's configuration. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/config.
-    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+    Returns a dict of the group's config. ogroup: numeric ID (e.g. '2') from pmg_when_groups_list —
+    NOT the group name. Use pmg_when_group_objects to list the objects inside the group.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_when_group_get", f"pmg/config/ruledb/when/{ogroup}/config",
@@ -1266,10 +1268,10 @@ def pmg_when_group_get(ogroup: Annotated[str, Field(description="'when' object g
 
 @tool()
 def pmg_when_group_objects(ogroup: Annotated[str, Field(description="'when' object group numeric ID (e.g. '2') from pmg_when_groups_list — not the group name.")]) -> list[dict]:
-    """List the objects in a PMG RuleDB 'when' object group (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list the objects in a PMG RuleDB 'when' object group. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/objects.
-    ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+    Returns a list of object dicts. ogroup: numeric ID (e.g. '2') from pmg_when_groups_list — NOT
+    the group name. Use pmg_when_group_get for the group's own config (not its member objects).
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_when_group_objects", f"pmg/config/ruledb/when/{ogroup}/objects",
@@ -1278,11 +1280,11 @@ def pmg_when_group_objects(ogroup: Annotated[str, Field(description="'when' obje
 
 @tool()
 def pmg_action_objects_list() -> list[dict]:
-    """List all PMG RuleDB action objects including non-editable (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: list all PMG RuleDB action objects, including non-editable. Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/action/objects.
-    Returns all action objects; each entry carries an 'editable' flag.
-    Non-editable action objects are built-in and cannot be modified via the API.
+    Returns a list of dicts; each carries an 'editable' flag — non-editable ones are PMG built-ins
+    and cannot be modified via the API. For one rule's attached actions use
+    pmg_ruledb_rule_actions_list instead.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_action_objects_list", "pmg/config/ruledb/action/objects",
@@ -1291,11 +1293,10 @@ def pmg_action_objects_list() -> list[dict]:
 
 @tool()
 def pmg_ruledb_digest() -> dict:
-    """Get the PMG RuleDB digest (change-detection hash) (read). Needs PROXIMO_PMG_* config.
+    """READ-ONLY: get the PMG RuleDB digest (change-detection hash). Needs PROXIMO_PMG_* config.
 
-    PMG 9.1 pmgsh-verified path: GET /config/ruledb/digest.
-    The digest changes whenever any ruledb configuration is modified.
-    Use to detect configuration drift without fetching the full rule list.
+    Returns a dict with the current hash. The digest changes whenever any ruledb configuration is
+    modified — poll it to detect drift cheaply instead of re-fetching pmg_ruledb_rules_list.
     """
     _, pmg = _proximo_server._pmg()
     return _audited("pmg_ruledb_digest", "pmg/config/ruledb/digest",

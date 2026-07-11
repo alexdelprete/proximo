@@ -75,7 +75,7 @@ from proximo.storage import (
 def pve_node_status(
     node: Annotated[str | None, Field(description="PVE node name to query. Omit to use the configured default node.")] = None,
 ) -> dict:
-    """Read Proxmox node health and resource status (read-only). Returns node metrics including
+    """READ-ONLY: read Proxmox node health and resource status. Returns node metrics including
     total capacity, current usage, CPU, memory, disk state, and operational status. See pve_diagnose
     for detailed per-node diagnostics including failed tasks."""
     cfg, api, _, _ = _proximo_server._svc()
@@ -86,9 +86,10 @@ def pve_node_status(
 def pve_list_guests(
     node: Annotated[str | None, Field(description="PVE node name to list guests on. Omit to list guests across the whole cluster.")] = None,
 ) -> list[dict]:
-    """List all VMs and LXC containers on a node with their current state (read-only). Returns
-    a list of guest objects, each with VMID, name, type (lxc or qemu), and status. Works across
-    both kinds in a single call."""
+    """READ-ONLY: list all VMs and LXC containers on a node with their current state. Returns
+    a list of guest objects, each with VMID, name, type (lxc or qemu), and status — works across
+    both kinds in a single call. For one guest's runtime detail use pve_guest_status; for its
+    stored config use pve_guest_config_get."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_list_guests", node or cfg.node, lambda: api.list_guests(node))
 
@@ -120,9 +121,9 @@ def pve_guest_power(
     """MUTATION: start/stop/reboot/shutdown a guest.
 
     Dry-run by default: without confirm=True you get a PLAN — the exact change, the guest's live
-    state, blast radius, and risk (with no-op detection) — recorded to the ledger. Re-call with
-    confirm=True to execute. The plan is recorded on BOTH paths: even a one-shot confirm=True call
-    records its plan before mutating — no plan, no mutation.
+    state, blast radius, and risk (with no-op detection) — recorded to the ledger even on a
+    one-shot confirm=True call (no plan, no mutation). confirm=True submits the action (async)
+    and returns the task UPID — poll it with pve_task_status.
     """
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}:{action}"
@@ -161,7 +162,9 @@ def pve_snapshot_create(
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the snapshot creation.")] = False,
 ) -> dict:
     """MUTATION: create a snapshot (a restore point). Dry-run by default; confirm=True to execute.
-    Async — returns the task UPID; poll pve_task_status. Needs snapshot-capable storage (ZFS/BTRFS/LVM-thin)."""
+    Async — returns the task UPID; poll pve_task_status. Needs snapshot-capable storage (ZFS/BTRFS/LVM-thin).
+    To restore to a snapshot use pve_rollback; to remove one use pve_snapshot_delete; to list them
+    use pve_snapshot_list."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}:{snapname}"
     plan = _plan("pve_snapshot_create", target, lambda: plan_snapshot_create(vmid, snapname, kind))
@@ -181,7 +184,9 @@ def pve_rollback(
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN with blast radius; set `true` to execute the rollback.")] = False,
 ) -> dict:
     """MUTATION (DESTRUCTIVE): roll a guest back to a snapshot — discards ALL changes since it.
-    Dry-run by default (the PLAN spells out the blast radius); confirm=True to execute. Async -> UPID."""
+    Dry-run by default (the PLAN spells out the blast radius); confirm=True to execute. Async —
+    returns the task UPID, poll with pve_task_status. To create a restore point first use
+    pve_snapshot_create."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}:{snapname}"
     plan = _plan("pve_rollback", target, lambda: plan_rollback(api, vmid, snapname, kind, node))
@@ -201,8 +206,9 @@ def pve_snapshot_delete(
     force: Annotated[bool, Field(description="Force removal even if the snapshot has children or the backend reports an inconsistent state.")] = False,
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the deletion.")] = False,
 ) -> dict:
-    """MUTATION: delete a snapshot (removes a restore point). Dry-run by default; confirm=True to execute.
-    Async -> UPID."""
+    """MUTATION: delete a snapshot (removes a restore point) — you can't roll back to it afterward.
+    Dry-run by default; confirm=True to execute. Async — returns the task UPID, poll with
+    pve_task_status. To create a snapshot instead of removing one use pve_snapshot_create."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}:{snapname}"
     plan = _plan("pve_snapshot_delete", target, lambda: plan_snapshot_delete(vmid, snapname, kind))
@@ -223,7 +229,8 @@ def pve_task_status(
 
     No state change. Use it to poll long-running ops (migrate, snapshot, rollback, backup) that
     return a UPID. Returns a dict with `status` and `exitstatus`. To block until the task completes
-    use pve_task_wait, and for its log output use pve_task_log; omit `node` to resolve it from the UPID."""
+    use pve_task_wait, and for its log output use pve_task_log. Pass `node` for a task on a
+    non-default node; omitting it falls back to the configured default node (the UPID is not parsed for the node)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_task_status", upid, lambda: api.task_status(upid, node))
 
@@ -236,9 +243,11 @@ def ct_logs(
     unit: Annotated[str, Field(description="Name of the systemd unit to tail journalctl for (e.g. `nginx.service`).")],
     lines: Annotated[int, Field(description="Number of most-recent log lines to return.")] = 50,
 ) -> dict:
-    """Tail journalctl for a systemd unit inside a container (read-only). Returns the command's
-    returncode, stdout, and stderr. Container-specific diagnostic; gated by the CTID allowlist
-    when PROXIMO_ENABLE_EXEC is set. Fails closed if exec is disabled."""
+    """READ-ONLY: tail journalctl for a systemd unit inside a container. Returns the command's
+    returncode, stdout, and stderr. Gated by the CTID allowlist when PROXIMO_ENABLE_EXEC is set;
+    fails closed (returns a disclosed blocked status, not an exception) if exec is disabled or the
+    CTID isn't allowed. For a fixed evidence battery instead of one unit's logs use ct_diagnose;
+    for an arbitrary in-container command use ct_exec."""
     cfg, _, exec_, _ = _proximo_server._svc()
     detail = {"unit": unit, "lines": lines}
     if not cfg.enable_exec:
@@ -263,8 +272,10 @@ def ct_diagnose(
     """READ-ONLY: gather 'what's broken' evidence for a container — API status + a fixed read-only
     in-container battery (failed units, disk, recent errors, memory, listening ports) + advisory flags.
 
-    No mutation, no confirm. The in-container probes need PROXIMO_ENABLE_EXEC and the CTID allowlist
-    (same as ct_logs); with exec off it returns the API-only part and discloses the skipped probes."""
+    No mutation, no confirm. Returns a dict with the gathered sections and a flags list. The
+    in-container probes need PROXIMO_ENABLE_EXEC and the CTID allowlist (same as ct_logs); with
+    exec off it returns the API-only part and discloses the skipped probes. For node-level
+    evidence use pve_diagnose."""
     cfg, api, exec_, _ = _proximo_server._svc()
     ctid = _check_vmid(ctid)  # L07: validate CTID at server layer before the allowlist gate / ledger target
     target = f"{kind}/{ctid}"
@@ -292,7 +303,8 @@ def pve_diagnose(
 def pve_doctor() -> dict:
     """READ-ONLY preflight: check API connectivity + the calling token's effective permissions, and
     report what this token CAN and CANNOT do — with the privilege + role to grant for each gap. Run
-    this FIRST after install to verify your config/token before wiring Proximo into an MCP client."""
+    this FIRST after install to verify your config/token before wiring Proximo into an MCP client.
+    Returns a dict with reachable/version, the can/cannot capability map, config, and advisory flags."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_doctor", "preflight", lambda: doctor_check(api), mutation=False)
 
@@ -308,8 +320,10 @@ def pve_create_container(
     options: Annotated[dict | None, Field(description="Extra Proxmox create params (e.g. cores, memory, net0, rootfs, password) merged into the request.")] = None,
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the creation.")] = False,
 ) -> dict:
-    """MUTATION: create a new LXC container. Dry-run by default; confirm=True. Async — returns a UPID.
-    `options` carries extra create params (cores, memory, net0, rootfs, password, ...)."""
+    """MUTATION: create a new LXC container. Dry-run by default; confirm=True. Async — returns a
+    UPID (poll with pve_task_status). `options` carries extra create params (cores, memory, net0,
+    rootfs, password, ...). For a QEMU VM use pve_create_vm; to copy an existing guest instead
+    use pve_clone."""
     _, api, _, _ = _proximo_server._svc()
     target = f"lxc/{vmid}"
     plan = _plan("pve_create_container", target,
@@ -330,8 +344,10 @@ def pve_create_vm(
     options: Annotated[dict | None, Field(description="Extra Proxmox create params (e.g. cores, memory, net0, scsi0, ostype) merged into the request.")] = None,
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the creation.")] = False,
 ) -> dict:
-    """MUTATION: create a new QEMU VM. Dry-run by default; confirm=True. Async — returns a UPID.
-    `options` carries create params (cores, memory, net0, scsi0, ostype, ...)."""
+    """MUTATION: create a new QEMU VM. Dry-run by default; confirm=True. Async — returns a UPID
+    (poll with pve_task_status). `options` carries create params (cores, memory, net0, scsi0,
+    ostype, ...). For an LXC container use pve_create_container; to copy an existing guest
+    instead use pve_clone."""
     _, api, _, _ = _proximo_server._svc()
     target = f"qemu/{vmid}"
     plan = _plan("pve_create_vm", target, lambda: plan_create(api, vmid, "qemu", node, options or {}))
@@ -354,10 +370,11 @@ def pve_clone(
     storage: Annotated[str | None, Field(description="Target storage for the full clone's disks (full=True only); keeps the clone off the source storage. Refused for a linked clone.")] = None,
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the clone.")] = False,
 ) -> dict:
-    """MUTATION: clone a guest to a new id. Dry-run by default; confirm=True. Async — returns a UPID.
-    pool: place the new guest in a resource pool (needed when the token is pool-scoped).
-    storage: target storage for the full clone's disks (full=True only) — keeps a clone off the
-    source storage; refused for a linked clone (PVE only honors it on a full clone)."""
+    """MUTATION: clone a guest to a new id. Dry-run by default; confirm=True. Async — returns a
+    UPID (poll with pve_task_status). pool: place the new guest in a resource pool (needed when
+    the token is pool-scoped). storage: target storage for the full clone's disks (full=True
+    only) — keeps a clone off the source storage; refused for a linked clone (PVE only honors it
+    on a full clone). To create a guest from scratch instead use pve_create_vm / pve_create_container."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}->{newid}"
     plan = _plan("pve_clone", target,
@@ -379,7 +396,9 @@ def pve_delete_guest(
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN naming exactly what will be destroyed; set `true` to execute.")] = False,
 ) -> dict:
     """MUTATION (DESTRUCTIVE, IRREVERSIBLE): permanently destroy a guest and its disks. Dry-run by
-    default — the PLAN names exactly what will be destroyed. confirm=True to execute. Async — UPID."""
+    default — the PLAN names exactly what will be destroyed, including cascade effects on backup/
+    HA/replication references. confirm=True to execute. Async — returns the task UPID; poll with
+    pve_task_status. No undo once confirmed."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}"
     plan = _plan("pve_delete_guest", target, lambda: plan_delete(api, vmid, kind, node, purge, force))
@@ -432,7 +451,9 @@ def pve_storage_download(
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the download.")] = False,
 ) -> dict:
     """MUTATION: download an ISO (content=iso) or CT template (content=vztmpl) from a URL into a
-    storage. Dry-run by default; confirm=True. Async — returns a UPID."""
+    storage. Dry-run by default; confirm=True. Async — returns a UPID (poll with pve_task_status).
+    The URL and its content are operator-trusted — Proximo does not verify or sandbox what it
+    fetches. Use pve_storage_content to see what's already on a storage."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{storage}:{filename}"
     plan = _plan("pve_storage_download", target,
@@ -453,8 +474,10 @@ def pve_storage_content_delete(
     node: Annotated[str | None, Field(description="PVE node hosting the storage. Omit to use the configured default node.")] = None,
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN — HIGH risk for a backup volume; set `true` to execute the deletion.")] = False,
 ) -> dict:
-    """MUTATION: delete a content volume (ISO / template / backup) from storage. Dry-run by default
-    (HIGH risk for a backup volume); confirm=True. Async — UPID or null."""
+    """MUTATION: delete a content volume (ISO / template / backup / disk image) from storage.
+    Dry-run by default — escalates to HIGH risk for a backup volume or a disk still attached to a
+    guest; confirm=True to execute. Async — returns a UPID or null. Use pve_storage_content to
+    find a volid first."""
     _, api, _, _ = _proximo_server._svc()
     plan = _plan("pve_storage_content_delete", volid, lambda: plan_content_delete(api, storage, volid))
     if not confirm:
@@ -472,7 +495,7 @@ def pve_guest_config_get(
     kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
     node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
 ) -> dict:
-    """Read a guest's current configuration (kind='lxc' or 'qemu') (read-only). Returns the
+    """READ-ONLY: read a guest's current configuration (kind='lxc' or 'qemu'). Returns the
     complete config dict with cores, memory, network, disks, metadata, and all settings. Use
     pve_guest_config_set to mutate; capture the returned dict to enable rollback via
     pve_guest_config_revert."""
@@ -490,8 +513,9 @@ def pve_guest_config_set(
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN with the per-key diff; set `true` to execute.")] = False,
 ) -> dict:
     """MUTATION: edit a guest's config (cores/memory/net/onboot/...). Dry-run by default — the PLAN
-    shows the exact per-key diff; confirm=True to execute. Captures the prior config first so the
-    change is revertible via pve_guest_config_revert. Synchronous."""
+    shows the exact per-key diff; confirm=True to execute. Synchronous — returns
+    {prior_config, applied, deleted}; prior_config is what makes the change revertible via
+    pve_guest_config_revert."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}"
     plan = _plan("pve_guest_config_set", target,
@@ -512,7 +536,9 @@ def pve_guest_config_revert(
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the revert.")] = False,
 ) -> dict:
     """MUTATION (UNDO): re-apply a previously captured guest config (the prior_config returned by
-    pve_guest_config_set). Dry-run by default; confirm=True to execute. Synchronous."""
+    pve_guest_config_set). Dry-run by default; confirm=True to execute. Synchronous — returns
+    {reverted_to_keys, deleted, skipped_unsettable}; computed/read-only keys in prior_config are
+    silently skipped rather than rejected."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}"
     plan = _plan("pve_guest_config_revert", target,
@@ -535,8 +561,10 @@ def pve_disk_resize(
     node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the resize.")] = False,
 ) -> dict:
-    """MUTATION: grow a guest disk (e.g. size='+10G'). GROW ONLY — a shrink is refused (destructive).
-    Dry-run by default; confirm=True to execute. Async — returns a task UPID."""
+    """MUTATION: grow a guest disk (e.g. size='+10G'). GROW ONLY — a shrink is refused as
+    destructive, and an ambiguous absolute size is refused too unless the current size can be
+    verified first. Dry-run by default; confirm=True to execute. Async — returns a task UPID
+    (poll with pve_task_status). To move a disk to different storage instead use pve_disk_move."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}:{disk}"
     plan = _plan("pve_disk_resize", target,
@@ -559,8 +587,9 @@ def pve_disk_move(
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the move.")] = False,
 ) -> dict:
     """MUTATION: move a guest disk to another storage. Dry-run by default — the PLAN shows
-    source->target and whether the source copy is deleted (delete_source=True is HIGH). confirm=True
-    to execute. Async — returns a task UPID."""
+    source->target and whether the source copy is deleted (delete_source=True is HIGH, no easy
+    undo). confirm=True to execute. Async — returns a task UPID (poll with pve_task_status). To
+    grow a disk in place instead of relocating it use pve_disk_resize."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}:{disk}"
     plan = _plan("pve_disk_move", target,
@@ -597,9 +626,11 @@ def pve_cloudinit_set(
     kind: Annotated[str, Field(description="Guest type; cloud-init applies to `qemu` guests.")] = "qemu",
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN with secrets masked; set `true` to execute.")] = False,
 ) -> dict:
-    """MUTATION: set cloud-init fields (ciuser/sshkeys/ipconfigN/...) on a QEMU guest. Dry-run by
-    default — the PLAN shows the diff with secrets masked; confirm=True to execute. Synchronous.
-    Secret fields (cipassword) are never echoed to results or the ledger."""
+    """MUTATION: set cloud-init fields (ciuser/sshkeys/ipconfigN/...) on a QEMU guest — kind='lxc'
+    is refused (cloud-init is QEMU-only). Dry-run by default with secrets masked in the PLAN;
+    confirm=True to execute. Synchronous; the return carries a top-level undo_record key beside
+    status/result (secret fields excluded). Effects apply on next reboot + cloud-init regen, not live. Read current
+    values with pve_cloudinit_get."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}"
     plan = _plan("pve_cloudinit_set", target,
@@ -630,8 +661,10 @@ def pve_template_convert(
     kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "qemu",
     confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN flagging this as HIGH/irreversible; set `true` to execute.")] = False,
 ) -> dict:
-    """MUTATION (IRREVERSIBLE): convert a guest into a template — effectively one-way. Dry-run by
-    default (the PLAN flags it HIGH/irreversible); confirm=True to execute."""
+    """MUTATION (IRREVERSIBLE): convert a guest into a template — effectively one-way; kind='lxc'
+    is refused (this endpoint is QEMU-only — LXC uses a separate, out-of-scope template endpoint).
+    Dry-run by default (the PLAN flags it HIGH/irreversible, and separately warns if the guest is
+    already a template); confirm=True executes, recorded as submitted (async)."""
     _, api, _, _ = _proximo_server._svc()
     target = f"{kind}/{vmid}"
     plan = _plan("pve_template_convert", target,

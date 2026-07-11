@@ -51,7 +51,12 @@ def pve_acme_account_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the account registration.")] = False,
 ) -> dict:
     """MUTATION: register a new ACME account with the CA. Dry-run by default.
-    confirm=True to execute. Smoke-confirm: POST body shape (name in body) against a live PVE instance."""
+
+    Additive — does not affect any existing account. Pair with pve_acme_plugin_create (DNS-01) or
+    standalone http-01, then pve_node_acme_domains_set + pve_acme_cert_order, to actually issue a
+    cert; to remove an account instead use pve_acme_account_delete. confirm=True executes and
+    returns {"status": "ok"}; the default returns a dry-run PLAN dict. Smoke-confirm: POST body
+    shape (name in body) against a live PVE instance."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/acme/account/{name}"
     plan = _plan("pve_acme_account_create", tgt,
@@ -72,7 +77,10 @@ def pve_acme_account_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the update.")] = False,
 ) -> dict:
     """MUTATION: update ACME account contact info. Dry-run by default.
-    confirm=True to execute. LOW risk — metadata update only, no cert impact."""
+
+    LOW risk — metadata update only, no cert impact. To delete the account instead use
+    pve_acme_account_delete. The dry-run PLAN includes the account's current config (contact,
+    directory, tos); confirm=True executes and returns {"status": "ok"}."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/acme/account/{name}"
     plan = _plan("pve_acme_account_update", tgt,
@@ -90,7 +98,11 @@ def pve_acme_account_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the irreversible deletion.")] = False,
 ) -> dict:
     """MUTATION: IRREVERSIBLE — deactivate and delete an ACME account from the CA. Dry-run by default.
-    confirm=True to execute. HIGH risk: TLS lockout at cert expiry if this is the only account."""
+
+    HIGH risk: TLS lockout at cert expiry if this is the only account. The account key is
+    destroyed — registering again with pve_acme_account_create creates a DIFFERENT CA account, not
+    a restore of this one. The dry-run PLAN captures the current config as evidence only.
+    confirm=True executes and returns {"status": "ok"}."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/acme/account/{name}"
     plan = _plan("pve_acme_account_delete", tgt,
@@ -112,8 +124,12 @@ def pve_acme_plugin_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the plugin creation.")] = False,
 ) -> dict:
     """MUTATION: create an ACME DNS challenge plugin. Dry-run by default.
-    confirm=True to execute. dns_api = DNS provider name (e.g. 'cf', 'route53').
-    Smoke-confirm: POST body shape (id in body) against a live PVE instance."""
+
+    Additive — does not affect any existing plugin. dns_api = DNS provider name (e.g. 'cf',
+    'route53'). Reference plugin_id from pve_node_acme_domains_set(plugin=...) to drive a DNS-01
+    challenge with it; to remove the plugin use pve_acme_plugin_delete. confirm=True executes and
+    returns {"status": "ok"}; the default returns a dry-run PLAN dict. Smoke-confirm: POST body
+    shape (id in body) against a live PVE instance."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/acme/plugins/{plugin_id}"
     # dns_api maps to PVE's 'api' body field; the backend param is named 'backend', so no collision
@@ -143,7 +159,11 @@ def pve_acme_plugin_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the update.")] = False,
 ) -> dict:
     """MUTATION: update an ACME DNS challenge plugin. Dry-run by default.
-    confirm=True to execute. MEDIUM risk — invalid credentials break renewal at next attempt."""
+
+    MEDIUM risk — invalid new credentials break cert renewal for every domain using this plugin
+    at the next attempt. To remove a plugin instead use pve_acme_plugin_delete. The dry-run PLAN
+    includes the plugin's current config with any DNS-provider credential redacted; confirm=True
+    executes and returns {"status": "ok"}."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/acme/plugins/{plugin_id}"
     # dns_api maps to PVE's 'api' field
@@ -171,7 +191,12 @@ def pve_acme_plugin_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion.")] = False,
 ) -> dict:
     """MUTATION: delete an ACME DNS challenge plugin. Dry-run by default.
-    confirm=True to execute. HIGH risk: cert auto-renewal breaks — TLS lockout at cert expiry."""
+
+    HIGH risk: cert auto-renewal breaks for every domain using this plugin — TLS lockout at cert
+    expiry unless a fallback challenge method is configured. No UNDO primitive — recreate with
+    pve_acme_plugin_create, but the credentials must be re-supplied by the caller. The dry-run PLAN
+    captures the current config (credential redacted) as evidence only; confirm=True executes and
+    returns {"status": "ok"}."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/acme/plugins/{plugin_id}"
     plan = _plan("pve_acme_plugin_delete", tgt,
@@ -203,7 +228,8 @@ def pve_node_acme_domains_set(
     challenge (written as acmedomain0..N=domain=...,plugin=...); omit plugin for standalone
     http-01 (domains ride in acme=...,domains=...). REPLACE semantics: stale acmedomainN entries
     are removed, not merged. MEDIUM — config only, no cert is issued by this step. confirm=True
-    to execute. Smoke-confirm: node-config body shape against a live PVE instance."""
+    executes and returns {"status": "ok"}; the default returns a dry-run PLAN dict. Smoke-confirm:
+    node-config body shape against a live PVE instance."""
     cfg, api, _, _ = _proximo_server._svc()
     n = node or cfg.node
     tgt = f"node/{n}/config:acme"
@@ -248,9 +274,11 @@ def pve_acme_cert_renew(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True submits the ACME renewal task.")] = False,
 ) -> dict:
     """MUTATION: renew the node's existing ACME TLS certificate. Dry-run by default. Async — returns
-    a UPID. MEDIUM: CA-validated, installed only on success (a failure can't lock you out); reloads
-    pveproxy on success. force=renew even if more than 30 days to expiry. confirm=True to execute.
-    Smoke-confirm: PUT shape + async UPID against a live PVE instance."""
+    a task UPID (poll pve_task_status/pve_task_wait). MEDIUM: CA-validated, installed only on
+    success (a failure can't lock you out); reloads pveproxy on success. force=renew even if more
+    than 30 days to expiry. To order a fresh cert instead use pve_acme_cert_order; to revert to
+    self-signed use pve_node_cert_delete. confirm=True to execute. Smoke-confirm: PUT shape + async
+    UPID against a live PVE instance."""
     cfg, api, _, _ = _proximo_server._svc()
     n = node or cfg.node
     tgt = f"node/{n}/certificates/acme/certificate"

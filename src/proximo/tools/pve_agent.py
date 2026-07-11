@@ -38,13 +38,10 @@ def pve_agent_info(
 ) -> dict:
     """READ-ONLY: query the qemu-agent on a guest (ping, osinfo, hostname, users, exec-status, …).
 
-    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-    No confirm needed — read-only.
-
-    command: one of ping, info, get-fsinfo, get-host-name, get-osinfo, get-time,
-             get-timezone, get-users, get-vcpus, network-get-interfaces,
-             get-memory-blocks, fsfreeze-status, exec-status.
-    pid: required when command='exec-status' (the pid returned by pve_agent_exec).
+    Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+    inside the VM. No confirm needed — read-only. Returns a dict of the raw qemu-agent response
+    fields for the chosen command; for command='exec-status', run pve_agent_exec first and pass its
+    returned pid here to poll for completion.
     """
     cfg, api, _, _ = _proximo_server._svc()
     blocked = _agent_gate(cfg, "pve_agent_info", vmid, mutation=False)
@@ -70,11 +67,10 @@ def pve_agent_file_read(
 ) -> dict:
     """READ-ONLY: read a file from inside the guest via the qemu-agent.
 
-    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-    No confirm needed — read-only.  File path must be absolute.
-
-    Ledger records only the file path (never the content); the returned dict carries content.
-    Smoke-confirm: PVE file-read response shape is unverified.
+    Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+    inside the VM. No confirm needed — read-only. File path must be absolute. To write instead use
+    pve_agent_file_write. Returns {"bytes-read": int, "content": str} — text round-trips exactly;
+    the ledger records only the file path, never the content.
     """
     cfg, api, _, _ = _proximo_server._svc()
     blocked = _agent_gate(cfg, "pve_agent_file_read", vmid, mutation=False)
@@ -97,13 +93,12 @@ def pve_agent_file_write(
 ) -> dict:
     """MUTATION: write a file inside the guest via the qemu-agent.
 
-    Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
-    Re-call with confirm=True to execute.
-
-    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-    File path must be absolute.  Content is UNCONDITIONALLY redacted from the ledger.
-    No undo primitive on this plane.
-    Smoke-confirm: PVE file-write endpoint and content encoding are unverified.
+    Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+    inside the VM. Dry-run by default (returns a PLAN); confirm=True executes and returns
+    {"status": "ok", "result": None}. File path must be absolute; content is UNCONDITIONALLY
+    redacted from the ledger (fingerprint only). Overwrites the target file whole — irreversible,
+    no undo primitive on this plane. To read a file instead use pve_agent_file_read; text content
+    round-trips byte-identical, binary/encoded content is unconfirmed.
     """
     cfg, api, _, _ = _proximo_server._svc()
     blocked = _agent_gate(cfg, "pve_agent_file_write", vmid, mutation=True)
@@ -131,12 +126,11 @@ def pve_agent_fs(
 ) -> dict:
     """MUTATION: fsfreeze-freeze, fsfreeze-thaw, or fstrim inside the guest via the qemu-agent.
 
-    Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
-    Re-call with confirm=True to execute.
-
-    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-    command: fsfreeze-freeze | fsfreeze-thaw | fstrim
-    No undo primitive on this plane; always pair freeze with thaw.
+    Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+    inside the VM. Dry-run by default (returns a PLAN); confirm=True executes and returns
+    {"status": "ok", "result": <raw qemu-agent response>}. command: fsfreeze-freeze | fsfreeze-thaw
+    | fstrim — freeze stalls guest I/O until thawed, so always pair them. Irreversible; no undo
+    primitive on this plane.
     """
     cfg, api, _, _ = _proximo_server._svc()
     blocked = _agent_gate(cfg, "pve_agent_fs", vmid, mutation=True)
@@ -165,13 +159,11 @@ def pve_agent_set_password(
 ) -> dict:
     """MUTATION: set a guest OS user's password via the qemu-agent.
 
-    Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
-    Re-call with confirm=True to execute.
-
-    Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-    Password is UNCONDITIONALLY redacted from the ledger (fingerprint only — "[redacted]").
-    No undo primitive on this plane.
-    Smoke-confirm: PVE set-user-password endpoint and body fields are unverified.
+    Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+    inside the VM. Dry-run by default (returns a PLAN); confirm=True executes and returns
+    {"status": "ok", "result": None}. Password is UNCONDITIONALLY redacted from the ledger
+    (fingerprint only — "[redacted]"). Irreversible without knowledge of the old password; no undo
+    primitive on this plane.
     """
     cfg, api, _, _ = _proximo_server._svc()
     blocked = _agent_gate(cfg, "pve_agent_set_password", vmid, mutation=True)

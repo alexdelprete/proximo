@@ -74,8 +74,11 @@ from proximo.server import (
 def pve_node_services_list(
     node: Annotated[str | None, Field(description="PVE node name; defaults to the configured node")] = None,
 ) -> list[dict]:
-    """List all services on a PVE node (read-only). Returns a list of service dicts
-    with name, state (running/dead/inactive), and description for each service."""
+    """READ-ONLY: list all services on a PVE node.
+
+    No state change. Returns a list of service dicts with name, state (running/dead/
+    inactive), and description for each service. For one service's current state use
+    pve_node_service_status; to change a service's run state use pve_node_service_control."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_services_list", node or cfg.node,
                     lambda: node_services_list(api, node))
@@ -102,10 +105,11 @@ def pve_node_rrddata(
     timeframe: Annotated[str, Field(description="RRD time window: 'hour', 'day', 'week', 'month', or 'year'")] = "hour",
     cf: Annotated[str | None, Field(description="RRD consolidation function: 'AVERAGE' or 'MAX'; defaults to server-side default")] = None,
 ) -> list[dict]:
-    """Fetch RRD (round-robin database) time-series telemetry for a PVE node
-    (read-only). Returns a list of data-point dicts with timestamps and metrics
-    (cpu, memory, disk, network) over the specified timeframe, optionally
-    aggregated by consolidation function (AVERAGE or MAX)."""
+    """READ-ONLY: fetch RRD (round-robin database) time-series telemetry for a PVE node.
+
+    No state change. Returns a list of data-point dicts with timestamps and per-metric values
+    (the exact metric keys vary by PVE version) over the specified timeframe, optionally aggregated by
+    consolidation function (AVERAGE or MAX). Node-level only, not per-guest."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_rrddata", node or cfg.node,
                     lambda: node_rrddata(api, node, timeframe, cf))
@@ -120,8 +124,9 @@ def pve_node_journal(
 ) -> list[str]:
     """READ-ONLY: fetch systemd journal lines from a PVE node for log inspection.
 
-    No state change. Returns a list of journal-line strings. Narrow with since/until (journalctl
-    timestamp format) and lastentries (most-recent N, capped at 5000). For the classic syslog view
+    No state change. Returns a list of journal-line strings. Narrow with since/until (timestamp
+    format per PVE — typically epoch seconds or ISO 8601) and lastentries (most-recent N, max 5000;
+    higher is rejected with an error). For the classic syslog view
     use pve_node_syslog; for one service's current state use pve_node_service_status."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_journal", node or cfg.node,
@@ -135,7 +140,7 @@ def pve_node_syslog(
 ) -> list[dict]:
     """READ-ONLY: fetch syslog entries from a PVE node for log inspection.
 
-    No state change. Returns a list of entry dicts, most-recent first, up to `limit` (capped at 5000).
+    No state change. Returns a list of entry dicts, up to `limit` (max 5000; higher is rejected with an error).
     For the systemd journal (with since/until filtering) use pve_node_journal instead."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_syslog", node or cfg.node,
@@ -157,8 +162,10 @@ def pve_node_dns(
 def pve_node_subscription(
     node: Annotated[str | None, Field(description="PVE node name; defaults to the configured node")] = None,
 ) -> dict:
-    """Read a Proxmox node's subscription status (read-only). Returns a dict with
-    status, product name, check time, next due date, and subscription level."""
+    """READ-ONLY: read a Proxmox node's subscription status.
+
+    No state change. Returns a dict with status, product name, check time, next due
+    date, and subscription level."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_subscription", node or cfg.node,
                     lambda: node_subscription(api, node))
@@ -168,9 +175,11 @@ def pve_node_subscription(
 def pve_node_certificates(
     node: Annotated[str | None, Field(description="PVE node name; defaults to the configured node")] = None,
 ) -> list[dict]:
-    """List TLS certificates configured on a Proxmox node (read-only). Returns a
-    list of certificate dicts with filename, subject, issuer, validity dates
-    (notbefore/notafter), SANs, and fingerprint."""
+    """READ-ONLY: list TLS certificates configured on a Proxmox node.
+
+    No state change. Returns a list of certificate dicts with filename, subject, issuer,
+    validity dates (notbefore/notafter), SANs, and fingerprint. To add or replace a
+    certificate use pve_node_cert_upload; to remove one use pve_node_cert_delete."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_certificates", node or cfg.node,
                     lambda: node_certificates_info(api, node))
@@ -188,7 +197,9 @@ def pve_node_service_control(
     """MUTATION: start/stop/restart/reload a service on a PVE node. Dry-run by default — the
     PLAN flags lockout-class services (sshd/pveproxy/pvedaemon/pve-cluster/corosync/networking/
     ...) as HIGH because stop/restart can sever the management plane or break quorum. There is
-    NO auto-undo for a service control. confirm=True to execute. Async — returns a task UPID.
+    NO auto-undo for a service control. confirm=True executes and returns
+    {"status": "submitted", "result": <UPID>} — poll that UPID with pve_task_status. Check
+    current state first with pve_node_service_status.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/services/{service}:{action}"
@@ -205,9 +216,11 @@ def pve_node_service_control(
 
 @tool()
 def pve_notification_endpoint_list() -> list[dict]:
-    """List all PVE notification endpoints (read-only). Returns a list of dicts for
-    each configured delivery channel (gotify, SMTP, sendmail, webhook), containing
-    type, name, and endpoint-specific configuration."""
+    """READ-ONLY: list all PVE notification endpoints.
+
+    No state change. Returns a list of dicts for each configured delivery channel (gotify,
+    smtp, sendmail, webhook) with type, name, and endpoint-specific config. To add one use
+    pve_notification_endpoint_create; to remove one use pve_notification_endpoint_delete."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_notification_endpoint_list", "cluster/notifications/endpoints",
                     lambda: notification_endpoint_list(api))
@@ -222,8 +235,10 @@ def pve_notification_endpoint_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the creation")] = False,
 ) -> dict:
     """MUTATION: create a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
-    Dry-run by default. confirm=True to execute. `options` carries the endpoint-specific config
-    (sendmail: {"mailto-user":"root@pam"}; gotify: {"server":..,"token":..}; webhook: {"url":..})."""
+    `options` carries the endpoint-specific config (sendmail: {"mailto-user":"root@pam"};
+    gotify: {"server":..,"token":..}; webhook: {"url":..}). Additive, low risk. Dry-run by
+    default (returns a PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further
+    payload). To modify an existing endpoint instead use pve_notification_endpoint_update."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/notifications/endpoints/{ep_type}/{name}"
     plan = _plan("pve_notification_endpoint_create", tgt,
@@ -245,8 +260,10 @@ def pve_notification_endpoint_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the update")] = False,
 ) -> dict:
     """MUTATION: update a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
-    Dry-run by default — captures current config. confirm=True to execute. `options` carries the
-    endpoint-specific fields to change (same shape as create)."""
+    `options` carries the endpoint-specific fields to change (same shape as create). Dry-run
+    by default — captures current config into the PLAN; confirm=True executes and returns
+    {"status": "ok", "result": null} (no further payload). No snapshot primitive; re-apply the captured
+    config to revert, or use pve_notification_endpoint_create to make a new one instead."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/notifications/endpoints/{ep_type}/{name}"
     plan = _plan("pve_notification_endpoint_update", tgt,
@@ -267,8 +284,9 @@ def pve_notification_endpoint_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion")] = False,
 ) -> dict:
     """MUTATION: delete a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
-    Dry-run by default — captures current config. confirm=True to execute.
-    WARN: matchers referencing this endpoint will silently fail until it is restored."""
+    Dry-run by default — captures current config. confirm=True executes and returns
+    {"status": "ok", "result": null} (no further payload). No UNDO primitive — matchers referencing this
+    endpoint silently fail until it is re-created with pve_notification_endpoint_create."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/notifications/endpoints/{ep_type}/{name}"
     plan = _plan("pve_notification_endpoint_delete", tgt,
@@ -286,8 +304,10 @@ def pve_notification_matcher_set(
     comment: Annotated[str | None, Field(description="Optional free-text comment stored with the matcher")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the create/update")] = False,
 ) -> dict:
-    """MUTATION: create-or-update a PVE notification matcher (alert routing rule).
-    Dry-run by default. confirm=True to execute."""
+    """MUTATION: create-or-update a PVE notification matcher (alert routing rule). Dry-run
+    by default (returns a PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no
+    further payload). No snapshot primitive — re-apply with this same tool to restore after
+    deletion. To remove a matcher use pve_notification_matcher_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/notifications/matchers/{name}"
     plan = _plan("pve_notification_matcher_set", tgt,
@@ -304,8 +324,9 @@ def pve_notification_matcher_delete(
     name: Annotated[str, Field(description="Name of the notification matcher to delete")],
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion")] = False,
 ) -> dict:
-    """MUTATION: delete a PVE notification matcher. Dry-run by default.
-    confirm=True to execute. WARN: alerts matching this filter go un-routed after deletion."""
+    """MUTATION: delete a PVE notification matcher. Dry-run by default. confirm=True
+    executes and returns {"status": "ok", "result": null} (no further payload). No UNDO primitive — alerts
+    matching this filter go un-routed until re-created with pve_notification_matcher_set."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/notifications/matchers/{name}"
     plan = _plan("pve_notification_matcher_delete", tgt,
@@ -322,8 +343,10 @@ def pve_notification_test(
     name: Annotated[str, Field(description="Name of the notification target to send a test notification to")],
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True sends a real test notification")] = False,
 ) -> dict:
-    """MUTATION: send a test notification to a PVE notification target. Dry-run by default.
-    confirm=True to execute. SENDS A REAL NOTIFICATION — recipients will receive it."""
+    """MUTATION: send a test notification to a PVE notification target. Dry-run by default
+    (returns a PLAN, nothing is sent); confirm=True SENDS A REAL NOTIFICATION to the target's
+    recipients and returns {"status": "ok", "result": null}. No config changes. `name` is an existing
+    endpoint or matcher name — see pve_notification_endpoint_list for endpoint names."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/notifications/targets/{name}"
     plan = _plan("pve_notification_test", tgt,
@@ -337,9 +360,11 @@ def pve_notification_test(
 
 @tool()
 def pve_metrics_server_list() -> list[dict]:
-    """List all PVE metrics server definitions (read-only). Returns a list of dicts
-    for each configured metrics forwarding target (InfluxDB, Graphite, etc.), with
-    id, type, server address, and port."""
+    """READ-ONLY: list all PVE metrics server definitions.
+
+    No state change. Returns a list of dicts for each configured metrics forwarding target
+    (InfluxDB, Graphite, etc.), with id, type, server address, and port. To create or update
+    one use pve_metrics_server_set; to remove one use pve_metrics_server_delete."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_metrics_server_list", "cluster/metrics/server",
                     lambda: metrics_server_list(api))
@@ -355,8 +380,11 @@ def pve_metrics_server_set(
     comment: Annotated[str | None, Field(description="Optional free-text comment stored with the metrics server definition")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the create/update")] = False,
 ) -> dict:
-    """MUTATION: create-or-update a PVE metrics server definition. Dry-run by default.
-    confirm=True to execute. Config-only; metrics forwarding adjusts to new settings."""
+    """MUTATION: create-or-update a PVE metrics server definition. Dry-run by default
+    (returns a PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further
+    payload). Config-only — metrics forwarding adjusts to the new settings immediately; no
+    snapshot primitive, so re-apply this same tool to revert. To remove it use
+    pve_metrics_server_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/metrics/server/{metrics_id}"
     plan = _plan("pve_metrics_server_set", tgt,
@@ -377,8 +405,9 @@ def pve_metrics_server_delete(
     metrics_id: Annotated[str, Field(description="ID of the metrics server definition to delete")],
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion")] = False,
 ) -> dict:
-    """MUTATION: delete a PVE metrics server definition. Dry-run by default.
-    confirm=True to execute. Metrics forwarding to this server ceases; no data loss."""
+    """MUTATION: delete a PVE metrics server definition. Dry-run by default. confirm=True
+    executes and returns {"status": "ok", "result": null} (no further payload). Metrics forwarding to this
+    server ceases; no data loss, and config is re-creatable with pve_metrics_server_set."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/metrics/server/{metrics_id}"
     plan = _plan("pve_metrics_server_delete", tgt,
@@ -399,8 +428,12 @@ def pve_hardware_list(
     node: Annotated[str, Field(description="PVE node name to list physical hardware devices on")],
     hw_type: Annotated[str, Field(description="Device class to list: 'pci' (default) or 'usb'")] = "pci",
 ) -> dict:
-    """List physical PCI or USB devices on a PVE node (read).
-    hw_type: 'pci' (default) or 'usb'."""
+    """READ-ONLY: list physical PCI or USB devices attached to a PVE node
+    (hw_type: 'pci' default or 'usb').
+
+    No state change. Returns {"devices": [...]} — the node's raw hardware inventory,
+    distinct from the cluster-scope passthrough mappings that VMs actually reference
+    (pve_mapping_pci_list / pve_mapping_usb_list)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_hardware_list", f"nodes/{node}/hardware/{hw_type}",
                     lambda: hardware_list(api, node, hw_type))
@@ -408,9 +441,13 @@ def pve_hardware_list(
 
 @tool()
 def pve_mapping_pci_list() -> list[dict]:
-    """List all PCI device mappings at cluster scope (read-only). Returns a list of
-    dicts defining passthrough mappings for PCI devices assignable to VMs/LXCs,
-    each with mapping ID, device list, and description."""
+    """READ-ONLY: list all PCI device mappings at cluster scope.
+
+    No state change. Returns a list of dicts defining passthrough mappings for PCI devices
+    assignable to VMs (PCI mapping is VM-only — LXC has no PCI-passthrough config), each with
+    mapping ID, device list, and description. To see the
+    raw physical devices on a node use pve_hardware_list; to create a mapping use
+    pve_mapping_pci_create."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_mapping_pci_list", "cluster/mapping/pci",
                     lambda: mapping_pci_list(api))
@@ -418,9 +455,12 @@ def pve_mapping_pci_list() -> list[dict]:
 
 @tool()
 def pve_mapping_usb_list() -> list[dict]:
-    """List all USB device mappings at cluster scope (read-only). Returns a list of
-    dicts defining passthrough mappings for USB devices assignable to VMs/LXCs,
-    each with mapping ID, device list, and description."""
+    """READ-ONLY: list all USB device mappings at cluster scope.
+
+    No state change. Returns a list of dicts defining passthrough mappings for USB devices
+    assignable to VMs/LXCs, each with mapping ID, device list, and description. To see the
+    raw physical devices on a node use pve_hardware_list; to create a mapping use
+    pve_mapping_usb_create."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_mapping_usb_list", "cluster/mapping/usb",
                     lambda: mapping_usb_list(api))
@@ -433,8 +473,11 @@ def pve_mapping_pci_create(
     map: Annotated[str | None, Field(description="PCI device map string(s) defining the physical device(s) covered by this mapping")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the creation")] = False,
 ) -> dict:
-    """MUTATION: create a PCI cluster passthrough mapping. Dry-run by default.
-    confirm=True to execute. Smoke-confirm: POST body shape (id in body) against a live PVE instance."""
+    """MUTATION: create a PCI cluster passthrough mapping. Dry-run by default (returns a
+    PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+    Additive — MEDIUM risk, since a mismatched IOMMU/VFIO map can prevent VMs from starting.
+    To modify an existing mapping use pve_mapping_pci_update; to remove one use
+    pve_mapping_pci_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/mapping/pci/{mapping_id}"
     plan = _plan("pve_mapping_pci_create", tgt,
@@ -454,8 +497,11 @@ def pve_mapping_pci_update(
     digest: Annotated[str | None, Field(description="Optional config digest for optimistic-concurrency check against the current config")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the update")] = False,
 ) -> dict:
-    """MUTATION: update a PCI cluster mapping. Dry-run by default.
-    confirm=True to execute. Reads current config for plan honesty."""
+    """MUTATION: update a PCI cluster mapping. Dry-run by default (reads current config into
+    the PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+    MEDIUM risk — a running VM holding this mapping may need a restart to pick up the new
+    device path. No snapshot primitive; re-apply the captured config to revert, or use
+    pve_mapping_pci_delete to remove the mapping outright."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/mapping/pci/{mapping_id}"
     plan = _plan("pve_mapping_pci_update", tgt,
@@ -474,8 +520,10 @@ def pve_mapping_pci_delete(
     mapping_id: Annotated[str, Field(description="ID of the PCI cluster mapping to delete")],
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion")] = False,
 ) -> dict:
-    """MUTATION: delete a PCI cluster mapping. Dry-run by default.
-    confirm=True to execute. VMs referencing this mapping lose the device path."""
+    """MUTATION: delete a PCI cluster mapping. Dry-run by default (captures current config
+    into the PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+    VMs referencing this mapping lose the device path and may fail to start. No UNDO
+    primitive — re-create with pve_mapping_pci_create to restore."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/mapping/pci/{mapping_id}"
     plan = _plan("pve_mapping_pci_delete", tgt,
@@ -494,8 +542,11 @@ def pve_mapping_usb_create(
     map: Annotated[str | None, Field(description="USB device map string(s) defining the physical device(s) covered by this mapping")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the creation")] = False,
 ) -> dict:
-    """MUTATION: create a USB cluster passthrough mapping. Dry-run by default.
-    confirm=True to execute. Smoke-confirm: POST body shape (id in body) against a live PVE instance."""
+    """MUTATION: create a USB cluster passthrough mapping. Dry-run by default (returns a
+    PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+    Additive — MEDIUM risk, since a mismatched USB device ID can prevent VMs from acquiring
+    the device. To modify an existing mapping use pve_mapping_usb_update; to remove one use
+    pve_mapping_usb_delete."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/mapping/usb/{mapping_id}"
     plan = _plan("pve_mapping_usb_create", tgt,
@@ -515,8 +566,11 @@ def pve_mapping_usb_update(
     digest: Annotated[str | None, Field(description="Optional config digest for optimistic-concurrency check against the current config")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the update")] = False,
 ) -> dict:
-    """MUTATION: update a USB cluster mapping. Dry-run by default.
-    confirm=True to execute. Reads current config for plan honesty."""
+    """MUTATION: update a USB cluster mapping. Dry-run by default (reads current config into
+    the PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+    MEDIUM risk — a running VM holding this mapping may lose USB passthrough until
+    restarted. No snapshot primitive; re-apply the captured config to revert, or use
+    pve_mapping_usb_delete to remove the mapping outright."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/mapping/usb/{mapping_id}"
     plan = _plan("pve_mapping_usb_update", tgt,
@@ -535,8 +589,10 @@ def pve_mapping_usb_delete(
     mapping_id: Annotated[str, Field(description="ID of the USB cluster mapping to delete")],
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion")] = False,
 ) -> dict:
-    """MUTATION: delete a USB cluster mapping. Dry-run by default.
-    confirm=True to execute. VMs referencing this mapping lose the USB device path."""
+    """MUTATION: delete a USB cluster mapping. Dry-run by default (captures current config
+    into the PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+    VMs referencing this mapping lose the USB device path and may fail to start. No UNDO
+    primitive — re-create with pve_mapping_usb_create to restore."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/mapping/usb/{mapping_id}"
     plan = _plan("pve_mapping_usb_delete", tgt,

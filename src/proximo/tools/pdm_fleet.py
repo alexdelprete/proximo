@@ -204,8 +204,9 @@ def pdm_pve_qemu_power(
 ) -> dict:
     """MUTATION: start/stop/shutdown/resume a VM on a PDM-registered remote (through PDM).
 
-    Dry-run by default: returns a PLAN (live state, blast radius, risk) recorded to the
-    ledger. Re-call with confirm=True to submit. Task-backed → status='submitted'.
+    For a container use pdm_pve_lxc_power; to drive a cluster directly without PDM use
+    pve_guest_power. Dry-run by default: returns a PLAN (live state, blast radius, risk)
+    recorded to the ledger. Re-call with confirm=True to submit. Task-backed → status='submitted'.
     """
     return _power("qemu", remote, vmid, action, confirm)
 
@@ -219,7 +220,8 @@ def pdm_pve_lxc_power(
 ) -> dict:
     """MUTATION: start/stop/shutdown a container on a PDM-registered remote (through PDM).
 
-    Dry-run by default (PLAN); confirm=True to submit. Task-backed → 'submitted'.
+    For a VM use pdm_pve_qemu_power; to drive a cluster directly without PDM use
+    pve_guest_power. Dry-run by default (PLAN); confirm=True to submit. Task-backed → 'submitted'.
     """
     return _power("lxc", remote, vmid, action, confirm)
 
@@ -234,7 +236,10 @@ def pdm_pve_qemu_migrate(
 ) -> dict:
     """MUTATION: migrate a VM to another node within the remote's cluster (through PDM).
 
-    online=True migrates a running VM. Dry-run by default (PLAN); confirm=True to submit.
+    For a container use pdm_pve_lxc_migrate; for a different remote/datacenter use
+    pdm_pve_qemu_remote_migrate; to drive a cluster directly without PDM use pve_guest_migrate.
+    online=True migrates it running; the default requires it stopped first. Dry-run by default
+    (PLAN); confirm=True submits and returns a PDM task reference — track it with pdm_tasks_list (pve_task_status cannot poll a PDM UPID).
     """
     return _migrate("qemu", remote, vmid, target, online, confirm)
 
@@ -244,17 +249,18 @@ def pdm_pve_lxc_migrate(
     remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the container.")],
     vmid: Annotated[str, Field(description="Numeric CTID of the container to migrate, as a string.")],
     target: Annotated[str, Field(description="Destination node name within the same remote's cluster.")],
-    online: Annotated[bool, Field(description="True live-migrates the container; else it must be stopped.")] = False,
+    online: Annotated[bool, Field(description="True attempts online (restart) migration — real downtime for LXC; else the container must be stopped.")] = False,
     confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True submits it.")] = False,
 ) -> dict:
     """MUTATION: relocate a container to another node within the same cluster, through PDM.
 
     For a move to a *different* PDM remote/datacenter use pdm_pve_lxc_remote_migrate; to drive a
     cluster directly without PDM use pve_guest_migrate. The container is moved, not copied — the
-    source node stops hosting it (there is no separate source to delete). online=True live-migrates
-    it while running (minimal downtime); the default (False) requires it be stopped first (offline).
-    Dry-run by default (returns a PLAN); confirm=True submits and returns the Proxmox task UPID —
-    poll it with pve_task_status. Requires the wired PDM remote's token to permit migration (VM.Migrate).
+    source node stops hosting it (there is no separate source to delete). LXC has no live migration:
+    online=True does a stop-move-start restart-migration (real downtime); the default (False) requires
+    it already be stopped. Dry-run by default (returns a PLAN); confirm=True submits and returns a PDM
+    task reference — track it with pdm_tasks_list (pve_task_status cannot poll a PDM UPID). Requires the
+    wired PDM remote's token to permit migration (VM.Migrate).
     """
     return _migrate("lxc", remote, vmid, target, online, confirm)
 
@@ -273,9 +279,10 @@ def pdm_pve_qemu_remote_migrate(
 ) -> dict:
     """MUTATION: migrate a VM to a DIFFERENT PDM-registered remote (datacenter-to-datacenter).
 
-    target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',
-    'local-lvm:local-lvm'). delete=True removes the source after a successful move (destructive).
-    Dry-run by default (PLAN); confirm=True to submit.
+    For a container use pdm_pve_lxc_remote_migrate; for a same-cluster move use pdm_pve_qemu_migrate.
+    target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0', 'local-lvm:local-lvm').
+    delete=True removes the source VM after a successful move (irreversible). Dry-run by default
+    (PLAN); confirm=True submits and returns a PDM task reference — track it with pdm_tasks_list (pve_task_status cannot poll a PDM UPID).
     """
     return _remote_migrate("qemu", remote, vmid, target_remote, target_bridge, target_storage,
                            target_vmid, online, delete, confirm)
@@ -289,16 +296,17 @@ def pdm_pve_lxc_remote_migrate(
     target_bridge: Annotated[str, Field(description="Source-to-target network bridge mapping, e.g. 'vmbr0:vmbr0'.")],
     target_storage: Annotated[str, Field(description="Source-to-target storage mapping, e.g. 'local-lvm:local-lvm'.")],
     target_vmid: Annotated[str | None, Field(description="CTID on the destination; omit to keep same CTID.")] = None,
-    online: Annotated[bool, Field(description="True live-migrates the container; else it must be stopped.")] = False,
+    online: Annotated[bool, Field(description="True attempts online (restart) migration — real downtime for LXC; else the container must be stopped.")] = False,
     delete: Annotated[bool, Field(description="True deletes container after successful move (destructive).")] = False,
     confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True submits it.")] = False,
 ) -> dict:
     """MUTATION: migrate a container to a DIFFERENT PDM-registered remote
     (datacenter-to-datacenter).
 
-    target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',
-    'local-lvm:local-lvm'). delete=True removes the source after a successful move
-    (destructive). Dry-run by default (PLAN); confirm=True to submit.
+    For a VM use pdm_pve_qemu_remote_migrate; for a same-cluster move use pdm_pve_lxc_migrate.
+    target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0', 'local-lvm:local-lvm').
+    delete=True removes the source after a successful move (irreversible). Dry-run by default
+    (PLAN); confirm=True submits and returns a PDM task reference — track it with pdm_tasks_list (pve_task_status cannot poll a PDM UPID).
     """
     return _remote_migrate("lxc", remote, vmid, target_remote, target_bridge, target_storage,
                            target_vmid, online, delete, confirm)
@@ -315,7 +323,9 @@ def pdm_pve_qemu_snapshot_create(
 ) -> dict:
     """MUTATION: snapshot a VM on a PDM-registered remote (through PDM).
 
-    vmstate=True includes the VM's RAM state. Additive (LOW risk). Dry-run by default.
+    For a container use pdm_pve_lxc_snapshot_create. vmstate=True includes the VM's RAM state
+    (larger, slower). Additive (LOW risk) — creates a restore point, touches no existing state.
+    Dry-run by default (PLAN); confirm=True creates it and returns the Proxmox task UPID.
     """
     return _snapshot_create("qemu", remote, vmid, snapname, description, vmstate, confirm)
 
@@ -330,7 +340,9 @@ def pdm_pve_lxc_snapshot_create(
 ) -> dict:
     """MUTATION: snapshot a container on a PDM-registered remote (through PDM).
 
-    Containers have no RAM state, so there is no vmstate option. Dry-run by default.
+    For a VM use pdm_pve_qemu_snapshot_create. Containers have no RAM state, so there is no
+    vmstate option. Additive (LOW risk) — creates a restore point, touches no existing state.
+    Dry-run by default (PLAN); confirm=True creates it and returns the Proxmox task UPID.
     """
     return _snapshot_create("lxc", remote, vmid, snapname, description, False, confirm)
 
@@ -347,7 +359,7 @@ def pdm_pve_qemu_snapshot_delete(
     Removes only the snapshot's saved state, not the VM. Irreversible — there is no UNDO. For a
     container snapshot use pdm_pve_lxc_snapshot_delete; to create rather than delete a snapshot use
     pdm_pve_qemu_snapshot_create. Dry-run by default (returns a PLAN); confirm=True executes and
-    returns the Proxmox task UPID (poll with pve_task_status)."""
+    returns a PDM task reference (track with pdm_tasks_list; pve_task_status cannot poll a PDM UPID)."""
     return _snapshot_delete("qemu", remote, vmid, snapname, confirm)
 
 
@@ -363,7 +375,7 @@ def pdm_pve_lxc_snapshot_delete(
     Removes only the snapshot's saved state, not the container. Irreversible — there is no UNDO.
     For a VM snapshot use pdm_pve_qemu_snapshot_delete; to create rather than delete a snapshot use
     pdm_pve_lxc_snapshot_create. Dry-run by default (returns a PLAN); confirm=True executes and
-    returns the Proxmox task UPID (poll with pve_task_status)."""
+    returns a PDM task reference (track with pdm_tasks_list; pve_task_status cannot poll a PDM UPID)."""
     return _snapshot_delete("lxc", remote, vmid, snapname, confirm)
 
 
@@ -376,8 +388,10 @@ def pdm_pve_qemu_snapshot_rollback(
 ) -> dict:
     """MUTATION: roll a VM back to a snapshot on a PDM-registered remote (through PDM).
 
-    DESTRUCTIVE (discards current state). Takes an auto safety-snapshot first (fail-closed:
-    no snapshot, no rollback). Dry-run by default (PLAN); confirm=True to submit.
+    For a container use pdm_pve_lxc_snapshot_rollback; to roll back without PDM use pve_rollback.
+    DESTRUCTIVE (discards current state). Takes an auto safety-snapshot first (fail-closed: no
+    snapshot, no rollback) and returns its name as safety_snapshot — the handle to undo this
+    rollback. Dry-run by default (PLAN); confirm=True submits and returns the Proxmox task UPID.
     """
     return _snapshot_rollback("qemu", remote, vmid, snapname, confirm)
 
@@ -391,6 +405,9 @@ def pdm_pve_lxc_snapshot_rollback(
 ) -> dict:
     """MUTATION: roll a container back to a snapshot on a PDM-registered remote (through PDM).
 
-    DESTRUCTIVE. Takes an auto safety-snapshot first (fail-closed). Dry-run by default.
+    For a VM use pdm_pve_qemu_snapshot_rollback; to roll back without PDM use pve_rollback.
+    DESTRUCTIVE (discards current state). Takes an auto safety-snapshot first (fail-closed: no
+    snapshot, no rollback) and returns its name as safety_snapshot — the handle to undo this
+    rollback. Dry-run by default (PLAN); confirm=True submits and returns the Proxmox task UPID.
     """
     return _snapshot_rollback("lxc", remote, vmid, snapname, confirm)

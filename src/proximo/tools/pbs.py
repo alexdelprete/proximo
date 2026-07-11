@@ -181,8 +181,9 @@ def pbs_datastore_status(
 def pbs_gc_status(
     store: Annotated[str, Field(description="PBS datastore name.")],
 ) -> dict:
-    """Get garbage-collection status for one PBS datastore (read-only). Returns GC
-    schedule, current state, disk/index statistics, and pending/removed chunk counts.
+    """Get garbage-collection status for one PBS datastore (read-only). Returns current GC
+    state, disk/index statistics, and pending/removed chunk counts (the GC schedule field
+    appears only when a schedule is configured on the datastore).
     Use pbs_gc_start to execute garbage collection or pbs_datastore_status for capacity."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_gc_status", f"pbs/{store}/gc", lambda: pbs_gc_status_op(pbs, store))
@@ -197,9 +198,11 @@ def pbs_snapshots_list(
         str | None, Field(description="Backup group ID (e.g. VMID/CTID or host name) to filter by."),
     ] = None,
 ) -> list[dict]:
-    """List backup snapshots in a PBS datastore with optional filters (read-only). Returns
+    """READ-ONLY: list backup snapshots in a PBS datastore with optional filters. Returns
     snapshot metadata including backup type, ID, timestamp, size, owner, and protection
-    status; filter by namespace, backup_type (vm/ct/host), or backup_id."""
+    status; filter by namespace, backup_type (vm/ct/host), or backup_id. To delete one use
+    pbs_snapshot_delete; to change its protected flag or notes use pbs_snapshot_protected_set
+    or pbs_snapshot_notes_set."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_snapshots_list", f"pbs/{store}",
                     lambda: pbs_snapshots_list_op(pbs, store, ns, backup_type, backup_id))
@@ -223,8 +226,9 @@ def pbs_namespaces_list(
 
 @tool()
 def pbs_remotes_list() -> list[dict]:
-    """List all PBS remote sync-sources (read). Passwords are never returned by the PBS API.
-    Needs PROXIMO_PBS_* config."""
+    """READ-ONLY: list all PBS remote sync-sources. Returns a list of remote config dicts;
+    passwords are never included (PBS never returns them, and this strips defensively too).
+    Use pbs_remote_get for one remote's config. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_remotes_list", "pbs/config/remote",
                     lambda: pbs_cfg_remotes_list(pbs))
@@ -234,8 +238,9 @@ def pbs_remotes_list() -> list[dict]:
 def pbs_remote_get(
     name: Annotated[str, Field(description="PBS remote sync-source name.")],
 ) -> dict:
-    """Get the config of one PBS remote sync-source by name (read). No password returned.
-    Needs PROXIMO_PBS_* config."""
+    """READ-ONLY: get the config of one PBS remote sync-source by name. Returns a dict; no
+    password returned. Use pbs_remotes_list to list all remotes, or pbs_remote_update to
+    change this one. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_remote_get", f"pbs/config/remote/{name}",
                     lambda: pbs_cfg_remote_get(pbs, name))
@@ -243,7 +248,7 @@ def pbs_remote_get(
 
 @tool()
 def pbs_traffic_controls_list() -> list[dict]:
-    """List all PBS traffic-control bandwidth-limit rules (read-only). Returns active rules
+    """READ-ONLY: list all PBS traffic-control bandwidth-limit rules. Returns active rules
     with their rate-in/rate-out limits, network targets, and comment. Use
     pbs_traffic_control_upsert to create or modify rules. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
@@ -255,8 +260,9 @@ def pbs_traffic_controls_list() -> list[dict]:
 def pbs_jobs_list(
     job_type: Annotated[str, Field(description="Scheduled-job type to list: 'sync', 'verify', or 'prune'.")],
 ) -> list[dict]:
-    """List all PBS scheduled jobs of the given type (read). job_type = sync|verify|prune.
-    Returns all jobs with their configs. Raises on invalid job_type. Needs PROXIMO_PBS_* config."""
+    """READ-ONLY: list all PBS scheduled jobs of the given type. job_type = sync|verify|prune.
+    Returns all jobs with their configs; raises on invalid job_type. Use pbs_job_create,
+    pbs_job_update, or pbs_job_delete to manage one. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_jobs_list", f"pbs/config/{job_type}",
                     lambda: pbs_scheduled_jobs_list(pbs, job_type))
@@ -271,9 +277,10 @@ def pbs_tasks_list(
     running: Annotated[bool | None, Field(description="If True, return only currently-running tasks.")] = None,
     errors: Annotated[bool | None, Field(description="If True, return only tasks that ended in error.")] = None,
 ) -> list[dict]:
-    """List PBS tasks on a node (read). Defaults to 'localhost' (standard single-node PBS name).
-    Optionally filter: running=True for active tasks, errors=True for failed tasks.
-    Needs PROXIMO_PBS_* config."""
+    """READ-ONLY: list PBS tasks on a node. Defaults to 'localhost' (standard single-node PBS
+    name). Returns a list of task dicts; filter running=True for active tasks or errors=True
+    for failed ones. Use this to check on a UPID returned by pbs_gc_start, pbs_verify_start,
+    pbs_datastore_create, or pbs_datastore_delete. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
     return _audited("pbs_tasks_list", f"pbs/nodes/{node}/tasks",
                     lambda: pbs_tasks_list_op(pbs, node, limit, running, errors))
@@ -300,7 +307,8 @@ def pbs_gc_start(
     ] = False,
 ) -> dict:
     """MUTATION (HIGH): start garbage collection on a PBS datastore. Dry-run by default — GC
-    permanently removes unreferenced chunks (no undo). confirm=True to execute. Async — UPID."""
+    permanently removes unreferenced chunks (no undo). confirm=True to execute; returns the
+    UPID (async task) — check progress with pbs_gc_status or pbs_tasks_list."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/{store}/gc"
     plan = _plan("pbs_gc_start", tgt, lambda: pbs_plan_gc_start(store))
@@ -325,7 +333,8 @@ def pbs_verify_start(
     ] = False,
 ) -> dict:
     """MUTATION: start an integrity verification run on a PBS datastore. Dry-run by default —
-    non-destructive (read-only check) but heavy I/O. confirm=True to execute. Async — UPID."""
+    non-destructive (read-only check) but heavy I/O. confirm=True to execute; returns the
+    UPID (async task) — check progress with pbs_tasks_list."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/{store}/verify"
     plan = _plan("pbs_verify_start", tgt,
@@ -362,7 +371,8 @@ def pbs_prune(
     """MUTATION: prune backup snapshots per a retention policy. TWO safety gates: confirm
     (Proximo dry-run vs execute) AND dry_run (PBS-side preview). dry_run=True (default) only
     previews; dry_run=False DELETES recovery points (PLAN is HIGH, no undo). confirm=True to
-    execute. Synchronous — returns prune decisions."""
+    execute. Synchronous — returns prune decisions. For one specific snapshot use
+    pbs_snapshot_delete instead."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/{store}/prune"
     plan = _plan("pbs_prune", tgt,
@@ -395,7 +405,9 @@ def pbs_snapshot_delete(
     ] = False,
 ) -> dict:
     """MUTATION (HIGH): delete a specific backup snapshot (a recovery point) from a PBS
-    datastore. Dry-run by default. Permanent — no undo. confirm=True to execute. Synchronous."""
+    datastore. Dry-run by default. Permanent — no undo. confirm=True to execute. Synchronous.
+    To shield a snapshot instead of deleting it use pbs_snapshot_protected_set(protected=True);
+    for bulk retention-based deletion use pbs_prune."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/{store}/{backup_type}/{backup_id}"
     plan = _plan("pbs_snapshot_delete", tgt,
@@ -419,7 +431,8 @@ def pbs_namespace_create(
     ] = False,
 ) -> dict:
     """MUTATION: create a namespace within a PBS datastore. Dry-run by default (additive, LOW).
-    confirm=True to execute. Synchronous."""
+    confirm=True to execute — returns {"status": "ok", "result": null}. Use pbs_namespaces_list to check for
+    name collisions first, or pbs_namespace_delete to remove one."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/{store}/namespace/{name}"
     plan = _plan("pbs_namespace_create", tgt,
@@ -444,7 +457,8 @@ def pbs_namespace_delete(
 ) -> dict:
     """MUTATION: delete a namespace from a PBS datastore. Dry-run by default — delete_groups=True
     is HIGH (it deletes all backup groups/snapshots inside the namespace, no undo). confirm=True
-    to execute. Synchronous."""
+    to execute — returns {"status": "ok", "result": null}. Use pbs_namespaces_list to confirm it's empty first,
+    or pbs_namespace_create to recreate an empty namespace afterward."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/{store}/namespace/{ns}"
     plan = _plan("pbs_namespace_delete", tgt,
@@ -480,7 +494,8 @@ def pbs_datastore_create(
 
     Dry-run by default — additive, but a misconfigured path can conflict with existing storage.
     PBS datastore creation is an async worker task (UPID) → outcome='submitted' (not 'ok').
-    No rollback primitive. confirm=True to execute.
+    No rollback primitive. confirm=True to execute. Use pbs_datastores_list to check for
+    name/path collisions first, or pbs_datastore_update to modify it afterward.
 
     POST /config/datastore
     Smoke-confirm: gc-schedule / prune-schedule / notification-mode param names; sync-vs-async.
@@ -524,6 +539,8 @@ def pbs_datastore_update(
     CAPTURE: reads current config before planning; on read failure the plan is marked incomplete.
     Changing gc-schedule / prune-schedule affects data retention cluster-wide.
     No rollback primitive — revert by re-applying the captured config. confirm=True to execute.
+    Use pbs_datastore_get to inspect current config, or pbs_datastore_delete to remove the
+    datastore instead.
 
     PUT /config/datastore/{name}
     Smoke-confirm: accepted param names (hyphenated vs underscored).
@@ -566,6 +583,8 @@ def pbs_datastore_delete(
       named datastore — no recovery possible.
 
     PBS deletion is an async worker task (UPID) → outcome='submitted'. confirm=True to execute.
+    To recover from a destroy_data=False detach, re-add with pbs_datastore_create at the
+    same path.
 
     DELETE /config/datastore/{name}
     Smoke-confirm: destroy-data / keep-job-configs param names; sync-vs-async.
@@ -609,6 +628,8 @@ def pbs_snapshot_protected_set(
       be auto-deleted by the next prune job or GC run. No undo once auto-deleted.
 
     No PBS snapshot primitive for rollback. Dry-run by default. confirm=True to execute.
+    To annotate rather than protect a snapshot use pbs_snapshot_notes_set; to delete it
+    outright use pbs_snapshot_delete.
 
     PUT /admin/datastore/{store}/protected
     Smoke-confirm: exact path + param names (backup-type, backup-id, backup-time, protected).
@@ -647,7 +668,8 @@ def pbs_snapshot_notes_set(
     """MUTATION (LOW): annotate a PBS snapshot with notes. Dry-run by default.
 
     CAPTURE: reads current notes before planning; on failure the plan is marked incomplete.
-    Does not affect backup data, retention, or protection.
+    Does not affect backup data, retention, or protection — to shield the snapshot from
+    pruning/GC use pbs_snapshot_protected_set instead.
     No PBS snapshot primitive — revert by re-applying the captured notes. confirm=True to execute.
 
     PUT /admin/datastore/{store}/notes
@@ -684,10 +706,11 @@ def pbs_group_change_owner(
     """MUTATION (MEDIUM): reassign the owner of a PBS backup group. Dry-run by default.
 
     The new owner controls deletion and prune of this backup group.
-    The previous owner loses those permissions immediately.
+    The previous owner loses those permissions immediately. Use pbs_snapshots_list to see
+    the group's current owner first.
     No PBS snapshot primitive — revert by re-assigning the owner back. confirm=True to execute.
 
-    PUT /admin/datastore/{store}/change-owner
+    POST /admin/datastore/{store}/change-owner
     Smoke-confirm: exact path + new-owner vs owner param name.
     """
     _, pbs = _proximo_server._pbs()
@@ -786,6 +809,7 @@ def pbs_remote_update(
     This is an MCP-protocol property; server-side redaction protects the ledger only.
     The TLS cert 'fingerprint' is PUBLIC and appears in plans/logs for audit.
     No rollback primitive — revert by re-applying captured config. confirm=True to execute.
+    Use pbs_remote_get to inspect current config first.
 
     PUT /config/remote/{name}
     Smoke-confirm: auth-id param name; whether partial PUT is accepted.
@@ -864,7 +888,8 @@ def pbs_traffic_control_upsert(
       update → MEDIUM: changing rate limits can throttle backups or saturate the network.
 
     A too-low rate-in or rate-out throttles PBS backups to a crawl.
-    No rollback primitive. confirm=True to execute.
+    No rollback primitive. confirm=True to execute. Use pbs_traffic_controls_list to see
+    existing rules first, or pbs_traffic_control_delete to remove one.
 
     POST (create) or PUT (update) /config/traffic-control[/{name}]
     Smoke-confirm: create-vs-update dispatch; rate-in/rate-out/burst-in/burst-out/timeframe param names.
@@ -893,7 +918,7 @@ def pbs_traffic_control_delete(
         bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
     ] = False,
 ) -> dict:
-    """MUTATION (LOW): remove a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
+    """MUTATION (MEDIUM): remove a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
 
     After deletion: backups run unthrottled on the matched network.
     Recoverable by re-creating the rule with pbs_traffic_control_upsert. confirm=True to execute.

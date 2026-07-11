@@ -55,8 +55,11 @@ def pve_network_list(
     node: Annotated[str | None, Field(description="Node name to list interfaces on; defaults to the configured node.")] = None,
     iface_type: Annotated[str | None, Field(description="Filter to one interface type: bridge, bond, vlan, eth, or alias.")] = None,
 ) -> list[dict]:
-    """List network interfaces on a node (read-only). Returns iface name, type
-    (bridge/bond/vlan/eth/alias), method, and address. Filter by type with iface_type."""
+    """READ-ONLY: list network interfaces (bridges/bonds/VLANs/etc) on a PVE node.
+
+    No state change. Returns a list of dicts with iface name, type (bridge/bond/vlan/eth/alias),
+    method, and address; filter by type with iface_type. For SDN zones/vnets use
+    pve_sdn_zones_list / pve_sdn_vnets_list instead — that's a separate, cluster-scoped layer."""
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"nodes/{node or cfg.node}/network"
     return _audited("pve_network_list", tgt, lambda: network_list(api, node, iface_type))
@@ -84,9 +87,9 @@ def pve_sdn_vnets_list() -> list[dict]:
 
 @tool()
 def pve_sdn_subnet_list(vnet: Annotated[str, Field(description="SDN vnet name whose subnets to list.")]) -> list[dict]:
-    """List subnets in a vnet (read-only). Returns subnet CIDR, gateway, dhcp,
-    snat, and dns settings. Use pve_sdn_subnet_create to add and pve_sdn_apply to
-    commit."""
+    """READ-ONLY: list the subnets configured in a vnet. Returns a list of subnet dicts
+    (the exact field set is not guaranteed by this endpoint). Use pve_sdn_subnet_create to
+    add one and pve_sdn_apply to commit."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_sdn_subnet_list", f"sdn/vnets/{vnet}/subnets",
                     lambda: sdn_subnet_list(api, vnet))
@@ -101,8 +104,11 @@ def pve_sdn_zone_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: create an SDN zone (PENDING — inert until pve_sdn_apply, NOT applied here).
-    `zone_type` is simple/vlan/qinq/vxlan/evpn/faucet; `options` carries type-specific params.
-    Dry-run by default. RISK_LOW (staging, no live network effect).
+
+    `zone_type` is simple/vlan/qinq/vxlan/evpn/faucet; `options` carries type-specific params. To
+    update an existing zone use pve_sdn_zone_update; to remove one use pve_sdn_zone_delete. Dry-run
+    by default (returns a PLAN); confirm=True creates the pending zone, returning {status, result}.
+    RISK_LOW (staging, no live network effect).
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/zones/{zone}"
@@ -124,7 +130,10 @@ def pve_sdn_zone_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: update an SDN zone (PENDING). `options` sets fields; `delete` unsets keys.
-    Dry-run by default. RISK_LOW (staging; inert until pve_sdn_apply).
+
+    To create a new zone use pve_sdn_zone_create; to remove one use pve_sdn_zone_delete. Dry-run
+    by default (returns a PLAN); confirm=True stages the edit and returns {status, result}.
+    RISK_LOW (staging; inert until pve_sdn_apply).
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/zones/{zone}"
@@ -143,7 +152,10 @@ def pve_sdn_zone_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: delete an SDN zone (PENDING). Dry-run by default — the PLAN shows the current zone.
-    PVE refuses if a vnet still references it. RISK_MEDIUM (staging a removal an apply would enact).
+
+    To create a zone instead use pve_sdn_zone_create. PVE refuses if a vnet still references it.
+    confirm=True stages the removal and returns {status, result}; no config UNDO — re-create the
+    zone to revert. RISK_MEDIUM (staging a removal an apply would enact).
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/zones/{zone}"
@@ -164,7 +176,10 @@ def pve_sdn_vnet_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: create an SDN vnet in a zone (PENDING). `options` carries tag/alias/vlanaware/etc.
-    Dry-run by default. RISK_LOW (staging; inert until pve_sdn_apply).
+
+    To update an existing vnet use pve_sdn_vnet_update; to remove one use pve_sdn_vnet_delete.
+    Dry-run by default (returns a PLAN); confirm=True creates the pending vnet and returns
+    {status, result}. RISK_LOW (staging; inert until pve_sdn_apply).
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/vnets/{vnet}"
@@ -186,8 +201,11 @@ def pve_sdn_vnet_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: update an SDN vnet (PENDING — inert until pve_sdn_apply).
-    Options sets fields (tag/alias/vlanaware/etc), delete removes keys. Dry-run
-    by default. RISK_LOW (staging, no live network effect)."""
+
+    `options` sets fields (tag/alias/vlanaware/etc), `delete` removes keys. To create a vnet use
+    pve_sdn_vnet_create; to remove one use pve_sdn_vnet_delete. Dry-run by default (returns a
+    PLAN); confirm=True stages the edit and returns {status, result}. RISK_LOW (staging, no live
+    network effect)."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/vnets/{vnet}"
     plan = _plan("pve_sdn_vnet_update", tgt, lambda: plan_sdn_vnet_update(vnet, options, delete))
@@ -205,7 +223,10 @@ def pve_sdn_vnet_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: delete an SDN vnet (PENDING). Dry-run by default — the PLAN shows the current vnet.
-    PVE refuses if a subnet still references it. RISK_MEDIUM.
+
+    To create a vnet instead use pve_sdn_vnet_create. PVE refuses if a subnet still references it.
+    confirm=True stages the removal and returns {status, result}; no config UNDO — re-create the
+    vnet to revert. RISK_MEDIUM.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/vnets/{vnet}"
@@ -226,7 +247,11 @@ def pve_sdn_subnet_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: create an SDN subnet (PENDING). `subnet` is a CIDR (e.g. 10.0.0.0/24); `options`
-    carries gateway/snat/dhcp params. Dry-run by default. RISK_LOW (staging; inert until apply).
+    carries gateway/snat/dhcp params.
+
+    To update this subnet use pve_sdn_subnet_update; to remove it use pve_sdn_subnet_delete.
+    Dry-run by default (returns a PLAN); confirm=True creates the pending subnet and returns
+    {status, result}. RISK_LOW (staging; inert until apply).
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/vnets/{vnet}/subnets/{subnet}"
@@ -249,7 +274,10 @@ def pve_sdn_subnet_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: update an SDN subnet (PENDING). `subnet` is the id from pve_sdn_subnet_list.
-    Dry-run by default. RISK_LOW (staging).
+
+    To create a subnet use pve_sdn_subnet_create; to remove one use pve_sdn_subnet_delete. Dry-run
+    by default (returns a PLAN); confirm=True stages the edit and returns {status, result}.
+    RISK_LOW (staging).
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/vnets/{vnet}/subnets/{subnet}"
@@ -269,7 +297,10 @@ def pve_sdn_subnet_delete(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the staged mutation.")] = False,
 ) -> dict:
     """MUTATION: delete an SDN subnet (PENDING). `subnet` is the id from pve_sdn_subnet_list.
-    Dry-run by default. RISK_MEDIUM (staging a removal an apply would enact).
+
+    To create a subnet instead use pve_sdn_subnet_create. Dry-run by default (returns a PLAN);
+    confirm=True stages the removal and returns {status, result}; no config UNDO — re-create the
+    subnet to revert. RISK_MEDIUM (staging a removal an apply would enact).
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"sdn/vnets/{vnet}/subnets/{subnet}"
@@ -290,8 +321,11 @@ def pve_network_iface_create(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True stages the interface (still not live until pve_network_apply).")] = False,
 ) -> dict:
     """MUTATION: create a new network interface config (staged — not live until pve_network_apply).
-    Dry-run by default; confirm=True to execute. Synchronous.
-    `options` carries type-dependent fields (address, netmask, gateway, bridge_ports, …).
+
+    `options` carries type-dependent fields (address, netmask, gateway, bridge_ports, …). To
+    update an existing interface instead use pve_network_iface_update. Dry-run by default (returns
+    a PLAN); confirm=True stages the interface, synchronously, and returns {status, result} —
+    result is often None.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"nodes/{node or cfg.node}/network/{iface}"
@@ -312,8 +346,11 @@ def pve_network_iface_update(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True stages the update (still not live until pve_network_apply).")] = False,
 ) -> dict:
     """MUTATION: update an existing network interface config (staged — not live until pve_network_apply).
-    Dry-run by default; confirm=True to execute. Synchronous.
-    `options` carries fields to update (address, netmask, bridge_ports, …).
+
+    `options` carries fields to update (address, netmask, bridge_ports, …); the interface's type
+    is preserved automatically and cannot be changed here — recreate via pve_network_iface_create
+    for a type change. Dry-run by default (returns a PLAN); confirm=True stages the update and
+    returns {status, result} — result is often None.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"nodes/{node or cfg.node}/network/{iface}"
@@ -332,9 +369,13 @@ def pve_network_apply(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True applies the staged config to the live network stack.")] = False,
 ) -> dict:
     """MUTATION (HIGH RISK): apply staged network config changes to the live network stack.
-    Dry-run by default — the PLAN surfaces pending interfaces. confirm=True to execute.
-    A misconfigured interface can lose SSH/API access; recovery requires console/physical access.
-    May return a UPID (async) or None (sync) — outcome='submitted' in either case.
+
+    Stage changes first with pve_network_iface_create / pve_network_iface_update — this applies
+    whatever is currently staged; for SDN changes use pve_sdn_apply instead (a separate,
+    cluster-scoped commit). Dry-run by default — the PLAN surfaces pending interfaces. confirm=True
+    executes with no automatic undo; a misconfigured interface can lose SSH/API access, requiring
+    console/physical access to recover. May return a UPID (async) or None (sync) — outcome='submitted'
+    in either case.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"nodes/{node or cfg.node}/network"
@@ -351,9 +392,13 @@ def pve_sdn_apply(
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True applies pending SDN config cluster-wide.")] = False,
 ) -> dict:
     """MUTATION (HIGH RISK): apply pending SDN config changes (cluster-scoped).
-    Dry-run by default — the PLAN surfaces pending zones/vnets. confirm=True to execute.
-    A misconfigured SDN can disrupt virtual networking for ALL guests cluster-wide.
-    May return a UPID (async) or None (sync) — outcome='submitted' in either case.
+
+    Stage zones/vnets/subnets first with pve_sdn_zone_create / pve_sdn_vnet_create /
+    pve_sdn_subnet_create — this applies whatever is pending; for interface/bridge changes use
+    pve_network_apply instead. Dry-run by default — the PLAN surfaces pending zones/vnets.
+    confirm=True executes with no automatic undo, disrupting virtual networking for ALL guests
+    cluster-wide if misconfigured. May return a UPID (async) or None (sync) — outcome='submitted'
+    in either case.
     """
     _, api, _, _ = _proximo_server._svc()
     plan = _plan("pve_sdn_apply", "cluster/sdn", lambda: plan_sdn_apply(api))

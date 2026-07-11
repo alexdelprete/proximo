@@ -40,10 +40,11 @@ from proximo.server import (
 def pve_node_disks_list(
     node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
 ) -> list:
-    """List physical disks on a PVE node (read).
+    """READ-ONLY: list physical disks on a PVE node.
 
-    GET /nodes/{node}/disks/list — physical disk inventory and health info.
-    Smoke-confirm: response shape not live-verified.
+    GET /nodes/{node}/disks/list. VERIFIED live (PVE 9.2): returns a list of dicts
+    (devpath/health/size/model/serial/used). For one disk's SMART detail use
+    pve_node_disk_smart.
     """
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_disks_list", node or cfg.node,
@@ -55,10 +56,11 @@ def pve_node_disk_smart(
     disk: Annotated[str, Field(description="Device path/identifier of the disk to query (e.g. /dev/sda), as listed by pve_node_disks_list.")],
     node: Annotated[str | None, Field(description="PVE node name the disk lives on; defaults to the configured node if omitted.")] = None,
 ) -> dict:
-    """Get SMART health data for a disk on a PVE node (read).
+    """READ-ONLY: get SMART health data for one disk on a PVE node.
 
-    GET /nodes/{node}/disks/smart?disk=… — SMART attributes and health status.
-    Smoke-confirm: GET (read) only — this tool does NOT trigger a self-test.
+    GET /nodes/{node}/disks/smart?disk=…. VERIFIED live (PVE 9.2): returns a dict
+    (health, type, text/attributes). This GET form does NOT trigger a self-test.
+    To list all disks first use pve_node_disks_list.
     """
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_disk_smart", f"{node or cfg.node}:{disk}",
@@ -75,11 +77,10 @@ def pve_node_disk_wipe(
 ) -> dict:
     """MUTATION: wipe ALL data and the partition table on a node disk.
 
-    RISK_HIGH, NO UNDO: DESTROYS all data, partitions, and filesystems on the named disk.
-    This is irreversible — all data is permanently erased. confirm=True to execute.
-
-    PUT /nodes/{node}/disks/wipedisk
-    Smoke-confirm: endpoint and body shape not live-verified.
+    RISK_HIGH, NO UNDO: DESTROYS all data, partitions, and filesystems on the named disk —
+    more destructive than pve_node_disk_initgpt, which only overwrites the partition table.
+    Dry-run by default (returns a PLAN); confirm=True executes (PUT /disks/wipedisk,
+    Smoke-confirm) and returns {"status": "submitted", "result": <task UPID | None>}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/disks/{disk}"
@@ -103,11 +104,10 @@ def pve_node_disk_initgpt(
 ) -> dict:
     """MUTATION: initialize a GPT partition table on a node disk.
 
-    RISK_HIGH: overwrites the existing partition table on the named disk; irreversible.
-    confirm=True to execute.
-
-    POST /nodes/{node}/disks/initgpt
-    Smoke-confirm: endpoint and body shape not live-verified.
+    RISK_HIGH: overwrites the existing partition table on the named disk; irreversible —
+    less destructive than pve_node_disk_wipe, which also erases the underlying data.
+    Dry-run by default (returns a PLAN); confirm=True executes (POST /disks/initgpt,
+    Smoke-confirm) and returns {"status": "submitted", "result": <task UPID | None>}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/disks/{disk}"
@@ -128,11 +128,12 @@ def pve_node_storage_backend_list(
     backend: Annotated[str, Field(description="Storage backend type to list: one of lvm, lvmthin, zfs, directory.")],
     node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
 ) -> list:
-    """List storage backends of a type on a PVE node (read).
+    """READ-ONLY: list storage backends of a type on a PVE node.
 
-    backend ∈ {lvm, lvmthin, zfs, directory}.
-    GET /nodes/{node}/disks/{backend}
-    Smoke-confirm: response shape not live-verified.
+    backend ∈ {lvm, lvmthin, zfs, directory}. GET /nodes/{node}/disks/{backend}.
+    VERIFIED live (PVE 9.2): lvm returns a VG-tree dict; lvmthin/zfs/directory return a
+    list. To create or destroy a backend use pve_node_storage_backend_create /
+    pve_node_storage_backend_delete.
     """
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_storage_backend_list", f"{node or cfg.node}/disks/{backend}",
@@ -155,10 +156,11 @@ def pve_node_storage_backend_create(
       lvm/lvmthin: devices (single disk)
       directory: devices (disk path) + filesystem (e.g. ext4)
 
-    The named disk(s) are consumed by the new backend. confirm=True to execute.
-
-    POST /nodes/{node}/disks/{backend}
-    Smoke-confirm: endpoint and body shape not live-verified. May return a task UPID (async).
+    RISK_HIGH: FORMATS the named disk(s) immediately — any pre-existing data is destroyed,
+    irreversibly. To see what already exists use pve_node_storage_backend_list; to remove
+    one use pve_node_storage_backend_delete. Dry-run by default (returns a PLAN);
+    confirm=True executes (POST, Smoke-confirm) and returns
+    {"status": "submitted", "result": <task UPID | None>}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/disks/{backend}/{name}"
@@ -191,10 +193,10 @@ def pve_node_storage_backend_delete(
       lvm/lvmthin: removes the VG — any storage built on it breaks
       directory:  removes the directory mapping (data on disk may persist)
 
-    confirm=True to execute.
-
-    DELETE /nodes/{node}/disks/{backend}/{name}
-    Smoke-confirm: endpoint and params shape not live-verified.
+    To create one instead use pve_node_storage_backend_create; to see what exists first
+    use pve_node_storage_backend_list. Dry-run by default (returns a PLAN); confirm=True
+    executes (DELETE, Smoke-confirm) and returns
+    {"status": "submitted", "result": <task UPID | None>}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/disks/{backend}/{name}"
@@ -215,10 +217,10 @@ def pve_node_storage_backend_delete(
 def pve_node_time_get(
     node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
 ) -> dict:
-    """Get the current time and timezone of a PVE node (read).
+    """READ-ONLY: get the current time and timezone of a PVE node.
 
-    GET /nodes/{node}/time — returns {localtime, time, timezone}.
-    Smoke-confirm: response shape not live-verified.
+    GET /nodes/{node}/time. VERIFIED live (PVE 9.2): returns a dict
+    {localtime, time, timezone}. To change the timezone use pve_node_time_set.
     """
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_time_get", node or cfg.node,
@@ -229,10 +231,10 @@ def pve_node_time_get(
 def pve_node_hosts_get(
     node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
 ) -> dict:
-    """Get the /etc/hosts content of a PVE node (read).
+    """READ-ONLY: get the /etc/hosts content of a PVE node.
 
-    GET /nodes/{node}/hosts — returns {data, digest}.
-    Smoke-confirm: response shape not live-verified.
+    GET /nodes/{node}/hosts. VERIFIED live (PVE 9.2): returns a dict {data, digest} —
+    digest is used for optimistic-concurrency on a follow-up pve_node_hosts_set.
     """
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_hosts_get", node or cfg.node,
@@ -249,11 +251,10 @@ def pve_node_time_set(
 ) -> dict:
     """MUTATION: set the timezone on a PVE node.
 
-    RISK_LOW. CAPTURE: reads the current timezone before planning; if unreadable → complete=False.
-    Revert by re-applying the captured timezone. confirm=True to execute.
-
-    PUT /nodes/{node}/time
-    Smoke-confirm: endpoint and body shape not live-verified.
+    RISK_LOW. CAPTURE: reads the current timezone before planning (also readable directly via
+    pve_node_time_get); if unreadable → complete=False. Revert by re-applying the captured
+    timezone. Dry-run by default (returns a PLAN); confirm=True executes (PUT, Smoke-confirm)
+    and returns {"status": "ok", "result": None}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/time"
@@ -276,12 +277,10 @@ def pve_node_hosts_set(
 ) -> dict:
     """MUTATION: replace the /etc/hosts file on a PVE node.
 
-    RISK_MEDIUM. CAPTURE: reads current /etc/hosts before planning (revert by re-applying captured
-    content); if unreadable → complete=False. A bad /etc/hosts can break name resolution.
-    confirm=True to execute.
-
-    POST /nodes/{node}/hosts
-    Smoke-confirm: endpoint and body shape not live-verified.
+    RISK_MEDIUM. CAPTURE: reads current /etc/hosts before planning (also readable directly via
+    pve_node_hosts_get; revert by re-applying captured content); if unreadable → complete=False.
+    A bad /etc/hosts can break name resolution. Dry-run by default (returns a PLAN); confirm=True
+    executes (POST, Smoke-confirm) and returns {"status": "ok", "result": None}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/hosts"
@@ -307,11 +306,9 @@ def pve_node_dns_set(
     """MUTATION: update DNS resolver configuration on a PVE node.
 
     RISK_MEDIUM (a wrong resolver config breaks name resolution cluster-wide — same failure
-    mode as node hosts_set). CAPTURE: reads current DNS config before planning (reuse
-    pve_node_dns read); if unreadable → complete=False. confirm=True to execute.
-
-    PUT /nodes/{node}/dns
-    Smoke-confirm: endpoint and body shape not live-verified.
+    mode as node hosts_set). CAPTURE: reads current DNS config before planning (also readable
+    directly via pve_node_dns); if unreadable → complete=False. Dry-run by default (returns a
+    PLAN); confirm=True executes (PUT, Smoke-confirm) and returns {"status": "ok", "result": None}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/dns"
@@ -337,7 +334,8 @@ def pve_node_cert_upload(
     """MUTATION: upload a custom TLS certificate to a PVE node.
 
     RISK_HIGH, NO UNDO. A malformed cert/key can lock you out of the PVE web UI and API.
-    restart=True reloads pveproxy after upload (brief service interruption).
+    restart=True reloads pveproxy after upload (brief service interruption). To view the
+    node's currently configured certs use pve_node_certificates.
 
     PRIVATE KEY REDACTION: the 'key' param is a TLS private key (secret). It is
     UNCONDITIONALLY redacted — it NEVER appears in the plan, change, current state,
@@ -345,10 +343,8 @@ def pve_node_cert_upload(
     is recorded. The cert body (certificates) is public and may appear in plans/logs.
 
     Revert: re-upload a correct cert, or use pve_node_cert_delete to revert to self-signed.
-    confirm=True to execute.
-
-    POST /nodes/{node}/certificates/custom
-    Smoke-confirm: endpoint and body shape not live-verified.
+    Dry-run by default (returns a PLAN); confirm=True executes (POST, Smoke-confirm) and
+    returns {"status": "ok", "result": <dict | None>}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/certificates/custom"
@@ -375,11 +371,10 @@ def pve_node_cert_delete(
 ) -> dict:
     """MUTATION: delete the custom TLS certificate from a PVE node.
 
-    RISK_MEDIUM: PVE reverts to its self-signed certificate (recoverable by re-uploading).
-    restart=True reloads pveproxy after deletion. confirm=True to execute.
-
-    DELETE /nodes/{node}/certificates/custom
-    Smoke-confirm: endpoint and params shape not live-verified.
+    RISK_MEDIUM: PVE reverts to its self-signed certificate — recoverable by re-uploading via
+    pve_node_cert_upload (to view current certs first use pve_node_certificates). restart=True
+    reloads pveproxy after deletion. Dry-run by default (returns a PLAN); confirm=True executes
+    (DELETE, Smoke-confirm) and returns {"status": "ok", "result": None}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/certificates/custom"
@@ -403,11 +398,10 @@ def pve_node_startall(
 ) -> dict:
     """MUTATION: start all (or filtered) guests on a PVE node.
 
-    RISK_MEDIUM. Reversible — the inverse of pve_node_stopall. vms = optional CSV of VMIDs
-    to filter the scope. confirm=True to execute.
-
-    POST /nodes/{node}/startall
-    Smoke-confirm: endpoint and vms param format not live-verified. May return task UPID.
+    RISK_MEDIUM. Reversible — the inverse of pve_node_stopall. For a single guest instead of
+    the whole node use pve_guest_power. vms = optional CSV of VMIDs to filter the scope.
+    Dry-run by default (returns a PLAN); confirm=True executes (POST, Smoke-confirm on the
+    vms param format) and returns {"status": "submitted", "result": <task UPID | None>}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/startall"
@@ -429,11 +423,11 @@ def pve_node_stopall(
 ) -> dict:
     """MUTATION: stop ALL (or filtered) running guests on a PVE node.
 
-    RISK_HIGH — fleet-wide service outage unless vms filters the scope.
-    Reversible via pve_node_startall, but guests must be restarted inside. confirm=True to execute.
-
-    POST /nodes/{node}/stopall
-    Smoke-confirm: endpoint and vms param format not live-verified. May return task UPID.
+    RISK_HIGH — fleet-wide service outage unless vms filters the scope. For a single guest
+    instead of the whole node use pve_guest_power. Reversible via pve_node_startall, but
+    guests must be restarted inside. Dry-run by default (returns a PLAN); confirm=True
+    executes (POST, Smoke-confirm on the vms param format) and returns
+    {"status": "submitted", "result": <task UPID | None>}.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/stopall"
@@ -459,10 +453,9 @@ def pve_node_migrateall(
 
     RISK_HIGH, NOT auto-reversible: reversal requires a second pve_node_migrateall back,
     which may not restore the original state. target = destination node name (required).
-    confirm=True to execute.
-
-    POST /nodes/{node}/migrateall
-    Smoke-confirm: endpoint and body shape not live-verified. May return task UPID.
+    For a single guest instead of the whole node use pve_guest_migrate. Dry-run by default
+    (returns a PLAN); confirm=True executes (POST, Smoke-confirm) and returns
+    {"status": "submitted", "result": <task UPID | None>} — poll with pve_task_status.
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"{node or cfg.node}/migrateall->{target}"

@@ -95,7 +95,7 @@ def pve_firewall_options_get(
 def pve_security_groups_list() -> list[dict]:
     """List the cluster's firewall security groups (read-only).
 
-    Returns each group's name, comment, and digest. A security group is a reusable
+    Returns each group's id (keyed `group`), comment, and digest. A security group is a reusable
     named rule set you attach to a VM/node firewall; use pve_firewall_rules_list to read
     a specific scope's active rules.
     """
@@ -111,8 +111,12 @@ def pve_ipset_list(
     vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
     kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
 ) -> list[dict]:
-    """List IP sets for the given scope (read). Scope = cluster or guest only —
-    the PVE API has no node-scope ipsets (node firewall = options/rules/log)."""
+    """READ-ONLY: list IP sets for the given scope. Scope = cluster or guest only —
+    the PVE API has no node-scope ipsets (node firewall = options/rules/log).
+
+    No state change. Returns a list of IPSet dicts. To create/delete a set use
+    pve_firewall_ipset_create/pve_firewall_ipset_delete; to edit membership use
+    pve_firewall_ipset_entry_add/pve_firewall_ipset_entry_remove."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/ipset"
     return _audited("pve_ipset_list", tgt,
@@ -139,9 +143,12 @@ def pve_firewall_rule_add(
     confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: add a new firewall rule. Dry-run by default — the PLAN shows scope, direction,
-    action, and key address/port fields. Re-call with confirm=True to execute. Synchronous.
+    action, and key address/port fields. Re-call with confirm=True to execute. Synchronous —
+    confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
 
-    WARNING: a misplaced DROP/REJECT can cause a connectivity lockout.
+    WARNING: a misplaced DROP/REJECT can cause a connectivity lockout. PVE always inserts the
+    new rule at position 0 (top), taking precedence over existing rules. No UNDO — revert by
+    removing it with pve_firewall_rule_remove.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/rules"
@@ -171,7 +178,10 @@ def pve_firewall_rule_remove(
     at that position AND the optimistic-lock digest. Positions SHIFT after inserts/deletes — pass the
     digest from the plan back as `digest=` on confirm so PVE rejects the delete if the rule list moved
     since the preview (otherwise a concurrent insert can shift positions and remove the wrong rule).
-    Synchronous.
+    Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    No UNDO: firewall config isn't in guest snapshots — revert by re-adding the rule with
+    pve_firewall_rule_add.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/rules/{pos}"
@@ -206,7 +216,11 @@ def pve_firewall_rule_update(
     """MUTATION: update an existing firewall rule at position `pos`. Dry-run by default — the PLAN
     shows the rule's current state, the fields being changed, AND the optimistic-lock digest. Pass the
     digest from the plan back as `digest=` on confirm so PVE rejects the update if the rule list moved
-    since the preview (positions shift and the wrong rule can be updated otherwise). Synchronous.
+    since the preview (positions shift and the wrong rule can be updated otherwise). Synchronous —
+    confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    Only the fields you pass are changed; omitted ones keep their current value. No UNDO — revert
+    by updating the rule back to its prior values, or remove it with pve_firewall_rule_remove.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/rules/{pos}"
@@ -250,7 +264,11 @@ def pve_firewall_set_enabled(
 ) -> dict:
     """MUTATION (HIGH RISK): toggle the firewall on or off for the given scope. Dry-run by default.
     RISK_HIGH both directions: enabling may instantly lock you out (default-DROP, no ACCEPT for 22/8006);
-    disabling strips all protection. Cluster scope = master kill-switch. Synchronous.
+    disabling strips all protection. Cluster scope = master kill-switch. Synchronous — confirm=True
+    returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    This is the focused tool for just the enable flag; for policy/log-level/ebtables options use
+    pve_firewall_options_set. No UNDO — re-toggle manually to revert.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/options"
@@ -270,8 +288,12 @@ def pve_firewall_alias_list(
     vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
     kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
 ) -> list[dict]:
-    """List firewall aliases (named CIDRs) for the given scope (read). Scope = cluster
-    or guest only — the PVE API has no node-scope aliases (node firewall = options/rules/log)."""
+    """READ-ONLY: list firewall aliases (named CIDRs) for the given scope. Scope = cluster
+    or guest only — the PVE API has no node-scope aliases (node firewall = options/rules/log).
+
+    No state change. Returns a list of alias dicts (name, cidr, comment, ipversion). To create,
+    change, or remove an alias use pve_firewall_alias_create / pve_firewall_alias_update /
+    pve_firewall_alias_delete."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_firewall_alias_list", f"firewall/{scope}/aliases",
                     lambda: alias_list(api, scope, node, vmid, kind))
@@ -290,6 +312,10 @@ def pve_firewall_alias_create(
 ) -> dict:
     """MUTATION: create a firewall alias (named CIDR). Dry-run by default — the PLAN shows the
     name, CIDR, and scope. Re-call with confirm=True to execute. Passive until a rule references it.
+    Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    No UNDO: revert by deleting the alias with pve_firewall_alias_delete. To change an existing
+    alias instead, use pve_firewall_alias_update.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/aliases/{name}"
@@ -317,6 +343,10 @@ def pve_firewall_alias_update(
 ) -> dict:
     """MUTATION: update a firewall alias. Dry-run by default — the PLAN shows the current alias and
     the fields being changed. Changing the CIDR silently alters every referencing rule's match set.
+    Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    Requires at least one of cidr/comment/rename. No UNDO — revert by setting it back to its prior
+    value; to create a new alias instead use pve_firewall_alias_create.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/aliases/{name}"
@@ -340,7 +370,9 @@ def pve_firewall_alias_delete(
     confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: delete a firewall alias. Dry-run by default — the PLAN shows the current alias.
-    PVE refuses while any rule still references the alias. No UNDO: re-create to revert.
+    PVE refuses while any rule still references the alias. No UNDO: re-create it with
+    pve_firewall_alias_create to revert. Synchronous — confirm=True returns
+    {"status": "ok", "result": None}; no task UPID to poll.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/aliases/{name}"
@@ -364,7 +396,11 @@ def pve_firewall_ipset_create(
     confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: create an empty IP set. Dry-run by default — the PLAN shows the name and scope.
-    Passive until a rule references it as '+name' and entries are added.
+    Passive until a rule references it as '+name' and entries are added via
+    pve_firewall_ipset_entry_add. Synchronous — confirm=True returns
+    {"status": "ok", "result": None}; no task UPID to poll.
+
+    No UNDO: revert by deleting it with pve_firewall_ipset_delete.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/ipset/{name}"
@@ -389,6 +425,9 @@ def pve_firewall_ipset_delete(
 ) -> dict:
     """MUTATION: delete an IP set. Dry-run by default — the PLAN shows member count and the
     force semantics. force=True WIPES all members; PVE refuses while a rule references the set.
+    Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    No UNDO: re-create it with pve_firewall_ipset_create and re-add members to revert.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/ipset/{name}"
@@ -415,6 +454,9 @@ def pve_firewall_ipset_entry_add(
 ) -> dict:
     """MUTATION: add an IP/Network entry to an IP set. Dry-run by default — the PLAN shows the
     entry and warns it changes every referencing rule's match set. nomatch=True = exclusion.
+    Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    No UNDO: revert by removing the entry with pve_firewall_ipset_entry_remove.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/ipset/{name}"
@@ -440,6 +482,9 @@ def pve_firewall_ipset_entry_remove(
 ) -> dict:
     """MUTATION: remove an IP/Network entry from an IP set. Dry-run by default — the PLAN shows the
     entry and warns it changes every referencing rule's match set (may open or close access).
+    Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    No UNDO: revert by re-adding the entry with pve_firewall_ipset_entry_add.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/ipset/{name}"
@@ -459,7 +504,10 @@ def pve_firewall_security_group_create(
     confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: create an empty cluster security group. Dry-run by default — the PLAN shows the
-    name. Passive until rules are added and a rule references it (type=group).
+    name. Passive until rules are added and a rule references it (type=group). Synchronous —
+    confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    No UNDO: revert by deleting it with pve_firewall_security_group_delete.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/cluster/groups/{group}"
@@ -479,6 +527,9 @@ def pve_firewall_security_group_delete(
 ) -> dict:
     """MUTATION: delete a cluster security group. Dry-run by default — the PLAN shows how many rules
     the group holds. PVE refuses while the group is non-empty or still referenced by a rule.
+    Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    No UNDO: re-create it with pve_firewall_security_group_create and re-add its rules to revert.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/cluster/groups/{group}"
@@ -505,6 +556,10 @@ def pve_firewall_options_set(
     """MUTATION: set firewall options for a scope (policy_in/out, log levels, ebtables, log_ratelimit,
     ...). `options` is a key->value bag; `delete` unsets keys. Dry-run by default — the PLAN shows the
     current values and flags lockout risk. RISK_HIGH when enabling the firewall or changing a policy.
+    Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+    To read current values first use pve_firewall_options_get; to toggle just the enable flag use
+    the focused pve_firewall_set_enabled. No UNDO — revert by setting the prior values.
     """
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/options"

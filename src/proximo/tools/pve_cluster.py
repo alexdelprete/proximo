@@ -93,7 +93,10 @@ def pve_ha_groups_list() -> list[dict]:
 
 @tool()
 def pve_ha_rules_list() -> list[dict]:
-    """List HA rules (read) — the PVE 9 replacement for HA groups."""
+    """READ-ONLY: list High-Availability rules on the cluster (PVE 9+).
+
+    No state change. PVE 9 replaced HA groups with rules; on PVE 8 use pve_ha_groups_list instead.
+    Returns a list of rule dicts. To see which guests are actually HA-managed use pve_ha_resources_list."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_ha_rules_list", "cluster/ha/rules", lambda: ha_rules_list(api))
 
@@ -457,7 +460,13 @@ def pve_storage_create(
     shared: Annotated[bool, Field(description="If True, marks storage as shared across all nodes.")] = False,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the creation.")] = False,
 ) -> dict:
-    """MUTATION: define a new storage (storage.cfg). Dry-run by default. confirm=True to execute."""
+    """MUTATION: define a new cluster storage entry in storage.cfg (dir / nfs / pbs / cifs / …).
+
+    This registers a storage *definition* the cluster can use; it does NOT format disks or provision
+    a backend — to create a disk-backed backend (lvm/zfs/directory) on a node use
+    pve_node_storage_backend_create. Required params depend on storage_type (dir needs `path`; nfs
+    needs `server`+`export`). Additive (LOW risk) — no existing data is touched. Dry-run by default
+    (returns a PLAN); confirm=True writes storage.cfg. Returns the resulting config/plan dict."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"storage/{storage}"
     plan = _plan("pve_storage_create", tgt,

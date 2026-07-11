@@ -86,7 +86,11 @@ def pve_node_service_status(
     service: Annotated[str, Field(description="systemd service name, e.g. 'pveproxy' or 'sshd'")],
     node: Annotated[str | None, Field(description="PVE node name; defaults to the configured node")] = None,
 ) -> dict:
-    """Get the current state of a single service on a PVE node (read)."""
+    """READ-ONLY: get one systemd service's current state on a PVE node (e.g. pveproxy, sshd).
+
+    No state change. Returns a dict with the service's name, state (running/dead/inactive) and
+    description. To list every service use pve_node_services_list; to *change* a service's run state
+    use pve_node_service_control."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_service_status", f"{node or cfg.node}/services/{service}",
                     lambda: node_service_status(api, service, node))
@@ -114,7 +118,11 @@ def pve_node_journal(
     since: Annotated[str | None, Field(description="Only return entries at or after this timestamp (journalctl-compatible format)")] = None,
     until: Annotated[str | None, Field(description="Only return entries at or before this timestamp (journalctl-compatible format)")] = None,
 ) -> list[str]:
-    """Fetch journal entries from a PVE node (read; returns log-line strings). lastentries capped at 5000."""
+    """READ-ONLY: fetch systemd journal lines from a PVE node for log inspection.
+
+    No state change. Returns a list of journal-line strings. Narrow with since/until (journalctl
+    timestamp format) and lastentries (most-recent N, capped at 5000). For the classic syslog view
+    use pve_node_syslog; for one service's current state use pve_node_service_status."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_journal", node or cfg.node,
                     lambda: node_journal(api, node, lastentries, since, until))
@@ -125,7 +133,10 @@ def pve_node_syslog(
     node: Annotated[str | None, Field(description="PVE node name; defaults to the configured node")] = None,
     limit: Annotated[int, Field(description="Maximum number of syslog entries to return, capped at 5000")] = 100,
 ) -> list[dict]:
-    """Fetch syslog entries from a PVE node (read). limit capped at 5000."""
+    """READ-ONLY: fetch syslog entries from a PVE node for log inspection.
+
+    No state change. Returns a list of entry dicts, most-recent first, up to `limit` (capped at 5000).
+    For the systemd journal (with since/until filtering) use pve_node_journal instead."""
     cfg, api, _, _ = _proximo_server._svc()
     return _audited("pve_node_syslog", node or cfg.node,
                     lambda: node_syslog(api, node, limit))

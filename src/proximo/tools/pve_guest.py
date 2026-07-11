@@ -218,7 +218,12 @@ def pve_task_status(
     upid: Annotated[str, Field(description="Proxmox task UPID (unique process ID) returned by an async operation.")],
     node: Annotated[str | None, Field(description="PVE node the task is running on. Omit to resolve it automatically.")] = None,
 ) -> dict:
-    """Status of an async Proxmox task (running/stopped + exit status) — poll snapshot/rollback ops (read)."""
+    """READ-ONLY: get an async Proxmox task's status by its UPID — running vs stopped, plus the
+    exit status once it has finished.
+
+    No state change. Use it to poll long-running ops (migrate, snapshot, rollback, backup) that
+    return a UPID. Returns a dict with `status` and `exitstatus`. To block until the task completes
+    use pve_task_wait, and for its log output use pve_task_log; omit `node` to resolve it from the UPID."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_task_status", upid, lambda: api.task_status(upid, node))
 
@@ -273,7 +278,12 @@ def ct_diagnose(
 def pve_diagnose(
     node: Annotated[str | None, Field(description="PVE node to gather health evidence for. Omit to use the configured default node.")] = None,
 ) -> dict:
-    """READ-ONLY: gather node health evidence — status + storage usage + recent failed tasks + flags."""
+    """READ-ONLY: gather one node's health evidence in a single call — node status, storage usage,
+    recent failed tasks, and advisory flags — for triage.
+
+    No state change and no side effects. This inspects *node* health; to instead verify your token's
+    connectivity and effective permissions use pve_doctor, and for in-container evidence use
+    ct_diagnose. Returns a dict of the gathered sections; omit `node` to use the configured default."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_diagnose", node or "node", lambda: diagnose_node(api, node))
 
@@ -388,7 +398,11 @@ def pve_storage_content(
     node: Annotated[str | None, Field(description="PVE node hosting the storage. Omit to use the configured default node.")] = None,
     content: Annotated[str | None, Field(description="Filter by content type: `iso`, `vztmpl`, or `backup`. Omit to list all content.")] = None,
 ) -> list[dict]:
-    """List a storage's content, optionally filtered (content = iso | vztmpl | backup) (read)."""
+    """READ-ONLY: list the volumes a storage holds — ISO images, container templates, backups, disks.
+
+    No state change. Optionally filter by content type (iso | vztmpl | backup); omit to list all.
+    Returns a list of volume dicts (volid, size, content type, …); use it to find a volid to pass to
+    restore/clone tools. To *define* a new storage use pve_storage_create."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_storage_content", storage,
                     lambda: storage_content(api, storage, node, content))

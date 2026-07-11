@@ -112,7 +112,11 @@ def pve_tokens_list(
 
 @tool()
 def pve_overbroad_grants() -> list[dict]:
-    """Surface over-broad ACL grants (Administrator role or root '/' path) as a diagnostic (read)."""
+    """READ-ONLY: surface over-broad ACL grants — Administrator-role assignments or grants on the
+    root '/' path — as a least-privilege diagnostic.
+
+    No state change; this only reports, it does not revoke anything. Returns a list of the flagged ACL
+    entries (empty when none). Use pve_acl_list for the full ACL and pve_acl_modify to tighten a finding."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_overbroad_grants", "access/acl",
                     lambda: access_overbroad_grants(api))

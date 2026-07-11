@@ -247,7 +247,15 @@ def pdm_pve_lxc_migrate(
     online: Annotated[bool, Field(description="True live-migrates the container; else it must be stopped.")] = False,
     confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True submits it.")] = False,
 ) -> dict:
-    """MUTATION: migrate a container to another node within the remote's cluster (through PDM)."""
+    """MUTATION: relocate a container to another node within the same cluster, through PDM.
+
+    For a move to a *different* PDM remote/datacenter use pdm_pve_lxc_remote_migrate; to drive a
+    cluster directly without PDM use pve_guest_migrate. The container is moved, not copied — the
+    source node stops hosting it (there is no separate source to delete). online=True live-migrates
+    it while running (minimal downtime); the default (False) requires it be stopped first (offline).
+    Dry-run by default (returns a PLAN); confirm=True submits and returns the Proxmox task UPID —
+    poll it with pve_task_status. Requires the wired PDM remote's token to permit migration (VM.Migrate).
+    """
     return _migrate("lxc", remote, vmid, target, online, confirm)
 
 
@@ -334,7 +342,12 @@ def pdm_pve_qemu_snapshot_delete(
     snapname: Annotated[str, Field(description="Name of the snapshot to delete.")],
     confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True deletes it.")] = False,
 ) -> dict:
-    """MUTATION: delete a VM snapshot on a PDM-registered remote. Irreversible; no UNDO. Dry-run by default."""
+    """MUTATION: delete a named VM snapshot on a PDM-registered remote, through PDM.
+
+    Removes only the snapshot's saved state, not the VM. Irreversible — there is no UNDO. For a
+    container snapshot use pdm_pve_lxc_snapshot_delete; to create rather than delete a snapshot use
+    pdm_pve_qemu_snapshot_create. Dry-run by default (returns a PLAN); confirm=True executes and
+    returns the Proxmox task UPID (poll with pve_task_status)."""
     return _snapshot_delete("qemu", remote, vmid, snapname, confirm)
 
 
@@ -345,7 +358,12 @@ def pdm_pve_lxc_snapshot_delete(
     snapname: Annotated[str, Field(description="Name of the snapshot to delete.")],
     confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True deletes it.")] = False,
 ) -> dict:
-    """MUTATION: delete a container snapshot on a PDM-registered remote. Irreversible; no UNDO."""
+    """MUTATION: delete a named container snapshot on a PDM-registered remote, through PDM.
+
+    Removes only the snapshot's saved state, not the container. Irreversible — there is no UNDO.
+    For a VM snapshot use pdm_pve_qemu_snapshot_delete; to create rather than delete a snapshot use
+    pdm_pve_lxc_snapshot_create. Dry-run by default (returns a PLAN); confirm=True executes and
+    returns the Proxmox task UPID (poll with pve_task_status)."""
     return _snapshot_delete("lxc", remote, vmid, snapname, confirm)
 
 

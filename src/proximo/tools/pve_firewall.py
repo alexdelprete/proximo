@@ -79,7 +79,12 @@ def pve_firewall_options_get(
     vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
     kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
 ) -> dict:
-    """Get firewall options (enable flag, policy, log rate, …) for the given scope (read)."""
+    """READ-ONLY: get the firewall option block (enable flag, default in/out policy, log rate limit,
+    …) at cluster, node, or guest scope.
+
+    No state change. Pair with pve_firewall_options_set to change these, and pve_firewall_rules_list
+    to read the rules themselves. scope='node' requires `node`; scope='guest' requires `node`, `vmid`,
+    and `kind` ('qemu'|'lxc'). Returns the option block as a dict."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"firewall/{scope}/options"
     return _audited("pve_firewall_options_get", tgt,

@@ -1,0 +1,86 @@
+name: Mirror image → Docker Hub
+
+# Copy the already-built GHCR image to Docker Hub *by reference* (same multi-arch
+# digest, no rebuild) so the container path gets a readable pull_count — GHCR does
+# not expose pull counts, Docker Hub does. See scripts/reach.py for the reader.
+#
+# Two ways in:
+#   • called by release.yml after the GHCR image is pushed (automatic, every release)
+#   • run by hand (workflow_dispatch) to mirror any existing GHCR tag — used to
+#     backfill the current release so the metric starts today.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "GHCR tag to mirror (e.g. 0.20.0, or latest)"
+        default: latest
+        required: true
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read   # read the source image from GHCR (public today; robust if it ever flips private)
+    env:
+      # Username is not a secret (it's the public namespace); only the token is.
+      # Steps self-skip when the token is unset, so a run without the secret is a
+      # clean no-op rather than a red X.
+      DOCKERHUB_USERNAME: jebroadway
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      SRC_IMAGE: ghcr.io/john-broadway/proximo
+      DEST_IMAGE: docker.io/jebroadway/proximo
+    steps:
+      - name: Guard — token present?
+        if: env.DOCKERHUB_TOKEN == ''
+        run: echo "::warning title=Mirror skipped::DOCKERHUB_TOKEN secret is not set — no Docker Hub mirror. Set it to enable pull-count metrics."
+
+      - name: Set up Buildx
+        if: env.DOCKERHUB_TOKEN != ''
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GHCR (read source)
+        if: env.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub (write dest)
+        if: env.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: docker.io
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: Copy GHCR → Docker Hub (same digest, no rebuild)
+        if: env.DOCKERHUB_TOKEN != ''
+        env:
+          # Pass the input through env (never inline ${{ }} in run:) so a crafted
+          # tag value can't break out of the shell — command-injection hardening.
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${TAG_INPUT#v}"                  # release tag_name is vX.Y.Z; GHCR semver tag has no v
+          if ! [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Refusing to mirror — tag '$TAG' is not a valid OCI tag."
+            exit 1
+          fi
+          echo "Mirroring ${SRC_IMAGE}:${TAG} -> ${DEST_IMAGE}:${TAG}"
+          ARGS=(--tag "${DEST_IMAGE}:${TAG}")
+          # A concrete version also refreshes :latest on the mirror; mirroring :latest itself does not.
+          if [ "$TAG" != "latest" ]; then
+            ARGS+=(--tag "${DEST_IMAGE}:latest")
+          fi
+          docker buildx imagetools create "${ARGS[@]}" "${SRC_IMAGE}:${TAG}"
+          echo "Mirrored. Verify: docker buildx imagetools inspect ${DEST_IMAGE}:${TAG}"

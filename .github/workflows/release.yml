@@ -100,3 +100,15 @@ jobs:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  # Mirror the freshly-pushed GHCR image to Docker Hub (same digest, no rebuild).
+  # GHCR exposes no pull counts; Docker Hub does — this is the container-reach metric.
+  # Self-skips cleanly if DOCKERHUB_TOKEN is unset. Only on real releases (a
+  # workflow_dispatch of this file has no release.tag_name to mirror).
+  mirror-to-dockerhub:
+    needs: image
+    if: github.event_name == 'release'
+    uses: ./.github/workflows/dockerhub-mirror.yml
+    with:
+      tag: ${{ github.event.release.tag_name }}
+    secrets: inherit

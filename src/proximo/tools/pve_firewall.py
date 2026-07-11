@@ -5,6 +5,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.firewall import (
     alias_create,
@@ -51,8 +55,10 @@ from proximo.server import (
 
 @tool()
 def pve_firewall_rules_list(
-    scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster', 'node', or 'guest'.")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='node' or scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
 ) -> list[dict]:
     """List firewall rules for the given scope (cluster, node, or guest) (read-only).
 
@@ -68,8 +74,10 @@ def pve_firewall_rules_list(
 
 @tool()
 def pve_firewall_options_get(
-    scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster', 'node', or 'guest'.")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='node' or scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
 ) -> dict:
     """Get firewall options (enable flag, policy, log rate, …) for the given scope (read)."""
     _, api, _, _ = _proximo_server._svc()
@@ -93,8 +101,10 @@ def pve_security_groups_list() -> list[dict]:
 
 @tool()
 def pve_ipset_list(
-    scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope ipsets in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
 ) -> list[dict]:
     """List IP sets for the given scope (read). Scope = cluster or guest only —
     the PVE API has no node-scope ipsets (node firewall = options/rules/log)."""
@@ -108,11 +118,20 @@ def pve_ipset_list(
 
 @tool()
 def pve_firewall_rule_add(
-    action: str, direction: str = "in", scope: str = "cluster",
-    node: str | None = None, vmid: str | None = None, kind: str | None = None,
-    source: str | None = None, dest: str | None = None, proto: str | None = None,
-    dport: str | None = None, sport: str | None = None, comment: str | None = None,
-    enable: bool = True, confirm: bool = False,
+    action: Annotated[str, Field(description="Rule action: 'ACCEPT', 'DROP', or 'REJECT'.")],
+    direction: Annotated[str, Field(description="Traffic direction the rule matches: 'in' or 'out'.")] = "in",
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster', 'node', or 'guest'.")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='node' or scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    source: Annotated[str | None, Field(description="Source address/CIDR/alias to match, or None for any.")] = None,
+    dest: Annotated[str | None, Field(description="Destination address/CIDR/alias to match, or None for any.")] = None,
+    proto: Annotated[str | None, Field(description="IP protocol to match, e.g. 'tcp', 'udp', 'icmp'.")] = None,
+    dport: Annotated[str | None, Field(description="Destination port or port range to match, e.g. '22' or '8000:8010'.")] = None,
+    sport: Annotated[str | None, Field(description="Source port or port range to match, e.g. '22' or '8000:8010'.")] = None,
+    comment: Annotated[str | None, Field(description="Free-text comment stored with the rule.")] = None,
+    enable: Annotated[bool, Field(description="Whether the rule is active immediately (True) or created disabled (False).")] = True,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: add a new firewall rule. Dry-run by default — the PLAN shows scope, direction,
     action, and key address/port fields. Re-call with confirm=True to execute. Synchronous.
@@ -135,9 +154,13 @@ def pve_firewall_rule_add(
 
 @tool()
 def pve_firewall_rule_remove(
-    pos: int, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None, digest: str | None = None,
-    confirm: bool = False,
+    pos: Annotated[int, Field(description="Rule position (0-based index) in the target scope's rule list.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster', 'node', or 'guest'.")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='node' or scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the rule list changed since.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: delete a firewall rule by position. Dry-run by default — the PLAN shows the rule
     at that position AND the optimistic-lock digest. Positions SHIFT after inserts/deletes — pass the
@@ -158,12 +181,22 @@ def pve_firewall_rule_remove(
 
 @tool()
 def pve_firewall_rule_update(
-    pos: int, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
-    action: str | None = None, direction: str | None = None,
-    source: str | None = None, dest: str | None = None, proto: str | None = None,
-    dport: str | None = None, sport: str | None = None, comment: str | None = None,
-    enable: bool | None = None, digest: str | None = None, confirm: bool = False,
+    pos: Annotated[int, Field(description="Rule position (0-based index) in the target scope's rule list.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster', 'node', or 'guest'.")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='node' or scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    action: Annotated[str | None, Field(description="New rule action: 'ACCEPT', 'DROP', or 'REJECT'; omit to leave unchanged.")] = None,
+    direction: Annotated[str | None, Field(description="New traffic direction: 'in' or 'out'; omit to leave unchanged.")] = None,
+    source: Annotated[str | None, Field(description="New source address/CIDR/alias to match; omit to leave unchanged.")] = None,
+    dest: Annotated[str | None, Field(description="New destination address/CIDR/alias to match; omit to leave unchanged.")] = None,
+    proto: Annotated[str | None, Field(description="New IP protocol to match, e.g. 'tcp'/'udp'/'icmp'; omit to leave unchanged.")] = None,
+    dport: Annotated[str | None, Field(description="New destination port or port range; omit to leave unchanged.")] = None,
+    sport: Annotated[str | None, Field(description="New source port or port range; omit to leave unchanged.")] = None,
+    comment: Annotated[str | None, Field(description="New free-text comment; omit to leave unchanged.")] = None,
+    enable: Annotated[bool | None, Field(description="New enabled state for the rule; omit to leave unchanged.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the rule list changed since.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: update an existing firewall rule at position `pos`. Dry-run by default — the PLAN
     shows the rule's current state, the fields being changed, AND the optimistic-lock digest. Pass the
@@ -203,8 +236,12 @@ def pve_firewall_rule_update(
 
 @tool()
 def pve_firewall_set_enabled(
-    enabled: bool, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None, confirm: bool = False,
+    enabled: Annotated[bool, Field(description="Desired firewall state: True to turn on, False to turn off.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster', 'node', or 'guest'.")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='node' or scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION (HIGH RISK): toggle the firewall on or off for the given scope. Dry-run by default.
     RISK_HIGH both directions: enabling may instantly lock you out (default-DROP, no ACCEPT for 22/8006);
@@ -223,8 +260,10 @@ def pve_firewall_set_enabled(
 
 @tool()
 def pve_firewall_alias_list(
-    scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope aliases in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
 ) -> list[dict]:
     """List firewall aliases (named CIDRs) for the given scope (read). Scope = cluster
     or guest only — the PVE API has no node-scope aliases (node firewall = options/rules/log)."""
@@ -235,9 +274,14 @@ def pve_firewall_alias_list(
 
 @tool()
 def pve_firewall_alias_create(
-    name: str, cidr: str, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None, comment: str | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new alias, referenced by rules as this name.")],
+    cidr: Annotated[str, Field(description="IP address or CIDR network the alias resolves to.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope aliases in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    comment: Annotated[str | None, Field(description="Free-text comment stored with the alias.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: create a firewall alias (named CIDR). Dry-run by default — the PLAN shows the
     name, CIDR, and scope. Re-call with confirm=True to execute. Passive until a rule references it.
@@ -255,10 +299,16 @@ def pve_firewall_alias_create(
 
 @tool()
 def pve_firewall_alias_update(
-    name: str, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
-    cidr: str | None = None, comment: str | None = None,
-    rename: str | None = None, digest: str | None = None, confirm: bool = False,
+    name: Annotated[str, Field(description="Name of the existing alias to update.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope aliases in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    cidr: Annotated[str | None, Field(description="New IP address/CIDR the alias should resolve to; omit to leave unchanged.")] = None,
+    comment: Annotated[str | None, Field(description="New free-text comment; omit to leave unchanged.")] = None,
+    rename: Annotated[str | None, Field(description="New name to rename the alias to; omit to keep the current name.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the alias changed since.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: update a firewall alias. Dry-run by default — the PLAN shows the current alias and
     the fields being changed. Changing the CIDR silently alters every referencing rule's match set.
@@ -276,9 +326,13 @@ def pve_firewall_alias_update(
 
 @tool()
 def pve_firewall_alias_delete(
-    name: str, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
-    digest: str | None = None, confirm: bool = False,
+    name: Annotated[str, Field(description="Name of the alias to delete.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope aliases in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the alias changed since.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: delete a firewall alias. Dry-run by default — the PLAN shows the current alias.
     PVE refuses while any rule still references the alias. No UNDO: re-create to revert.
@@ -296,9 +350,13 @@ def pve_firewall_alias_delete(
 
 @tool()
 def pve_firewall_ipset_create(
-    name: str, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None, comment: str | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new IP set, referenced by rules as '+name'.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope ipsets in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    comment: Annotated[str | None, Field(description="Free-text comment stored with the IP set.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: create an empty IP set. Dry-run by default — the PLAN shows the name and scope.
     Passive until a rule references it as '+name' and entries are added.
@@ -316,9 +374,13 @@ def pve_firewall_ipset_create(
 
 @tool()
 def pve_firewall_ipset_delete(
-    name: str, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
-    force: bool = False, confirm: bool = False,
+    name: Annotated[str, Field(description="Name of the IP set to delete.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope ipsets in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    force: Annotated[bool, Field(description="If True, wipe all member entries so the (now-empty) IP set can be deleted.")] = False,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: delete an IP set. Dry-run by default — the PLAN shows member count and the
     force semantics. force=True WIPES all members; PVE refuses while a rule references the set.
@@ -336,9 +398,15 @@ def pve_firewall_ipset_delete(
 
 @tool()
 def pve_firewall_ipset_entry_add(
-    name: str, cidr: str, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
-    comment: str | None = None, nomatch: bool = False, confirm: bool = False,
+    name: Annotated[str, Field(description="Name of the IP set to add the entry to.")],
+    cidr: Annotated[str, Field(description="IP address or CIDR network to add as a member entry.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope ipsets in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    comment: Annotated[str | None, Field(description="Free-text comment stored with the entry.")] = None,
+    nomatch: Annotated[bool, Field(description="If True, this entry is an exclusion (negative match) rather than an inclusion.")] = False,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: add an IP/Network entry to an IP set. Dry-run by default — the PLAN shows the
     entry and warns it changes every referencing rule's match set. nomatch=True = exclusion.
@@ -356,9 +424,14 @@ def pve_firewall_ipset_entry_add(
 
 @tool()
 def pve_firewall_ipset_entry_remove(
-    name: str, cidr: str, scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
-    digest: str | None = None, confirm: bool = False,
+    name: Annotated[str, Field(description="Name of the IP set to remove the entry from.")],
+    cidr: Annotated[str, Field(description="IP address or CIDR network of the member entry to remove.")],
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster' or 'guest' (no node-scope ipsets in the PVE API).")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the set changed since.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: remove an IP/Network entry from an IP set. Dry-run by default — the PLAN shows the
     entry and warns it changes every referencing rule's match set (may open or close access).
@@ -376,7 +449,9 @@ def pve_firewall_ipset_entry_remove(
 
 @tool()
 def pve_firewall_security_group_create(
-    group: str, comment: str | None = None, confirm: bool = False,
+    group: Annotated[str, Field(description="Name for the new cluster security group.")],
+    comment: Annotated[str | None, Field(description="Free-text comment stored with the group.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: create an empty cluster security group. Dry-run by default — the PLAN shows the
     name. Passive until rules are added and a rule references it (type=group).
@@ -393,7 +468,10 @@ def pve_firewall_security_group_create(
 
 
 @tool()
-def pve_firewall_security_group_delete(group: str, confirm: bool = False) -> dict:
+def pve_firewall_security_group_delete(
+    group: Annotated[str, Field(description="Name of the cluster security group to delete.")],
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
+) -> dict:
     """MUTATION: delete a cluster security group. Dry-run by default — the PLAN shows how many rules
     the group holds. PVE refuses while the group is non-empty or still referenced by a rule.
     """
@@ -410,10 +488,14 @@ def pve_firewall_security_group_delete(group: str, confirm: bool = False) -> dic
 
 @tool()
 def pve_firewall_options_set(
-    scope: str = "cluster", node: str | None = None,
-    vmid: str | None = None, kind: str | None = None,
-    options: dict | None = None, delete: list[str] | None = None,
-    digest: str | None = None, confirm: bool = False,
+    scope: Annotated[str, Field(description="Firewall scope: 'cluster', 'node', or 'guest'.")] = "cluster",
+    node: Annotated[str | None, Field(description="Node name, required for scope='node' or scope='guest'.")] = None,
+    vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
+    kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
+    options: Annotated[dict | None, Field(description="Key-value bag of firewall options to set, e.g. policy_in, policy_out, log_ratelimit, enable, ebtables.")] = None,
+    delete: Annotated[list[str] | None, Field(description="List of option keys to unset/remove.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the options changed since.")] = None,
+    confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: set firewall options for a scope (policy_in/out, log levels, ebtables, log_ratelimit,
     ...). `options` is a key->value bag; `delete` unsets keys. Dry-run by default — the PLAN shows the

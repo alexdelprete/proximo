@@ -5,6 +5,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.access import (
     access_acl_list,
@@ -95,7 +99,9 @@ def pve_acl_list() -> list[dict]:
 
 
 @tool()
-def pve_tokens_list(userid: str) -> list[dict]:
+def pve_tokens_list(
+    userid: Annotated[str, Field(description="Owning user, format 'user@realm'.")],
+) -> list[dict]:
     """List API tokens for a specific user (read-only). Returns each token's id, comment, expiry,
     and privsep (privilege separation) flag — NOT the secret (shown only at creation). userid
     format: 'user@realm'. Use pve_token_create/revoke to manage tokens."""
@@ -116,8 +122,13 @@ def pve_overbroad_grants() -> list[dict]:
 
 @tool()
 def pve_acl_modify(
-    path: str, roles: str, target: str, kind: str = "user",
-    propagate: bool = True, delete: bool = False, confirm: bool = False,
+    path: Annotated[str, Field(description="Resource path the ACL entry applies to, e.g. '/vms/100' or '/'.")],
+    roles: Annotated[str, Field(description="Comma-separated role id(s) to grant or revoke, e.g. 'PVEVMAdmin'.")],
+    target: Annotated[str, Field(description="Principal the ACL entry applies to: userid, groupid, or tokenid depending on kind.")],
+    kind: Annotated[str, Field(description="Principal type of target: 'user', 'group', or 'token'.")] = "user",
+    propagate: Annotated[bool, Field(description="Whether the grant propagates to child paths below `path`.")] = True,
+    delete: Annotated[bool, Field(description="False to grant the roles, True to revoke them.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION: grant or revoke an ACL entry (PUT /access/acl).
 
@@ -140,9 +151,13 @@ def pve_acl_modify(
 
 @tool()
 def pve_acl_prune(
-    path: str, target: str, kind: str = "user", roleid: str = "",
-    narrow_role: str | None = None, narrow_path: str | None = None,
-    confirm: bool = False,
+    path: Annotated[str, Field(description="Resource path of the over-broad ACL entry to prune, e.g. '/'.")],
+    target: Annotated[str, Field(description="Principal the over-broad grant belongs to: userid, groupid, or tokenid depending on kind.")],
+    kind: Annotated[str, Field(description="Principal type of target: 'user', 'group', or 'token'.")] = "user",
+    roleid: Annotated[str, Field(description="The over-broad role id to remove, as identified by pve_overbroad_grants.")] = "",
+    narrow_role: Annotated[str | None, Field(description="Optional narrower role id to re-grant in place of the removed one.")] = None,
+    narrow_path: Annotated[str | None, Field(description="Optional narrower path to scope the re-grant to, instead of the original path.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION: prune (remove/narrow) an over-broad ACL grant flagged by pve_overbroad_grants.
 
@@ -165,9 +180,12 @@ def pve_acl_prune(
 
 @tool()
 def pve_token_create(
-    userid: str, tokenid: str, privsep: bool = True,
-    comment: str | None = None, expire: int | None = None,
-    confirm: bool = False,
+    userid: Annotated[str, Field(description="Owning user, format 'user@realm'.")],
+    tokenid: Annotated[str, Field(description="Name for the new API token, unique per user.")],
+    privsep: Annotated[bool, Field(description="Privilege separation: True (default) restricts the token to its own ACL grants; False lets it inherit ALL owner permissions.")] = True,
+    comment: Annotated[str | None, Field(description="Optional free-text comment describing the token's purpose.")] = None,
+    expire: Annotated[int | None, Field(description="Optional token expiry as a Unix timestamp; None means no expiry.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION: create an API token for a user.
 
@@ -191,7 +209,11 @@ def pve_token_create(
 
 
 @tool()
-def pve_token_revoke(userid: str, tokenid: str, confirm: bool = False) -> dict:
+def pve_token_revoke(
+    userid: Annotated[str, Field(description="Owning user, format 'user@realm'.")],
+    tokenid: Annotated[str, Field(description="Name of the API token to revoke.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (IRREVERSIBLE): permanently revoke an API token.
 
     Dry-run by default — the PLAN flags HIGH: revocation is permanent, the secret is gone forever.
@@ -210,7 +232,9 @@ def pve_token_revoke(userid: str, tokenid: str, confirm: bool = False) -> dict:
 # --- Access governance: users & groups ---
 
 @tool()
-def pve_user_get(userid: str) -> dict:
+def pve_user_get(
+    userid: Annotated[str, Field(description="User id to look up, format 'user@realm'.")],
+) -> dict:
     """Get a user's full config (read-only). Returns userid, enabled flag, expiry, email, comment,
     group membership, API tokens, and firstname/lastname. Use pve_user_create/update/delete to
     modify the user; use pve_acl_list to see their effective permissions."""
@@ -227,7 +251,9 @@ def pve_groups_list() -> list[dict]:
 
 
 @tool()
-def pve_group_get(groupid: str) -> dict:
+def pve_group_get(
+    groupid: Annotated[str, Field(description="Group id to look up.")],
+) -> dict:
     """Get a group's full config (read-only). Returns groupid, comment, and member list (users in
     the group). Use pve_group_create/update/delete to manage the group; use pve_acl_list to see
     ACL entries referencing this group."""
@@ -236,10 +262,17 @@ def pve_group_get(groupid: str) -> dict:
 
 
 @tool()
-def pve_user_create(userid: str, comment: str | None = None, email: str | None = None,
-                    enable: bool | None = None, expire: int | None = None,
-                    groups: str | None = None, firstname: str | None = None,
-                    lastname: str | None = None, confirm: bool = False) -> dict:
+def pve_user_create(
+    userid: Annotated[str, Field(description="New user id, format 'user@realm'.")],
+    comment: Annotated[str | None, Field(description="Optional free-text comment.")] = None,
+    email: Annotated[str | None, Field(description="Optional email address.")] = None,
+    enable: Annotated[bool | None, Field(description="Whether the account can log in; None defers to PVE's default (enabled).")] = None,
+    expire: Annotated[int | None, Field(description="Optional account expiry as a Unix timestamp; None means no expiry.")] = None,
+    groups: Annotated[str | None, Field(description="Comma-separated list of group ids to add the user to.")] = None,
+    firstname: Annotated[str | None, Field(description="Optional first name.")] = None,
+    lastname: Annotated[str | None, Field(description="Optional last name.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION: create a user. Dry-run by default (note: password is set separately — the user
     cannot log in until then). confirm=True to execute."""
     _, api, _, _ = _proximo_server._svc()
@@ -256,11 +289,18 @@ def pve_user_create(userid: str, comment: str | None = None, email: str | None =
 
 
 @tool()
-def pve_user_update(userid: str, comment: str | None = None, email: str | None = None,
-                    enable: bool | None = None, expire: int | None = None,
-                    groups: str | None = None, firstname: str | None = None,
-                    lastname: str | None = None, append: bool | None = None,
-                    confirm: bool = False) -> dict:
+def pve_user_update(
+    userid: Annotated[str, Field(description="User id to update, format 'user@realm'.")],
+    comment: Annotated[str | None, Field(description="Optional free-text comment; omit to leave unchanged.")] = None,
+    email: Annotated[str | None, Field(description="Optional email address; omit to leave unchanged.")] = None,
+    enable: Annotated[bool | None, Field(description="Whether the account can log in; False stops login. Omit to leave unchanged.")] = None,
+    expire: Annotated[int | None, Field(description="Account expiry as a Unix timestamp; omit to leave unchanged.")] = None,
+    groups: Annotated[str | None, Field(description="Comma-separated list of group ids; replaces membership unless append=True.")] = None,
+    firstname: Annotated[str | None, Field(description="Optional first name; omit to leave unchanged.")] = None,
+    lastname: Annotated[str | None, Field(description="Optional last name; omit to leave unchanged.")] = None,
+    append: Annotated[bool | None, Field(description="If True, add `groups` to existing membership instead of replacing it.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION: update a user (enable=False stops login; group changes re-scope access).
     Dry-run by default. confirm=True to execute."""
     _, api, _, _ = _proximo_server._svc()
@@ -277,7 +317,10 @@ def pve_user_update(userid: str, comment: str | None = None, email: str | None =
 
 
 @tool()
-def pve_user_delete(userid: str, confirm: bool = False) -> dict:
+def pve_user_delete(
+    userid: Annotated[str, Field(description="User id to delete, format 'user@realm'.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (HIGH): delete a user. Dry-run by default — the PLAN reads the user's ACLs/tokens
     to show what access vanishes (permanent, no undo; admin = lockout risk). confirm=True."""
     _, api, _, _ = _proximo_server._svc()
@@ -291,7 +334,11 @@ def pve_user_delete(userid: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pve_group_create(groupid: str, comment: str | None = None, confirm: bool = False) -> dict:
+def pve_group_create(
+    groupid: Annotated[str, Field(description="New group id.")],
+    comment: Annotated[str | None, Field(description="Optional free-text comment.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION: create an (empty) group. Dry-run by default (additive, LOW risk).
     Returns the plan preview; confirm=True to execute. The group is inert until users are
     added or an ACL entry grants it privileges."""
@@ -306,7 +353,11 @@ def pve_group_create(groupid: str, comment: str | None = None, confirm: bool = F
 
 
 @tool()
-def pve_group_update(groupid: str, comment: str | None = None, confirm: bool = False) -> dict:
+def pve_group_update(
+    groupid: Annotated[str, Field(description="Group id to update.")],
+    comment: Annotated[str | None, Field(description="New free-text comment.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION: update a group's comment. Dry-run by default (additive, LOW risk).
     Returns the plan preview; confirm=True to execute. Does not modify group membership."""
     _, api, _, _ = _proximo_server._svc()
@@ -320,7 +371,10 @@ def pve_group_update(groupid: str, comment: str | None = None, confirm: bool = F
 
 
 @tool()
-def pve_group_delete(groupid: str, confirm: bool = False) -> dict:
+def pve_group_delete(
+    groupid: Annotated[str, Field(description="Group id to delete.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (HIGH): delete a group. Dry-run by default — the PLAN reads members and warns ACLs
     granted to/on the group are orphaned. confirm=True."""
     _, api, _, _ = _proximo_server._svc()
@@ -345,7 +399,9 @@ def pve_realms_list() -> list[dict]:
 
 
 @tool()
-def pve_realm_get(realm: str) -> dict:
+def pve_realm_get(
+    realm: Annotated[str, Field(description="Realm id to look up, e.g. 'pam', 'pve', or a configured ldap/ad/openid realm name.")],
+) -> dict:
     """Get a realm's full config (read-only). Returns realm type, comment, TFA requirement, and
     type-specific settings (server/base_dn for ldap; domain/server1 for ad; issuer-url/client-id
     for openid). Use pve_realm_create/update/delete to manage realms."""
@@ -363,7 +419,10 @@ def pve_tfa_list() -> list[dict]:
 
 
 @tool()
-def pve_tfa_get(userid: str, tfa_id: str | None = None) -> object:
+def pve_tfa_get(
+    userid: Annotated[str, Field(description="User id whose TFA entries to read, format 'user@realm'.")],
+    tfa_id: Annotated[str | None, Field(description="Specific TFA entry id to return; omit to return all of the user's entries.")] = None,
+) -> object:
     """Read a user's TFA entries (read-only). Returns list of entries if tfa_id is omitted; a
     single entry dict if tfa_id is specified. Each entry includes factor type, id, and metadata.
     Use pve_tfa_delete (confirm=True) to remove a factor (RISK_HIGH — can lock the user out)."""
@@ -373,7 +432,10 @@ def pve_tfa_get(userid: str, tfa_id: str | None = None) -> object:
 
 @tool()
 def pve_tfa_delete(
-    userid: str, tfa_id: str, password: str | None = None, confirm: bool = False,
+    userid: Annotated[str, Field(description="User id whose TFA factor to delete, format 'user@realm'.")],
+    tfa_id: Annotated[str, Field(description="Id of the TFA factor to delete.")],
+    password: Annotated[str | None, Field(description="The user's current password, if PVE requires re-authentication for this mutation; never logged.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (HIGH RISK): delete a user's TFA factor. Dry-run by default — the PLAN shows how many
     factors remain and warns this WEAKENS the account (and can lock the user out if it's the last
@@ -395,7 +457,11 @@ def pve_tfa_delete(
 
 
 @tool()
-def pve_role_create(roleid: str, privs: str | None = None, confirm: bool = False) -> dict:
+def pve_role_create(
+    roleid: Annotated[str, Field(description="New role id.")],
+    privs: Annotated[str | None, Field(description="Comma-separated privilege names for the role, e.g. 'VM.PowerMgmt,VM.Config.Disk'.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION: create a custom role with an optional privilege set. Dry-run by default (MEDIUM
     risk — inert until an ACL entry references it). Returns the plan preview; confirm=True to
     execute. privs format: comma-separated privilege names (e.g. 'VM.PowerMgmt,VM.Config.Disk')."""
@@ -410,8 +476,12 @@ def pve_role_create(roleid: str, privs: str | None = None, confirm: bool = False
 
 
 @tool()
-def pve_role_update(roleid: str, privs: str | None = None, append: bool | None = None,
-                    confirm: bool = False) -> dict:
+def pve_role_update(
+    roleid: Annotated[str, Field(description="Role id to update.")],
+    privs: Annotated[str | None, Field(description="Comma-separated privilege names to set (or add, if append=True).")] = None,
+    append: Annotated[bool | None, Field(description="If True, add `privs` to the role's existing privileges instead of replacing them.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION: change a role's privileges. Dry-run by default — built-in roles (Administrator,
     PVEAdmin, …) are flagged HIGH (changing them re-scopes every ACL using them). confirm=True."""
     _, api, _, _ = _proximo_server._svc()
@@ -425,7 +495,10 @@ def pve_role_update(roleid: str, privs: str | None = None, append: bool | None =
 
 
 @tool()
-def pve_role_delete(roleid: str, confirm: bool = False) -> dict:
+def pve_role_delete(
+    roleid: Annotated[str, Field(description="Role id to delete (built-in roles are refused).")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (HIGH): delete a role. Dry-run by default — the PLAN reads ACLs to count grants
     that will break, and refuses built-in roles. confirm=True."""
     _, api, _, _ = _proximo_server._svc()
@@ -439,8 +512,13 @@ def pve_role_delete(roleid: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pve_realm_create(realm: str, realm_type: str, comment: str | None = None,
-                     options: dict | None = None, confirm: bool = False) -> dict:
+def pve_realm_create(
+    realm: Annotated[str, Field(description="New realm id/name.")],
+    realm_type: Annotated[str, Field(description="Realm type: 'pam', 'pve', 'ldap', 'ad', or 'openid'.")],
+    comment: Annotated[str | None, Field(description="Optional free-text comment.")] = None,
+    options: Annotated[dict | None, Field(description="Type-specific config fields passed verbatim to PVE (e.g. ldap: server1/base_dn/user_attr; ad: domain/server1; openid: issuer-url/client-id).")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION: create an auth realm. Dry-run by default; confirm=True to execute.
     `options` carries the type-specific fields PVE requires (ldap: server1/base_dn/user_attr;
     ad: domain/server1; openid: issuer-url/client-id) — passed verbatim; PVE validates them."""
@@ -456,8 +534,12 @@ def pve_realm_create(realm: str, realm_type: str, comment: str | None = None,
 
 
 @tool()
-def pve_realm_update(realm: str, comment: str | None = None,
-                     options: dict | None = None, confirm: bool = False) -> dict:
+def pve_realm_update(
+    realm: Annotated[str, Field(description="Realm id to update.")],
+    comment: Annotated[str | None, Field(description="New free-text comment; omit to leave unchanged.")] = None,
+    options: Annotated[dict | None, Field(description="Type-specific config fields to update, passed verbatim to PVE (e.g. server1/base_dn/etc.).")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION: update a realm. Dry-run by default — built-in pam/pve realms are flagged HIGH
     (changing them risks breaking logins). confirm=True. `options` carries type-specific fields
     (server1/base_dn/etc.) passed verbatim; PVE validates them."""
@@ -472,7 +554,10 @@ def pve_realm_update(realm: str, comment: str | None = None,
 
 
 @tool()
-def pve_realm_delete(realm: str, confirm: bool = False) -> dict:
+def pve_realm_delete(
+    realm: Annotated[str, Field(description="Realm id to delete (built-in 'pam'/'pve' are refused).")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN preview; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (HIGH, lockout-class): delete an auth realm. Dry-run by default — the PLAN reads
     users to count who can no longer log in, and refuses built-in pam/pve. confirm=True."""
     _, api, _, _ = _proximo_server._svc()

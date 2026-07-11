@@ -6,6 +6,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.backup import (
     backup_delete,
@@ -53,8 +57,15 @@ from proximo.server import (
 # --- Backup & restore (REST API, async -> UPID) ---
 
 @tool()
-def pve_backup(vmid: str, storage: str, mode: str = "snapshot", compress: str = "zstd",
-               kind: str = "lxc", node: str | None = None, confirm: bool = False) -> dict:
+def pve_backup(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest (VM or CT) to back up.")],
+    storage: Annotated[str, Field(description="Storage ID to write the backup archive to.")],
+    mode: Annotated[str, Field(description="Backup mode: snapshot (online, brief) | suspend (RAM-quiesced pause) | stop (HALTS the guest).")] = "snapshot",
+    compress: Annotated[str, Field(description="Compression algorithm for the archive, e.g. zstd, gzip, lzo, or none.")] = "zstd",
+    kind: Annotated[str, Field(description="Guest type: lxc or qemu.")] = "lxc",
+    node: Annotated[str | None, Field(description="Proxmox node hosting the guest; defaults to the configured node if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the backup.")] = False,
+) -> dict:
     """MUTATION: back up a guest with vzdump. Dry-run by default; confirm=True to execute.
     mode: snapshot (online, brief) | suspend | stop (HALTS the guest). Async — returns a task UPID."""
     _, api, _, _ = _proximo_server._svc()
@@ -68,7 +79,10 @@ def pve_backup(vmid: str, storage: str, mode: str = "snapshot", compress: str = 
 
 
 @tool()
-def pve_backup_list(storage: str, node: str | None = None) -> list[dict]:
+def pve_backup_list(
+    storage: Annotated[str, Field(description="Storage ID to list backup archives from.")],
+    node: Annotated[str | None, Field(description="Proxmox node hosting the storage; defaults to the configured node if omitted.")] = None,
+) -> list[dict]:
     """List backup archives in a storage (read). Ground truth for whether a backup exists —
     a backup missing from a pve_tasks_list slice (other node, or outside its limit window)
     still shows here."""
@@ -77,7 +91,10 @@ def pve_backup_list(storage: str, node: str | None = None) -> list[dict]:
 
 
 @tool()
-def pve_backup_freshness(max_age_hours: float | None = None, grace_hours: float = 6.0) -> dict:
+def pve_backup_freshness(
+    max_age_hours: Annotated[float | None, Field(description="Override for max acceptable backup age in hours; if omitted, age expectation is derived from each guest's backup job schedule.")] = None,
+    grace_hours: Annotated[float, Field(description="Hours of slack padded onto each job's parsed cadence before a backup is flagged stale.")] = 6.0,
+) -> dict:
     """Backup-freshness fence (read): walks ACTUAL backup archives per guest and compares their
     age against what enabled backup jobs promise. A job or task reporting OK is never treated as
     evidence a backup exists — only an archive on storage counts. Verdicts per guest:
@@ -90,8 +107,12 @@ def pve_backup_freshness(max_age_hours: float | None = None, grace_hours: float 
 
 
 @tool()
-def pve_backup_delete(storage: str, volid: str, node: str | None = None,
-                      confirm: bool = False) -> dict:
+def pve_backup_delete(
+    storage: Annotated[str, Field(description="Storage ID holding the backup archive.")],
+    volid: Annotated[str, Field(description="Volume ID of the backup archive to delete (as returned by pve_backup_list).")],
+    node: Annotated[str | None, Field(description="Proxmox node hosting the storage; defaults to the configured node if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the deletion.")] = False,
+) -> dict:
     """MUTATION: delete a backup archive (removes a recovery point). Dry-run by default; confirm=True.
     Async — may return a task UPID or null depending on storage."""
     _, api, _, _ = _proximo_server._svc()
@@ -104,8 +125,16 @@ def pve_backup_delete(storage: str, volid: str, node: str | None = None,
 
 
 @tool()
-def pve_restore(vmid: str, archive: str, storage: str, kind: str = "lxc", node: str | None = None,
-                force: bool = False, pool: str | None = None, confirm: bool = False) -> dict:
+def pve_restore(
+    vmid: Annotated[str, Field(description="Numeric ID for the restored guest — new if free, existing to overwrite.")],
+    archive: Annotated[str, Field(description="Volume ID of the backup archive to restore from.")],
+    storage: Annotated[str, Field(description="Storage ID to restore the guest's disks onto (LXC only; ignored for QEMU).")],
+    kind: Annotated[str, Field(description="Guest type: lxc or qemu.")] = "lxc",
+    node: Annotated[str | None, Field(description="Proxmox node to restore onto; defaults to the configured node if omitted.")] = None,
+    force: Annotated[bool, Field(description="If vmid already exists, overwrite/destroy the existing guest instead of failing.")] = False,
+    pool: Annotated[str | None, Field(description="Resource pool to place the restored guest in.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the restore.")] = False,
+) -> dict:
     """MUTATION (DESTRUCTIVE if it overwrites an existing guest): restore a guest from a backup
     archive. Dry-run by default — the PLAN states whether it CREATES or OVERWRITES. confirm=True to
     execute. Async — returns a task UPID. pool: place the restored guest in a resource pool."""
@@ -131,12 +160,20 @@ def pve_backup_job_list() -> dict:
 
 
 @tool()
-def pve_backup_job_create(job_id: str, schedule: str, storage: str,
-                          mode: str | None = None, compress: str | None = None,
-                          vmid: str | None = None, all_guests: bool | None = None,
-                          pool: str | None = None, exclude: str | None = None,
-                          enabled: bool | None = None,
-                          comment: str | None = None, confirm: bool = False) -> dict:
+def pve_backup_job_create(
+    job_id: Annotated[str, Field(description="Unique ID for the new PVE backup job.")],
+    schedule: Annotated[str, Field(description="Proxmox calendar-event schedule string, e.g. 'sat 02:00' or a systemd.time-style spec.")],
+    storage: Annotated[str, Field(description="Storage ID the job writes backups to.")],
+    mode: Annotated[str | None, Field(description="Backup mode: snapshot | suspend | stop; defaults to Proxmox's own default if omitted.")] = None,
+    compress: Annotated[str | None, Field(description="Compression algorithm for archives, e.g. zstd, gzip, lzo, or none.")] = None,
+    vmid: Annotated[str | None, Field(description="CSV of guest IDs to include; mutually exclusive with all_guests and pool.")] = None,
+    all_guests: Annotated[bool | None, Field(description="If true, back up every guest on the cluster; mutually exclusive with vmid and pool.")] = None,
+    pool: Annotated[str | None, Field(description="Resource pool of guests to back up; mutually exclusive with vmid and all_guests.")] = None,
+    exclude: Annotated[str | None, Field(description="CSV of guest IDs to exclude when all_guests=True.")] = None,
+    enabled: Annotated[bool | None, Field(description="Whether the job is active; defaults to enabled if omitted.")] = None,
+    comment: Annotated[str | None, Field(description="Free-text note stored on the job.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the creation.")] = False,
+) -> dict:
     """MUTATION: create a PVE cluster backup job. Dry-run by default — shows the plan.
     confirm=True to execute. Config-only; existing backups are NOT affected.
     Guest selection is mutually exclusive — pass at most one of: vmid (CSV of guest IDs),
@@ -161,11 +198,17 @@ def pve_backup_job_create(job_id: str, schedule: str, storage: str,
 
 
 @tool()
-def pve_backup_job_update(job_id: str, schedule: str | None = None,
-                          storage: str | None = None, mode: str | None = None,
-                          compress: str | None = None, vmid: str | None = None,
-                          enabled: bool | None = None, comment: str | None = None,
-                          confirm: bool = False) -> dict:
+def pve_backup_job_update(
+    job_id: Annotated[str, Field(description="ID of the existing PVE backup job to update.")],
+    schedule: Annotated[str | None, Field(description="New Proxmox calendar-event schedule string; omit to leave unchanged.")] = None,
+    storage: Annotated[str | None, Field(description="New storage ID for the job's backups; omit to leave unchanged.")] = None,
+    mode: Annotated[str | None, Field(description="New backup mode: snapshot | suspend | stop; omit to leave unchanged.")] = None,
+    compress: Annotated[str | None, Field(description="New compression algorithm, e.g. zstd, gzip, lzo, or none; omit to leave unchanged.")] = None,
+    vmid: Annotated[str | None, Field(description="New CSV of guest IDs the job covers; omit to leave unchanged.")] = None,
+    enabled: Annotated[bool | None, Field(description="Whether the job is active; omit to leave unchanged.")] = None,
+    comment: Annotated[str | None, Field(description="New free-text note; omit to leave unchanged.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the update.")] = False,
+) -> dict:
     """MUTATION: update a PVE cluster backup job. Dry-run by default — captures current config.
     confirm=True to execute. Config-only; no impact on existing backups."""
     _, api, _, _ = _proximo_server._svc()
@@ -185,7 +228,10 @@ def pve_backup_job_update(job_id: str, schedule: str | None = None,
 
 
 @tool()
-def pve_backup_job_delete(job_id: str, confirm: bool = False) -> dict:
+def pve_backup_job_delete(
+    job_id: Annotated[str, Field(description="ID of the PVE backup job to delete.")],
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the deletion.")] = False,
+) -> dict:
     """MUTATION: delete a PVE cluster backup job. Dry-run by default — captures current config.
     confirm=True to execute. Schedule removed; existing backups are NOT deleted."""
     _, api, _, _ = _proximo_server._svc()
@@ -200,10 +246,16 @@ def pve_backup_job_delete(job_id: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pve_replication_create(rep_id: str, rep_type: str, target: str,
-                           schedule: str | None = None, rate: float | None = None,
-                           disable: bool | None = None, comment: str | None = None,
-                           confirm: bool = False) -> dict:
+def pve_replication_create(
+    rep_id: Annotated[str, Field(description="Unique ID for the new replication job.")],
+    rep_type: Annotated[str, Field(description="Replication job type, typically 'local'.")],
+    target: Annotated[str, Field(description="Target node (or node/storage) to replicate to.")],
+    schedule: Annotated[str | None, Field(description="Proxmox calendar-event schedule string; omit for the default cadence.")] = None,
+    rate: Annotated[float | None, Field(description="Bandwidth limit in MB/s; omit for unlimited.")] = None,
+    disable: Annotated[bool | None, Field(description="If true, create the job in a disabled state.")] = None,
+    comment: Annotated[str | None, Field(description="Free-text note stored on the job.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the creation.")] = False,
+) -> dict:
     """MUTATION: create a PVE replication job. Dry-run by default.
     rep_type is typically 'local'. confirm=True to execute."""
     _, api, _, _ = _proximo_server._svc()
@@ -222,9 +274,14 @@ def pve_replication_create(rep_id: str, rep_type: str, target: str,
 
 
 @tool()
-def pve_replication_update(rep_id: str, schedule: str | None = None,
-                           rate: float | None = None, disable: bool | None = None,
-                           comment: str | None = None, confirm: bool = False) -> dict:
+def pve_replication_update(
+    rep_id: Annotated[str, Field(description="ID of the existing replication job to update.")],
+    schedule: Annotated[str | None, Field(description="New Proxmox calendar-event schedule string; omit to leave unchanged.")] = None,
+    rate: Annotated[float | None, Field(description="New bandwidth limit in MB/s; omit to leave unchanged.")] = None,
+    disable: Annotated[bool | None, Field(description="Whether the job is disabled; omit to leave unchanged.")] = None,
+    comment: Annotated[str | None, Field(description="New free-text note; omit to leave unchanged.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the update.")] = False,
+) -> dict:
     """MUTATION: update a PVE replication job. Dry-run by default — captures current config.
     confirm=True to execute. Config-only; in-flight replication is not immediately disrupted."""
     _, api, _, _ = _proximo_server._svc()
@@ -242,7 +299,10 @@ def pve_replication_update(rep_id: str, schedule: str | None = None,
 
 
 @tool()
-def pve_replication_delete(rep_id: str, confirm: bool = False) -> dict:
+def pve_replication_delete(
+    rep_id: Annotated[str, Field(description="ID of the replication job to delete.")],
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the deletion.")] = False,
+) -> dict:
     """MUTATION: delete a PVE replication job. Dry-run by default — captures current config.
     confirm=True to execute. Replication ceases; existing replicated data is NOT removed."""
     _, api, _, _ = _proximo_server._svc()
@@ -257,9 +317,15 @@ def pve_replication_delete(rep_id: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pbs_job_create(job_type: str, job_id: str, store: str | None = None,
-                   schedule: str | None = None, ns: str | None = None,
-                   comment: str | None = None, confirm: bool = False) -> dict:
+def pbs_job_create(
+    job_type: Annotated[str, Field(description="PBS job type: sync | verify | prune.")],
+    job_id: Annotated[str, Field(description="Unique ID for the new PBS scheduled job.")],
+    store: Annotated[str | None, Field(description="PBS datastore the job operates on.")] = None,
+    schedule: Annotated[str | None, Field(description="Proxmox calendar-event schedule string for the job.")] = None,
+    ns: Annotated[str | None, Field(description="PBS namespace the job operates on; omit for the root namespace.")] = None,
+    comment: Annotated[str | None, Field(description="Free-text note stored on the job.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the creation.")] = False,
+) -> dict:
     """MUTATION: create a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PBS_* config. Config-only; no existing data affected."""
     _, pbs = _proximo_server._pbs()
@@ -277,9 +343,14 @@ def pbs_job_create(job_type: str, job_id: str, store: str | None = None,
 
 
 @tool()
-def pbs_job_update(job_type: str, job_id: str, schedule: str | None = None,
-                   ns: str | None = None, comment: str | None = None,
-                   confirm: bool = False) -> dict:
+def pbs_job_update(
+    job_type: Annotated[str, Field(description="PBS job type: sync | verify | prune.")],
+    job_id: Annotated[str, Field(description="ID of the existing PBS scheduled job to update.")],
+    schedule: Annotated[str | None, Field(description="New Proxmox calendar-event schedule string; omit to leave unchanged.")] = None,
+    ns: Annotated[str | None, Field(description="New PBS namespace the job operates on; omit to leave unchanged.")] = None,
+    comment: Annotated[str | None, Field(description="New free-text note; omit to leave unchanged.")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the update.")] = False,
+) -> dict:
     """MUTATION: update a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
     captures current config. confirm=True to execute. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
@@ -297,7 +368,11 @@ def pbs_job_update(job_type: str, job_id: str, schedule: str | None = None,
 
 
 @tool()
-def pbs_job_delete(job_type: str, job_id: str, confirm: bool = False) -> dict:
+def pbs_job_delete(
+    job_type: Annotated[str, Field(description="PBS job type: sync | verify | prune.")],
+    job_id: Annotated[str, Field(description="ID of the PBS scheduled job to delete.")],
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the deletion.")] = False,
+) -> dict:
     """MUTATION: delete a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
     captures current config. confirm=True to execute. Schedule removed; backup data NOT deleted.
     Needs PROXIMO_PBS_* config."""
@@ -313,7 +388,11 @@ def pbs_job_delete(job_type: str, job_id: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pbs_job_run(job_type: str, job_id: str, confirm: bool = False) -> dict:
+def pbs_job_run(
+    job_type: Annotated[str, Field(description="PBS job type: sync | verify | prune.")],
+    job_id: Annotated[str, Field(description="ID of the PBS scheduled job to trigger immediately.")],
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the run.")] = False,
+) -> dict:
     """MUTATION: trigger a PBS scheduled job immediately. job_type = sync|verify|prune.
     Dry-run by default. confirm=True to execute. Async — returns UPID.
     Needs PROXIMO_PBS_* config. Prune runs may delete snapshots per the retention policy."""
@@ -329,8 +408,12 @@ def pbs_job_run(job_type: str, job_id: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pbs_realm_sync(realm: str, remove_vanished: bool | None = None,
-                   dry_run: bool | None = None, confirm: bool = False) -> dict:
+def pbs_realm_sync(
+    realm: Annotated[str, Field(description="PBS LDAP/AD auth realm ID to sync users from.")],
+    remove_vanished: Annotated[bool | None, Field(description="If true, also delete PBS users no longer present in the directory.")] = None,
+    dry_run: Annotated[bool | None, Field(description="If true, ask PBS itself to preview the sync without applying it (separate from the tool's own confirm gate).")] = None,
+    confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the sync.")] = False,
+) -> dict:
     """MUTATION: sync PBS auth realm (LDAP/AD) users. Dry-run by default.
     confirm=True to execute. Async — returns UPID. Needs PROXIMO_PBS_* config.
     remove_vanished=True also removes PBS users no longer in the directory.

@@ -5,6 +5,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.cluster_ops import (
     cluster_resources,
@@ -68,7 +72,9 @@ def pve_cluster_status() -> list[dict]:
 
 
 @tool()
-def pve_cluster_resources(resource_type: str | None = None) -> list[dict]:
+def pve_cluster_resources(
+    resource_type: Annotated[str | None, Field(description="Optional filter: 'vm', 'storage', 'node', or 'sdn'; omit to list all resource types.")] = None,
+) -> list[dict]:
     """List all resources across the cluster (VMs, nodes, storage, SDN).
     resource_type: optional filter — 'vm', 'storage', 'node', or 'sdn' (read)."""
     _, api, _, _ = _proximo_server._svc()
@@ -107,8 +113,12 @@ def pve_ha_resources_list() -> list[dict]:
 
 @tool()
 def pve_guest_migrate(
-    vmid: str, target: str, kind: str = "lxc", node: str | None = None,
-    online: bool = False, confirm: bool = False,
+    vmid: Annotated[str, Field(description="Numeric VMID/CTID of the guest to migrate.")],
+    target: Annotated[str, Field(description="Destination node name to migrate the guest to.")],
+    kind: Annotated[str, Field(description="Guest type: 'lxc' or 'qemu'.")] = "lxc",
+    node: Annotated[str | None, Field(description="Source node name; defaults to the configured node.")] = None,
+    online: Annotated[bool, Field(description="QEMU: live migration (zero-downtime, needs shared storage). LXC: stop-move-start restart migration (real downtime). False = offline migration.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the migration.")] = False,
 ) -> dict:
     """MUTATION: migrate a guest to a different node. Dry-run by default — the PLAN shows the
     guest's live state, the source→target, and the honest blast radius (LXC 'online' is
@@ -128,9 +138,13 @@ def pve_guest_migrate(
 
 @tool()
 def pve_ha_resource_add(
-    vmid: str, kind: str = "lxc", group: str | None = None,
-    state: str | None = None, max_restart: int | None = None,
-    max_relocate: int | None = None, confirm: bool = False,
+    vmid: Annotated[str, Field(description="Numeric VMID/CTID of the guest to add to HA management.")],
+    kind: Annotated[str, Field(description="Guest type: 'lxc' or 'qemu'.")] = "lxc",
+    group: Annotated[str | None, Field(description="HA group to assign (PVE 8 only; PVE 9 removed groups in favor of HA rules — omit on PVE 9).")] = None,
+    state: Annotated[str | None, Field(description="Desired HA state, e.g. 'started', 'stopped', 'disabled' ('stopped' has the CRM stop the guest).")] = None,
+    max_restart: Annotated[int | None, Field(description="Max number of restart attempts the CRM makes before giving up.")] = None,
+    max_relocate: Annotated[int | None, Field(description="Max number of relocation attempts the CRM makes before giving up.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
 ) -> dict:
     """MUTATION: add a guest to HA management. Dry-run by default — the PLAN shows the SID,
     group, initial state, and blast radius (state='stopped' is HIGH: CRM will stop the guest).
@@ -148,7 +162,11 @@ def pve_ha_resource_add(
 
 
 @tool()
-def pve_ha_resource_remove(vmid: str, kind: str = "lxc", confirm: bool = False) -> dict:
+def pve_ha_resource_remove(
+    vmid: Annotated[str, Field(description="Numeric VMID/CTID of the guest to remove from HA management.")],
+    kind: Annotated[str, Field(description="Guest type: 'lxc' or 'qemu'.")] = "lxc",
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
+) -> dict:
     """MUTATION: remove a guest from HA management. Dry-run by default — the PLAN shows the SID
     and that this loses automated failover protection (guest itself is NOT stopped).
     confirm=True to execute. Synchronous (pmxcfs config write).
@@ -166,9 +184,15 @@ def pve_ha_resource_remove(vmid: str, kind: str = "lxc", confirm: bool = False) 
 
 @tool()
 def pve_ha_rule_create(
-    rule: str, rule_type: str, resources: str, comment: str | None = None,
-    disable: bool = False, nodes: str | None = None, strict: bool = False,
-    affinity: str | None = None, confirm: bool = False,
+    rule: Annotated[str, Field(description="New HA rule ID (name used to reference this rule).")],
+    rule_type: Annotated[str, Field(description="Rule type: 'node-affinity' (requires nodes) or 'resource-affinity' (requires affinity).")],
+    resources: Annotated[str, Field(description="Comma-separated HA resource SIDs the rule applies to, e.g. 'vm:100,ct:101'.")],
+    comment: Annotated[str | None, Field(description="Free-text comment stored with the rule.")] = None,
+    disable: Annotated[bool, Field(description="If True, the rule is created disabled (no effect until enabled).")] = False,
+    nodes: Annotated[str | None, Field(description="Comma-separated node list with optional priority, e.g. 'pve1:2,pve2' — required for rule_type='node-affinity'.")] = None,
+    strict: Annotated[bool, Field(description="node-affinity only: if True, resources may run ONLY on the listed nodes (availability risk if all are down).")] = False,
+    affinity: Annotated[str | None, Field(description="'positive' (keep resources together) or 'negative' (keep resources apart) — required for rule_type='resource-affinity'.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
 ) -> dict:
     """MUTATION: create an HA rule (the PVE 9 replacement for HA groups). Dry-run by default — the
     PLAN shows the rule type, resources, and placement effect. `rule_type` is 'node-affinity'
@@ -189,10 +213,17 @@ def pve_ha_rule_create(
 
 @tool()
 def pve_ha_rule_update(
-    rule: str, comment: str | None = None, disable: bool | None = None,
-    resources: str | None = None, rule_type: str | None = None, nodes: str | None = None,
-    strict: bool | None = None, affinity: str | None = None,
-    delete: list[str] | None = None, digest: str | None = None, confirm: bool = False,
+    rule: Annotated[str, Field(description="HA rule ID to update.")],
+    comment: Annotated[str | None, Field(description="New free-text comment for the rule.")] = None,
+    disable: Annotated[bool | None, Field(description="True to disable the rule, False to enable it, omit to leave unchanged.")] = None,
+    resources: Annotated[str | None, Field(description="New comma-separated HA resource SIDs the rule applies to, e.g. 'vm:100,ct:101'.")] = None,
+    rule_type: Annotated[str | None, Field(description="New rule type: 'node-affinity' or 'resource-affinity'.")] = None,
+    nodes: Annotated[str | None, Field(description="New comma-separated node list with optional priority, e.g. 'pve1:2,pve2' (node-affinity rules).")] = None,
+    strict: Annotated[bool | None, Field(description="node-affinity only: True restricts resources to ONLY the listed nodes.")] = None,
+    affinity: Annotated[str | None, Field(description="'positive' or 'negative' (resource-affinity rules).")] = None,
+    delete: Annotated[list[str] | None, Field(description="List of field names to unset on the rule, e.g. ['strict', 'nodes'].")] = None,
+    digest: Annotated[str | None, Field(description="Expected config digest for optimistic-locking; PUT is rejected if the stored digest differs.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
 ) -> dict:
     """MUTATION: update an HA rule. Dry-run by default — the PLAN shows the current rule and the
     fields being changed. `delete` unsets keys. confirm=True to execute. Synchronous.
@@ -212,7 +243,10 @@ def pve_ha_rule_update(
 
 
 @tool()
-def pve_ha_rule_delete(rule: str, confirm: bool = False) -> dict:
+def pve_ha_rule_delete(
+    rule: Annotated[str, Field(description="HA rule ID to delete.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion.")] = False,
+) -> dict:
     """MUTATION: delete an HA rule. Dry-run by default — the PLAN shows the current rule and that
     its resources lose this placement constraint (CRM may migrate them). confirm=True to execute.
     Synchronous. RISK_MEDIUM.
@@ -230,9 +264,14 @@ def pve_ha_rule_delete(rule: str, confirm: bool = False) -> dict:
 # --- Task control + resource pools (read) ---
 
 @tool()
-def pve_tasks_list(node: str | None = None, limit: int = 50, errors: bool = False,
-                   vmid: str | None = None, typefilter: str | None = None,
-                   statusfilter: str | None = None) -> list[dict]:
+def pve_tasks_list(
+    node: Annotated[str | None, Field(description="Node to list tasks from; defaults to the configured node.")] = None,
+    limit: Annotated[int, Field(description="Max number of most-recent tasks to return, clamped to 1-1000.")] = 50,
+    errors: Annotated[bool, Field(description="If True, only return tasks that ended in error.")] = False,
+    vmid: Annotated[str | None, Field(description="Optional VMID/CTID to filter tasks to a single guest.")] = None,
+    typefilter: Annotated[str | None, Field(description="Optional task-type filter, e.g. 'vzdump', 'qmigrate' (PVE task type string).")] = None,
+    statusfilter: Annotated[str | None, Field(description="Optional status filter, e.g. 'running', 'stopped'.")] = None,
+) -> list[dict]:
     """List recent tasks on a node (read). limit 1-1000 (clamped).
 
     Caveat: this is a windowed, per-node slice — node defaults to the configured node, and
@@ -245,8 +284,12 @@ def pve_tasks_list(node: str | None = None, limit: int = 50, errors: bool = Fals
 
 
 @tool()
-def pve_task_log(upid: str, node: str | None = None, start: int = 0,
-                 limit: int = 50) -> list[dict]:
+def pve_task_log(
+    upid: Annotated[str, Field(description="The task's Unique Process ID (UPID) string returned by an async operation.")],
+    node: Annotated[str | None, Field(description="Node the task ran on; defaults to the configured node.")] = None,
+    start: Annotated[int, Field(description="Line offset to start returning log output from (for pagination).")] = 0,
+    limit: Annotated[int, Field(description="Max number of log lines to return.")] = 50,
+) -> list[dict]:
     """Retrieve a task's log output by UPID (read-only). Returns the task's log lines with
     line numbers, paginated via start/limit. Use pve_task_wait for completion polling, or
     pve_tasks_list to find a UPID."""
@@ -255,8 +298,12 @@ def pve_task_log(upid: str, node: str | None = None, start: int = 0,
 
 
 @tool()
-def pve_task_wait(upid: str, node: str | None = None, timeout: int = 120,
-                  interval: int = 2) -> dict:
+def pve_task_wait(
+    upid: Annotated[str, Field(description="The task's Unique Process ID (UPID) string to poll for completion.")],
+    node: Annotated[str | None, Field(description="Node the task ran on; defaults to the configured node.")] = None,
+    timeout: Annotated[int, Field(description="Max seconds to wait for the task to reach a terminal state, clamped to 1-600.")] = 120,
+    interval: Annotated[int, Field(description="Seconds between status polls, clamped to 1-60.")] = 2,
+) -> dict:
     """Block until an async Proxmox task reaches a terminal state — or the timeout — then report the
     outcome (read). The ergonomic complement to the submit-an-async-op tools (migrate / backup /
     restore / clone / rollback / snapshot + guest create) that return a UPID: wait for completion
@@ -289,7 +336,7 @@ def pve_pools_list() -> list[dict]:
 
 
 @tool()
-def pve_pool_get(poolid: str) -> dict:
+def pve_pool_get(poolid: Annotated[str, Field(description="Pool ID to look up.")]) -> dict:
     """Retrieve a single resource pool's configuration and complete member list by pool ID
     (read-only). Returns the pool's config including all VMs and storage resources assigned.
     Use pve_pools_list to enumerate all pools."""
@@ -300,7 +347,11 @@ def pve_pool_get(poolid: str) -> dict:
 # --- Task control + resource pools (mutation) ---
 
 @tool()
-def pve_task_stop(upid: str, node: str | None = None, confirm: bool = False) -> dict:
+def pve_task_stop(
+    upid: Annotated[str, Field(description="The task's Unique Process ID (UPID) string to cancel.")],
+    node: Annotated[str | None, Field(description="Node the task is running on; defaults to the configured node.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the cancellation.")] = False,
+) -> dict:
     """MUTATION (HIGH): stop (cancel) a running task. Dry-run by default — the PLAN warns that
     stopping a backup/restore/migration/clone mid-flight can leave the target inconsistent, with
     NO undo. confirm=True to execute. Synchronous cancellation signal (returns null)."""
@@ -314,7 +365,11 @@ def pve_task_stop(upid: str, node: str | None = None, confirm: bool = False) -> 
 
 
 @tool()
-def pve_pool_create(poolid: str, comment: str | None = None, confirm: bool = False) -> dict:
+def pve_pool_create(
+    poolid: Annotated[str, Field(description="New pool ID to create.")],
+    comment: Annotated[str | None, Field(description="Free-text comment stored with the pool.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the creation.")] = False,
+) -> dict:
     """MUTATION: create an (empty) resource pool. Dry-run by default (PLAN = additive, LOW).
     confirm=True to execute. Synchronous."""
     _, api, _, _ = _proximo_server._svc()
@@ -328,8 +383,13 @@ def pve_pool_create(poolid: str, comment: str | None = None, confirm: bool = Fal
 
 
 @tool()
-def pve_pool_update(poolid: str, vms: str | None = None, storage: str | None = None,
-                    delete: bool = False, confirm: bool = False) -> dict:
+def pve_pool_update(
+    poolid: Annotated[str, Field(description="Pool ID to update.")],
+    vms: Annotated[str | None, Field(description="Comma-separated VMID/CTID list to add or remove from the pool.")] = None,
+    storage: Annotated[str | None, Field(description="Comma-separated storage ID list to add or remove from the pool.")] = None,
+    delete: Annotated[bool, Field(description="False (default) adds the given vms/storage as members; True removes them instead.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
+) -> dict:
     """MUTATION: add (delete=False) or remove (delete=True) pool members. Dry-run by default —
     the PLAN notes membership re-scopes ACL coverage. confirm=True to execute. Synchronous.
     delete=True with no vms/storage is refused (ambiguous)."""
@@ -345,7 +405,10 @@ def pve_pool_update(poolid: str, vms: str | None = None, storage: str | None = N
 
 
 @tool()
-def pve_pool_delete(poolid: str, confirm: bool = False) -> dict:
+def pve_pool_delete(
+    poolid: Annotated[str, Field(description="Pool ID to delete; the pool must be empty first.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion.")] = False,
+) -> dict:
     """MUTATION: delete a resource pool. Dry-run by default — the PLAN warns ACLs on /pool/{poolid}
     are orphaned and the pool must be empty first (members are NOT deleted). confirm=True to
     execute. Synchronous."""
@@ -372,7 +435,7 @@ def pve_storage_config_list() -> list[dict]:
 
 
 @tool()
-def pve_storage_config_get(storage: str) -> dict:
+def pve_storage_config_get(storage: Annotated[str, Field(description="Storage ID to look up.")]) -> dict:
     """Retrieve a single storage definition from storage.cfg by storage ID (read-only).
     Returns the storage's complete configuration including type, paths, servers, and access
     settings. Use pve_storage_config_list to enumerate all storages."""
@@ -382,11 +445,18 @@ def pve_storage_config_get(storage: str) -> dict:
 
 
 @tool()
-def pve_storage_create(storage: str, storage_type: str, content: str | None = None,
-                       path: str | None = None, server: str | None = None,
-                       export: str | None = None, nodes: str | None = None,
-                       disable: bool = False, shared: bool = False,
-                       confirm: bool = False) -> dict:
+def pve_storage_create(
+    storage: Annotated[str, Field(description="New storage ID (name used across the cluster).")],
+    storage_type: Annotated[str, Field(description="PVE storage driver type, e.g. 'dir', 'nfs', 'pbs'.")],
+    content: Annotated[str | None, Field(description="Comma-separated content types to allow, e.g. 'iso,backup,images'.")] = None,
+    path: Annotated[str | None, Field(description="Filesystem path (required for storage_type='dir').")] = None,
+    server: Annotated[str | None, Field(description="Remote host address (required for nfs/cifs/pbs).")] = None,
+    export: Annotated[str | None, Field(description="NFS export path (required for storage_type='nfs').")] = None,
+    nodes: Annotated[str | None, Field(description="Comma-separated node list this storage is available on; omit for all nodes.")] = None,
+    disable: Annotated[bool, Field(description="If True, storage is created in a disabled state.")] = False,
+    shared: Annotated[bool, Field(description="If True, marks storage as shared across all nodes.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the creation.")] = False,
+) -> dict:
     """MUTATION: define a new storage (storage.cfg). Dry-run by default. confirm=True to execute."""
     _, api, _, _ = _proximo_server._svc()
     tgt = f"storage/{storage}"
@@ -402,9 +472,15 @@ def pve_storage_create(storage: str, storage_type: str, content: str | None = No
 
 
 @tool()
-def pve_storage_update(storage: str, content: str | None = None, nodes: str | None = None,
-                       disable: bool | None = None, shared: bool | None = None,
-                       delete: str | None = None, confirm: bool = False) -> dict:
+def pve_storage_update(
+    storage: Annotated[str, Field(description="Storage ID to update.")],
+    content: Annotated[str | None, Field(description="New comma-separated content type list, e.g. 'iso,backup,images'.")] = None,
+    nodes: Annotated[str | None, Field(description="New comma-separated node restriction list.")] = None,
+    disable: Annotated[bool | None, Field(description="True to disable, False to enable, omit to leave unchanged.")] = None,
+    shared: Annotated[bool | None, Field(description="True/False to set sharedness; omit to leave unchanged (must stay None for network-backed types like nfs/cifs/pbs, which reject an explicit shared flag).")] = None,
+    delete: Annotated[str | None, Field(description="Comma-separated list of config fields to unset on the storage definition.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
+) -> dict:
     """MUTATION: update a storage definition. Dry-run by default (disable=True warns guests lose
     disk access). confirm=True to execute."""
     _, api, _, _ = _proximo_server._svc()
@@ -419,7 +495,10 @@ def pve_storage_update(storage: str, content: str | None = None, nodes: str | No
 
 
 @tool()
-def pve_storage_delete(storage: str, confirm: bool = False) -> dict:
+def pve_storage_delete(
+    storage: Annotated[str, Field(description="Storage ID to remove cluster-wide (definition only; data on disk is not erased).")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion.")] = False,
+) -> dict:
     """MUTATION (HIGH): remove a storage definition cluster-wide. Dry-run by default — the PLAN
     warns guest disks/backups living only there become inaccessible (data not erased). confirm=True."""
     _, api, _, _ = _proximo_server._svc()

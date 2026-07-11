@@ -453,6 +453,24 @@ SENTINELS: dict[str, Any] = {
 _ALNUM_RE = re.compile(r"[^A-Za-z0-9]")
 
 
+def _strip_annotated(ann: str) -> str:
+    """Unwrap `Annotated[T, Field(...)]` -> `T` (as a source string, PEP 563) so the type
+    sniffing below sees the real type, not the Field(description=...) text (which could contain
+    words like 'list'/'int'). Plain annotations pass through unchanged."""
+    if not ann.startswith("Annotated["):
+        return ann
+    inner = ann[len("Annotated[") : -1]  # drop leading "Annotated[" and trailing "]"
+    depth = 0
+    for i, c in enumerate(inner):
+        if c in "[(":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        elif c == "," and depth == 0:
+            return inner[:i].strip()  # first top-level type arg
+    return inner.strip()
+
+
 def _fallback_value(pname: str, ann: str) -> Any:
     if "bool" in ann:
         return False
@@ -589,7 +607,7 @@ def _kwargs_for(name: str) -> dict[str, Any]:
         if pname in SENTINELS:
             kwargs[pname] = SENTINELS[pname]
         else:
-            kwargs[pname] = _fallback_value(pname, str(p.annotation))
+            kwargs[pname] = _fallback_value(pname, _strip_annotated(str(p.annotation)))
     kwargs.update(CUSTOM_KWARGS.get(name, {}))
     return kwargs
 

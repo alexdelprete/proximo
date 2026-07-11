@@ -21,9 +21,10 @@ import time
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from functools import cache, lru_cache
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 from . import __version__
 from .audit import AuditLedger, find_rotation_archive, looks_like_head, open_ledger
@@ -499,7 +500,12 @@ def _agent_gate(cfg, action: str, vmid: str, *, mutation: bool) -> dict | None:
 # --- In-container exec (ssh -> pct) — MUTATION-CAPABLE, confirm-gated ---
 
 @tool()
-def ct_exec(ctid: str, command: list[str], snapshot: bool = False, confirm: bool = False) -> dict:
+def ct_exec(
+    ctid: Annotated[str, Field(description="Numeric CTID of the target LXC container (allowlist-scoped).")],
+    command: Annotated[list[str], Field(description="Argv list to run inside the container (not a shell string).")],
+    snapshot: Annotated[bool, Field(description="Take a fail-closed auto-undo snapshot before running.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; true executes.")] = False,
+) -> dict:
     """Run a command inside an LXC (ssh -> pct exec). MUTATION-CAPABLE.
 
     Dry-run by default: without confirm=True you get a PLAN — the command plus a heuristic
@@ -553,8 +559,13 @@ def ct_exec(ctid: str, command: list[str], snapshot: bool = False, confirm: bool
 
 
 @tool()
-def ct_psql(ctid: str, sql: str, db: str = "postgres", snapshot: bool = False,
-            confirm: bool = False) -> dict:
+def ct_psql(
+    ctid: Annotated[str, Field(description="Numeric CTID of the container running PostgreSQL (allowlist-scoped).")],
+    sql: Annotated[str, Field(description="SQL to run via psql inside the container, as the database OS user.")],
+    db: Annotated[str, Field(description="Target database name.")] = "postgres",
+    snapshot: Annotated[bool, Field(description="Take a fail-closed auto-undo snapshot before running.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; true executes.")] = False,
+) -> dict:
     """Run SQL via psql inside a container (as the db OS user). MUTATION-CAPABLE.
 
     Dry-run by default: without confirm=True you get a PLAN — the SQL plus a heuristic
@@ -637,7 +648,16 @@ def _anchor_moved_hint(prev_entries: int | None, cur_entries: int) -> str:
     # THIS Proximo's one PROVE ledger chain, which has no remote box to target. It is the
     # sole intentionally-bare tool; every other tool (incl. the ct_* exec tools) is @tool().
 @mcp.tool()
-def audit_verify(expected_head: str | None = None) -> dict:
+def audit_verify(
+    expected_head: Annotated[
+        str | None,
+        Field(
+            description="64-char hex head() value pinned off-box; verifying against it also catches "
+            "tail truncation, a forged tail-append, or a full ledger replacement. Omit to fall "
+            "back to PROXIMO_AUDIT_EXPECTED_HEAD."
+        ),
+    ] = None,
+) -> dict:
     """Verify the tamper-evident audit ledger's hash chain — PROVE the log is intact.
 
     Pass `expected_head` (the head() value you pinned off-box) to also catch tail
@@ -750,11 +770,11 @@ _AGENT_POLL_INTERVAL = 1.0
 
 @tool()
 def pve_agent_exec(
-    vmid: str,
-    command: list[str],
-    node: str | None = None,
-    timeout: int = 30,
-    confirm: bool = False,
+    vmid: Annotated[str, Field(description="Numeric VMID of the target QEMU guest (allowlist-scoped).")],
+    command: Annotated[list[str], Field(description="Argv list to run in the guest via the qemu-agent.")],
+    node: Annotated[str | None, Field(description="PVE node the guest runs on; omit to resolve automatically.")] = None,
+    timeout: Annotated[int, Field(description="Seconds to poll for exit before returning status='running'.")] = 30,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; true executes.")] = False,
 ) -> dict:
     """MUTATION: run a command inside a guest via the qemu-agent (async, polls for result).
 

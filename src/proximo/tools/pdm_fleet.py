@@ -12,6 +12,9 @@ docs/plans/2026-07-06-pdm-fleet-control-design.md.
 from __future__ import annotations
 
 import time
+from typing import Annotated
+
+from pydantic import Field
 
 import proximo.server as _proximo_server
 from proximo.consent import enforce_consent
@@ -193,7 +196,12 @@ def _snapshot_rollback(kind: str, remote: str, vmid: str, snapname: str, confirm
 # ---------------------------------------------------------------------------
 
 @tool()
-def pdm_pve_qemu_power(remote: str, vmid: str, action: str, confirm: bool = False) -> dict:
+def pdm_pve_qemu_power(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the VM.")],
+    vmid: Annotated[str, Field(description="Numeric VMID of the target VM, as a string.")],
+    action: Annotated[str, Field(description="Power action: 'start', 'stop', 'shutdown', or 'resume'.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes.")] = False,
+) -> dict:
     """MUTATION: start/stop/shutdown/resume a VM on a PDM-registered remote (through PDM).
 
     Dry-run by default: returns a PLAN (live state, blast radius, risk) recorded to the
@@ -203,7 +211,12 @@ def pdm_pve_qemu_power(remote: str, vmid: str, action: str, confirm: bool = Fals
 
 
 @tool()
-def pdm_pve_lxc_power(remote: str, vmid: str, action: str, confirm: bool = False) -> dict:
+def pdm_pve_lxc_power(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the container.")],
+    vmid: Annotated[str, Field(description="Numeric CTID of the target container, as a string.")],
+    action: Annotated[str, Field(description="Power action: 'start', 'stop', or 'shutdown'.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes.")] = False,
+) -> dict:
     """MUTATION: start/stop/shutdown a container on a PDM-registered remote (through PDM).
 
     Dry-run by default (PLAN); confirm=True to submit. Task-backed → 'submitted'.
@@ -212,8 +225,13 @@ def pdm_pve_lxc_power(remote: str, vmid: str, action: str, confirm: bool = False
 
 
 @tool()
-def pdm_pve_qemu_migrate(remote: str, vmid: str, target: str, online: bool = False,
-                         confirm: bool = False) -> dict:
+def pdm_pve_qemu_migrate(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) currently hosting the VM.")],
+    vmid: Annotated[str, Field(description="Numeric VMID of the VM to migrate, as a string.")],
+    target: Annotated[str, Field(description="Destination node name within the same remote's cluster.")],
+    online: Annotated[bool, Field(description="True live-migrates the VM; else it must be stopped.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True submits it.")] = False,
+) -> dict:
     """MUTATION: migrate a VM to another node within the remote's cluster (through PDM).
 
     online=True migrates a running VM. Dry-run by default (PLAN); confirm=True to submit.
@@ -222,17 +240,29 @@ def pdm_pve_qemu_migrate(remote: str, vmid: str, target: str, online: bool = Fal
 
 
 @tool()
-def pdm_pve_lxc_migrate(remote: str, vmid: str, target: str, online: bool = False,
-                        confirm: bool = False) -> dict:
+def pdm_pve_lxc_migrate(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the container.")],
+    vmid: Annotated[str, Field(description="Numeric CTID of the container to migrate, as a string.")],
+    target: Annotated[str, Field(description="Destination node name within the same remote's cluster.")],
+    online: Annotated[bool, Field(description="True live-migrates the container; else it must be stopped.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True submits it.")] = False,
+) -> dict:
     """MUTATION: migrate a container to another node within the remote's cluster (through PDM)."""
     return _migrate("lxc", remote, vmid, target, online, confirm)
 
 
 @tool()
-def pdm_pve_qemu_remote_migrate(remote: str, vmid: str, target_remote: str, target_bridge: str,
-                                target_storage: str, target_vmid: str | None = None,
-                                online: bool = False, delete: bool = False,
-                                confirm: bool = False) -> dict:
+def pdm_pve_qemu_remote_migrate(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) currently hosting the VM.")],
+    vmid: Annotated[str, Field(description="Numeric VMID of the VM to migrate, as a string.")],
+    target_remote: Annotated[str, Field(description="Destination PDM-registered remote (a different datacenter).")],
+    target_bridge: Annotated[str, Field(description="Source-to-target network bridge mapping, e.g. 'vmbr0:vmbr0'.")],
+    target_storage: Annotated[str, Field(description="Source-to-target storage mapping, e.g. 'local-lvm:local-lvm'.")],
+    target_vmid: Annotated[str | None, Field(description="VMID on the destination; omit to keep same VMID.")] = None,
+    online: Annotated[bool, Field(description="True live-migrates the VM; else it must be stopped.")] = False,
+    delete: Annotated[bool, Field(description="True deletes source VM after successful move (irreversible).")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True submits it.")] = False,
+) -> dict:
     """MUTATION: migrate a VM to a DIFFERENT PDM-registered remote (datacenter-to-datacenter).
 
     target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',
@@ -244,10 +274,17 @@ def pdm_pve_qemu_remote_migrate(remote: str, vmid: str, target_remote: str, targ
 
 
 @tool()
-def pdm_pve_lxc_remote_migrate(remote: str, vmid: str, target_remote: str, target_bridge: str,
-                               target_storage: str, target_vmid: str | None = None,
-                               online: bool = False, delete: bool = False,
-                               confirm: bool = False) -> dict:
+def pdm_pve_lxc_remote_migrate(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the container.")],
+    vmid: Annotated[str, Field(description="Numeric CTID of the container to migrate, as a string.")],
+    target_remote: Annotated[str, Field(description="Destination PDM-registered remote (a different datacenter).")],
+    target_bridge: Annotated[str, Field(description="Source-to-target network bridge mapping, e.g. 'vmbr0:vmbr0'.")],
+    target_storage: Annotated[str, Field(description="Source-to-target storage mapping, e.g. 'local-lvm:local-lvm'.")],
+    target_vmid: Annotated[str | None, Field(description="CTID on the destination; omit to keep same CTID.")] = None,
+    online: Annotated[bool, Field(description="True live-migrates the container; else it must be stopped.")] = False,
+    delete: Annotated[bool, Field(description="True deletes container after successful move (destructive).")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True submits it.")] = False,
+) -> dict:
     """MUTATION: migrate a container to a DIFFERENT PDM-registered remote
     (datacenter-to-datacenter).
 
@@ -260,8 +297,14 @@ def pdm_pve_lxc_remote_migrate(remote: str, vmid: str, target_remote: str, targe
 
 
 @tool()
-def pdm_pve_qemu_snapshot_create(remote: str, vmid: str, snapname: str, description: str | None = None,
-                                 vmstate: bool = False, confirm: bool = False) -> dict:
+def pdm_pve_qemu_snapshot_create(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the VM.")],
+    vmid: Annotated[str, Field(description="Numeric VMID of the target VM, as a string.")],
+    snapname: Annotated[str, Field(description="Name to give the new snapshot.")],
+    description: Annotated[str | None, Field(description="Optional free-text note stored with the snapshot.")] = None,
+    vmstate: Annotated[bool, Field(description="True includes the VM's RAM state (larger, slower snapshot).")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True creates it.")] = False,
+) -> dict:
     """MUTATION: snapshot a VM on a PDM-registered remote (through PDM).
 
     vmstate=True includes the VM's RAM state. Additive (LOW risk). Dry-run by default.
@@ -270,8 +313,13 @@ def pdm_pve_qemu_snapshot_create(remote: str, vmid: str, snapname: str, descript
 
 
 @tool()
-def pdm_pve_lxc_snapshot_create(remote: str, vmid: str, snapname: str, description: str | None = None,
-                                confirm: bool = False) -> dict:
+def pdm_pve_lxc_snapshot_create(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the container.")],
+    vmid: Annotated[str, Field(description="Numeric CTID of the target container, as a string.")],
+    snapname: Annotated[str, Field(description="Name to give the new snapshot.")],
+    description: Annotated[str | None, Field(description="Optional free-text note stored with the snapshot.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True creates it.")] = False,
+) -> dict:
     """MUTATION: snapshot a container on a PDM-registered remote (through PDM).
 
     Containers have no RAM state, so there is no vmstate option. Dry-run by default.
@@ -280,19 +328,34 @@ def pdm_pve_lxc_snapshot_create(remote: str, vmid: str, snapname: str, descripti
 
 
 @tool()
-def pdm_pve_qemu_snapshot_delete(remote: str, vmid: str, snapname: str, confirm: bool = False) -> dict:
+def pdm_pve_qemu_snapshot_delete(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the VM.")],
+    vmid: Annotated[str, Field(description="Numeric VMID of the target VM, as a string.")],
+    snapname: Annotated[str, Field(description="Name of the snapshot to delete.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True deletes it.")] = False,
+) -> dict:
     """MUTATION: delete a VM snapshot on a PDM-registered remote. Irreversible; no UNDO. Dry-run by default."""
     return _snapshot_delete("qemu", remote, vmid, snapname, confirm)
 
 
 @tool()
-def pdm_pve_lxc_snapshot_delete(remote: str, vmid: str, snapname: str, confirm: bool = False) -> dict:
+def pdm_pve_lxc_snapshot_delete(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the container.")],
+    vmid: Annotated[str, Field(description="Numeric CTID of the target container, as a string.")],
+    snapname: Annotated[str, Field(description="Name of the snapshot to delete.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True deletes it.")] = False,
+) -> dict:
     """MUTATION: delete a container snapshot on a PDM-registered remote. Irreversible; no UNDO."""
     return _snapshot_delete("lxc", remote, vmid, snapname, confirm)
 
 
 @tool()
-def pdm_pve_qemu_snapshot_rollback(remote: str, vmid: str, snapname: str, confirm: bool = False) -> dict:
+def pdm_pve_qemu_snapshot_rollback(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the VM.")],
+    vmid: Annotated[str, Field(description="Numeric VMID of the target VM, as a string.")],
+    snapname: Annotated[str, Field(description="Name of the snapshot to roll back to.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True runs it.")] = False,
+) -> dict:
     """MUTATION: roll a VM back to a snapshot on a PDM-registered remote (through PDM).
 
     DESTRUCTIVE (discards current state). Takes an auto safety-snapshot first (fail-closed:
@@ -302,7 +365,12 @@ def pdm_pve_qemu_snapshot_rollback(remote: str, vmid: str, snapname: str, confir
 
 
 @tool()
-def pdm_pve_lxc_snapshot_rollback(remote: str, vmid: str, snapname: str, confirm: bool = False) -> dict:
+def pdm_pve_lxc_snapshot_rollback(
+    remote: Annotated[str, Field(description="PDM-registered remote (Proxmox cluster) hosting the container.")],
+    vmid: Annotated[str, Field(description="Numeric CTID of the target container, as a string.")],
+    snapname: Annotated[str, Field(description="Name of the snapshot to roll back to.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a PLAN only; True runs it.")] = False,
+) -> dict:
     """MUTATION: roll a container back to a snapshot on a PDM-registered remote (through PDM).
 
     DESTRUCTIVE. Takes an auto safety-snapshot first (fail-closed). Dry-run by default.

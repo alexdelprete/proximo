@@ -5,6 +5,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.backends import ProximoError
 from proximo.qemu_agent import (
@@ -27,10 +31,10 @@ from proximo.server import (
 
 @tool()
 def pve_agent_info(
-    vmid: str,
-    command: str = "info",
-    pid: int | None = None,
-    node: str | None = None,
+    vmid: Annotated[str, Field(description="Numeric VM ID of the guest to query via the qemu-agent.")],
+    command: Annotated[str, Field(description="qemu-agent query: ping, info, get-fsinfo, get-host-name, get-osinfo, get-time, get-timezone, get-users, get-vcpus, network-get-interfaces, get-memory-blocks, fsfreeze-status, or exec-status.")] = "info",
+    pid: Annotated[int | None, Field(description="Process id returned by pve_agent_exec; required only when command='exec-status'.")] = None,
+    node: Annotated[str | None, Field(description="Proxmox node name hosting the guest; auto-detected if omitted.")] = None,
 ) -> dict:
     """READ-ONLY: query the qemu-agent on a guest (ping, osinfo, hostname, users, exec-status, …).
 
@@ -60,9 +64,9 @@ def pve_agent_info(
 
 @tool()
 def pve_agent_file_read(
-    vmid: str,
-    file: str,
-    node: str | None = None,
+    vmid: Annotated[str, Field(description="Numeric VM ID of the guest to read from via the qemu-agent.")],
+    file: Annotated[str, Field(description="Absolute path of the file to read inside the guest.")],
+    node: Annotated[str | None, Field(description="Proxmox node name hosting the guest; auto-detected if omitted.")] = None,
 ) -> dict:
     """READ-ONLY: read a file from inside the guest via the qemu-agent.
 
@@ -85,11 +89,11 @@ def pve_agent_file_read(
 
 @tool()
 def pve_agent_file_write(
-    vmid: str,
-    file: str,
-    content: str,
-    node: str | None = None,
-    confirm: bool = False,
+    vmid: Annotated[str, Field(description="Numeric VM ID of the guest to write to via the qemu-agent.")],
+    file: Annotated[str, Field(description="Absolute path of the file to write inside the guest.")],
+    content: Annotated[str, Field(description="File content to write; unconditionally redacted from the ledger (fingerprint only).")],
+    node: Annotated[str | None, Field(description="Proxmox node name hosting the guest; auto-detected if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the write.")] = False,
 ) -> dict:
     """MUTATION: write a file inside the guest via the qemu-agent.
 
@@ -120,10 +124,10 @@ def pve_agent_file_write(
 
 @tool()
 def pve_agent_fs(
-    vmid: str,
-    command: str,
-    node: str | None = None,
-    confirm: bool = False,
+    vmid: Annotated[str, Field(description="Numeric VM ID of the guest to operate on via the qemu-agent.")],
+    command: Annotated[str, Field(description="Filesystem operation: fsfreeze-freeze, fsfreeze-thaw, or fstrim.")],
+    node: Annotated[str | None, Field(description="Proxmox node name hosting the guest; auto-detected if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the command.")] = False,
 ) -> dict:
     """MUTATION: fsfreeze-freeze, fsfreeze-thaw, or fstrim inside the guest via the qemu-agent.
 
@@ -153,11 +157,11 @@ def pve_agent_fs(
 
 @tool()
 def pve_agent_set_password(
-    vmid: str,
-    username: str,
-    password: str,
-    node: str | None = None,
-    confirm: bool = False,
+    vmid: Annotated[str, Field(description="Numeric VM ID of the guest whose OS user password is being set.")],
+    username: Annotated[str, Field(description="Guest OS username whose password will be changed.")],
+    password: Annotated[str, Field(description="New password for the guest OS user; unconditionally redacted from the ledger.")],
+    node: Annotated[str | None, Field(description="Proxmox node name hosting the guest; auto-detected if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the password change.")] = False,
 ) -> dict:
     """MUTATION: set a guest OS user's password via the qemu-agent.
 

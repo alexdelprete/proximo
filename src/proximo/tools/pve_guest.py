@@ -6,6 +6,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.backends import _check_vmid
 from proximo.cloudinit import (
@@ -68,7 +72,9 @@ from proximo.storage import (
 # --- Management (REST API, read) ---
 
 @tool()
-def pve_node_status(node: str | None = None) -> dict:
+def pve_node_status(
+    node: Annotated[str | None, Field(description="PVE node name to query. Omit to use the configured default node.")] = None,
+) -> dict:
     """Read Proxmox node health and resource status (read-only). Returns node metrics including
     total capacity, current usage, CPU, memory, disk state, and operational status. See pve_diagnose
     for detailed per-node diagnostics including failed tasks."""
@@ -77,7 +83,9 @@ def pve_node_status(node: str | None = None) -> dict:
 
 
 @tool()
-def pve_list_guests(node: str | None = None) -> list[dict]:
+def pve_list_guests(
+    node: Annotated[str | None, Field(description="PVE node name to list guests on. Omit to list guests across the whole cluster.")] = None,
+) -> list[dict]:
     """List all VMs and LXC containers on a node with their current state (read-only). Returns
     a list of guest objects, each with VMID, name, type (lxc or qemu), and status. Works across
     both kinds in a single call."""
@@ -86,7 +94,11 @@ def pve_list_guests(node: str | None = None) -> list[dict]:
 
 
 @tool()
-def pve_guest_status(vmid: str, kind: str = "lxc", node: str | None = None) -> dict:
+def pve_guest_status(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+) -> dict:
     """Read the operational status and current configuration of a single guest (kind='lxc' or
     'qemu') (read-only). Returns the guest's runtime state and resource utilization
     (CPU/memory/disk/network/uptime) — operational metrics, not its stored configuration.
@@ -99,7 +111,11 @@ def pve_guest_status(vmid: str, kind: str = "lxc", node: str | None = None) -> d
 
 @tool()
 def pve_guest_power(
-    vmid: str, action: str, kind: str = "lxc", node: str | None = None, confirm: bool = False
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    action: Annotated[str, Field(description="Power action to perform: `start`, `stop`, `reboot`, or `shutdown`.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN with blast radius; set `true` to execute the action.")] = False,
 ) -> dict:
     """MUTATION: start/stop/reboot/shutdown a guest.
 
@@ -123,7 +139,11 @@ def pve_guest_power(
 # --- Snapshots / UNDO (REST API). Create/rollback/delete are ASYNC -> return a task UPID. ---
 
 @tool()
-def pve_snapshot_list(vmid: str, kind: str = "lxc", node: str | None = None) -> list[dict]:
+def pve_snapshot_list(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+) -> list[dict]:
     """List a guest's snapshots (read-only). Returns each snapshot's name, description, parent,
     and creation time, plus the synthetic 'current' node showing live state. Works for both VMs
     and containers (kind='qemu' or 'lxc'). Use pve_snapshot_create / pve_rollback to act on them."""
@@ -132,8 +152,14 @@ def pve_snapshot_list(vmid: str, kind: str = "lxc", node: str | None = None) -> 
 
 
 @tool()
-def pve_snapshot_create(vmid: str, snapname: str, kind: str = "lxc", node: str | None = None,
-                        description: str | None = None, confirm: bool = False) -> dict:
+def pve_snapshot_create(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    snapname: Annotated[str, Field(description="Name for the new snapshot.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    description: Annotated[str | None, Field(description="Optional free-text description stored on the snapshot.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the snapshot creation.")] = False,
+) -> dict:
     """MUTATION: create a snapshot (a restore point). Dry-run by default; confirm=True to execute.
     Async — returns the task UPID; poll pve_task_status. Needs snapshot-capable storage (ZFS/BTRFS/LVM-thin)."""
     _, api, _, _ = _proximo_server._svc()
@@ -147,8 +173,13 @@ def pve_snapshot_create(vmid: str, snapname: str, kind: str = "lxc", node: str |
 
 
 @tool()
-def pve_rollback(vmid: str, snapname: str, kind: str = "lxc", node: str | None = None,
-                 confirm: bool = False) -> dict:
+def pve_rollback(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    snapname: Annotated[str, Field(description="Name of the snapshot to roll the guest back to.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN with blast radius; set `true` to execute the rollback.")] = False,
+) -> dict:
     """MUTATION (DESTRUCTIVE): roll a guest back to a snapshot — discards ALL changes since it.
     Dry-run by default (the PLAN spells out the blast radius); confirm=True to execute. Async -> UPID."""
     _, api, _, _ = _proximo_server._svc()
@@ -162,8 +193,14 @@ def pve_rollback(vmid: str, snapname: str, kind: str = "lxc", node: str | None =
 
 
 @tool()
-def pve_snapshot_delete(vmid: str, snapname: str, kind: str = "lxc", node: str | None = None,
-                        force: bool = False, confirm: bool = False) -> dict:
+def pve_snapshot_delete(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    snapname: Annotated[str, Field(description="Name of the snapshot to delete.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    force: Annotated[bool, Field(description="Force removal even if the snapshot has children or the backend reports an inconsistent state.")] = False,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the deletion.")] = False,
+) -> dict:
     """MUTATION: delete a snapshot (removes a restore point). Dry-run by default; confirm=True to execute.
     Async -> UPID."""
     _, api, _, _ = _proximo_server._svc()
@@ -177,7 +214,10 @@ def pve_snapshot_delete(vmid: str, snapname: str, kind: str = "lxc", node: str |
 
 
 @tool()
-def pve_task_status(upid: str, node: str | None = None) -> dict:
+def pve_task_status(
+    upid: Annotated[str, Field(description="Proxmox task UPID (unique process ID) returned by an async operation.")],
+    node: Annotated[str | None, Field(description="PVE node the task is running on. Omit to resolve it automatically.")] = None,
+) -> dict:
     """Status of an async Proxmox task (running/stopped + exit status) — poll snapshot/rollback ops (read)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_task_status", upid, lambda: api.task_status(upid, node))
@@ -186,7 +226,11 @@ def pve_task_status(upid: str, node: str | None = None) -> dict:
 # --- In-container (read) ---
 
 @tool()
-def ct_logs(ctid: str, unit: str, lines: int = 50) -> dict:
+def ct_logs(
+    ctid: Annotated[str, Field(description="Numeric CTID of the LXC container to read logs from.")],
+    unit: Annotated[str, Field(description="Name of the systemd unit to tail journalctl for (e.g. `nginx.service`).")],
+    lines: Annotated[int, Field(description="Number of most-recent log lines to return.")] = 50,
+) -> dict:
     """Tail journalctl for a systemd unit inside a container (read-only). Returns the command's
     returncode, stdout, and stderr. Container-specific diagnostic; gated by the CTID allowlist
     when PROXIMO_ENABLE_EXEC is set. Fails closed if exec is disabled."""
@@ -206,7 +250,11 @@ def ct_logs(ctid: str, unit: str, lines: int = 50) -> dict:
 
 
 @tool()
-def ct_diagnose(ctid: str, kind: str = "lxc", node: str | None = None) -> dict:
+def ct_diagnose(
+    ctid: Annotated[str, Field(description="Numeric CTID of the LXC container to diagnose.")],
+    kind: Annotated[str, Field(description="Guest type; only `lxc` is meaningful here since diagnostics are container-specific.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the container runs on. Omit to resolve it automatically from the cluster.")] = None,
+) -> dict:
     """READ-ONLY: gather 'what's broken' evidence for a container — API status + a fixed read-only
     in-container battery (failed units, disk, recent errors, memory, listening ports) + advisory flags.
 
@@ -222,7 +270,9 @@ def ct_diagnose(ctid: str, kind: str = "lxc", node: str | None = None) -> dict:
 
 
 @tool()
-def pve_diagnose(node: str | None = None) -> dict:
+def pve_diagnose(
+    node: Annotated[str | None, Field(description="PVE node to gather health evidence for. Omit to use the configured default node.")] = None,
+) -> dict:
     """READ-ONLY: gather node health evidence — status + storage usage + recent failed tasks + flags."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_diagnose", node or "node", lambda: diagnose_node(api, node))
@@ -240,8 +290,14 @@ def pve_doctor() -> dict:
 # --- Provisioning (REST API, async). create/clone are additive; delete is DESTRUCTIVE. ---
 
 @tool()
-def pve_create_container(vmid: str, ostemplate: str, storage: str, node: str | None = None,
-                         options: dict | None = None, confirm: bool = False) -> dict:
+def pve_create_container(
+    vmid: Annotated[str, Field(description="Numeric CTID to assign to the new LXC container.")],
+    ostemplate: Annotated[str, Field(description="Storage volume ID of the OS template to install, e.g. `local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst`.")],
+    storage: Annotated[str, Field(description="Storage backend name to place the container's root filesystem on.")],
+    node: Annotated[str | None, Field(description="PVE node to create the container on. Omit to use the configured default node.")] = None,
+    options: Annotated[dict | None, Field(description="Extra Proxmox create params (e.g. cores, memory, net0, rootfs, password) merged into the request.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the creation.")] = False,
+) -> dict:
     """MUTATION: create a new LXC container. Dry-run by default; confirm=True. Async — returns a UPID.
     `options` carries extra create params (cores, memory, net0, rootfs, password, ...)."""
     _, api, _, _ = _proximo_server._svc()
@@ -258,8 +314,12 @@ def pve_create_container(vmid: str, ostemplate: str, storage: str, node: str | N
 
 
 @tool()
-def pve_create_vm(vmid: str, node: str | None = None, options: dict | None = None,
-                  confirm: bool = False) -> dict:
+def pve_create_vm(
+    vmid: Annotated[str, Field(description="Numeric VMID to assign to the new QEMU VM.")],
+    node: Annotated[str | None, Field(description="PVE node to create the VM on. Omit to use the configured default node.")] = None,
+    options: Annotated[dict | None, Field(description="Extra Proxmox create params (e.g. cores, memory, net0, scsi0, ostype) merged into the request.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the creation.")] = False,
+) -> dict:
     """MUTATION: create a new QEMU VM. Dry-run by default; confirm=True. Async — returns a UPID.
     `options` carries create params (cores, memory, net0, scsi0, ostype, ...)."""
     _, api, _, _ = _proximo_server._svc()
@@ -273,9 +333,17 @@ def pve_create_vm(vmid: str, node: str | None = None, options: dict | None = Non
 
 
 @tool()
-def pve_clone(vmid: str, newid: str, kind: str = "lxc", node: str | None = None,
-              name: str | None = None, full: bool = False, pool: str | None = None,
-              storage: str | None = None, confirm: bool = False) -> dict:
+def pve_clone(
+    vmid: Annotated[str, Field(description="Numeric ID of the source guest to clone — VMID for a QEMU VM or CTID for an LXC container.")],
+    newid: Annotated[str, Field(description="Numeric ID to assign to the new cloned guest.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the source guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    name: Annotated[str | None, Field(description="Name to give the new cloned guest.")] = None,
+    full: Annotated[bool, Field(description="If true, make a full independent copy of the disks; if false (default), make a space-saving linked clone.")] = False,
+    pool: Annotated[str | None, Field(description="Resource pool to place the new guest in — needed when the calling token is pool-scoped.")] = None,
+    storage: Annotated[str | None, Field(description="Target storage for the full clone's disks (full=True only); keeps the clone off the source storage. Refused for a linked clone.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the clone.")] = False,
+) -> dict:
     """MUTATION: clone a guest to a new id. Dry-run by default; confirm=True. Async — returns a UPID.
     pool: place the new guest in a resource pool (needed when the token is pool-scoped).
     storage: target storage for the full clone's disks (full=True only) — keeps a clone off the
@@ -292,8 +360,14 @@ def pve_clone(vmid: str, newid: str, kind: str = "lxc", node: str | None = None,
 
 
 @tool()
-def pve_delete_guest(vmid: str, kind: str = "lxc", node: str | None = None, purge: bool = False,
-                     force: bool = False, confirm: bool = False) -> dict:
+def pve_delete_guest(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest to destroy — VMID for a QEMU VM or CTID for an LXC container.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    purge: Annotated[bool, Field(description="If true, also remove the guest from replication/backup jobs and HA resources referencing it.")] = False,
+    force: Annotated[bool, Field(description="Force removal even if the guest is still running or the backend reports an inconsistent state.")] = False,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN naming exactly what will be destroyed; set `true` to execute.")] = False,
+) -> dict:
     """MUTATION (DESTRUCTIVE, IRREVERSIBLE): permanently destroy a guest and its disks. Dry-run by
     default — the PLAN names exactly what will be destroyed. confirm=True to execute. Async — UPID."""
     _, api, _, _ = _proximo_server._svc()
@@ -309,8 +383,11 @@ def pve_delete_guest(vmid: str, kind: str = "lxc", node: str | None = None, purg
 # --- Storage / ISO / templates (REST API) ---
 
 @tool()
-def pve_storage_content(storage: str, node: str | None = None,
-                        content: str | None = None) -> list[dict]:
+def pve_storage_content(
+    storage: Annotated[str, Field(description="Storage backend name to list content from.")],
+    node: Annotated[str | None, Field(description="PVE node hosting the storage. Omit to use the configured default node.")] = None,
+    content: Annotated[str | None, Field(description="Filter by content type: `iso`, `vztmpl`, or `backup`. Omit to list all content.")] = None,
+) -> list[dict]:
     """List a storage's content, optionally filtered (content = iso | vztmpl | backup) (read)."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_storage_content", storage,
@@ -318,7 +395,10 @@ def pve_storage_content(storage: str, node: str | None = None,
 
 
 @tool()
-def pve_storage_status(storage: str, node: str | None = None) -> dict:
+def pve_storage_status(
+    storage: Annotated[str, Field(description="Storage backend name to read capacity and state for.")],
+    node: Annotated[str | None, Field(description="PVE node hosting the storage. Omit to use the configured default node.")] = None,
+) -> dict:
     """Read a storage backend's capacity and state (read-only). Returns total size, used space,
     available free space, and enabled status. Use pve_storage_content to list ISOs, templates,
     and backups stored on it."""
@@ -327,9 +407,16 @@ def pve_storage_status(storage: str, node: str | None = None) -> dict:
 
 
 @tool()
-def pve_storage_download(storage: str, content: str, url: str, filename: str,
-                         node: str | None = None, checksum: str | None = None,
-                         checksum_algorithm: str | None = None, confirm: bool = False) -> dict:
+def pve_storage_download(
+    storage: Annotated[str, Field(description="Storage backend name to download the file into.")],
+    content: Annotated[str, Field(description="Content type of the downloaded file: `iso` or `vztmpl`.")],
+    url: Annotated[str, Field(description="Source URL to download the ISO or CT template from.")],
+    filename: Annotated[str, Field(description="Filename to save the downloaded content as on the storage.")],
+    node: Annotated[str | None, Field(description="PVE node hosting the storage. Omit to use the configured default node.")] = None,
+    checksum: Annotated[str | None, Field(description="Expected checksum of the downloaded file, used to verify integrity.")] = None,
+    checksum_algorithm: Annotated[str | None, Field(description="Algorithm the checksum was computed with (e.g. `sha256`). Required if checksum is given.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the download.")] = False,
+) -> dict:
     """MUTATION: download an ISO (content=iso) or CT template (content=vztmpl) from a URL into a
     storage. Dry-run by default; confirm=True. Async — returns a UPID."""
     _, api, _, _ = _proximo_server._svc()
@@ -346,8 +433,12 @@ def pve_storage_download(storage: str, content: str, url: str, filename: str,
 
 
 @tool()
-def pve_storage_content_delete(storage: str, volid: str, node: str | None = None,
-                               confirm: bool = False) -> dict:
+def pve_storage_content_delete(
+    storage: Annotated[str, Field(description="Storage backend name the content volume lives on.")],
+    volid: Annotated[str, Field(description="Volume ID of the content to delete (ISO, template, or backup), e.g. `local:vztmpl/debian-12.tar.zst`.")],
+    node: Annotated[str | None, Field(description="PVE node hosting the storage. Omit to use the configured default node.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN — HIGH risk for a backup volume; set `true` to execute the deletion.")] = False,
+) -> dict:
     """MUTATION: delete a content volume (ISO / template / backup) from storage. Dry-run by default
     (HIGH risk for a backup volume); confirm=True. Async — UPID or null."""
     _, api, _, _ = _proximo_server._svc()
@@ -362,7 +453,11 @@ def pve_storage_content_delete(storage: str, volid: str, node: str | None = None
 # --- Guest config edit (REST API). Config PUT is SYNCHRONOUS -> outcome="ok". ---
 
 @tool()
-def pve_guest_config_get(vmid: str, kind: str = "lxc", node: str | None = None) -> dict:
+def pve_guest_config_get(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+) -> dict:
     """Read a guest's current configuration (kind='lxc' or 'qemu') (read-only). Returns the
     complete config dict with cores, memory, network, disks, metadata, and all settings. Use
     pve_guest_config_set to mutate; capture the returned dict to enable rollback via
@@ -373,8 +468,13 @@ def pve_guest_config_get(vmid: str, kind: str = "lxc", node: str | None = None) 
 
 
 @tool()
-def pve_guest_config_set(vmid: str, changes: dict, kind: str = "lxc", node: str | None = None,
-                         confirm: bool = False) -> dict:
+def pve_guest_config_set(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    changes: Annotated[dict, Field(description="Config keys to change, e.g. {'cores': 4, 'memory': 2048, 'onboot': 1}.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN with the per-key diff; set `true` to execute.")] = False,
+) -> dict:
     """MUTATION: edit a guest's config (cores/memory/net/onboot/...). Dry-run by default — the PLAN
     shows the exact per-key diff; confirm=True to execute. Captures the prior config first so the
     change is revertible via pve_guest_config_revert. Synchronous."""
@@ -390,8 +490,13 @@ def pve_guest_config_set(vmid: str, changes: dict, kind: str = "lxc", node: str 
 
 
 @tool()
-def pve_guest_config_revert(vmid: str, prior_config: dict, kind: str = "lxc",
-                            node: str | None = None, confirm: bool = False) -> dict:
+def pve_guest_config_revert(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    prior_config: Annotated[dict, Field(description="The prior config dict previously returned by pve_guest_config_set, to re-apply.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the revert.")] = False,
+) -> dict:
     """MUTATION (UNDO): re-apply a previously captured guest config (the prior_config returned by
     pve_guest_config_set). Dry-run by default; confirm=True to execute. Synchronous."""
     _, api, _, _ = _proximo_server._svc()
@@ -408,8 +513,14 @@ def pve_guest_config_revert(vmid: str, prior_config: dict, kind: str = "lxc",
 # --- Disk ops (REST API). Resize/move are async -> task UPID -> outcome="submitted". ---
 
 @tool()
-def pve_disk_resize(vmid: str, disk: str, size: str, kind: str = "lxc", node: str | None = None,
-                    confirm: bool = False) -> dict:
+def pve_disk_resize(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    disk: Annotated[str, Field(description="Disk key to resize, e.g. `scsi0` or `rootfs`.")],
+    size: Annotated[str, Field(description="New size, as a grow-only delta like `+10G` (shrinking is refused as destructive).")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the resize.")] = False,
+) -> dict:
     """MUTATION: grow a guest disk (e.g. size='+10G'). GROW ONLY — a shrink is refused (destructive).
     Dry-run by default; confirm=True to execute. Async — returns a task UPID."""
     _, api, _, _ = _proximo_server._svc()
@@ -424,9 +535,15 @@ def pve_disk_resize(vmid: str, disk: str, size: str, kind: str = "lxc", node: st
 
 
 @tool()
-def pve_disk_move(vmid: str, disk: str, target_storage: str, kind: str = "lxc",
-                  node: str | None = None, delete_source: bool = False,
-                  confirm: bool = False) -> dict:
+def pve_disk_move(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest — VMID for a QEMU VM or CTID for an LXC container.")],
+    disk: Annotated[str, Field(description="Disk key to move, e.g. `scsi0` or `rootfs`.")],
+    target_storage: Annotated[str, Field(description="Storage backend name to move the disk to.")],
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "lxc",
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    delete_source: Annotated[bool, Field(description="If true, delete the source copy after the move (HIGH risk); if false (default), keep it.")] = False,
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN; set `true` to execute the move.")] = False,
+) -> dict:
     """MUTATION: move a guest disk to another storage. Dry-run by default — the PLAN shows
     source->target and whether the source copy is deleted (delete_source=True is HIGH). confirm=True
     to execute. Async — returns a task UPID."""
@@ -444,7 +561,11 @@ def pve_disk_move(vmid: str, disk: str, target_storage: str, kind: str = "lxc",
 # --- Cloud-init + template (REST API, QEMU). Config POST is synchronous -> outcome="ok". ---
 
 @tool()
-def pve_cloudinit_get(vmid: str, node: str | None = None, kind: str = "qemu") -> dict:
+def pve_cloudinit_get(
+    vmid: Annotated[str, Field(description="Numeric VMID of the QEMU guest to read cloud-init config from.")],
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    kind: Annotated[str, Field(description="Guest type; cloud-init applies to `qemu` guests.")] = "qemu",
+) -> dict:
     """Read a QEMU guest's cloud-init configuration (read-only). Returns cloud-init fields
     (ciuser, sshkeys, ipconfigN, cipassword placeholder) with secret fields masked for safety.
     Use pve_cloudinit_set to mutate it; the set operation auto-captures an undo record for
@@ -455,8 +576,13 @@ def pve_cloudinit_get(vmid: str, node: str | None = None, kind: str = "qemu") ->
 
 
 @tool()
-def pve_cloudinit_set(vmid: str, changes: dict, node: str | None = None, kind: str = "qemu",
-                      confirm: bool = False) -> dict:
+def pve_cloudinit_set(
+    vmid: Annotated[str, Field(description="Numeric VMID of the QEMU guest to set cloud-init config on.")],
+    changes: Annotated[dict, Field(description="Cloud-init fields to change, e.g. {'ciuser': 'admin', 'sshkeys': '...', 'ipconfig0': 'ip=dhcp'}.")],
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    kind: Annotated[str, Field(description="Guest type; cloud-init applies to `qemu` guests.")] = "qemu",
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN with secrets masked; set `true` to execute.")] = False,
+) -> dict:
     """MUTATION: set cloud-init fields (ciuser/sshkeys/ipconfigN/...) on a QEMU guest. Dry-run by
     default — the PLAN shows the diff with secrets masked; confirm=True to execute. Synchronous.
     Secret fields (cipassword) are never echoed to results or the ledger."""
@@ -484,8 +610,12 @@ def pve_cloudinit_set(vmid: str, changes: dict, node: str | None = None, kind: s
 
 
 @tool()
-def pve_template_convert(vmid: str, node: str | None = None, kind: str = "qemu",
-                         confirm: bool = False) -> dict:
+def pve_template_convert(
+    vmid: Annotated[str, Field(description="Numeric ID of the guest to convert into a template.")],
+    node: Annotated[str | None, Field(description="PVE node the guest runs on. Omit to resolve it automatically from the cluster.")] = None,
+    kind: Annotated[str, Field(description="Guest type: `lxc` for a container or `qemu` for a VM.")] = "qemu",
+    confirm: Annotated[bool, Field(description="Leave `false` (default) to get a dry-run PLAN flagging this as HIGH/irreversible; set `true` to execute.")] = False,
+) -> dict:
     """MUTATION (IRREVERSIBLE): convert a guest into a template — effectively one-way. Dry-run by
     default (the PLAN flags it HIGH/irreversible); confirm=True to execute."""
     _, api, _, _ = _proximo_server._svc()

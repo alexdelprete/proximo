@@ -5,6 +5,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.pmg import (
     action_bcc_create as pmg_action_bcc_create_op,
@@ -267,11 +271,11 @@ from proximo.server import (
 
 @tool()
 def pmg_who_group_create(
-    name: str,
-    info: str | None = None,
-    and_: bool | None = None,
-    invert: bool | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new 'who' object group.")],
+    info: Annotated[str | None, Field(description="Optional free-text description of the group.")] = None,
+    and_: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across group members; maps to API param 'and'.")] = None,
+    invert: Annotated[bool | None, Field(description="If True, invert the group's match result.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a PMG RuleDB 'who' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -295,12 +299,12 @@ def pmg_who_group_create(
 
 @tool()
 def pmg_who_group_update(
-    ogroup: str,
-    name: str | None = None,
-    info: str | None = None,
-    and_: bool | None = None,
-    invert: bool | None = None,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'who' object group ID (e.g. '2') from pmg_who_groups_list.")],
+    name: Annotated[str | None, Field(description="New name for the group; omit to keep current value.")] = None,
+    info: Annotated[str | None, Field(description="New free-text description; omit to keep current value.")] = None,
+    and_: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across group members; maps to API param 'and'.")] = None,
+    invert: Annotated[bool | None, Field(description="If True, invert the group's match result.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a PMG RuleDB 'who' object group config. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -323,7 +327,10 @@ def pmg_who_group_update(
 
 
 @tool()
-def pmg_who_group_delete(ogroup: str, confirm: bool = False) -> dict:
+def pmg_who_group_delete(
+    ogroup: Annotated[str, Field(description="Numeric 'who' object group ID (e.g. '2') from pmg_who_groups_list.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'who' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/who/{ogroup}.
@@ -343,11 +350,11 @@ def pmg_who_group_delete(ogroup: str, confirm: bool = False) -> dict:
 
 @tool()
 def pmg_what_group_create(
-    name: str,
-    info: str | None = None,
-    and_: bool | None = None,
-    invert: bool | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new 'what' object group.")],
+    info: Annotated[str | None, Field(description="Optional free-text description of the group.")] = None,
+    and_: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across group members; maps to API param 'and'.")] = None,
+    invert: Annotated[bool | None, Field(description="If True, invert the group's match result.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a PMG RuleDB 'what' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -371,12 +378,12 @@ def pmg_what_group_create(
 
 @tool()
 def pmg_what_group_update(
-    ogroup: str,
-    name: str | None = None,
-    info: str | None = None,
-    and_: bool | None = None,
-    invert: bool | None = None,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'what' object group ID (e.g. '8') from pmg_what_groups_list.")],
+    name: Annotated[str | None, Field(description="New name for the group; omit to keep current value.")] = None,
+    info: Annotated[str | None, Field(description="New free-text description; omit to keep current value.")] = None,
+    and_: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across group members; maps to API param 'and'.")] = None,
+    invert: Annotated[bool | None, Field(description="If True, invert the group's match result.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a PMG RuleDB 'what' object group config. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -399,7 +406,10 @@ def pmg_what_group_update(
 
 
 @tool()
-def pmg_what_group_delete(ogroup: str, confirm: bool = False) -> dict:
+def pmg_what_group_delete(
+    ogroup: Annotated[str, Field(description="Numeric 'what' object group ID (e.g. '8') from pmg_what_groups_list.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'what' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/what/{ogroup}.
@@ -419,11 +429,11 @@ def pmg_what_group_delete(ogroup: str, confirm: bool = False) -> dict:
 
 @tool()
 def pmg_when_group_create(
-    name: str,
-    info: str | None = None,
-    and_: bool | None = None,
-    invert: bool | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new 'when' object group.")],
+    info: Annotated[str | None, Field(description="Optional free-text description of the group.")] = None,
+    and_: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across group members; maps to API param 'and'.")] = None,
+    invert: Annotated[bool | None, Field(description="If True, invert the group's match result.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a PMG RuleDB 'when' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -447,12 +457,12 @@ def pmg_when_group_create(
 
 @tool()
 def pmg_when_group_update(
-    ogroup: str,
-    name: str | None = None,
-    info: str | None = None,
-    and_: bool | None = None,
-    invert: bool | None = None,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'when' object group ID (e.g. '4') from pmg_when_groups_list.")],
+    name: Annotated[str | None, Field(description="New name for the group; omit to keep current value.")] = None,
+    info: Annotated[str | None, Field(description="New free-text description; omit to keep current value.")] = None,
+    and_: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across group members; maps to API param 'and'.")] = None,
+    invert: Annotated[bool | None, Field(description="If True, invert the group's match result.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a PMG RuleDB 'when' object group config. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -475,7 +485,10 @@ def pmg_when_group_update(
 
 
 @tool()
-def pmg_when_group_delete(ogroup: str, confirm: bool = False) -> dict:
+def pmg_when_group_delete(
+    ogroup: Annotated[str, Field(description="Numeric 'when' object group ID (e.g. '4') from pmg_when_groups_list.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB 'when' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/when/{ogroup}.
@@ -495,17 +508,17 @@ def pmg_when_group_delete(ogroup: str, confirm: bool = False) -> dict:
 
 @tool()
 def pmg_who_object_add(
-    ogroup: str,
-    type_: str,
-    email: str | None = None,
-    domain: str | None = None,
-    regex: str | None = None,
-    ip: str | None = None,
-    cidr: str | None = None,
-    mode: str | None = None,
-    profile: str | None = None,
-    group: str | None = None,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'who' object group ID (e.g. '2') from pmg_who_groups_list.")],
+    type_: Annotated[str, Field(description="Object type: email|domain|regex|ip|network|ldap — selects which sub-path/fields apply.")],
+    email: Annotated[str | None, Field(description="Email address to match; required when type_='email'.")] = None,
+    domain: Annotated[str | None, Field(description="Domain to match; required when type_='domain'.")] = None,
+    regex: Annotated[str | None, Field(description="Regex pattern to match; required when type_='regex'.")] = None,
+    ip: Annotated[str | None, Field(description="IP address to match; required when type_='ip'.")] = None,
+    cidr: Annotated[str | None, Field(description="CIDR network to match; required when type_='network'.")] = None,
+    mode: Annotated[str | None, Field(description="LDAP lookup mode; used when type_='ldap'.")] = None,
+    profile: Annotated[str | None, Field(description="LDAP profile name; used when type_='ldap'.")] = None,
+    group: Annotated[str | None, Field(description="LDAP group name; used when type_='ldap'.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add an object to a PMG RuleDB 'who' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -537,18 +550,18 @@ def pmg_who_object_add(
 
 @tool()
 def pmg_who_object_update(
-    ogroup: str,
-    type_: str,
-    id_: str,
-    email: str | None = None,
-    domain: str | None = None,
-    regex: str | None = None,
-    ip: str | None = None,
-    cidr: str | None = None,
-    mode: str | None = None,
-    profile: str | None = None,
-    group: str | None = None,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'who' object group ID (e.g. '2') from pmg_who_groups_list.")],
+    type_: Annotated[str, Field(description="Object type: email|domain|regex|ip|network|ldap — selects which sub-path/fields apply.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_who_group_objects.")],
+    email: Annotated[str | None, Field(description="New email address; used when type_='email'.")] = None,
+    domain: Annotated[str | None, Field(description="New domain; used when type_='domain'.")] = None,
+    regex: Annotated[str | None, Field(description="New regex pattern; used when type_='regex'.")] = None,
+    ip: Annotated[str | None, Field(description="New IP address; used when type_='ip'.")] = None,
+    cidr: Annotated[str | None, Field(description="New CIDR network; used when type_='network'.")] = None,
+    mode: Annotated[str | None, Field(description="LDAP lookup mode; used when type_='ldap'.")] = None,
+    profile: Annotated[str | None, Field(description="LDAP profile name; used when type_='ldap'.")] = None,
+    group: Annotated[str | None, Field(description="LDAP group name; used when type_='ldap'.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update an object in a PMG RuleDB 'who' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -583,7 +596,11 @@ def pmg_who_object_update(
 
 
 @tool()
-def pmg_who_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
+def pmg_who_object_delete(
+    ogroup: Annotated[str, Field(description="Numeric 'who' object group ID (e.g. '2') from pmg_who_groups_list.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_who_group_objects.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete an object from a PMG RuleDB 'who' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/who/{ogroup}/objects/{id}.
@@ -609,16 +626,16 @@ def pmg_who_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
 
 @tool()
 def pmg_what_object_add(
-    ogroup: str,
-    type_: str,
-    contenttype: str | None = None,
-    only_content: bool | None = None,
-    field: str | None = None,
-    value: str | None = None,
-    top_part_only: bool | None = None,
-    spamlevel: int | None = None,
-    filename: str | None = None,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'what' object group ID (e.g. '8') from pmg_what_groups_list.")],
+    type_: Annotated[str, Field(description="Object type: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.")],
+    contenttype: Annotated[str | None, Field(description="MIME content type to match; used for type_='contenttype'/'archivefilter'.")] = None,
+    only_content: Annotated[bool | None, Field(description="Match content only, not filename; maps to API param 'only-content'.")] = None,
+    field: Annotated[str | None, Field(description="Mail header field name to match; used for type_='matchfield'.")] = None,
+    value: Annotated[str | None, Field(description="Value/pattern to match against the field; used for type_='matchfield'.")] = None,
+    top_part_only: Annotated[bool | None, Field(description="Restrict match to the top MIME part only; maps to API param 'top-part-only'.")] = None,
+    spamlevel: Annotated[int | None, Field(description="Spam score threshold; used for type_='spamfilter'.")] = None,
+    filename: Annotated[str | None, Field(description="Filename pattern to match; used for type_='filenamefilter'/'archivefilenamefilter'.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add an object to a PMG RuleDB 'what' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -653,17 +670,17 @@ def pmg_what_object_add(
 
 @tool()
 def pmg_what_object_update(
-    ogroup: str,
-    type_: str,
-    id_: str,
-    contenttype: str | None = None,
-    only_content: bool | None = None,
-    field: str | None = None,
-    value: str | None = None,
-    top_part_only: bool | None = None,
-    spamlevel: int | None = None,
-    filename: str | None = None,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'what' object group ID (e.g. '8') from pmg_what_groups_list.")],
+    type_: Annotated[str, Field(description="Object type: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_what_group_objects.")],
+    contenttype: Annotated[str | None, Field(description="New MIME content type; used for type_='contenttype'/'archivefilter'.")] = None,
+    only_content: Annotated[bool | None, Field(description="Match content only, not filename; maps to API param 'only-content'.")] = None,
+    field: Annotated[str | None, Field(description="Mail header field name to match; used for type_='matchfield'.")] = None,
+    value: Annotated[str | None, Field(description="Value/pattern to match against the field; used for type_='matchfield'.")] = None,
+    top_part_only: Annotated[bool | None, Field(description="Restrict match to the top MIME part only; maps to API param 'top-part-only'.")] = None,
+    spamlevel: Annotated[int | None, Field(description="New spam score threshold; used for type_='spamfilter'.")] = None,
+    filename: Annotated[str | None, Field(description="New filename pattern; used for type_='filenamefilter'/'archivefilenamefilter'.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update an object in a PMG RuleDB 'what' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -702,7 +719,11 @@ def pmg_what_object_update(
 
 
 @tool()
-def pmg_what_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
+def pmg_what_object_delete(
+    ogroup: Annotated[str, Field(description="Numeric 'what' object group ID (e.g. '8') from pmg_what_groups_list.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_what_group_objects.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete an object from a PMG RuleDB 'what' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/what/{ogroup}/objects/{id}.
@@ -728,10 +749,10 @@ def pmg_what_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict
 
 @tool()
 def pmg_when_object_add(
-    ogroup: str,
-    start: str,
-    end: str,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'when' object group ID (e.g. '4') from pmg_when_groups_list.")],
+    start: Annotated[str, Field(description="Timeframe start time in H:i format (e.g. '08:00').")],
+    end: Annotated[str, Field(description="Timeframe end time in H:i format (e.g. '17:00').")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add a timeframe object to a PMG RuleDB 'when' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -754,11 +775,11 @@ def pmg_when_object_add(
 
 @tool()
 def pmg_when_object_update(
-    ogroup: str,
-    id_: str,
-    start: str,
-    end: str,
-    confirm: bool = False,
+    ogroup: Annotated[str, Field(description="Numeric 'when' object group ID (e.g. '4') from pmg_when_groups_list.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_when_group_objects.")],
+    start: Annotated[str, Field(description="New timeframe start time in H:i format (e.g. '08:00'); required, PMG rejects partial updates.")],
+    end: Annotated[str, Field(description="New timeframe end time in H:i format (e.g. '17:00'); required, PMG rejects partial updates.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a timeframe object in a PMG RuleDB 'when' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -781,7 +802,11 @@ def pmg_when_object_update(
 
 
 @tool()
-def pmg_when_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict:
+def pmg_when_object_delete(
+    ogroup: Annotated[str, Field(description="Numeric 'when' object group ID (e.g. '4') from pmg_when_groups_list.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_when_group_objects.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete a timeframe object from a PMG RuleDB 'when' object group. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/when/{ogroup}/objects/{id}.
@@ -807,11 +832,11 @@ def pmg_when_object_delete(ogroup: str, id_: str, confirm: bool = False) -> dict
 
 @tool()
 def pmg_action_bcc_create(
-    name: str,
-    target: str,
-    info: str | None = None,
-    original: bool | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new BCC action object.")],
+    target: Annotated[str, Field(description="BCC recipient email address.")],
+    info: Annotated[str | None, Field(description="Optional free-text description.")] = None,
+    original: Annotated[bool | None, Field(description="If True, BCC the original unmodified mail instead of the processed copy.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a BCC action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -834,12 +859,12 @@ def pmg_action_bcc_create(
 
 @tool()
 def pmg_action_bcc_update(
-    id_: str,
-    name: str | None = None,
-    target: str | None = None,
-    info: str | None = None,
-    original: bool | None = None,
-    confirm: bool = False,
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+    name: Annotated[str | None, Field(description="New action object name; omit to keep current value.")] = None,
+    target: Annotated[str | None, Field(description="New BCC recipient email address; omit to keep current value.")] = None,
+    info: Annotated[str | None, Field(description="New free-text description; omit to keep current value.")] = None,
+    original: Annotated[bool | None, Field(description="If True, BCC the original unmodified mail instead of the processed copy.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a BCC action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -865,11 +890,11 @@ def pmg_action_bcc_update(
 
 @tool()
 def pmg_action_field_create(
-    name: str,
-    field: str,
-    value: str,
-    info: str | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new field-modification action object.")],
+    field: Annotated[str, Field(description="Mail header field to set.")],
+    value: Annotated[str, Field(description="Value to assign to the header field.")],
+    info: Annotated[str | None, Field(description="Optional free-text description.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a field-modification action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -891,12 +916,12 @@ def pmg_action_field_create(
 
 @tool()
 def pmg_action_field_update(
-    id_: str,
-    name: str,
-    field: str,
-    value: str,
-    info: str | None = None,
-    confirm: bool = False,
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+    name: Annotated[str, Field(description="New action object name; required (PMG rejects partial updates).")],
+    field: Annotated[str, Field(description="New mail header field to set; required (PMG rejects partial updates).")],
+    value: Annotated[str, Field(description="New value to assign to the header field; required (PMG rejects partial updates).")],
+    info: Annotated[str | None, Field(description="New free-text description; omit to keep current value.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a field-modification action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -922,13 +947,13 @@ def pmg_action_field_update(
 
 @tool()
 def pmg_action_notification_create(
-    name: str,
-    to: str,
-    subject: str,
-    body_text: str,
-    info: str | None = None,
-    attach: bool | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new notification action object.")],
+    to: Annotated[str, Field(description="Notification recipient email address.")],
+    subject: Annotated[str, Field(description="Notification email subject line.")],
+    body_text: Annotated[str, Field(description="Notification email body text; maps to API param 'body'.")],
+    info: Annotated[str | None, Field(description="Optional free-text description.")] = None,
+    attach: Annotated[bool | None, Field(description="If True, attach the original message to the notification.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a notification action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -952,14 +977,14 @@ def pmg_action_notification_create(
 
 @tool()
 def pmg_action_notification_update(
-    id_: str,
-    name: str,
-    to: str,
-    subject: str,
-    body_text: str,
-    info: str | None = None,
-    attach: bool | None = None,
-    confirm: bool = False,
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+    name: Annotated[str, Field(description="New action object name; required (PMG rejects partial updates).")],
+    to: Annotated[str, Field(description="New notification recipient email address; required (PMG rejects partial updates).")],
+    subject: Annotated[str, Field(description="New notification subject line; required (PMG rejects partial updates).")],
+    body_text: Annotated[str, Field(description="New notification body text; maps to API param 'body'; required (PMG rejects partial updates).")],
+    info: Annotated[str | None, Field(description="New free-text description; omit to keep current value.")] = None,
+    attach: Annotated[bool | None, Field(description="If True, attach the original message to the notification.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a notification action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -991,12 +1016,12 @@ def pmg_action_notification_update(
 
 @tool()
 def pmg_action_disclaimer_create(
-    name: str,
-    disclaimer: str,
-    info: str | None = None,
-    position: str | None = None,
-    add_separator: bool | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new disclaimer action object.")],
+    disclaimer: Annotated[str, Field(description="Disclaimer text to append/prepend to mail.")],
+    info: Annotated[str | None, Field(description="Optional free-text description.")] = None,
+    position: Annotated[str | None, Field(description="Where to insert the disclaimer: 'start' or 'end'.")] = None,
+    add_separator: Annotated[bool | None, Field(description="Insert a separator line before the disclaimer; maps to API param 'add-separator'.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a disclaimer action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -1020,13 +1045,13 @@ def pmg_action_disclaimer_create(
 
 @tool()
 def pmg_action_disclaimer_update(
-    id_: str,
-    name: str | None = None,
-    disclaimer: str | None = None,
-    info: str | None = None,
-    position: str | None = None,
-    add_separator: bool | None = None,
-    confirm: bool = False,
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+    name: Annotated[str | None, Field(description="New action object name; omit to keep current value.")] = None,
+    disclaimer: Annotated[str | None, Field(description="New disclaimer text; omit to keep current value.")] = None,
+    info: Annotated[str | None, Field(description="New free-text description; omit to keep current value.")] = None,
+    position: Annotated[str | None, Field(description="Where to insert the disclaimer: 'start' or 'end'.")] = None,
+    add_separator: Annotated[bool | None, Field(description="Insert a separator line before the disclaimer; maps to API param 'add-separator'.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a disclaimer action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -1057,12 +1082,12 @@ def pmg_action_disclaimer_update(
 
 @tool()
 def pmg_action_removeattachments_create(
-    name: str,
-    text: str,
-    info: str | None = None,
-    all_: bool | None = None,
-    quarantine: bool | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new remove-attachments action object.")],
+    text: Annotated[str, Field(description="Replacement text inserted in place of removed attachments.")],
+    info: Annotated[str | None, Field(description="Optional free-text description.")] = None,
+    all_: Annotated[bool | None, Field(description="If True, remove all attachments; maps to API param 'all'.")] = None,
+    quarantine: Annotated[bool | None, Field(description="If True, quarantine removed attachments instead of discarding them.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a remove-attachments action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -1087,13 +1112,13 @@ def pmg_action_removeattachments_create(
 
 @tool()
 def pmg_action_removeattachments_update(
-    id_: str,
-    name: str | None = None,
-    text: str | None = None,
-    info: str | None = None,
-    all_: bool | None = None,
-    quarantine: bool | None = None,
-    confirm: bool = False,
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+    name: Annotated[str | None, Field(description="New action object name; omit to keep current value.")] = None,
+    text: Annotated[str | None, Field(description="New replacement text; omit to keep current value.")] = None,
+    info: Annotated[str | None, Field(description="New free-text description; omit to keep current value.")] = None,
+    all_: Annotated[bool | None, Field(description="If True, remove all attachments; maps to API param 'all'.")] = None,
+    quarantine: Annotated[bool | None, Field(description="If True, quarantine removed attachments instead of discarding them.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a remove-attachments action object in the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -1123,7 +1148,10 @@ def pmg_action_removeattachments_update(
 
 
 @tool()
-def pmg_action_delete(id_: str, confirm: bool = False) -> dict:
+def pmg_action_delete(
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete an action object from the PMG RuleDB. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/action/objects/{id}.
@@ -1145,19 +1173,19 @@ def pmg_action_delete(id_: str, confirm: bool = False) -> dict:
 
 @tool()
 def pmg_ruledb_rule_create(
-    name: str,
-    priority: int,
-    active: bool = False,
-    direction: int | None = None,
-    from_and: bool | None = None,
-    from_invert: bool | None = None,
-    to_and: bool | None = None,
-    to_invert: bool | None = None,
-    what_and: bool | None = None,
-    what_invert: bool | None = None,
-    when_and: bool | None = None,
-    when_invert: bool | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new RuleDB rule.")],
+    priority: Annotated[int, Field(description="Rule priority 0-100; lower numbers are evaluated with higher priority.")],
+    active: Annotated[bool, Field(description="Whether the rule is active on creation; defaults False since active rules affect live mail processing.")] = False,
+    direction: Annotated[int | None, Field(description="Mail direction the rule applies to: 0=inbound, 1=outbound, 2=both.")] = None,
+    from_and: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across attached 'from' groups.")] = None,
+    from_invert: Annotated[bool | None, Field(description="If True, invert the 'from' group match.")] = None,
+    to_and: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across attached 'to' groups.")] = None,
+    to_invert: Annotated[bool | None, Field(description="If True, invert the 'to' group match.")] = None,
+    what_and: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across attached 'what' groups.")] = None,
+    what_invert: Annotated[bool | None, Field(description="If True, invert the 'what' group match.")] = None,
+    when_and: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across attached 'when' groups.")] = None,
+    when_invert: Annotated[bool | None, Field(description="If True, invert the 'when' group match.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): create a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -1191,20 +1219,20 @@ def pmg_ruledb_rule_create(
 
 @tool()
 def pmg_ruledb_rule_update(
-    id_: str,
-    name: str | None = None,
-    priority: int | None = None,
-    active: bool | None = None,
-    direction: int | None = None,
-    from_and: bool | None = None,
-    from_invert: bool | None = None,
-    to_and: bool | None = None,
-    to_invert: bool | None = None,
-    what_and: bool | None = None,
-    what_invert: bool | None = None,
-    when_and: bool | None = None,
-    when_invert: bool | None = None,
-    confirm: bool = False,
+    id_: Annotated[str, Field(description="Rule ID (positive integer string, e.g. '100').")],
+    name: Annotated[str | None, Field(description="New rule name; omit to keep current value.")] = None,
+    priority: Annotated[int | None, Field(description="New rule priority 0-100; lower numbers are evaluated with higher priority.")] = None,
+    active: Annotated[bool | None, Field(description="Whether the rule is active; True begins live mail processing under this rule.")] = None,
+    direction: Annotated[int | None, Field(description="Mail direction the rule applies to: 0=inbound, 1=outbound, 2=both.")] = None,
+    from_and: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across attached 'from' groups.")] = None,
+    from_invert: Annotated[bool | None, Field(description="If True, invert the 'from' group match.")] = None,
+    to_and: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across attached 'to' groups.")] = None,
+    to_invert: Annotated[bool | None, Field(description="If True, invert the 'to' group match.")] = None,
+    what_and: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across attached 'what' groups.")] = None,
+    what_invert: Annotated[bool | None, Field(description="If True, invert the 'what' group match.")] = None,
+    when_and: Annotated[bool | None, Field(description="AND (True) vs OR (False) logic across attached 'when' groups.")] = None,
+    when_invert: Annotated[bool | None, Field(description="If True, invert the 'when' group match.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update a PMG RuleDB rule configuration. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -1241,7 +1269,10 @@ def pmg_ruledb_rule_update(
 
 
 @tool()
-def pmg_ruledb_rule_delete(id_: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_delete(
+    id_: Annotated[str, Field(description="Rule ID (positive integer string, e.g. '100').")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}.
@@ -1260,7 +1291,11 @@ def pmg_ruledb_rule_delete(id_: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pmg_ruledb_rule_from_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_from_attach(
+    id_: Annotated[str, Field(description="Rule ID to attach the group to.")],
+    ogroup: Annotated[str, Field(description="Numeric 'who' group ID from pmg_who_groups_list to attach as the 'from' condition.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): attach a 'from' (sender/who) group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/from.
@@ -1280,7 +1315,11 @@ def pmg_ruledb_rule_from_attach(id_: str, ogroup: str, confirm: bool = False) ->
 
 
 @tool()
-def pmg_ruledb_rule_from_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_from_detach(
+    id_: Annotated[str, Field(description="Rule ID to detach the group from.")],
+    ogroup: Annotated[str, Field(description="Numeric 'who' group ID currently attached as the 'from' condition to detach.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): detach a 'from' (sender/who) group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/from/{ogroup}.
@@ -1300,7 +1339,11 @@ def pmg_ruledb_rule_from_detach(id_: str, ogroup: str, confirm: bool = False) ->
 
 
 @tool()
-def pmg_ruledb_rule_to_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_to_attach(
+    id_: Annotated[str, Field(description="Rule ID to attach the group to.")],
+    ogroup: Annotated[str, Field(description="Numeric 'who' group ID from pmg_who_groups_list to attach as the 'to' condition.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): attach a 'to' (recipient/who) group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/to.
@@ -1320,7 +1363,11 @@ def pmg_ruledb_rule_to_attach(id_: str, ogroup: str, confirm: bool = False) -> d
 
 
 @tool()
-def pmg_ruledb_rule_to_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_to_detach(
+    id_: Annotated[str, Field(description="Rule ID to detach the group from.")],
+    ogroup: Annotated[str, Field(description="Numeric 'who' group ID currently attached as the 'to' condition to detach.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): detach a 'to' (recipient/who) group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/to/{ogroup}.
@@ -1340,7 +1387,11 @@ def pmg_ruledb_rule_to_detach(id_: str, ogroup: str, confirm: bool = False) -> d
 
 
 @tool()
-def pmg_ruledb_rule_what_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_what_attach(
+    id_: Annotated[str, Field(description="Rule ID to attach the group to.")],
+    ogroup: Annotated[str, Field(description="Numeric 'what' group ID from pmg_what_groups_list to attach as a content condition.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): attach a 'what' (content) group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/what.
@@ -1360,7 +1411,11 @@ def pmg_ruledb_rule_what_attach(id_: str, ogroup: str, confirm: bool = False) ->
 
 
 @tool()
-def pmg_ruledb_rule_what_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_what_detach(
+    id_: Annotated[str, Field(description="Rule ID to detach the group from.")],
+    ogroup: Annotated[str, Field(description="Numeric 'what' group ID currently attached as a content condition to detach.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): detach a 'what' (content) group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/what/{ogroup}.
@@ -1380,7 +1435,11 @@ def pmg_ruledb_rule_what_detach(id_: str, ogroup: str, confirm: bool = False) ->
 
 
 @tool()
-def pmg_ruledb_rule_when_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_when_attach(
+    id_: Annotated[str, Field(description="Rule ID to attach the group to.")],
+    ogroup: Annotated[str, Field(description="Numeric 'when' group ID from pmg_when_groups_list to attach as a timeframe condition.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): attach a 'when' (timeframe) group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/when.
@@ -1400,7 +1459,11 @@ def pmg_ruledb_rule_when_attach(id_: str, ogroup: str, confirm: bool = False) ->
 
 
 @tool()
-def pmg_ruledb_rule_when_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_when_detach(
+    id_: Annotated[str, Field(description="Rule ID to detach the group from.")],
+    ogroup: Annotated[str, Field(description="Numeric 'when' group ID currently attached as a timeframe condition to detach.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): detach a 'when' (timeframe) group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/when/{ogroup}.
@@ -1420,7 +1483,11 @@ def pmg_ruledb_rule_when_detach(id_: str, ogroup: str, confirm: bool = False) ->
 
 
 @tool()
-def pmg_ruledb_rule_action_attach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_action_attach(
+    id_: Annotated[str, Field(description="Rule ID to attach the action group to.")],
+    ogroup: Annotated[str, Field(description="Numeric action group ID from pmg_action_objects_list to attach to the rule.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): attach an action group to a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 live-verified path: POST /config/ruledb/rules/{id}/action (singular; /actions returns 501).
@@ -1440,7 +1507,11 @@ def pmg_ruledb_rule_action_attach(id_: str, ogroup: str, confirm: bool = False) 
 
 
 @tool()
-def pmg_ruledb_rule_action_detach(id_: str, ogroup: str, confirm: bool = False) -> dict:
+def pmg_ruledb_rule_action_detach(
+    id_: Annotated[str, Field(description="Rule ID to detach the action group from.")],
+    ogroup: Annotated[str, Field(description="Numeric action group ID currently attached to the rule to detach.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): detach an action group from a PMG RuleDB rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
     PMG 9.1 live-verified path: DELETE /config/ruledb/rules/{id}/action/{ogroup} (singular; /actions returns 501).

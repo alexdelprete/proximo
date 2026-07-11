@@ -6,6 +6,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.pmg import (
     access_permissions as pmg_access_permissions_op,
@@ -247,7 +251,7 @@ from proximo.server import (
 # --- PMG (Proxmox Mail Gateway) ---
 
 @tool()
-def pmg_doctor(node: str | None = None) -> dict:
+def pmg_doctor(node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None) -> dict:
     """PMG connectivity + credential/permission preflight (read). Checks /nodes/{node}/version
     and /access/users. A successful /version call means ticket login also succeeded —
     connectivity and credentials are proven together. Needs PROXIMO_PMG_* config.
@@ -265,7 +269,7 @@ def pmg_doctor(node: str | None = None) -> dict:
 
 
 @tool()
-def pmg_node_status(node: str | None = None) -> dict:
+def pmg_node_status(node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None) -> dict:
     """Get PMG node cpu/mem/disk/uptime status (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 live-verified: /nodes/{node}/status path and response shape confirmed via
@@ -328,7 +332,10 @@ def pmg_quarantine_spam() -> list[dict]:
 
 
 @tool()
-def pmg_statistics_domains(start: int | None = None, end: int | None = None) -> list[dict]:
+def pmg_statistics_domains(
+    start: Annotated[int | None, Field(description="Unix epoch start of the stats window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the stats window; omit for no upper bound.")] = None,
+) -> list[dict]:
     """Get PMG per-domain mail statistics (read). Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
 
@@ -341,7 +348,10 @@ def pmg_statistics_domains(start: int | None = None, end: int | None = None) -> 
 
 
 @tool()
-def pmg_statistics_virus(start: int | None = None, end: int | None = None) -> list[dict]:
+def pmg_statistics_virus(
+    start: Annotated[int | None, Field(description="Unix epoch start of the stats window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the stats window; omit for no upper bound.")] = None,
+) -> list[dict]:
     """Get PMG virus statistics (read). Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
 
@@ -354,7 +364,10 @@ def pmg_statistics_virus(start: int | None = None, end: int | None = None) -> li
 
 
 @tool()
-def pmg_statistics_spamscores(start: int | None = None, end: int | None = None) -> list[dict]:
+def pmg_statistics_spamscores(
+    start: Annotated[int | None, Field(description="Unix epoch start of the stats window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the stats window; omit for no upper bound.")] = None,
+) -> list[dict]:
     """Get PMG spam score distribution statistics (read). Optional Unix epoch start/end timespan.
     Needs PROXIMO_PMG_* config.
 
@@ -367,7 +380,7 @@ def pmg_statistics_spamscores(start: int | None = None, end: int | None = None) 
 
 
 @tool()
-def pmg_statistics_recent(hours: int = 1) -> list[dict]:
+def pmg_statistics_recent(hours: Annotated[int, Field(description="Lookback window in hours, 1-24 (default 1).")] = 1) -> list[dict]:
     """Get PMG recent mail statistics (read). hours: 1-24 window. Needs PROXIMO_PMG_* config.
 
     PMG 9.1 live-verified path via pmgsh ls: /statistics/recent.
@@ -378,7 +391,7 @@ def pmg_statistics_recent(hours: int = 1) -> list[dict]:
 
 
 @tool()
-def pmg_quarantine_blocklist_list(pmail: str | None = None) -> list[dict]:
+def pmg_quarantine_blocklist_list(pmail: Annotated[str | None, Field(description="Scope the blocklist read to this user's mailbox; defaults to the authenticated PMG user.")] = None) -> list[dict]:
     """List PMG quarantine blocklist entries (read). Optional pmail to scope to one user.
     Needs PROXIMO_PMG_* config.
 
@@ -393,9 +406,9 @@ def pmg_quarantine_blocklist_list(pmail: str | None = None) -> list[dict]:
 
 @tool()
 def pmg_quarantine_blocklist_add(
-    address: str,
-    pmail: str | None = None,
-    confirm: bool = False,
+    address: Annotated[str, Field(description="Email address to add to the quarantine blocklist.")],
+    pmail: Annotated[str | None, Field(description="Scope the blocklist entry to this user's mailbox; defaults to the authenticated PMG user.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add an address to the quarantine blocklist. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -416,9 +429,9 @@ def pmg_quarantine_blocklist_add(
 
 @tool()
 def pmg_quarantine_action(
-    action: str,
-    mail_ids: str,
-    confirm: bool = False,
+    action: Annotated[str, Field(description="Action to apply: deliver|delete|mark-seen|mark-unseen|blocklist|welcomelist.")],
+    mail_ids: Annotated[str, Field(description="Single quarantined mail ID, or a comma-separated list of IDs, to act on.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM; HIGH for action='delete' — permanent, irreversible). Apply an action to
     quarantined message(s). Dry-run by default.
@@ -442,7 +455,7 @@ def pmg_quarantine_action(
 
 
 @tool()
-def pmg_postfix_qshape(node: str | None = None) -> list[dict]:
+def pmg_postfix_qshape(node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None) -> list[dict]:
     """Get PMG Postfix queue shape (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 live-verified: /nodes/{node}/postfix/qshape returns a list of
@@ -455,7 +468,10 @@ def pmg_postfix_qshape(node: str | None = None) -> list[dict]:
 
 
 @tool()
-def pmg_postfix_flush(node: str | None = None, confirm: bool = False) -> dict:
+def pmg_postfix_flush(
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (LOW): flush all Postfix queues (immediate re-delivery attempt). Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
@@ -485,7 +501,10 @@ def pmg_spam_config() -> dict:
 
 
 @tool()
-def pmg_service_status(service: str, node: str | None = None) -> dict:
+def pmg_service_status(
+    service: Annotated[str, Field(description="PMG service name, e.g. postfix, pmgproxy, pmgdaemon, pmgmirror, pmgtunnel, pmg-smtp-filter, clamav, spamassassin.")],
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+) -> dict:
     """Get the status of a PMG system service (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 live-verified path via pmgsh ls: /nodes/{node}/services/{service}/state.
@@ -500,7 +519,11 @@ def pmg_service_status(service: str, node: str | None = None) -> dict:
 
 
 @tool()
-def pmg_domain_create(domain: str, comment: str | None = None, confirm: bool = False) -> dict:
+def pmg_domain_create(
+    domain: Annotated[str, Field(description="Domain name to add as a managed mail domain, e.g. 'example.com'.")],
+    comment: Annotated[str | None, Field(description="Optional free-text comment stored with the domain.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (LOW): create a managed mail domain. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
@@ -519,7 +542,10 @@ def pmg_domain_create(domain: str, comment: str | None = None, confirm: bool = F
 
 
 @tool()
-def pmg_domain_delete(domain: str, confirm: bool = False) -> dict:
+def pmg_domain_delete(
+    domain: Annotated[str, Field(description="Managed mail domain name to delete, e.g. 'example.com'.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete a managed mail domain. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
@@ -539,13 +565,13 @@ def pmg_domain_delete(domain: str, confirm: bool = False) -> dict:
 
 @tool()
 def pmg_transport_create(
-    domain: str,
-    host: str,
-    comment: str | None = None,
-    port: int = 25,
-    protocol: str = "smtp",
-    use_mx: bool = True,
-    confirm: bool = False,
+    domain: Annotated[str, Field(description="Destination domain the transport rule applies to.")],
+    host: Annotated[str, Field(description="Next-hop relay hostname or IP for mail to this domain.")],
+    comment: Annotated[str | None, Field(description="Optional free-text comment stored with the transport rule.")] = None,
+    port: Annotated[int, Field(description="TCP port to connect to on the relay host, 1-65535 (default 25).")] = 25,
+    protocol: Annotated[str, Field(description="Transport protocol: smtp|lmtp (default smtp).")] = "smtp",
+    use_mx: Annotated[bool, Field(description="Whether to use MX lookup for the relay host (default True).")] = True,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a mail transport rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -568,7 +594,10 @@ def pmg_transport_create(
 
 
 @tool()
-def pmg_transport_delete(domain: str, confirm: bool = False) -> dict:
+def pmg_transport_delete(
+    domain: Annotated[str, Field(description="Destination domain whose transport rule should be deleted.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): delete a mail transport rule. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
@@ -587,7 +616,11 @@ def pmg_transport_delete(domain: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pmg_mynetworks_add(cidr: str, comment: str | None = None, confirm: bool = False) -> dict:
+def pmg_mynetworks_add(
+    cidr: Annotated[str, Field(description="Network in CIDR notation to trust as an internal relay, e.g. '10.0.0.0/8'.")],
+    comment: Annotated[str | None, Field(description="Optional free-text comment stored with the mynetworks entry.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (LOW): add a CIDR to the PMG mynetworks trusted relay list. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
@@ -606,7 +639,10 @@ def pmg_mynetworks_add(cidr: str, comment: str | None = None, confirm: bool = Fa
 
 
 @tool()
-def pmg_mynetworks_remove(cidr: str, confirm: bool = False) -> dict:
+def pmg_mynetworks_remove(
+    cidr: Annotated[str, Field(description="Network in CIDR notation to remove from the trusted mynetworks list.")],
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
+) -> dict:
     """MUTATION (MEDIUM): remove a CIDR from the PMG mynetworks trusted relay list. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
 
@@ -626,18 +662,18 @@ def pmg_mynetworks_remove(cidr: str, confirm: bool = False) -> dict:
 
 @tool()
 def pmg_spam_config_update(
-    bounce_score: int | None = None,
-    clamav_heuristic_score: int | None = None,
-    extract_text: bool | None = None,
-    languages: str | None = None,
-    maxspamsize: int | None = None,
-    rbl_checks: bool | None = None,
-    use_awl: bool | None = None,
-    use_bayes: bool | None = None,
-    use_razor: bool | None = None,
-    wl_bounce_relays: str | None = None,
-    delete: str | None = None,
-    confirm: bool = False,
+    bounce_score: Annotated[int | None, Field(description="Spam score threshold added for bounce/NDR-shaped messages; omit to leave unchanged.")] = None,
+    clamav_heuristic_score: Annotated[int | None, Field(description="Spam score added when ClamAV heuristic detection fires; omit to leave unchanged.")] = None,
+    extract_text: Annotated[bool | None, Field(description="Whether to extract text from attachments for spam scanning; omit to leave unchanged.")] = None,
+    languages: Annotated[str | None, Field(description="Space-separated language codes used for spam language-based scoring; omit to leave unchanged.")] = None,
+    maxspamsize: Annotated[int | None, Field(description="Maximum message size in bytes scanned for spam; omit to leave unchanged.")] = None,
+    rbl_checks: Annotated[bool | None, Field(description="Whether to enable RBL (realtime blocklist) checks; omit to leave unchanged.")] = None,
+    use_awl: Annotated[bool | None, Field(description="Whether to enable the auto-whitelist; omit to leave unchanged.")] = None,
+    use_bayes: Annotated[bool | None, Field(description="Whether to enable Bayesian spam classification; omit to leave unchanged.")] = None,
+    use_razor: Annotated[bool | None, Field(description="Whether to enable Razor collaborative spam filtering; omit to leave unchanged.")] = None,
+    wl_bounce_relays: Annotated[str | None, Field(description="Whitelisted bounce-relay hosts, space-separated; omit to leave unchanged.")] = None,
+    delete: Annotated[str | None, Field(description="Comma-separated field names to reset to their PMG defaults.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update PMG spam filter configuration. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -673,7 +709,7 @@ def pmg_spam_config_update(
 
 
 @tool()
-def pmg_quarantine_welcomelist_list(pmail: str | None = None) -> list[dict]:
+def pmg_quarantine_welcomelist_list(pmail: Annotated[str | None, Field(description="Scope the welcomelist read to this user's mailbox; defaults to the authenticated PMG user.")] = None) -> list[dict]:
     """List PMG quarantine welcomelist entries (read). Optional pmail to scope to one user.
     Needs PROXIMO_PMG_* config.
 
@@ -687,9 +723,9 @@ def pmg_quarantine_welcomelist_list(pmail: str | None = None) -> list[dict]:
 
 @tool()
 def pmg_quarantine_welcomelist_add(
-    address: str,
-    pmail: str | None = None,
-    confirm: bool = False,
+    address: Annotated[str, Field(description="Email address to add to the quarantine welcomelist.")],
+    pmail: Annotated[str | None, Field(description="Scope the welcomelist entry to this user's mailbox; defaults to the authenticated PMG user.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add an address to the quarantine welcomelist. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -710,9 +746,9 @@ def pmg_quarantine_welcomelist_add(
 
 @tool()
 def pmg_quarantine_welcomelist_remove(
-    address: str,
-    pmail: str | None = None,
-    confirm: bool = False,
+    address: Annotated[str, Field(description="Email address to remove from the quarantine welcomelist.")],
+    pmail: Annotated[str | None, Field(description="Scope the welcomelist removal to this user's mailbox; defaults to the authenticated PMG user.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): remove an address from the quarantine welcomelist. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -733,9 +769,9 @@ def pmg_quarantine_welcomelist_remove(
 
 @tool()
 def pmg_quarantine_blocklist_remove(
-    address: str,
-    pmail: str | None = None,
-    confirm: bool = False,
+    address: Annotated[str, Field(description="Email address to remove from the quarantine blocklist.")],
+    pmail: Annotated[str | None, Field(description="Scope the blocklist removal to this user's mailbox; defaults to the authenticated PMG user.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): remove an address from the quarantine blocklist. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -756,10 +792,10 @@ def pmg_quarantine_blocklist_remove(
 
 @tool()
 def pmg_service_control(
-    service: str,
-    action: str,
-    node: str | None = None,
-    confirm: bool = False,
+    service: Annotated[str, Field(description="PMG service name, e.g. postfix, pmgproxy, pmgdaemon, clamav, spamassassin.")],
+    action: Annotated[str, Field(description="Control action: start|stop|restart|reload.")],
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): start, stop, restart, or reload a PMG service. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -785,15 +821,15 @@ def pmg_service_control(
 
 @tool()
 def pmg_tracker_list(
-    node: str | None = None,
-    start: int | None = None,
-    end: int | None = None,
-    from_: str | None = None,
-    target: str | None = None,
-    xfilter: str | None = None,
-    ndr: bool | None = None,
-    greylist: bool | None = None,
-    limit: int = 2000,
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+    start: Annotated[int | None, Field(description="Unix epoch start of the tracker window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the tracker window; omit for no upper bound.")] = None,
+    from_: Annotated[str | None, Field(description="Filter by envelope sender address.")] = None,
+    target: Annotated[str | None, Field(description="Filter by recipient address.")] = None,
+    xfilter: Annotated[str | None, Field(description="Free-text filter applied to tracker entries.")] = None,
+    ndr: Annotated[bool | None, Field(description="If set, filter to (or exclude) non-delivery-report entries.")] = None,
+    greylist: Annotated[bool | None, Field(description="If set, filter to (or exclude) greylisted entries.")] = None,
+    limit: Annotated[int, Field(description="Maximum entries to return, 0-100000 (default 2000).")] = 2000,
 ) -> list[dict]:
     """List mail tracking entries (read). Needs PROXIMO_PMG_* config.
 
@@ -812,10 +848,10 @@ def pmg_tracker_list(
 
 @tool()
 def pmg_tracker_detail(
-    id_: str,
-    node: str | None = None,
-    start: int | None = None,
-    end: int | None = None,
+    id_: Annotated[str, Field(description="Mail/queue tracker ID to fetch detail for.")],
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+    start: Annotated[int | None, Field(description="Unix epoch start of the tracker window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the tracker window; omit for no upper bound.")] = None,
 ) -> list[dict]:
     """Get tracking detail for a specific mail ID (read). Needs PROXIMO_PMG_* config.
 
@@ -832,9 +868,9 @@ def pmg_tracker_detail(
 
 @tool()
 def pmg_quarantine_virus(
-    pmail: str | None = None,
-    start: int | None = None,
-    end: int | None = None,
+    pmail: Annotated[str | None, Field(description="Scope the virus quarantine read to this user's mailbox; defaults to the authenticated PMG user.")] = None,
+    start: Annotated[int | None, Field(description="Unix epoch start of the window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
 ) -> list[dict]:
     """List virus quarantine entries (read). Needs PROXIMO_PMG_* config.
 
@@ -849,9 +885,9 @@ def pmg_quarantine_virus(
 
 @tool()
 def pmg_quarantine_attachment(
-    pmail: str | None = None,
-    start: int | None = None,
-    end: int | None = None,
+    pmail: Annotated[str | None, Field(description="Scope the attachment quarantine read to this user's mailbox; defaults to the authenticated PMG user.")] = None,
+    start: Annotated[int | None, Field(description="Unix epoch start of the window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
 ) -> list[dict]:
     """List attachment quarantine entries (read). Needs PROXIMO_PMG_* config.
 
@@ -888,9 +924,9 @@ def pmg_quarantine_spamstatus() -> dict:
 
 @tool()
 def pmg_quarantine_spamusers(
-    start: int | None = None,
-    end: int | None = None,
-    quarantine_type: str = "spam",
+    start: Annotated[int | None, Field(description="Unix epoch start of the window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
+    quarantine_type: Annotated[str, Field(description="Quarantine type to list users for: spam|virus|attachment (default spam).")] = "spam",
 ) -> list[dict]:
     """List users with quarantined mail entries (read). Needs PROXIMO_PMG_* config.
 
@@ -905,9 +941,9 @@ def pmg_quarantine_spamusers(
 
 @tool()
 def pmg_statistics_mailcount(
-    start: int | None = None,
-    end: int | None = None,
-    timespan: int = 3600,
+    start: Annotated[int | None, Field(description="Unix epoch start of the window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
+    timespan: Annotated[int, Field(description="Histogram bucket size in seconds, 3600-31622400 (default 3600 = 1 hour).")] = 3600,
 ) -> list[dict]:
     """Get per-bucket mail count statistics (read). Needs PROXIMO_PMG_* config.
 
@@ -922,10 +958,10 @@ def pmg_statistics_mailcount(
 
 @tool()
 def pmg_statistics_sender(
-    start: int | None = None,
-    end: int | None = None,
-    filter_: str | None = None,
-    orderby: str | None = None,
+    start: Annotated[int | None, Field(description="Unix epoch start of the window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
+    filter_: Annotated[str | None, Field(description="Optional search string to filter senders.")] = None,
+    orderby: Annotated[str | None, Field(description="Accepted for compatibility but ignored — PMG 9.1 rejects orderby on this endpoint.")] = None,
 ) -> list[dict]:
     """Get per-sender mail statistics (read). Needs PROXIMO_PMG_* config.
 
@@ -942,10 +978,10 @@ def pmg_statistics_sender(
 
 @tool()
 def pmg_statistics_receiver(
-    start: int | None = None,
-    end: int | None = None,
-    filter_: str | None = None,
-    orderby: str | None = None,
+    start: Annotated[int | None, Field(description="Unix epoch start of the window; omit for no lower bound.")] = None,
+    end: Annotated[int | None, Field(description="Unix epoch end of the window; omit for no upper bound.")] = None,
+    filter_: Annotated[str | None, Field(description="Optional search string to filter recipients.")] = None,
+    orderby: Annotated[str | None, Field(description="Raw sort spec passed through to the PMG API.")] = None,
 ) -> list[dict]:
     """Get per-recipient mail statistics (read). Needs PROXIMO_PMG_* config.
 
@@ -960,12 +996,12 @@ def pmg_statistics_receiver(
 
 @tool()
 def pmg_node_syslog(
-    node: str | None = None,
-    limit: int | None = None,
-    service: str | None = None,
-    since: str | None = None,
-    until: str | None = None,
-    start: int | None = None,
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+    limit: Annotated[int | None, Field(description="Maximum syslog entries to return.")] = None,
+    service: Annotated[str | None, Field(description="Filter syslog entries by service name.")] = None,
+    since: Annotated[str | None, Field(description="Only return entries at or after this time (journalctl-style time spec).")] = None,
+    until: Annotated[str | None, Field(description="Only return entries at or before this time (journalctl-style time spec).")] = None,
+    start: Annotated[int | None, Field(description="Pagination offset into the syslog entries.")] = None,
 ) -> list[dict]:
     """Get PMG node syslog entries (read). Needs PROXIMO_PMG_* config.
 
@@ -981,9 +1017,9 @@ def pmg_node_syslog(
 
 @tool()
 def pmg_node_rrddata(
-    timeframe: str,
-    node: str | None = None,
-    cf: str | None = None,
+    timeframe: Annotated[str, Field(description="RRD timeframe: hour|day|week|month|year.")],
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+    cf: Annotated[str | None, Field(description="RRD consolidation function: AVERAGE|MAX.")] = None,
 ) -> list[dict]:
     """Get PMG node RRD performance data (read). Needs PROXIMO_PMG_* config.
 
@@ -999,15 +1035,15 @@ def pmg_node_rrddata(
 
 @tool()
 def pmg_tasks_list(
-    node: str | None = None,
-    start: int | None = None,
-    limit: int | None = None,
-    userfilter: str | None = None,
-    errors: bool | None = None,
-    typefilter: str | None = None,
-    since: int | None = None,
-    until: int | None = None,
-    statusfilter: str | None = None,
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+    start: Annotated[int | None, Field(description="Pagination offset into the task list.")] = None,
+    limit: Annotated[int | None, Field(description="Maximum tasks to return.")] = None,
+    userfilter: Annotated[str | None, Field(description="Filter tasks by the user that started them.")] = None,
+    errors: Annotated[bool | None, Field(description="If True, return only failed tasks.")] = None,
+    typefilter: Annotated[str | None, Field(description="Filter tasks by task type.")] = None,
+    since: Annotated[int | None, Field(description="Unix epoch: only tasks started at or after this time.")] = None,
+    until: Annotated[int | None, Field(description="Unix epoch: only tasks started at or before this time.")] = None,
+    statusfilter: Annotated[str | None, Field(description="Filter tasks by status text.")] = None,
 ) -> list[dict]:
     """List PMG tasks on a node (read). Needs PROXIMO_PMG_* config.
 
@@ -1024,10 +1060,10 @@ def pmg_tasks_list(
 
 @tool()
 def pmg_backup_create(
-    node: str | None = None,
-    notify: str = "never",
-    statistic: bool = True,
-    confirm: bool = False,
+    node: Annotated[str | None, Field(description="PMG node name; defaults to the configured node.")] = None,
+    notify: Annotated[str, Field(description="Notification mode: always|error|never (default never).")] = "never",
+    statistic: Annotated[bool, Field(description="Whether to include mail statistics in the backup (default True).")] = True,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): create a PMG configuration backup. Dry-run by default.
     confirm=True to execute. Needs PROXIMO_PMG_* config.
@@ -1063,7 +1099,7 @@ def pmg_ruledb_rules_list() -> list[dict]:
 
 
 @tool()
-def pmg_ruledb_rule_get(id_: str) -> dict:
+def pmg_ruledb_rule_get(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> dict:
     """Get a PMG RuleDB rule's configuration (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/config.
@@ -1075,7 +1111,7 @@ def pmg_ruledb_rule_get(id_: str) -> dict:
 
 
 @tool()
-def pmg_ruledb_rule_from_list(id_: str) -> list[dict]:
+def pmg_ruledb_rule_from_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
     """List the 'from' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/from.
@@ -1087,7 +1123,7 @@ def pmg_ruledb_rule_from_list(id_: str) -> list[dict]:
 
 
 @tool()
-def pmg_ruledb_rule_to_list(id_: str) -> list[dict]:
+def pmg_ruledb_rule_to_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
     """List the 'to' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/to.
@@ -1099,7 +1135,7 @@ def pmg_ruledb_rule_to_list(id_: str) -> list[dict]:
 
 
 @tool()
-def pmg_ruledb_rule_what_list(id_: str) -> list[dict]:
+def pmg_ruledb_rule_what_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
     """List the 'what' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/what.
@@ -1111,7 +1147,7 @@ def pmg_ruledb_rule_what_list(id_: str) -> list[dict]:
 
 
 @tool()
-def pmg_ruledb_rule_when_list(id_: str) -> list[dict]:
+def pmg_ruledb_rule_when_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
     """List the 'when' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/when.
@@ -1123,7 +1159,7 @@ def pmg_ruledb_rule_when_list(id_: str) -> list[dict]:
 
 
 @tool()
-def pmg_ruledb_rule_actions_list(id_: str) -> list[dict]:
+def pmg_ruledb_rule_actions_list(id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")]) -> list[dict]:
     """List the 'actions' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1: reads GET /config/ruledb/rules/{id}/config and extracts the embedded 'action' list —
@@ -1147,7 +1183,7 @@ def pmg_who_groups_list() -> list[dict]:
 
 
 @tool()
-def pmg_who_group_get(ogroup: str) -> dict:
+def pmg_who_group_get(ogroup: Annotated[str, Field(description="'who' object group numeric ID (e.g. '2') from pmg_who_groups_list — not the group name.")]) -> dict:
     """Get a PMG RuleDB 'who' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/config.
@@ -1159,7 +1195,7 @@ def pmg_who_group_get(ogroup: str) -> dict:
 
 
 @tool()
-def pmg_who_group_objects(ogroup: str) -> list[dict]:
+def pmg_who_group_objects(ogroup: Annotated[str, Field(description="'who' object group numeric ID (e.g. '2') from pmg_who_groups_list — not the group name.")]) -> list[dict]:
     """List the objects in a PMG RuleDB 'who' object group (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/objects.
@@ -1182,7 +1218,7 @@ def pmg_what_groups_list() -> list[dict]:
 
 
 @tool()
-def pmg_what_group_get(ogroup: str) -> dict:
+def pmg_what_group_get(ogroup: Annotated[str, Field(description="'what' object group numeric ID (e.g. '2') from pmg_what_groups_list — not the group name.")]) -> dict:
     """Get a PMG RuleDB 'what' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/config.
@@ -1194,7 +1230,7 @@ def pmg_what_group_get(ogroup: str) -> dict:
 
 
 @tool()
-def pmg_what_group_objects(ogroup: str) -> list[dict]:
+def pmg_what_group_objects(ogroup: Annotated[str, Field(description="'what' object group numeric ID (e.g. '2') from pmg_what_groups_list — not the group name.")]) -> list[dict]:
     """List the objects in a PMG RuleDB 'what' object group (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/objects.
@@ -1217,7 +1253,7 @@ def pmg_when_groups_list() -> list[dict]:
 
 
 @tool()
-def pmg_when_group_get(ogroup: str) -> dict:
+def pmg_when_group_get(ogroup: Annotated[str, Field(description="'when' object group numeric ID (e.g. '2') from pmg_when_groups_list — not the group name.")]) -> dict:
     """Get a PMG RuleDB 'when' object group's configuration (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/config.
@@ -1229,7 +1265,7 @@ def pmg_when_group_get(ogroup: str) -> dict:
 
 
 @tool()
-def pmg_when_group_objects(ogroup: str) -> list[dict]:
+def pmg_when_group_objects(ogroup: Annotated[str, Field(description="'when' object group numeric ID (e.g. '2') from pmg_when_groups_list — not the group name.")]) -> list[dict]:
     """List the objects in a PMG RuleDB 'when' object group (read). Needs PROXIMO_PMG_* config.
 
     PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/objects.

@@ -6,7 +6,9 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 import proximo.server as _proximo_server
 from proximo.node_lifecycle import (
@@ -35,7 +37,9 @@ from proximo.server import (
 # --- Disks (reads) ---
 
 @tool()
-def pve_node_disks_list(node: str | None = None) -> list:
+def pve_node_disks_list(
+    node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
+) -> list:
     """List physical disks on a PVE node (read).
 
     GET /nodes/{node}/disks/list — physical disk inventory and health info.
@@ -47,7 +51,10 @@ def pve_node_disks_list(node: str | None = None) -> list:
 
 
 @tool()
-def pve_node_disk_smart(disk: str, node: str | None = None) -> dict:
+def pve_node_disk_smart(
+    disk: Annotated[str, Field(description="Device path/identifier of the disk to query (e.g. /dev/sda), as listed by pve_node_disks_list.")],
+    node: Annotated[str | None, Field(description="PVE node name the disk lives on; defaults to the configured node if omitted.")] = None,
+) -> dict:
     """Get SMART health data for a disk on a PVE node (read).
 
     GET /nodes/{node}/disks/smart?disk=… — SMART attributes and health status.
@@ -61,8 +68,11 @@ def pve_node_disk_smart(disk: str, node: str | None = None) -> dict:
 # --- Disks (mutations) ---
 
 @tool()
-def pve_node_disk_wipe(disk: str, node: str | None = None,
-                       confirm: bool = False) -> dict:
+def pve_node_disk_wipe(
+    disk: Annotated[str, Field(description="Device path/identifier of the disk to wipe (e.g. /dev/sda); ALL data and the partition table are destroyed.")],
+    node: Annotated[str | None, Field(description="PVE node name the disk lives on; defaults to the configured node if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the irreversible wipe.")] = False,
+) -> dict:
     """MUTATION: wipe ALL data and the partition table on a node disk.
 
     RISK_HIGH, NO UNDO: DESTROYS all data, partitions, and filesystems on the named disk.
@@ -86,8 +96,11 @@ def pve_node_disk_wipe(disk: str, node: str | None = None,
 
 
 @tool()
-def pve_node_disk_initgpt(disk: str, node: str | None = None,
-                          confirm: bool = False) -> dict:
+def pve_node_disk_initgpt(
+    disk: Annotated[str, Field(description="Device path/identifier of the disk to initialize with a new GPT partition table (e.g. /dev/sda); overwrites the existing partition table.")],
+    node: Annotated[str | None, Field(description="PVE node name the disk lives on; defaults to the configured node if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the irreversible GPT init.")] = False,
+) -> dict:
     """MUTATION: initialize a GPT partition table on a node disk.
 
     RISK_HIGH: overwrites the existing partition table on the named disk; irreversible.
@@ -111,7 +124,10 @@ def pve_node_disk_initgpt(disk: str, node: str | None = None,
 # --- Storage backends (reads + mutations) ---
 
 @tool()
-def pve_node_storage_backend_list(backend: str, node: str | None = None) -> list:
+def pve_node_storage_backend_list(
+    backend: Annotated[str, Field(description="Storage backend type to list: one of lvm, lvmthin, zfs, directory.")],
+    node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
+) -> list:
     """List storage backends of a type on a PVE node (read).
 
     backend ∈ {lvm, lvmthin, zfs, directory}.
@@ -125,11 +141,11 @@ def pve_node_storage_backend_list(backend: str, node: str | None = None) -> list
 
 @tool()
 def pve_node_storage_backend_create(
-    backend: str,
-    name: str,
-    devices: str | None = None,
-    node: str | None = None,
-    confirm: bool = False,
+    backend: Annotated[str, Field(description="Storage backend type to create: one of lvm, lvmthin, zfs, directory.")],
+    name: Annotated[str, Field(description="Name to assign to the new storage backend.")],
+    devices: Annotated[str | None, Field(description="Disk device(s) consumed by the new backend: comma-separated list for zfs, a single disk path for lvm/lvmthin/directory.")] = None,
+    node: Annotated[str | None, Field(description="PVE node name to create the backend on; defaults to the configured node if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the creation.")] = False,
     **kw: Any,
 ) -> dict:
     """MUTATION: create a storage backend on the node (lvm/lvmthin/zfs/directory).
@@ -162,11 +178,11 @@ def pve_node_storage_backend_create(
 
 @tool()
 def pve_node_storage_backend_delete(
-    backend: str,
-    name: str,
-    node: str | None = None,
-    cleanup: bool = False,
-    confirm: bool = False,
+    backend: Annotated[str, Field(description="Storage backend type to destroy: one of lvm, lvmthin, zfs, directory.")],
+    name: Annotated[str, Field(description="Name of the storage backend to destroy.")],
+    node: Annotated[str | None, Field(description="PVE node name the backend lives on; defaults to the configured node if omitted.")] = None,
+    cleanup: Annotated[bool, Field(description="If True, also removes the underlying disk data/partitions during backend removal.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the irreversible destroy.")] = False,
 ) -> dict:
     """MUTATION: destroy a storage backend on the node.
 
@@ -196,7 +212,9 @@ def pve_node_storage_backend_delete(
 # --- Node config (reads) ---
 
 @tool()
-def pve_node_time_get(node: str | None = None) -> dict:
+def pve_node_time_get(
+    node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
+) -> dict:
     """Get the current time and timezone of a PVE node (read).
 
     GET /nodes/{node}/time — returns {localtime, time, timezone}.
@@ -208,7 +226,9 @@ def pve_node_time_get(node: str | None = None) -> dict:
 
 
 @tool()
-def pve_node_hosts_get(node: str | None = None) -> dict:
+def pve_node_hosts_get(
+    node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
+) -> dict:
     """Get the /etc/hosts content of a PVE node (read).
 
     GET /nodes/{node}/hosts — returns {data, digest}.
@@ -222,8 +242,11 @@ def pve_node_hosts_get(node: str | None = None) -> dict:
 # --- Node config (mutations) ---
 
 @tool()
-def pve_node_time_set(timezone: str, node: str | None = None,
-                      confirm: bool = False) -> dict:
+def pve_node_time_set(
+    timezone: Annotated[str, Field(description="IANA timezone name to set on the node (e.g. America/Chicago, UTC).")],
+    node: Annotated[str | None, Field(description="PVE node name to configure; defaults to the configured node if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the timezone change.")] = False,
+) -> dict:
     """MUTATION: set the timezone on a PVE node.
 
     RISK_LOW. CAPTURE: reads the current timezone before planning; if unreadable → complete=False.
@@ -246,10 +269,10 @@ def pve_node_time_set(timezone: str, node: str | None = None,
 
 @tool()
 def pve_node_hosts_set(
-    data: str,
-    node: str | None = None,
-    digest: str | None = None,
-    confirm: bool = False,
+    data: Annotated[str, Field(description="Full replacement content for the node's /etc/hosts file.")],
+    node: Annotated[str | None, Field(description="PVE node name to configure; defaults to the configured node if omitted.")] = None,
+    digest: Annotated[str | None, Field(description="Expected content digest of the current /etc/hosts, for optimistic-concurrency conflict detection.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the replacement.")] = False,
 ) -> dict:
     """MUTATION: replace the /etc/hosts file on a PVE node.
 
@@ -274,12 +297,12 @@ def pve_node_hosts_set(
 
 @tool()
 def pve_node_dns_set(
-    search: str | None = None,
-    dns1: str | None = None,
-    dns2: str | None = None,
-    dns3: str | None = None,
-    node: str | None = None,
-    confirm: bool = False,
+    search: Annotated[str | None, Field(description="DNS search domain to set on the node.")] = None,
+    dns1: Annotated[str | None, Field(description="Primary DNS resolver IP address.")] = None,
+    dns2: Annotated[str | None, Field(description="Secondary DNS resolver IP address.")] = None,
+    dns3: Annotated[str | None, Field(description="Tertiary DNS resolver IP address.")] = None,
+    node: Annotated[str | None, Field(description="PVE node name to configure; defaults to the configured node if omitted.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the DNS change.")] = False,
 ) -> dict:
     """MUTATION: update DNS resolver configuration on a PVE node.
 
@@ -304,12 +327,12 @@ def pve_node_dns_set(
 
 @tool()
 def pve_node_cert_upload(
-    certificates: str,
-    key: str | None = None,
-    node: str | None = None,
-    force: bool = False,
-    restart: bool = False,
-    confirm: bool = False,
+    certificates: Annotated[str, Field(description="PEM-encoded certificate chain (public, may appear in plans/logs).")],
+    key: Annotated[str | None, Field(description="PEM-encoded TLS private key matching the certificate; a secret, unconditionally redacted in all output.")] = None,
+    node: Annotated[str | None, Field(description="PVE node name to upload the certificate to; defaults to the configured node if omitted.")] = None,
+    force: Annotated[bool, Field(description="If True, overwrite an existing custom certificate without requiring it be replaced explicitly.")] = False,
+    restart: Annotated[bool, Field(description="If True, reload pveproxy after upload to apply the new certificate immediately (brief service interruption).")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the certificate upload.")] = False,
 ) -> dict:
     """MUTATION: upload a custom TLS certificate to a PVE node.
 
@@ -346,9 +369,9 @@ def pve_node_cert_upload(
 
 @tool()
 def pve_node_cert_delete(
-    node: str | None = None,
-    restart: bool = False,
-    confirm: bool = False,
+    node: Annotated[str | None, Field(description="PVE node name to delete the custom certificate from; defaults to the configured node if omitted.")] = None,
+    restart: Annotated[bool, Field(description="If True, reload pveproxy after deletion to apply the reverted self-signed certificate immediately.")] = False,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the deletion.")] = False,
 ) -> dict:
     """MUTATION: delete the custom TLS certificate from a PVE node.
 
@@ -374,9 +397,9 @@ def pve_node_cert_delete(
 
 @tool()
 def pve_node_startall(
-    node: str | None = None,
-    vms: str | None = None,
-    confirm: bool = False,
+    node: Annotated[str | None, Field(description="PVE node name whose guests to start; defaults to the configured node if omitted.")] = None,
+    vms: Annotated[str | None, Field(description="Optional comma-separated list of VMIDs/CTIDs to limit the scope; omit to start all guests on the node.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the bulk start.")] = False,
 ) -> dict:
     """MUTATION: start all (or filtered) guests on a PVE node.
 
@@ -400,9 +423,9 @@ def pve_node_startall(
 
 @tool()
 def pve_node_stopall(
-    node: str | None = None,
-    vms: str | None = None,
-    confirm: bool = False,
+    node: Annotated[str | None, Field(description="PVE node name whose guests to stop; defaults to the configured node if omitted.")] = None,
+    vms: Annotated[str | None, Field(description="Optional comma-separated list of VMIDs/CTIDs to limit the scope; omit to stop ALL guests on the node.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the bulk stop.")] = False,
 ) -> dict:
     """MUTATION: stop ALL (or filtered) running guests on a PVE node.
 
@@ -426,11 +449,11 @@ def pve_node_stopall(
 
 @tool()
 def pve_node_migrateall(
-    target: str,
-    node: str | None = None,
-    vms: str | None = None,
-    maxworkers: int | None = None,
-    confirm: bool = False,
+    target: Annotated[str, Field(description="Destination PVE node name to migrate guests to.")],
+    node: Annotated[str | None, Field(description="Source PVE node name whose guests to migrate; defaults to the configured node if omitted.")] = None,
+    vms: Annotated[str | None, Field(description="Optional comma-separated list of VMIDs/CTIDs to limit the scope; omit to migrate all guests on the node.")] = None,
+    maxworkers: Annotated[int | None, Field(description="Maximum number of parallel migration workers to run.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the bulk migration.")] = False,
 ) -> dict:
     """MUTATION: migrate all (or filtered) guests from a node to a target node.
 

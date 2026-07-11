@@ -6,6 +6,10 @@ docstring for the funnel these wrappers depend on.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 import proximo.server as _proximo_server
 from proximo.backup_schedules import pbs_scheduled_jobs_list
 from proximo.pbs import (
@@ -162,7 +166,9 @@ def pbs_datastores_list() -> list[dict]:
 
 
 @tool()
-def pbs_datastore_status(store: str) -> dict:
+def pbs_datastore_status(
+    store: Annotated[str, Field(description="PBS datastore name.")],
+) -> dict:
     """Get runtime usage statistics for one PBS datastore (read-only). Returns total
     capacity, used bytes, and available bytes. Use pbs_datastores_list to enumerate
     datastores (with backend type) or pbs_gc_status for garbage-collection state."""
@@ -172,7 +178,9 @@ def pbs_datastore_status(store: str) -> dict:
 
 
 @tool()
-def pbs_gc_status(store: str) -> dict:
+def pbs_gc_status(
+    store: Annotated[str, Field(description="PBS datastore name.")],
+) -> dict:
     """Get garbage-collection status for one PBS datastore (read-only). Returns GC
     schedule, current state, disk/index statistics, and pending/removed chunk counts.
     Use pbs_gc_start to execute garbage collection or pbs_datastore_status for capacity."""
@@ -181,8 +189,14 @@ def pbs_gc_status(store: str) -> dict:
 
 
 @tool()
-def pbs_snapshots_list(store: str, ns: str | None = None, backup_type: str | None = None,
-                       backup_id: str | None = None) -> list[dict]:
+def pbs_snapshots_list(
+    store: Annotated[str, Field(description="PBS datastore name.")],
+    ns: Annotated[str | None, Field(description="Namespace path to filter by; omit for the root namespace.")] = None,
+    backup_type: Annotated[str | None, Field(description="Backup type filter: 'vm', 'ct', or 'host'.")] = None,
+    backup_id: Annotated[
+        str | None, Field(description="Backup group ID (e.g. VMID/CTID or host name) to filter by."),
+    ] = None,
+) -> list[dict]:
     """List backup snapshots in a PBS datastore with optional filters (read-only). Returns
     snapshot metadata including backup type, ID, timestamp, size, owner, and protection
     status; filter by namespace, backup_type (vm/ct/host), or backup_id."""
@@ -192,8 +206,13 @@ def pbs_snapshots_list(store: str, ns: str | None = None, backup_type: str | Non
 
 
 @tool()
-def pbs_namespaces_list(store: str, parent: str | None = None,
-                        max_depth: int | None = None) -> list[dict]:
+def pbs_namespaces_list(
+    store: Annotated[str, Field(description="PBS datastore name.")],
+    parent: Annotated[
+        str | None, Field(description="Parent namespace path to list children of; omit for the root namespace."),
+    ] = None,
+    max_depth: Annotated[int | None, Field(description="Maximum recursion depth below the parent namespace.")] = None,
+) -> list[dict]:
     """List namespaces within a PBS datastore with optional hierarchical filtering (read-only).
     Returns each namespace's hierarchical path (the `ns` field); optionally filter by
     parent namespace or limit recursion depth. Use pbs_namespace_create to add namespaces."""
@@ -212,7 +231,9 @@ def pbs_remotes_list() -> list[dict]:
 
 
 @tool()
-def pbs_remote_get(name: str) -> dict:
+def pbs_remote_get(
+    name: Annotated[str, Field(description="PBS remote sync-source name.")],
+) -> dict:
     """Get the config of one PBS remote sync-source by name (read). No password returned.
     Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
@@ -231,7 +252,9 @@ def pbs_traffic_controls_list() -> list[dict]:
 
 
 @tool()
-def pbs_jobs_list(job_type: str) -> list[dict]:
+def pbs_jobs_list(
+    job_type: Annotated[str, Field(description="Scheduled-job type to list: 'sync', 'verify', or 'prune'.")],
+) -> list[dict]:
     """List all PBS scheduled jobs of the given type (read). job_type = sync|verify|prune.
     Returns all jobs with their configs. Raises on invalid job_type. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
@@ -240,8 +263,14 @@ def pbs_jobs_list(job_type: str) -> list[dict]:
 
 
 @tool()
-def pbs_tasks_list(node: str = "localhost", limit: int | None = None,
-                   running: bool | None = None, errors: bool | None = None) -> list[dict]:
+def pbs_tasks_list(
+    node: Annotated[
+        str, Field(description="PBS node name; defaults to 'localhost' (standard single-node PBS name)."),
+    ] = "localhost",
+    limit: Annotated[int | None, Field(description="Maximum number of tasks to return.")] = None,
+    running: Annotated[bool | None, Field(description="If True, return only currently-running tasks.")] = None,
+    errors: Annotated[bool | None, Field(description="If True, return only tasks that ended in error.")] = None,
+) -> list[dict]:
     """List PBS tasks on a node (read). Defaults to 'localhost' (standard single-node PBS name).
     Optionally filter: running=True for active tasks, errors=True for failed tasks.
     Needs PROXIMO_PBS_* config."""
@@ -251,7 +280,9 @@ def pbs_tasks_list(node: str = "localhost", limit: int | None = None,
 
 
 @tool()
-def pbs_datastore_get(name: str) -> dict:
+def pbs_datastore_get(
+    name: Annotated[str, Field(description="PBS datastore name.")],
+) -> dict:
     """Get full config of one PBS datastore by name (read). Returns path, gc-schedule, etc.
     For runtime usage stats use pbs_datastore_status instead. Needs PROXIMO_PBS_* config."""
     _, pbs = _proximo_server._pbs()
@@ -262,7 +293,12 @@ def pbs_datastore_get(name: str) -> dict:
 # --- PBS deep (mutation) ---
 
 @tool()
-def pbs_gc_start(store: str, confirm: bool = False) -> dict:
+def pbs_gc_start(
+    store: Annotated[str, Field(description="PBS datastore name to run garbage collection on.")],
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
+) -> dict:
     """MUTATION (HIGH): start garbage collection on a PBS datastore. Dry-run by default — GC
     permanently removes unreferenced chunks (no undo). confirm=True to execute. Async — UPID."""
     _, pbs = _proximo_server._pbs()
@@ -275,8 +311,19 @@ def pbs_gc_start(store: str, confirm: bool = False) -> dict:
 
 
 @tool()
-def pbs_verify_start(store: str, ns: str | None = None, backup_type: str | None = None,
-                     backup_id: str | None = None, confirm: bool = False) -> dict:
+def pbs_verify_start(
+    store: Annotated[str, Field(description="PBS datastore name to verify.")],
+    ns: Annotated[
+        str | None, Field(description="Namespace path to scope verification to; omit for the root namespace."),
+    ] = None,
+    backup_type: Annotated[str | None, Field(description="Backup type filter: 'vm', 'ct', or 'host'.")] = None,
+    backup_id: Annotated[
+        str | None, Field(description="Backup group ID (e.g. VMID/CTID or host name) to scope verification to."),
+    ] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
+) -> dict:
     """MUTATION: start an integrity verification run on a PBS datastore. Dry-run by default —
     non-destructive (read-only check) but heavy I/O. confirm=True to execute. Async — UPID."""
     _, pbs = _proximo_server._pbs()
@@ -291,11 +338,27 @@ def pbs_verify_start(store: str, ns: str | None = None, backup_type: str | None 
 
 
 @tool()
-def pbs_prune(store: str, keep_last: int | None = None, keep_daily: int | None = None,
-              keep_weekly: int | None = None, keep_monthly: int | None = None,
-              keep_yearly: int | None = None, ns: str | None = None,
-              backup_type: str | None = None, backup_id: str | None = None,
-              dry_run: bool = True, confirm: bool = False) -> dict:
+def pbs_prune(
+    store: Annotated[str, Field(description="PBS datastore name to prune.")],
+    keep_last: Annotated[int | None, Field(description="Number of most-recent backups to always keep.")] = None,
+    keep_daily: Annotated[int | None, Field(description="Number of daily backups to keep.")] = None,
+    keep_weekly: Annotated[int | None, Field(description="Number of weekly backups to keep.")] = None,
+    keep_monthly: Annotated[int | None, Field(description="Number of monthly backups to keep.")] = None,
+    keep_yearly: Annotated[int | None, Field(description="Number of yearly backups to keep.")] = None,
+    ns: Annotated[
+        str | None, Field(description="Namespace path to scope pruning to; omit for the root namespace."),
+    ] = None,
+    backup_type: Annotated[str | None, Field(description="Backup type filter: 'vm', 'ct', or 'host'.")] = None,
+    backup_id: Annotated[
+        str | None, Field(description="Backup group ID (e.g. VMID/CTID or host name) to scope pruning to."),
+    ] = None,
+    dry_run: Annotated[
+        bool, Field(description="PBS-side preview: True (default) previews only; False actually deletes snapshots."),
+    ] = True,
+    confirm: Annotated[
+        bool, Field(description="Proximo dry-run gate: True executes (subject to dry_run); default only plans."),
+    ] = False,
+) -> dict:
     """MUTATION: prune backup snapshots per a retention policy. TWO safety gates: confirm
     (Proximo dry-run vs execute) AND dry_run (PBS-side preview). dry_run=True (default) only
     previews; dry_run=False DELETES recovery points (PLAN is HIGH, no undo). confirm=True to
@@ -317,8 +380,20 @@ def pbs_prune(store: str, keep_last: int | None = None, keep_daily: int | None =
 
 
 @tool()
-def pbs_snapshot_delete(store: str, backup_type: str, backup_id: str, backup_time: int,
-                        ns: str | None = None, confirm: bool = False) -> dict:
+def pbs_snapshot_delete(
+    store: Annotated[str, Field(description="PBS datastore name.")],
+    backup_type: Annotated[str, Field(description="Backup type of the snapshot: 'vm', 'ct', or 'host'.")],
+    backup_id: Annotated[str, Field(description="Backup group ID (e.g. VMID/CTID or host name).")],
+    backup_time: Annotated[
+        int, Field(description="Snapshot timestamp as a Unix epoch integer, identifying the exact backup run."),
+    ],
+    ns: Annotated[
+        str | None, Field(description="Namespace path the snapshot lives in; omit for the root namespace."),
+    ] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
+) -> dict:
     """MUTATION (HIGH): delete a specific backup snapshot (a recovery point) from a PBS
     datastore. Dry-run by default. Permanent — no undo. confirm=True to execute. Synchronous."""
     _, pbs = _proximo_server._pbs()
@@ -333,8 +408,16 @@ def pbs_snapshot_delete(store: str, backup_type: str, backup_id: str, backup_tim
 
 
 @tool()
-def pbs_namespace_create(store: str, name: str, parent: str | None = None,
-                         confirm: bool = False) -> dict:
+def pbs_namespace_create(
+    store: Annotated[str, Field(description="PBS datastore name.")],
+    name: Annotated[str, Field(description="Namespace name/segment to create.")],
+    parent: Annotated[
+        str | None, Field(description="Parent namespace path to create under; omit for the root namespace."),
+    ] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
+) -> dict:
     """MUTATION: create a namespace within a PBS datastore. Dry-run by default (additive, LOW).
     confirm=True to execute. Synchronous."""
     _, pbs = _proximo_server._pbs()
@@ -349,8 +432,16 @@ def pbs_namespace_create(store: str, name: str, parent: str | None = None,
 
 
 @tool()
-def pbs_namespace_delete(store: str, ns: str, delete_groups: bool = False,
-                         confirm: bool = False) -> dict:
+def pbs_namespace_delete(
+    store: Annotated[str, Field(description="PBS datastore name.")],
+    ns: Annotated[str, Field(description="Namespace path to delete.")],
+    delete_groups: Annotated[
+        bool, Field(description="If True, deletes groups/snapshots in namespace (HIGH, no undo); else must be empty."),
+    ] = False,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
+) -> dict:
     """MUTATION: delete a namespace from a PBS datastore. Dry-run by default — delete_groups=True
     is HIGH (it deletes all backup groups/snapshots inside the namespace, no undo). confirm=True
     to execute. Synchronous."""
@@ -369,13 +460,21 @@ def pbs_namespace_delete(store: str, ns: str, delete_groups: bool = False,
 
 @tool()
 def pbs_datastore_create(
-    name: str,
-    path: str,
-    gc_schedule: str | None = None,
-    prune_schedule: str | None = None,
-    notification_mode: str | None = None,
-    comment: str | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new PBS datastore.")],
+    path: Annotated[str, Field(description="Filesystem path on the PBS node where the datastore will be created.")],
+    gc_schedule: Annotated[
+        str | None, Field(description="Garbage-collection schedule as a PBS calendar-event string (e.g. 'daily')."),
+    ] = None,
+    prune_schedule: Annotated[
+        str | None, Field(description="Prune-job schedule as a PBS calendar-event string (e.g. 'daily')."),
+    ] = None,
+    notification_mode: Annotated[
+        str | None, Field(description="Notification delivery mode for this datastore (PBS notification-mode value)."),
+    ] = None,
+    comment: Annotated[str | None, Field(description="Free-text comment/description for the datastore.")] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION (MEDIUM): create a new PBS datastore at the given path.
 
@@ -405,12 +504,20 @@ def pbs_datastore_create(
 
 @tool()
 def pbs_datastore_update(
-    name: str,
-    gc_schedule: str | None = None,
-    prune_schedule: str | None = None,
-    notification_mode: str | None = None,
-    comment: str | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="PBS datastore name to update.")],
+    gc_schedule: Annotated[
+        str | None, Field(description="Garbage-collection schedule as a PBS calendar-event string (e.g. 'daily')."),
+    ] = None,
+    prune_schedule: Annotated[
+        str | None, Field(description="Prune-job schedule as a PBS calendar-event string (e.g. 'daily')."),
+    ] = None,
+    notification_mode: Annotated[
+        str | None, Field(description="Notification delivery mode for this datastore (PBS notification-mode value)."),
+    ] = None,
+    comment: Annotated[str | None, Field(description="Free-text comment/description for the datastore.")] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update PBS datastore configuration. Dry-run by default.
 
@@ -440,10 +547,16 @@ def pbs_datastore_update(
 
 @tool()
 def pbs_datastore_delete(
-    name: str,
-    destroy_data: bool = False,
-    keep_job_configs: bool = False,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="PBS datastore name to delete.")],
+    destroy_data: Annotated[
+        bool, Field(description="If True, destroys all backup data (HIGH, no undo); default only detaches config."),
+    ] = False,
+    keep_job_configs: Annotated[
+        bool, Field(description="If True, keep job configs referencing this datastore instead of removing them."),
+    ] = False,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION: delete a PBS datastore. Dry-run by default. RISK IS CONDITIONAL:
 
@@ -473,13 +586,21 @@ def pbs_datastore_delete(
 
 @tool()
 def pbs_snapshot_protected_set(
-    store: str,
-    backup_type: str,
-    backup_id: str,
-    backup_time: int,
-    protected: bool,
-    ns: str | None = None,
-    confirm: bool = False,
+    store: Annotated[str, Field(description="PBS datastore name.")],
+    backup_type: Annotated[str, Field(description="Backup type of the snapshot: 'vm', 'ct', or 'host'.")],
+    backup_id: Annotated[str, Field(description="Backup group ID (e.g. VMID/CTID or host name).")],
+    backup_time: Annotated[
+        int, Field(description="Snapshot timestamp as a Unix epoch integer, identifying the exact backup run."),
+    ],
+    protected: Annotated[
+        bool, Field(description="True shields the snapshot from pruning/GC (LOW); False allows auto-deletion (HIGH)."),
+    ],
+    ns: Annotated[
+        str | None, Field(description="Namespace path the snapshot lives in; omit for the root namespace."),
+    ] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION: set or clear the protected flag on a PBS snapshot. RISK IS CONDITIONAL:
 
@@ -507,13 +628,21 @@ def pbs_snapshot_protected_set(
 
 @tool()
 def pbs_snapshot_notes_set(
-    store: str,
-    backup_type: str,
-    backup_id: str,
-    backup_time: int,
-    notes: str,
-    ns: str | None = None,
-    confirm: bool = False,
+    store: Annotated[str, Field(description="PBS datastore name.")],
+    backup_type: Annotated[str, Field(description="Backup type of the snapshot: 'vm', 'ct', or 'host'.")],
+    backup_id: Annotated[str, Field(description="Backup group ID (e.g. VMID/CTID or host name).")],
+    backup_time: Annotated[
+        int, Field(description="Snapshot timestamp as a Unix epoch integer, identifying the exact backup run."),
+    ],
+    notes: Annotated[
+        str, Field(description="Free-text notes to attach to the snapshot, replacing any existing notes."),
+    ],
+    ns: Annotated[
+        str | None, Field(description="Namespace path the snapshot lives in; omit for the root namespace."),
+    ] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION (LOW): annotate a PBS snapshot with notes. Dry-run by default.
 
@@ -539,12 +668,18 @@ def pbs_snapshot_notes_set(
 
 @tool()
 def pbs_group_change_owner(
-    store: str,
-    backup_type: str,
-    backup_id: str,
-    new_owner: str,
-    ns: str | None = None,
-    confirm: bool = False,
+    store: Annotated[str, Field(description="PBS datastore name.")],
+    backup_type: Annotated[str, Field(description="Backup type of the group: 'vm', 'ct', or 'host'.")],
+    backup_id: Annotated[str, Field(description="Backup group ID (e.g. VMID/CTID or host name).")],
+    new_owner: Annotated[
+        str, Field(description="PBS auth ID (user@realm or api-token) to become the new owner of the backup group."),
+    ],
+    ns: Annotated[
+        str | None, Field(description="Namespace path the backup group lives in; omit for the root namespace."),
+    ] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION (MEDIUM): reassign the owner of a PBS backup group. Dry-run by default.
 
@@ -570,14 +705,24 @@ def pbs_group_change_owner(
 
 @tool()
 def pbs_remote_create(
-    name: str,
-    host: str,
-    auth_id: str,
-    password: str,
-    fingerprint: str | None = None,
-    port: int | None = None,
-    comment: str | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Name for the new PBS remote sync-source.")],
+    host: Annotated[str, Field(description="Hostname or IP address of the remote PBS server.")],
+    auth_id: Annotated[
+        str, Field(description="PBS auth ID (user@realm or api-token) used to authenticate to the remote."),
+    ],
+    password: Annotated[
+        str, Field(description="Password or API token secret for auth_id; redacted from all plans/logs/ledger."),
+    ],
+    fingerprint: Annotated[
+        str | None, Field(description="TLS cert fingerprint of the remote PBS server (public data, not redacted)."),
+    ] = None,
+    port: Annotated[
+        int | None, Field(description="TCP port of the remote PBS API; defaults to the standard PBS port if omitted."),
+    ] = None,
+    comment: Annotated[str | None, Field(description="Free-text comment/description for the remote.")] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION (MEDIUM): create a PBS remote sync-source. Dry-run by default.
 
@@ -614,14 +759,22 @@ def pbs_remote_create(
 
 @tool()
 def pbs_remote_update(
-    name: str,
-    host: str | None = None,
-    auth_id: str | None = None,
-    password: str | None = None,
-    fingerprint: str | None = None,
-    port: int | None = None,
-    comment: str | None = None,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="PBS remote sync-source name to update.")],
+    host: Annotated[str | None, Field(description="New hostname or IP address of the remote PBS server.")] = None,
+    auth_id: Annotated[
+        str | None, Field(description="New PBS auth ID (user@realm or api-token) used to authenticate to the remote."),
+    ] = None,
+    password: Annotated[
+        str | None, Field(description="New password or API token secret; redacted from plans/logs/ledger."),
+    ] = None,
+    fingerprint: Annotated[
+        str | None, Field(description="New TLS cert fingerprint of the remote PBS server (public data, not redacted)."),
+    ] = None,
+    port: Annotated[int | None, Field(description="New TCP port of the remote PBS API.")] = None,
+    comment: Annotated[str | None, Field(description="New free-text comment/description for the remote.")] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update an existing PBS remote. Dry-run by default.
 
@@ -661,8 +814,10 @@ def pbs_remote_update(
 
 @tool()
 def pbs_remote_delete(
-    name: str,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="PBS remote sync-source name to delete.")],
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION (MEDIUM): remove a PBS remote and its stored credentials. Dry-run by default.
 
@@ -686,15 +841,21 @@ def pbs_remote_delete(
 
 @tool()
 def pbs_traffic_control_upsert(
-    name: str,
-    rate_in: int | None = None,
-    rate_out: int | None = None,
-    network: str | None = None,
-    burst_in: int | None = None,
-    burst_out: int | None = None,
-    timeframe: str | None = None,
-    comment: str | None = None,
-    confirm: bool = False,
+    name: Annotated[
+        str, Field(description="Traffic-control rule name; creates it if new, updates it if it already exists."),
+    ],
+    rate_in: Annotated[int | None, Field(description="Sustained inbound bandwidth limit in bytes/second.")] = None,
+    rate_out: Annotated[int | None, Field(description="Sustained outbound bandwidth limit in bytes/second.")] = None,
+    network: Annotated[str | None, Field(description="Network/CIDR this rule applies to.")] = None,
+    burst_in: Annotated[int | None, Field(description="Inbound burst bandwidth allowance in bytes.")] = None,
+    burst_out: Annotated[int | None, Field(description="Outbound burst bandwidth allowance in bytes.")] = None,
+    timeframe: Annotated[
+        str | None, Field(description="Time window this rule is active (PBS traffic-control timeframe format)."),
+    ] = None,
+    comment: Annotated[str | None, Field(description="Free-text comment/description for the rule.")] = None,
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION: create or update a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
 
@@ -727,8 +888,10 @@ def pbs_traffic_control_upsert(
 
 @tool()
 def pbs_traffic_control_delete(
-    name: str,
-    confirm: bool = False,
+    name: Annotated[str, Field(description="Traffic-control rule name to delete.")],
+    confirm: Annotated[
+        bool, Field(description="Set True to execute; False (default) only returns the dry-run plan."),
+    ] = False,
 ) -> dict:
     """MUTATION (LOW): remove a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
 

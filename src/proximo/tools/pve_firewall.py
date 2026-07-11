@@ -338,7 +338,7 @@ def pve_firewall_alias_update(
     cidr: Annotated[str | None, Field(description="New IP address/CIDR the alias should resolve to; omit to leave unchanged.")] = None,
     comment: Annotated[str | None, Field(description="New free-text comment; omit to leave unchanged.")] = None,
     rename: Annotated[str | None, Field(description="New name to rename the alias to; omit to keep the current name.")] = None,
-    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the alias changed since.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest forwarded to PVE to abort if the alias changed; this tool's PLAN does not surface a digest to copy (only the rule tools do).")] = None,
     confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: update a firewall alias. Dry-run by default — the PLAN shows the current alias and
@@ -366,7 +366,7 @@ def pve_firewall_alias_delete(
     node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
     vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
     kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
-    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the alias changed since.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest forwarded to PVE to abort if the alias changed; this tool's PLAN does not surface a digest to copy (only the rule tools do).")] = None,
     confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: delete a firewall alias. Dry-run by default — the PLAN shows the current alias.
@@ -477,7 +477,7 @@ def pve_firewall_ipset_entry_remove(
     node: Annotated[str | None, Field(description="Node name, required for scope='guest'.")] = None,
     vmid: Annotated[str | None, Field(description="Guest VMID/CTID, required for scope='guest'.")] = None,
     kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
-    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the set changed since.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest forwarded to PVE to abort if the set changed; this tool's PLAN does not surface a digest to copy (only the rule tools do).")] = None,
     confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: remove an IP/Network entry from an IP set. Dry-run by default — the PLAN shows the
@@ -550,7 +550,7 @@ def pve_firewall_options_set(
     kind: Annotated[str | None, Field(description="Guest kind for scope='guest': 'qemu' or 'lxc'.")] = None,
     options: Annotated[dict | None, Field(description="Key-value bag of firewall options to set, e.g. policy_in, policy_out, log_ratelimit, enable, ebtables.")] = None,
     delete: Annotated[list[str] | None, Field(description="List of option keys to unset/remove.")] = None,
-    digest: Annotated[str | None, Field(description="Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the options changed since.")] = None,
+    digest: Annotated[str | None, Field(description="Optimistic-lock digest forwarded to PVE to abort if the options changed; this tool's PLAN does not surface a digest to copy (only the rule tools do).")] = None,
     confirm: Annotated[bool, Field(description="Set True to execute the mutation; False (default) only returns a dry-run PLAN.")] = False,
 ) -> dict:
     """MUTATION: set firewall options for a scope (policy_in/out, log levels, ebtables, log_ratelimit,

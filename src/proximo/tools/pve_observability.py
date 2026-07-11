@@ -118,7 +118,7 @@ def pve_node_rrddata(
 @tool()
 def pve_node_journal(
     node: Annotated[str | None, Field(description="PVE node name; defaults to the configured node")] = None,
-    lastentries: Annotated[int, Field(description="Number of most-recent journal lines to return, capped at 5000")] = 100,
+    lastentries: Annotated[int, Field(description="Number of most-recent journal lines to return, max 5000 (values above are rejected)")] = 100,
     since: Annotated[str | None, Field(description="Only return entries at or after this timestamp (journalctl-compatible format)")] = None,
     until: Annotated[str | None, Field(description="Only return entries at or before this timestamp (journalctl-compatible format)")] = None,
 ) -> list[str]:
@@ -136,7 +136,7 @@ def pve_node_journal(
 @tool()
 def pve_node_syslog(
     node: Annotated[str | None, Field(description="PVE node name; defaults to the configured node")] = None,
-    limit: Annotated[int, Field(description="Maximum number of syslog entries to return, capped at 5000")] = 100,
+    limit: Annotated[int, Field(description="Maximum number of syslog entries to return, max 5000 (values above are rejected)")] = 100,
 ) -> list[dict]:
     """READ-ONLY: fetch syslog entries from a PVE node for log inspection.
 

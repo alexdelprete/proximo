@@ -563,7 +563,8 @@ def plan_pbs_job_run(job_type: str, job_id: str) -> Plan:
         risk=risk,
         risk_reasons=[reason],
         note=(
-            "Async — returns a UPID. Use pve_task_wait to poll completion. "
+            "Async — returns a UPID. Use pbs_tasks_list to track completion "
+            "(a PBS UPID cannot be polled by pve_task_wait/pve_task_status). "
             "Prune runs delete snapshots per the configured retention policy — not undoable."
         ),
     )
@@ -594,6 +595,7 @@ def plan_pbs_realm_sync(realm: str, **kw) -> Plan:
         ),
         note=(
             "Smoke-confirm: exact body params (remove-vanished, dry-run, scope) against a live PBS. "
-            "Async — returns a UPID. Use pve_task_wait to poll completion."
+            "Async — returns a UPID. Use pbs_tasks_list to track completion "
+            "(a PBS UPID cannot be polled by pve_task_wait/pve_task_status)."
         ),
     )

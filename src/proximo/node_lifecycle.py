@@ -9,7 +9,7 @@ Endpoints (all under /nodes/{node}/...):
     PUT    /disks/wipedisk               — pve_node_disk_wipe          (MUTATION, HIGH, no undo)
     POST   /disks/initgpt                — pve_node_disk_initgpt       (MUTATION, HIGH)
     GET    /disks/{backend}              — pve_node_storage_backend_list (read)
-    POST   /disks/{backend}              — pve_node_storage_backend_create (MUTATION, MEDIUM/HIGH)
+    POST   /disks/{backend}              — pve_node_storage_backend_create (MUTATION, HIGH)
     DELETE /disks/{backend}/{name}       — pve_node_storage_backend_delete (MUTATION, HIGH, no undo)
 
   Node config:

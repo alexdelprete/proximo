@@ -127,7 +127,7 @@ def pve_node_disk_initgpt(
 def pve_node_storage_backend_list(
     backend: Annotated[str, Field(description="Storage backend type to list: one of lvm, lvmthin, zfs, directory.")],
     node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
-) -> list:
+) -> list | dict:
     """READ-ONLY: list storage backends of a type on a PVE node.
 
     backend ∈ {lvm, lvmthin, zfs, directory}. GET /nodes/{node}/disks/{backend}.

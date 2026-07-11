@@ -29,7 +29,8 @@ _VALID_KINDS = frozenset({"lxc", "qemu"})
 
 # QEMU agent command allow-lists: CLOSED sets — no arbitrary string goes into the URL path.
 # These are the canonical sets; qemu_agent.py imports them so validators stay in sync.
-# Smoke-confirm: command names match PVE docs but endpoint shapes are NOT live-verified.
+# Command names match PVE docs; the GET/POST dispatch is VERIFIED live (PVE 9.2, see below),
+# though the guest-agent JSON each read command returns is guest-dependent (not a fixed shape).
 _VALID_AGENT_INFO_CMDS = frozenset({
     "ping", "info", "get-fsinfo", "get-host-name", "get-osinfo", "get-time",
     "get-timezone", "get-users", "get-vcpus", "network-get-interfaces",

@@ -280,7 +280,7 @@ def pve_ha_rule_delete(
 @tool()
 def pve_tasks_list(
     node: Annotated[str | None, Field(description="Node to list tasks from; defaults to the configured node.")] = None,
-    limit: Annotated[int, Field(description="Max number of most-recent tasks to return, clamped to 1-1000.")] = 50,
+    limit: Annotated[int, Field(description="Max number of most-recent tasks to return, max 1000 (0 or negative is rejected).")] = 50,
     errors: Annotated[bool, Field(description="If True, only return tasks that ended in error.")] = False,
     vmid: Annotated[str | None, Field(description="Optional VMID/CTID to filter tasks to a single guest.")] = None,
     typefilter: Annotated[str | None, Field(description="Optional task-type filter, e.g. 'vzdump', 'qmigrate' (PVE task type string).")] = None,

@@ -1216,8 +1216,8 @@ def plan_traffic_control_upsert(
 def plan_traffic_control_delete(name: str) -> Plan:
     """Preview deleting a PBS traffic-control rule.  PURE — no API call.
 
-    RISK_LOW: removes a bandwidth limit — backups run unthrottled on the affected network
-    after deletion.
+    RISK_MEDIUM: removes a bandwidth limit — backups run unthrottled on the affected network
+    after deletion (network saturation is possible).
     No rollback primitive: re-create with pbs_traffic_control_upsert to restore limits.
     Smoke-confirm: DELETE /config/traffic-control/{name} endpoint + response shape.
     """

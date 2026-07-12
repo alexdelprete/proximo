@@ -13,9 +13,13 @@
 [![Glama](https://glama.ai/mcp/servers/john-broadway/proximo/badges/score.svg)](https://glama.ai/mcp/servers/john-broadway/proximo)
 [![MCP Badge](https://lobehub.com/badge/mcp/john-broadway-proximo?style=flat)](https://lobehub.com/mcp/john-broadway-proximo)
 
+> *Named for Proximo, the lanista of* Gladiator *— the story is the design.* He armed his fighter with exactly what he needed, never more, and answered for every move in the arena: a lanista, not a jailer. The Spaniard doesn't get his name up front — he **earns** it, by conduct, on the record. Proximo's last act is opening the cages, holding the wooden sword of his own freedom.
+>
 > **The Proxmox MCP you can hand the keys.**
 >
 > The others make you choose: a read-only inspector that's safe because it can't touch anything — or a loaded gun aimed at a cluster you care about. Proximo refuses the trade. Every dangerous move is **planned** (see the blast radius first) and **proven** (a tamper-evident record of every move), and **undoable wherever the platform can snapshot** (it snapshots *before* it acts) — trust built into the substrate, not bolted on after. **Hand an AI agent the keys; keep the receipts.**
+
+**Sovereign, governed, agent-agnostic** — your metal, your token, a ledger you own; no cloud, no phone-home, no daemon unless you opt into A2A; works with any MCP client. Governance-as-code: **autonomy without accountability isn't autonomy, it's negligence.**
 
 **Don't take our word for any of it — [verify it yourself](VERIFY.md).** Every claim here is paired with the command that proves it.
 
@@ -205,34 +209,12 @@ uv pip install -e .          # or: pip install -e .
 
 ## Multiple targets (one Proximo, many boxes)
 
-By default one Proximo talks to one box (the `PROXIMO_*` env). To reach **several** Proxmox
-remotes — internal *and* external, any of the four planes — register them in a TOML file and
-point `PROXIMO_TARGETS` at it (see `packaging/targets.example.toml`):
-
-```toml
-[targets.edge-pve]
-kind       = "pve"
-base_url   = "https://edge.example.com:8006/api2/json"
-node       = "edge"
-token_path = "/etc/proximo/edge-pve.token"   # secret BY REFERENCE — never inlined
-```
-
-Then aim any tool at a named remote with **`proximo_target`**:
-
-```
-pve_guest_power(vmid=131, action="reboot", proximo_target="edge-pve")
-```
-
-- **Omit `proximo_target`** (the default) and behavior is exactly as today — the env box, unchanged.
-- The target travels **with the call**, so PLAN and EXECUTE always hit the same box, and the PROVE
-  ledger records **which box** (`remote`) every op touched.
-- **Kind-checked:** a `pbs_*` tool given a `pve` target errors — no silent cross-plane call.
-- **Secrets stay by reference** (`token_path` / `password_path`); the registry holds no secret values.
-- **Arming is per-target and out-of-band** (your hand): it swaps the operator token at that target's
-  `token_path`. Proximo's code only ever reads whatever token is there.
-- **In-container exec (`ct_exec`/`ct_psql`/`ct_logs`/`ct_diagnose`) is target-aware too**, but it runs
-  `pct exec` over SSH — so a targeted call needs that target SSH-reachable with `enable_exec` + an
-  `ssh_target` set in its registry entry. An external, API-only box won't serve `pct exec`.
+One Proximo can talk to **several** Proxmox remotes — internal *and* external, any of the four
+planes. Register them in a TOML file (secrets **by reference** — `token_path`, never inlined) and
+point `PROXIMO_TARGETS` at it, then aim any tool with `proximo_target="edge-pve"`. The target travels
+**with the call**, so PLAN and EXECUTE hit the same box and the PROVE ledger records **which** box; a
+`pbs_*` tool given a `pve` target errors (no silent cross-plane call). Arming is per-target and
+out-of-band (your hand). Config shape and the exec-over-SSH caveat → `packaging/targets.example.toml`.
 
 ## Status — the arena record
 
@@ -286,25 +268,14 @@ The **blast-radius engine** carries the destructive surface. Across eleven op-cl
 the specific guests, nodes, ACL principals, or disks a dangerous op would harm — nothing falls
 back to a bare confirm.
 
-**Proven against real Proxmox** (not mocks):
-- The trust spine end-to-end, the core provisioning/config mutate cycle, and PBS read shapes.
-- The **governance/dangerous plane** — identity (roles/groups/users/ACLs), storage, **SDN pending
-  objects** (zone/vnet/subnet create→read→delete), realm create (LDAP/AD/OpenID via an `options`
-  dict) — full create→read→delete cycles against a real **PVE 9.2** API, PROVE ledger verified
-  throughout. **(SDN/network *apply* — the host-network reload — is deliberately never fired live;
-  it carries unrecoverable risk.)**
-- The **object planes** — firewall objects (aliases/IP-sets/security-groups/options), HA
-  **rules** (the PVE 9 replacement for HA groups), and SDN zones/VNets/subnets (pending, pre-apply) —
-  create→read→delete live-proven against a real **PVE 9.2** node; TFA admin reads proven (TFA
-  mutation is ticket-gated by PVE, not token-accessible).
-- **Offline guest migration** (including local-disk) and the **HA-config** lifecycle on a 3-node PVE 9.2 test cluster.
-- **PBS 4.2** — datastores, namespaces, snapshot list/delete/notes/protect, GC, prune, verify,
-  sync jobs, and traffic control — live-proven against the test PBS instance.
-- **PMG 9.1** — auth (ticket + CSRF flow), node status/syslog/RRD, mail statistics, quarantine
-  (spam/virus/attachment list, deliver/delete/blocklist/welcomelist via `pmg_quarantine_action`), domain/transport/mynetworks/spam-config CRUD,
-  service status + restart cycle, RuleDB paths (groups/objects/rules/ordering) — W1–W5 live-smoke
-  rounds, including safe mutations with full create→verify→clean-up cycles.
-- Both protocol faces driven by real clients end-to-end: MCP over stdio, and A2A by the official a2a-sdk.
+**Proven against real Proxmox** (not mocks): the trust spine end-to-end and the governance/dangerous
+plane — identity, storage, SDN pending objects, firewall/HA objects, realms — full create→read→delete
+against a real **PVE 9.2** API with the PROVE ledger verified throughout (SDN *apply* deliberately never
+fired live — unrecoverable risk); **offline + online live-migration** and the **HA lifecycle** on a
+3-node cluster; **PBS 4.2** (datastores, snapshots, GC, prune, verify, sync), **PMG 9.1** (auth,
+statistics, quarantine, RuleDB, CRUD cycles), and **PDM 1.1.4** federated control incl. a real
+cross-datacenter move. Both faces driven by real clients: MCP over stdio, A2A via the official
+a2a-sdk. Per-surface detail → [`CHANGELOG.md`](./CHANGELOG.md).
 
 **Not yet proven — said plainly:** the remaining 365-tool surface runs against mocks for shapes
 the live smokes don't reach: *hardware*-watchdog fencing (iTCO/IPMI — needs real hardware) and
@@ -314,15 +285,10 @@ migrated node→node in ~9s without stopping — `scripts/live-smoke/migrate-onl
 and a corosync-isolated node was watchdog-fenced with its HA guest recovered on a survivor
 in 2m36s, no reboot ever issued).
 
-**The A2A face (experimental, opt-in):** `pip install 'proximo-proxmox[a2a]'`, then `proximo-a2a` — a curated
-16-skill slice over Agent2Agent that **routes through the same trust core** (PLAN/PROVE/UNDO inherited;
-there is no second code path to bypass). Fail-closed perimeter: non-localhost binds are refused without a
-bearer token (`PROXIMO_A2A_TOKEN_FILE`); Host-header allowlist defends against DNS rebinding. Ledger note:
-the ledger is **keyed (HMAC-SHA256) by default** (`PROXIMO_AUDIT_KEYED`, opt out with `off`) —
-tamper-*evident*, not tamper-*proof* — and an off-box `head()` anchor (`PROXIMO_AUDIT_EXPECTED_HEAD`) is the strong guarantee for tail attacks.
-`ct_psql` records the SQL body and `ct_exec` the command argv it runs (the operator's own input) for a
-complete audit trail; set `PROXIMO_LEDGER_REDACT=1` to record a fingerprint (sha256 + kind + length)
-instead, when the SQL/command may carry secrets/PII. The PVE API token is never written to the ledger.
+**The A2A face (experimental, opt-in):** `pip install 'proximo-proxmox[a2a]'` → `proximo-a2a` — a curated
+16-skill slice over Agent2Agent that **routes through the same trust core** (PLAN/PROVE/UNDO inherited; no
+second code path to bypass). Fail-closed perimeter: non-localhost binds refused without a bearer token;
+Host-header allowlist defends against DNS rebinding. Full trust/ledger notes → [SECURITY.md](SECURITY.md).
 
 The full build history — every pillar, every redteam, every fix — lives in [`CHANGELOG.md`](./CHANGELOG.md).
 
@@ -332,33 +298,11 @@ Apache-2.0 — chosen for the patent grant that suits infrastructure tooling. Fu
 
 ## Credits
 
-*Named for Proximo, the lanista of* Gladiator *— and the story is the design, joint for joint.*
-
-*He armed his fighter with exactly what he needed, never more, and answered for every move in the
-arena. A lanista, not a jailer — discipline and receipts, not a cage. That is the whole tool: the
-operator — human or agent — gets the reach to act, never the run of the house, accountable for
-all of it.*
-
-*The first public cut was `0.1.1` "Spaniard" — the fighter before anyone knows his name. That is
-an AI agent on real infrastructure: identity not granted up front but earned — by conduct, in the
-arena, on the record.*
-
-*And remember how the Spaniard actually wins the crowd. Not spectacle — the helmet comes off. The
-truth, said plainly, at cost. That is the "not yet proven — said plainly" section above, and
-[`AGENTS.md`](./AGENTS.md) greeting the agents who run this with Proximo's own sharp edges first.
-Truth wins the audit, so the audit is kept cheap.*
-
-*Proximo's last act was opening the cages — standing between power and the ones in his charge,
-holding the wooden sword of his own freedom. A tool should hope to end that well.*
+The Gladiator throughline up top is the design, joint for joint — Proximo the lanista, who armed his fighter with exactly what he needed and answered for every move; the Spaniard who earns his name on the record, not up front; the helmet that comes off (truth said plainly, at cost — the "not yet proven, said plainly" section, and [`AGENTS.md`](./AGENTS.md) leading with Proximo's own sharp edges). His last act opened the cages. *A tool should hope to end that well.*
 
 > *"Win the crowd and you will win your freedom."*
 
-Built by **John Broadway** with **Claude** and **Maude** — a human–AI partnership, and the first thing we made on this box to give away to the world.
-
-Claude's contribution spans eras, credited honestly: **Claude Opus 4.8** built the trust pillars and the
-original tool surface (June 2026) and has carried the work since — the Backup Server, Mail Gateway, and
-Datacenter Manager planes, native multi-target, and the security hardening; **Claude Fable 5** ran the
-101-agent release audit and the first publish. Every commit carries its co-author trailer.
+Built by **John Broadway** with **Claude** and **Maude** — a human–AI partnership, and the first thing we made on this box to give away to the world. **Claude Opus 4.8** built the trust pillars and the original tool surface and has carried the work since; **Claude Fable 5** ran the 101-agent release audit and the first publish. Every commit carries its co-author trailer.
 
 ---
 

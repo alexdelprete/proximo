@@ -1,4 +1,9 @@
-# Proximo
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-wordmark-dark.svg">
+    <img alt="Proximo" src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-wordmark-light.svg" width="460">
+  </picture>
+</p>
 
 <!-- mcp-name: io.github.john-broadway/proximo-proxmox -->
 

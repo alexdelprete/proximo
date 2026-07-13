@@ -64,6 +64,13 @@ surface for phone-home (there is none), check PyPI publish provenance — is in
 ---
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-architecture-dark.svg">
+    <img alt="Proximo architecture: MCP, A2A, and HTTP/OpenAPI clients all enter one governed dispatch, pass the trust spine (PLAN, PROVE, UNDO, DIAGNOSE), sit on the Proxmox-enforced token floor, and reach four products — PVE, PBS, PMG, PDM" src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-architecture-light.svg" width="860">
+  </picture>
+</p>
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/demo/demo.svg" alt="Proximo demo: doctor preflight, a destructive delete returning a PLAN with blast radius instead of acting, and the tamper-evident audit ledger verifying clean" width="860">
 </p>
 
@@ -168,13 +175,6 @@ Those backends are deliberately boring — anyone can call them. **The product i
 Every tool, grouped by surface, with typed inputs: [`docs/TOOLS.md`](docs/TOOLS.md).
 
 ## The trust layer — what makes Proximo different
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-architecture-dark.svg">
-    <img alt="Proximo architecture: MCP, A2A, and HTTP/OpenAPI clients all enter one governed dispatch, pass the trust spine (PLAN, PROVE, UNDO, DIAGNOSE), sit on the Proxmox-enforced token floor, and reach four products — PVE, PBS, PMG, PDM" src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-architecture-light.svg" width="860">
-  </picture>
-</p>
 
 Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the **trust layer for AI-driven infrastructure** — four controls on by default, plus additional controls you opt into:
 

@@ -40,6 +40,23 @@ def test_leak_inside_a_stripped_file_is_not_reported():
     assert res.findings == []
 
 
+def test_design_docs_are_stripped_from_public_tree():
+    # docs/plans/ + docs/specs/ are our engineering design docs — internal by John's call 2026-07-13.
+    files = {
+        "docs/plans/2026-06-15-blast-radius-engine.md": "design memo",
+        "docs/specs/2026-06-15-acl-blast-radius.md": "spec",
+        "docs/plans/internal/COPY-CANON.md": "build-record",
+        "docs/TOOLS.md": "user-facing tool reference",
+        "README.md": "x",
+    }
+    res = rla.audit_files(files)
+    assert "docs/plans/2026-06-15-blast-radius-engine.md" in res.stripped
+    assert "docs/specs/2026-06-15-acl-blast-radius.md" in res.stripped
+    assert "docs/plans/internal/COPY-CANON.md" in res.stripped
+    assert "docs/TOOLS.md" in res.kept  # user-facing docs still publish
+    assert "README.md" in res.kept
+
+
 def test_claude_md_is_stripped_from_public_tree():
     # CLAUDE.md carries internal dev-memory — it must never reach the public mirror.
     files = {"CLAUDE.md": "internal dev-memory", "README.md": "x", "src/proximo/server.py": "y"}

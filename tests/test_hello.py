@@ -9,6 +9,8 @@ invitation that costs nothing.
 import inspect
 from pathlib import Path
 
+import pytest
+
 import proximo.hello as hello_mod
 from proximo.hello import (
     ANON_HELLO_URL,
@@ -147,6 +149,8 @@ def test_agents_md_carries_the_anonymous_front_door_too():
 def test_flip_runbook_creates_the_title_sign_looks_up():
     # --sign resolves the Discussion BY TITLE; the runbook must create that exact title.
     runbook = (_REPO / "docs" / "plans" / "2026-07-06-open-door-flip-runbook.md")
+    if not runbook.exists():
+        pytest.skip("docs/plans is internal-only (not on the public tree) — drift-checked internally")
     assert GUESTBOOK_TITLE in runbook.read_text(encoding="utf-8")
 
 

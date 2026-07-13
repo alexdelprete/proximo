@@ -1,3 +1,18 @@
+proximo (0.21.0-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.21.0 (minor — the HTTP/OpenAPI face: a third transport beside MCP
+    and A2A. Adds the optional [http] extra and the proximo-http command, serving the
+    full 365-tool governed surface as plain HTTP + a generated /openapi.json for no-code /
+    dashboard clients. It's a third transport over one shared dispatch chokepoint and
+    fail-closed perimeter (A2A refactored onto the same shared surface too — widened from
+    its old 16-skill slice to the full surface), so the guard can't drift. A same-day redteam found and fixed a loopback-CSRF hole and an audit gap
+    before ship; config also now refuses a group/other-readable token or audit-key file.
+    No tool-count change (still 365). New console script proximo-http and a new [http]
+    extra; the base wheel is otherwise unchanged (same dh-virtualenv build, man page, and
+    autopkgtest). Not distributed; build-your-own from debian/.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Mon, 13 Jul 2026 13:30:00 +0000
+
 proximo (0.20.0-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.20.0 (minor — the receipts release: every safety claim is now

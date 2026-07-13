@@ -192,6 +192,7 @@ The moment the token is gone, Proximo can do nothing at all.
 |---|---|
 | **TLS / certificate error** | Your Proxmox uses a self-signed cert. Point `PROXIMO_CA_BUNDLE` at the cluster CA — don't disable verification. |
 | **401 Unauthorized** | Token secret wrong, or the file isn't exactly `user@realm!tokenid=secret` (no trailing newline). |
+| **`Refusing to start: … group/other-accessible`** | Your token (or audit-key) file is readable by other users on the box. The message names the file — `chmod 600` it, exactly as in Step 2. Proximo won't run with an exposed secret. |
 | **403 / a capability is in `cannot`** | The token lacks that privilege. Run `proximo doctor` — it prints the exact `pveum` command to grant it. If a grant doesn't take on a privsep token, some setups also want it on the user: `pveum acl modify <path> --users proximo@pve --roles <ROLE>`. |
 | **Connection refused / timeout** | Wrong host or port (the Proxmox API is `:8006`), or a firewall in the way. |
 | **`ct_exec` refused** | Exec is off by default (grants host root). It's opt-in via `PROXIMO_ENABLE_EXEC=1` + a CTID allowlist — only if you truly need it. |

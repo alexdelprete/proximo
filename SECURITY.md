@@ -33,6 +33,37 @@ Proximo's protection comes from two layers that do not fail the same way. Don't 
 Layer 1 is why Proximo is safe to hand to an agent at all. Layer 2 is what makes that
 agent *productive* — previews, receipts, budgets — without pretending it's a sandbox.
 
+## Scoping the token (the hard floor, in practice)
+
+The privilege separation you want already exists, server-side, in the product: Proxmox's
+token model. Proximo deliberately does **not** wrap it in a broker, proxy, or signer of its
+own — a local layer would sit in the same trust domain as the agent and add ceremony, not
+enforcement. Use Proxmox's model directly:
+
+1. **Start read-only.** A privilege-separated token (`--privsep 1`) carries *its own* ACL —
+   it inherits nothing from the user that owns it. Grant `PVEAuditor` at `/` and the agent
+   can see everything and change nothing, enforced by Proxmox. The click-by-click and CLI
+   versions are in [SETUP.md](SETUP.md) (Step 2); `proximo mint` prints the same runbook
+   for every plane — PVE, PBS, PMG, PDM — each with its read-only and scoped-write role.
+2. **Widen deliberately, by path.** Write access is granted where you mean it and nowhere
+   else: `pveum acl modify /vms/100 --tokens 'proximo@pve!readonly' --roles PVEVMAdmin`
+   arms exactly one VM. Never grant `Administrator` at `/` to an agent-facing token.
+3. **Two tokens, not one big one.** The strongest single-box posture: the everyday
+   `PROXIMO_TOKEN_PATH` holds the **read-only** token; a separately-scoped **write** token
+   lives in a file the agent's user cannot read, swapped into place by *you*, out-of-band,
+   when there's work to do — and swapped back (or left to the **LEASE** arm-TTL, which
+   fails closed on a missing token file). The write credential simply does not exist in
+   the agent's world between arms. This is privilege separation done with Proxmox-side
+   objects — two credentials with different server-enforced scopes — rather than with
+   local machinery pretending to be a boundary.
+4. **Verify the boundary before any AI sees it.** `proximo doctor` prints the token's
+   `can` / `cannot` lists — the grant, confirmed by Proxmox itself, in writing. When a
+   capability is missing it prints the exact `pveum` command that would grant it, so
+   widening stays a deliberate act.
+5. **Protect the file like it's the credential — it is.** `chmod 600`; Proximo refuses at
+   startup if the token or audit-key file is group/other-accessible. Revocation is instant
+   and yours: `pveum user token remove proximo@pve readonly` ends everything, mid-session.
+
 ## Supported versions
 
 Proximo is pre-1.0; security fixes land on the **latest release only**. There is no
@@ -179,8 +210,8 @@ Use GitHub's private vulnerability reporting — open a report directly at
 
 That opens a private advisory thread visible only to you and the maintainer.
 
-This is a small, independently-maintained project — expect a best-effort response, not
-a contractual SLA. Reports are acknowledged as quickly as is practical, and disclosure
+Proximo is independently maintained — expect a serious, best-effort response, not a
+contractual SLA. Reports are acknowledged as quickly as is practical, and disclosure
 is coordinated with you: a fix and an advisory go out together, with credit unless you
 ask otherwise.
 
@@ -202,12 +233,23 @@ access is broadest:
 - **The in-container exec edge.** `PROXIMO_ENABLE_EXEC=1` enables `ssh → pct exec`,
   which is near-root on the host. It's opt-in and fail-closed behind a CTID allowlist —
   any allowlist bypass, or a way to reach exec without the flag, is high severity.
-- **The A2A network face.** The optional A2A server (`proximo-a2a`) must refuse
-  non-localhost binds without a bearer token and enforce the `PROXIMO_A2A_ALLOWED_HOSTS`
-  Host/DNS-rebind allowlist. Auth bypass, header smuggling, or rebind escape are in scope.
+- **The network faces (A2A and HTTP).** The two optional network servers — `proximo-a2a`
+  (Agent2Agent) and `proximo-http` (HTTP/OpenAPI) — share one fail-closed perimeter
+  (`proximo.webguard`): both refuse non-localhost binds without a bearer token, and both
+  enforce a Host/DNS-rebind allowlist (`PROXIMO_A2A_ALLOWED_HOSTS` / `PROXIMO_HTTP_ALLOWED_HOSTS`).
+  Both serve the FULL governed tool surface through the SAME shared dispatch
+  (`proximo.governed.call_governed`) — the same `mcp.call_tool` spine path an MCP client takes,
+  so PLAN-by-default, PROVE, UNDO, the gates, and the Proxmox token scope apply identically, and
+  there is no second mutate path. The surface is scoped only by `PROXIMO_SURFACES` + the token
+  ACL, uniform for every transport. Auth bypass, header smuggling, rebind escape, a path that
+  invokes a tool bypassing `call_governed`, or a mutation that fires without the tool's own
+  confirm gate are all in scope.
 - **Secret handling.** Proximo takes its PVE token by path/env, never as a literal in a
   shell line. A path where a token, key, or other secret is logged, echoed into the
-  audit ledger, or otherwise persisted in cleartext is in scope.
+  audit ledger, or otherwise persisted in cleartext is in scope. At startup, config
+  refuses a token or audit-key file that group/other can access (`mode & 0o077`) —
+  a mis-deployed `0644` secret fails loud with the `chmod 600` fix, not silently. A way
+  to construct a config past that guard on a POSIX box is in scope.
 
 ## Honest scope notes
 

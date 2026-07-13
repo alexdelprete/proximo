@@ -465,3 +465,73 @@ def test_from_target_verify_tls_falsy_forms():
             "ca_bundle": "/etc/proximo/ca.pem", "verify_tls": falsy,
         })
         assert cfg.verify_tls is False, f"verify_tls={falsy!r} should be False"
+
+
+# --- Secret-file permission guard (refuse-if-world-readable) ---------------------------------
+# The token and the audit HMAC key are secrets referenced by path. Write-side hygiene is
+# already 0600 everywhere; this is the READ-side floor: refuse to build a config whose secret
+# file is group/other-accessible (mode & 0o077), so a mis-deployed token fails LOUD, not silent.
+
+
+def _env_triple(monkeypatch, token_path):
+    monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://x:8006/api2/json")
+    monkeypatch.setenv("PROXIMO_NODE", "pve")
+    monkeypatch.setenv("PROXIMO_TOKEN_PATH", str(token_path))
+
+
+def test_world_readable_token_refused(monkeypatch, tmp_path):
+    tok = tmp_path / "pve.token"
+    tok.write_text("user@pam!id=secret\n")
+    tok.chmod(0o644)
+    _env_triple(monkeypatch, tok)
+    with pytest.raises(RuntimeError, match="chmod 600"):
+        ProximoConfig.from_env()
+
+
+def test_group_readable_token_refused(monkeypatch, tmp_path):
+    tok = tmp_path / "pve.token"
+    tok.write_text("user@pam!id=secret\n")
+    tok.chmod(0o640)
+    _env_triple(monkeypatch, tok)
+    with pytest.raises(RuntimeError, match="chmod 600"):
+        ProximoConfig.from_env()
+
+
+def test_owner_only_token_accepted(monkeypatch, tmp_path):
+    tok = tmp_path / "pve.token"
+    tok.write_text("user@pam!id=secret\n")
+    tok.chmod(0o600)
+    _env_triple(monkeypatch, tok)
+    assert ProximoConfig.from_env().token_path == str(tok)
+
+
+def test_missing_token_file_skips_perm_guard(monkeypatch, tmp_path):
+    # A missing token file already fails loudly at call time (run-but-not-read) —
+    # the perm guard must not change that behavior by refusing at config time.
+    _env_triple(monkeypatch, tmp_path / "absent.token")
+    ProximoConfig.from_env()  # must not raise
+
+
+def test_world_readable_audit_key_refused(monkeypatch, tmp_path):
+    tok = tmp_path / "pve.token"
+    tok.write_text("user@pam!id=secret\n")
+    tok.chmod(0o600)
+    key = tmp_path / "audit.key"
+    key.write_text("hmac-key-bytes\n")
+    key.chmod(0o644)
+    _env_triple(monkeypatch, tok)
+    monkeypatch.setenv("PROXIMO_AUDIT_KEY_PATH", str(key))
+    with pytest.raises(RuntimeError, match="chmod 600"):
+        ProximoConfig.from_env()
+
+
+def test_from_target_world_readable_token_refused(tmp_path):
+    # from_target converges on _build — a registry target gets the identical guard.
+    tok = tmp_path / "edge.token"
+    tok.write_text("user@pam!id=secret\n")
+    tok.chmod(0o644)
+    with pytest.raises(RuntimeError, match="chmod 600"):
+        ProximoConfig.from_target({
+            "kind": "pve", "base_url": "https://192.0.2.20:8006/api2/json",
+            "node": "edge", "token_path": str(tok),
+        })

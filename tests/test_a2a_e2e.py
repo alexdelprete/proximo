@@ -4,7 +4,7 @@ Existing A2A tests cover the executor in isolation and the card-over-HTTP; this 
 drives the whole protocol with the OFFICIAL a2a-sdk *client* — resolve the agent card, send a real A2A
 message, read the completed task's artifact back. Uses httpx ASGITransport (in-process, no socket) for
 reliability while still exercising: client -> JSON-RPC -> Starlette routes -> DefaultRequestHandler ->
-ProximoAgentExecutor -> validate_and_build (PLAN guard) -> server.audit_verify -> artifact -> back.
+ProximoAgentExecutor -> governed.call_governed (spine) -> audit_verify tool -> artifact -> back.
 (A real-socket variant of this flow was also proven against a live uvicorn during development.)
 No live Proxmox (audit_verify reads a temp ledger).
 """
@@ -24,6 +24,7 @@ async def test_a2a_client_to_server_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setenv("PROXIMO_NODE", "e2e-node")
     tok = tmp_path / "e2e.tok"
     tok.write_text("e2e@pam!t=00000000-0000-0000-0000-000000000000")
+    tok.chmod(0o600)  # the config guard refuses group/other-readable tokens
     monkeypatch.setenv("PROXIMO_TOKEN_PATH", str(tok))
     monkeypatch.setenv("PROXIMO_VERIFY_TLS", "true")  # construct over verified TLS (H-2); no real PVE call is made here
     monkeypatch.setenv("PROXIMO_AUDIT_LOG", str(tmp_path / "e2e-audit.log"))
@@ -34,7 +35,7 @@ async def test_a2a_client_to_server_end_to_end(tmp_path, monkeypatch):
         card = await A2ACardResolver(hx, BASE).get_agent_card()
         assert card.name == "Proximo"
         assert card.version == proximo.__version__  # the card advertises Proximo's own version
-        assert len(card.skills) == 16  # the curated slice
+        assert len(card.skills) > 300  # the FULL governed surface, not a curated slice
 
         client = ClientFactory(ClientConfig(httpx_client=hx, streaming=False, polling=True)).create(card)
         req = SendMessageRequest(message=new_data_message({"skill": "audit_verify", "params": {}}))

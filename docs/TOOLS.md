@@ -1,6 +1,6 @@
 # Proximo — tool reference
 
-The complete external interface of Proximo **v0.20.0**: every MCP tool it exposes, with its inputs. This file is generated from the live server's `tools/list` output (via `lhm.plugin.json`) by [`scripts/gen_tools_doc.py`](../scripts/gen_tools_doc.py) — do not hand-edit.
+The complete external interface of Proximo **v0.21.0**: every MCP tool it exposes, with its inputs. This file is generated from the live server's `tools/list` output (via `lhm.plugin.json`) by [`scripts/gen_tools_doc.py`](../scripts/gen_tools_doc.py) — do not hand-edit.
 
 **Interface conventions.** Proximo speaks the [Model Context Protocol](https://modelcontextprotocol.io); each tool is also self-describing at runtime over the standard `tools/list` method. **Inputs** are the typed parameters listed per tool below. **Output** is a structured JSON result: read tools return the requested data; every mutating tool first returns a **PLAN** preview (the action and its blast radius) rather than acting, and each call is recorded in the tamper-evident audit ledger. Which tools are registered depends on `PROXIMO_SURFACES` and whether the opt-in exec/agent edges are enabled; this reference lists the **full** catalog.
 
@@ -44,11 +44,10 @@ Returns status="running" with pid when the poll deadline is reached before exit.
 
 READ-ONLY: read a file from inside the guest via the qemu-agent.
 
-Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-No confirm needed — read-only.  File path must be absolute.
-
-Ledger records only the file path (never the content); the returned dict carries content.
-Smoke-confirm: PVE file-read response shape is unverified.
+Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+inside the VM. No confirm needed — read-only. File path must be absolute. To write instead use
+pve_agent_file_write. Returns {"bytes-read": int, "content": str} — text round-trips exactly;
+the ledger records only the file path, never the content.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -61,13 +60,12 @@ Smoke-confirm: PVE file-read response shape is unverified.
 
 MUTATION: write a file inside the guest via the qemu-agent.
 
-Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
-Re-call with confirm=True to execute.
-
-Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-File path must be absolute.  Content is UNCONDITIONALLY redacted from the ledger.
-No undo primitive on this plane.
-Smoke-confirm: PVE file-write endpoint and content encoding are unverified.
+Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+inside the VM. Dry-run by default (returns a PLAN); confirm=True executes and returns
+{"status": "ok", "result": None}. File path must be absolute; content is UNCONDITIONALLY
+redacted from the ledger (fingerprint only). Overwrites the target file whole — irreversible,
+no undo primitive on this plane. To read a file instead use pve_agent_file_read; text content
+round-trips byte-identical, binary/encoded content is unconfirmed.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -82,12 +80,11 @@ Smoke-confirm: PVE file-write endpoint and content encoding are unverified.
 
 MUTATION: fsfreeze-freeze, fsfreeze-thaw, or fstrim inside the guest via the qemu-agent.
 
-Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
-Re-call with confirm=True to execute.
-
-Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-command: fsfreeze-freeze | fsfreeze-thaw | fstrim
-No undo primitive on this plane; always pair freeze with thaw.
+Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+inside the VM. Dry-run by default (returns a PLAN); confirm=True executes and returns
+{"status": "ok", "result": <raw qemu-agent response>}. command: fsfreeze-freeze | fsfreeze-thaw
+| fstrim — freeze stalls guest I/O until thawed, so always pair them. Irreversible; no undo
+primitive on this plane.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -101,13 +98,10 @@ No undo primitive on this plane; always pair freeze with thaw.
 
 READ-ONLY: query the qemu-agent on a guest (ping, osinfo, hostname, users, exec-status, …).
 
-Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-No confirm needed — read-only.
-
-command: one of ping, info, get-fsinfo, get-host-name, get-osinfo, get-time,
-         get-timezone, get-users, get-vcpus, network-get-interfaces,
-         get-memory-blocks, fsfreeze-status, exec-status.
-pid: required when command='exec-status' (the pid returned by pve_agent_exec).
+Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+inside the VM. No confirm needed — read-only. Returns a dict of the raw qemu-agent response
+fields for the chosen command; for command='exec-status', run pve_agent_exec first and pass its
+returned pid here to poll for completion.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -121,13 +115,11 @@ pid: required when command='exec-status' (the pid returned by pve_agent_exec).
 
 MUTATION: set a guest OS user's password via the qemu-agent.
 
-Dry-run by default: without confirm=True you get a PLAN recorded to the ledger.
-Re-call with confirm=True to execute.
-
-Requires PROXIMO_ENABLE_AGENT=1 and the VMID in PROXIMO_AGENT_ALLOWLIST.
-Password is UNCONDITIONALLY redacted from the ledger (fingerprint only — "[redacted]").
-No undo primitive on this plane.
-Smoke-confirm: PVE set-user-password endpoint and body fields are unverified.
+Requires PROXIMO_ENABLE_AGENT=1, the VMID in PROXIMO_AGENT_ALLOWLIST, and a running guest agent
+inside the VM. Dry-run by default (returns a PLAN); confirm=True executes and returns
+{"status": "ok", "result": None}. Password is UNCONDITIONALLY redacted from the ledger
+(fingerprint only — "[redacted]"). Irreversible without knowledge of the old password; no undo
+primitive on this plane.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -155,9 +147,10 @@ grants.
 
 MUTATION: grant or revoke an ACL entry (PUT /access/acl).
 
-Dry-run by default — the PLAN surfaces the critical Proxmox gotcha: a specific-path ACL
-REPLACES inherited grants (SHADOW) and revoking can RESTORE them (WIDEN). Re-call with
-confirm=True to execute. Synchronous.
+Dry-run by default (returns a PLAN) — it surfaces the critical Proxmox gotcha: a specific-path
+ACL REPLACES inherited grants (SHADOW) and revoking can RESTORE them (WIDEN). confirm=True
+executes and returns a dict; synchronous, no UPID. Use pve_acl_list to see current entries,
+pve_overbroad_grants to find over-broad ones, or pve_acl_prune to narrow/remove one.
 
 kind='user' (default), 'group', or 'token'. delete=False = grant; delete=True = revoke.
 
@@ -176,9 +169,10 @@ kind='user' (default), 'group', or 'token'. delete=False = grant; delete=True = 
 
 MUTATION: prune (remove/narrow) an over-broad ACL grant flagged by pve_overbroad_grants.
 
-Dry-run by default — the PLAN names every principal losing/gaining what, and flags
-shadow/widen gotchas. Re-call with confirm=True to execute (revoke, then optional
-narrower re-grant). Synchronous. roleid = the over-broad role to remove (from detection).
+Dry-run by default (returns a PLAN naming every principal losing/gaining what, and flagging
+shadow/widen gotchas); confirm=True executes and returns a dict. Non-atomic — a revoke PUT
+then an optional narrower re-grant PUT — but safe-direction: a partial failure only narrows
+access, never widens it. Synchronous. roleid = the over-broad role to remove (from detection).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -194,7 +188,12 @@ narrower re-grant). Synchronous. roleid = the over-broad role to remove (from de
 #### `pve_acme_account_create`
 
 MUTATION: register a new ACME account with the CA. Dry-run by default.
-confirm=True to execute. Smoke-confirm: POST body shape (name in body) against a live PVE instance.
+
+Additive — does not affect any existing account. Pair with pve_acme_plugin_create (DNS-01) or
+standalone http-01, then pve_node_acme_domains_set + pve_acme_cert_order, to actually issue a
+cert; to remove an account instead use pve_acme_account_delete. confirm=True executes and
+returns {"status": "ok"}; the default returns a dry-run PLAN dict. Smoke-confirm: POST body
+shape (name in body) against a live PVE instance.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -208,7 +207,11 @@ confirm=True to execute. Smoke-confirm: POST body shape (name in body) against a
 #### `pve_acme_account_delete`
 
 MUTATION: IRREVERSIBLE — deactivate and delete an ACME account from the CA. Dry-run by default.
-confirm=True to execute. HIGH risk: TLS lockout at cert expiry if this is the only account.
+
+HIGH risk: TLS lockout at cert expiry if this is the only account. The account key is
+destroyed — registering again with pve_acme_account_create creates a DIFFERENT CA account, not
+a restore of this one. The dry-run PLAN captures the current config as evidence only.
+confirm=True executes and returns {"status": "ok"}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -219,7 +222,10 @@ confirm=True to execute. HIGH risk: TLS lockout at cert expiry if this is the on
 #### `pve_acme_account_update`
 
 MUTATION: update ACME account contact info. Dry-run by default.
-confirm=True to execute. LOW risk — metadata update only, no cert impact.
+
+LOW risk — metadata update only, no cert impact. To delete the account instead use
+pve_acme_account_delete. The dry-run PLAN includes the account's current config (contact,
+directory, tos); confirm=True executes and returns {"status": "ok"}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -249,9 +255,11 @@ Smoke-confirm: POST shape + async UPID against a live PVE instance.
 #### `pve_acme_cert_renew`
 
 MUTATION: renew the node's existing ACME TLS certificate. Dry-run by default. Async — returns
-a UPID. MEDIUM: CA-validated, installed only on success (a failure can't lock you out); reloads
-pveproxy on success. force=renew even if more than 30 days to expiry. confirm=True to execute.
-Smoke-confirm: PUT shape + async UPID against a live PVE instance.
+a task UPID (poll pve_task_status/pve_task_wait). MEDIUM: CA-validated, installed only on
+success (a failure can't lock you out); reloads pveproxy on success. force=renew even if more
+than 30 days to expiry. To order a fresh cert instead use pve_acme_cert_order; to revert to
+self-signed use pve_node_cert_delete. confirm=True to execute. Smoke-confirm: PUT shape + async
+UPID against a live PVE instance.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -277,8 +285,12 @@ PVE instance.
 #### `pve_acme_plugin_create`
 
 MUTATION: create an ACME DNS challenge plugin. Dry-run by default.
-confirm=True to execute. dns_api = DNS provider name (e.g. 'cf', 'route53').
-Smoke-confirm: POST body shape (id in body) against a live PVE instance.
+
+Additive — does not affect any existing plugin. dns_api = DNS provider name (e.g. 'cf',
+'route53'). Reference plugin_id from pve_node_acme_domains_set(plugin=...) to drive a DNS-01
+challenge with it; to remove the plugin use pve_acme_plugin_delete. confirm=True executes and
+returns {"status": "ok"}; the default returns a dry-run PLAN dict. Smoke-confirm: POST body
+shape (id in body) against a live PVE instance.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -293,7 +305,12 @@ Smoke-confirm: POST body shape (id in body) against a live PVE instance.
 #### `pve_acme_plugin_delete`
 
 MUTATION: delete an ACME DNS challenge plugin. Dry-run by default.
-confirm=True to execute. HIGH risk: cert auto-renewal breaks — TLS lockout at cert expiry.
+
+HIGH risk: cert auto-renewal breaks for every domain using this plugin — TLS lockout at cert
+expiry unless a fallback challenge method is configured. No UNDO primitive — recreate with
+pve_acme_plugin_create, but the credentials must be re-supplied by the caller. The dry-run PLAN
+captures the current config (credential redacted) as evidence only; confirm=True executes and
+returns {"status": "ok"}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -304,7 +321,11 @@ confirm=True to execute. HIGH risk: cert auto-renewal breaks — TLS lockout at 
 #### `pve_acme_plugin_update`
 
 MUTATION: update an ACME DNS challenge plugin. Dry-run by default.
-confirm=True to execute. MEDIUM risk — invalid credentials break renewal at next attempt.
+
+MEDIUM risk — invalid new credentials break cert renewal for every domain using this plugin
+at the next attempt. To remove a plugin instead use pve_acme_plugin_delete. The dry-run PLAN
+includes the plugin's current config with any DNS-provider credential redacted; confirm=True
+executes and returns {"status": "ok"}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -320,13 +341,14 @@ confirm=True to execute. MEDIUM risk — invalid credentials break renewal at ne
 
 MUTATION: back up a guest with vzdump. Dry-run by default; confirm=True to execute.
 mode: snapshot (online, brief) | suspend | stop (HALTS the guest). Async — returns a task UPID.
+This is a one-off run; for a recurring schedule use pve_backup_job_create instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `vmid` | string | yes | Numeric ID of the guest (VM or CT) to back up. |
 | `storage` | string | yes | Storage ID to write the backup archive to. |
 | `mode` | string | no | Backup mode: snapshot (online, brief) \| suspend (RAM-quiesced pause) \| stop (HALTS the guest). (default: `"snapshot"`) |
-| `compress` | string | no | Compression algorithm for the archive, e.g. zstd, gzip, lzo, or none. (default: `"zstd"`) |
+| `compress` | string | no | Compression algorithm for the archive, e.g. zstd, gzip, lzo, or 0 (no compression). (default: `"zstd"`) |
 | `kind` | string | no | Guest type: lxc or qemu. (default: `"lxc"`) |
 | `node` | string (nullable) | no | Proxmox node hosting the guest; defaults to the configured node if omitted. (default: `null`) |
 | `confirm` | boolean | no | Gate: false returns a dry-run PLAN, true executes the backup. (default: `false`) |
@@ -334,8 +356,10 @@ mode: snapshot (online, brief) | suspend | stop (HALTS the guest). Async — ret
 
 #### `pve_backup_delete`
 
-MUTATION: delete a backup archive (removes a recovery point). Dry-run by default; confirm=True.
-Async — may return a task UPID or null depending on storage.
+MUTATION: delete a backup archive (removes a recovery point). Dry-run by default; confirm=True
+to execute. Irreversible — deleting the last backup of a guest leaves no recovery point; the
+PLAN reports how many other backups of the same guest remain. Check the archive list first with
+pve_backup_list. Async — may return a task UPID or null depending on storage.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -347,12 +371,12 @@ Async — may return a task UPID or null depending on storage.
 
 #### `pve_backup_freshness`
 
-Backup-freshness fence (read): walks ACTUAL backup archives per guest and compares their
-age against what enabled backup jobs promise. A job or task reporting OK is never treated as
-evidence a backup exists — only an archive on storage counts. Verdicts per guest:
-fresh | stale | never | uncovered | unknown; an unreadable storage yields unknown +
-complete=false, never a clean bill. max_age_hours overrides the schedule-derived expectation;
-grace_hours pads each job's parsed cadence.
+READ-ONLY: backup-freshness fence — walks ACTUAL backup archives per guest and compares
+their age against what enabled backup jobs promise; a job or task reporting OK is never
+treated as evidence a backup exists. Verdicts per guest: fresh | stale | never | uncovered |
+unknown; an unreadable storage always yields unknown + complete=false, never a clean bill.
+Returns a dict of {guests, jobs, counts, flags, complete, …}. For the raw archive list use
+pve_backup_list; for job configuration use pve_backup_job_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -362,11 +386,11 @@ grace_hours pads each job's parsed cadence.
 
 #### `pve_backup_job_create`
 
-MUTATION: create a PVE cluster backup job. Dry-run by default — shows the plan.
-confirm=True to execute. Config-only; existing backups are NOT affected.
-Guest selection is mutually exclusive — pass at most one of: vmid (CSV of guest IDs),
-all_guests=True (every guest), or pool (a resource pool); PVE requires a selection.
-exclude (CSV) filters all_guests.
+MUTATION: create a PVE cluster backup job — a persistent vzdump schedule, distinct from a
+one-off pve_backup run. Dry-run by default; confirm=True to execute and returns synchronously
+(no task UPID). Config-only; existing backups are NOT affected. Guest selection is mutually
+exclusive — pass at most one of vmid, all_guests, or pool; exclude filters all_guests. To
+modify an existing job use pve_backup_job_update; to remove one use pve_backup_job_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -374,7 +398,7 @@ exclude (CSV) filters all_guests.
 | `schedule` | string | yes | Proxmox calendar-event schedule string, e.g. 'sat 02:00' or a systemd.time-style spec. |
 | `storage` | string | yes | Storage ID the job writes backups to. |
 | `mode` | string (nullable) | no | Backup mode: snapshot \| suspend \| stop; defaults to Proxmox's own default if omitted. (default: `null`) |
-| `compress` | string (nullable) | no | Compression algorithm for archives, e.g. zstd, gzip, lzo, or none. (default: `null`) |
+| `compress` | string (nullable) | no | Compression algorithm for archives, e.g. zstd, gzip, lzo, or 0 (no compression). (default: `null`) |
 | `vmid` | string (nullable) | no | CSV of guest IDs to include; mutually exclusive with all_guests and pool. (default: `null`) |
 | `all_guests` | boolean (nullable) | no | If true, back up every guest on the cluster; mutually exclusive with vmid and pool. (default: `null`) |
 | `pool` | string (nullable) | no | Resource pool of guests to back up; mutually exclusive with vmid and all_guests. (default: `null`) |
@@ -386,8 +410,10 @@ exclude (CSV) filters all_guests.
 
 #### `pve_backup_job_delete`
 
-MUTATION: delete a PVE cluster backup job. Dry-run by default — captures current config.
-confirm=True to execute. Schedule removed; existing backups are NOT deleted.
+MUTATION: delete a PVE cluster backup job. Dry-run by default — the PLAN captures current
+config (no snapshot/UNDO primitive on this plane; re-create with pve_backup_job_create to
+restore the schedule). confirm=True to execute and returns synchronously (no task UPID).
+Schedule removed; existing backups are NOT deleted.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -397,8 +423,10 @@ confirm=True to execute. Schedule removed; existing backups are NOT deleted.
 
 #### `pve_backup_job_list`
 
-List all PVE cluster backup jobs and guests not covered by any job (read).
-Returns {jobs: [...], unprotected_guests: [...]}.
+READ-ONLY: list all PVE cluster backup jobs and guests not covered by any job.
+Returns {jobs: [...], unprotected_guests: [...]}. For the actual archives on storage use
+pve_backup_list; for a per-guest freshness verdict against these jobs' promises use
+pve_backup_freshness.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -406,8 +434,10 @@ Returns {jobs: [...], unprotected_guests: [...]}.
 
 #### `pve_backup_job_update`
 
-MUTATION: update a PVE cluster backup job. Dry-run by default — captures current config.
-confirm=True to execute. Config-only; no impact on existing backups.
+MUTATION: update a PVE cluster backup job. Dry-run by default — the PLAN captures current
+config so you can revert manually; confirm=True to execute and returns synchronously (no task
+UPID). Config-only; no impact on existing backups. To create a new job use
+pve_backup_job_create; to remove one use pve_backup_job_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -415,7 +445,7 @@ confirm=True to execute. Config-only; no impact on existing backups.
 | `schedule` | string (nullable) | no | New Proxmox calendar-event schedule string; omit to leave unchanged. (default: `null`) |
 | `storage` | string (nullable) | no | New storage ID for the job's backups; omit to leave unchanged. (default: `null`) |
 | `mode` | string (nullable) | no | New backup mode: snapshot \| suspend \| stop; omit to leave unchanged. (default: `null`) |
-| `compress` | string (nullable) | no | New compression algorithm, e.g. zstd, gzip, lzo, or none; omit to leave unchanged. (default: `null`) |
+| `compress` | string (nullable) | no | New compression algorithm, e.g. zstd, gzip, lzo, or 0 (no compression); omit to leave unchanged. (default: `null`) |
 | `vmid` | string (nullable) | no | New CSV of guest IDs the job covers; omit to leave unchanged. (default: `null`) |
 | `enabled` | boolean (nullable) | no | Whether the job is active; omit to leave unchanged. (default: `null`) |
 | `comment` | string (nullable) | no | New free-text note; omit to leave unchanged. (default: `null`) |
@@ -424,9 +454,9 @@ confirm=True to execute. Config-only; no impact on existing backups.
 
 #### `pve_backup_list`
 
-List backup archives in a storage (read). Ground truth for whether a backup exists —
+READ-ONLY: list backup archives in a storage. Ground truth for whether a backup exists —
 a backup missing from a pve_tasks_list slice (other node, or outside its limit window)
-still shows here.
+still shows here. Returns a list of dicts (volid, size, ctime, …).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -436,10 +466,11 @@ still shows here.
 
 #### `pve_clone`
 
-MUTATION: clone a guest to a new id. Dry-run by default; confirm=True. Async — returns a UPID.
-pool: place the new guest in a resource pool (needed when the token is pool-scoped).
-storage: target storage for the full clone's disks (full=True only) — keeps a clone off the
-source storage; refused for a linked clone (PVE only honors it on a full clone).
+MUTATION: clone a guest to a new id. Dry-run by default; confirm=True. Async — returns a
+UPID (poll with pve_task_status). pool: place the new guest in a resource pool (needed when
+the token is pool-scoped). storage: target storage for the full clone's disks (full=True
+only) — keeps a clone off the source storage; refused for a linked clone (PVE only honors it
+on a full clone). To create a guest from scratch instead use pve_create_vm / pve_create_container.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -470,9 +501,11 @@ rollback.
 
 #### `pve_cloudinit_set`
 
-MUTATION: set cloud-init fields (ciuser/sshkeys/ipconfigN/...) on a QEMU guest. Dry-run by
-default — the PLAN shows the diff with secrets masked; confirm=True to execute. Synchronous.
-Secret fields (cipassword) are never echoed to results or the ledger.
+MUTATION: set cloud-init fields (ciuser/sshkeys/ipconfigN/...) on a QEMU guest — kind='lxc'
+is refused (cloud-init is QEMU-only). Dry-run by default with secrets masked in the PLAN;
+confirm=True to execute. Synchronous; the return carries a top-level undo_record key beside
+status/result (secret fields excluded). Effects apply on next reboot + cloud-init regen, not live. Read current
+values with pve_cloudinit_get.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -485,8 +518,11 @@ Secret fields (cipassword) are never echoed to results or the ledger.
 
 #### `pve_cluster_resources`
 
-List all resources across the cluster (VMs, nodes, storage, SDN).
-resource_type: optional filter — 'vm', 'storage', 'node', or 'sdn' (read).
+READ-ONLY: list all resources across the cluster (VMs, nodes, storage, SDN).
+
+resource_type: optional filter — 'vm', 'storage', 'node', or 'sdn'; omit for all types.
+No state change. Returns a list of PVE resource dicts (shape varies by type). For overall
+cluster health/quorum use pve_cluster_status; to list only guests use pve_list_guests.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -505,8 +541,10 @@ status, and quorum info. Use pve_cluster_resources to list all resources across 
 
 #### `pve_create_container`
 
-MUTATION: create a new LXC container. Dry-run by default; confirm=True. Async — returns a UPID.
-`options` carries extra create params (cores, memory, net0, rootfs, password, ...).
+MUTATION: create a new LXC container. Dry-run by default; confirm=True. Async — returns a
+UPID (poll with pve_task_status). `options` carries extra create params (cores, memory, net0,
+rootfs, password, ...). For a QEMU VM use pve_create_vm; to copy an existing guest instead
+use pve_clone.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -520,8 +558,10 @@ MUTATION: create a new LXC container. Dry-run by default; confirm=True. Async �
 
 #### `pve_create_vm`
 
-MUTATION: create a new QEMU VM. Dry-run by default; confirm=True. Async — returns a UPID.
-`options` carries create params (cores, memory, net0, scsi0, ostype, ...).
+MUTATION: create a new QEMU VM. Dry-run by default; confirm=True. Async — returns a UPID
+(poll with pve_task_status). `options` carries create params (cores, memory, net0, scsi0,
+ostype, ...). For an LXC container use pve_create_container; to copy an existing guest
+instead use pve_clone.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -534,7 +574,9 @@ MUTATION: create a new QEMU VM. Dry-run by default; confirm=True. Async — retu
 #### `pve_delete_guest`
 
 MUTATION (DESTRUCTIVE, IRREVERSIBLE): permanently destroy a guest and its disks. Dry-run by
-default — the PLAN names exactly what will be destroyed. confirm=True to execute. Async — UPID.
+default — the PLAN names exactly what will be destroyed, including cascade effects on backup/
+HA/replication references. confirm=True to execute. Async — returns the task UPID; poll with
+pve_task_status. No undo once confirmed.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -548,7 +590,12 @@ default — the PLAN names exactly what will be destroyed. confirm=True to execu
 
 #### `pve_diagnose`
 
-READ-ONLY: gather node health evidence — status + storage usage + recent failed tasks + flags.
+READ-ONLY: gather one node's health evidence in a single call — node status, storage usage,
+recent failed tasks, and advisory flags — for triage.
+
+No state change and no side effects. This inspects *node* health; to instead verify your token's
+connectivity and effective permissions use pve_doctor, and for in-container evidence use
+ct_diagnose. Returns a dict of the gathered sections; omit `node` to use the configured default.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -558,8 +605,9 @@ READ-ONLY: gather node health evidence — status + storage usage + recent faile
 #### `pve_disk_move`
 
 MUTATION: move a guest disk to another storage. Dry-run by default — the PLAN shows
-source->target and whether the source copy is deleted (delete_source=True is HIGH). confirm=True
-to execute. Async — returns a task UPID.
+source->target and whether the source copy is deleted (delete_source=True is HIGH, no easy
+undo). confirm=True to execute. Async — returns a task UPID (poll with pve_task_status). To
+grow a disk in place instead of relocating it use pve_disk_resize.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -574,8 +622,10 @@ to execute. Async — returns a task UPID.
 
 #### `pve_disk_resize`
 
-MUTATION: grow a guest disk (e.g. size='+10G'). GROW ONLY — a shrink is refused (destructive).
-Dry-run by default; confirm=True to execute. Async — returns a task UPID.
+MUTATION: grow a guest disk (e.g. size='+10G'). GROW ONLY — a shrink is refused as
+destructive, and an ambiguous absolute size is refused too unless the current size can be
+verified first. Dry-run by default; confirm=True to execute. Async — returns a task UPID
+(poll with pve_task_status). To move a disk to different storage instead use pve_disk_move.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -592,6 +642,7 @@ Dry-run by default; confirm=True to execute. Async — returns a task UPID.
 READ-ONLY preflight: check API connectivity + the calling token's effective permissions, and
 report what this token CAN and CANNOT do — with the privilege + role to grant for each gap. Run
 this FIRST after install to verify your config/token before wiring Proximo into an MCP client.
+Returns a dict with reachable/version, the can/cannot capability map, config, and advisory flags.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -601,6 +652,10 @@ this FIRST after install to verify your config/token before wiring Proximo into 
 
 MUTATION: create a firewall alias (named CIDR). Dry-run by default — the PLAN shows the
 name, CIDR, and scope. Re-call with confirm=True to execute. Passive until a rule references it.
+Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+No UNDO: revert by deleting the alias with pve_firewall_alias_delete. To change an existing
+alias instead, use pve_firewall_alias_update.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -617,7 +672,9 @@ name, CIDR, and scope. Re-call with confirm=True to execute. Passive until a rul
 #### `pve_firewall_alias_delete`
 
 MUTATION: delete a firewall alias. Dry-run by default — the PLAN shows the current alias.
-PVE refuses while any rule still references the alias. No UNDO: re-create to revert.
+PVE refuses while any rule still references the alias. No UNDO: re-create it with
+pve_firewall_alias_create to revert. Synchronous — confirm=True returns
+{"status": "ok", "result": None}; no task UPID to poll.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -626,14 +683,18 @@ PVE refuses while any rule still references the alias. No UNDO: re-create to rev
 | `node` | string (nullable) | no | Node name, required for scope='guest'. (default: `null`) |
 | `vmid` | string (nullable) | no | Guest VMID/CTID, required for scope='guest'. (default: `null`) |
 | `kind` | string (nullable) | no | Guest kind for scope='guest': 'qemu' or 'lxc'. (default: `null`) |
-| `digest` | string (nullable) | no | Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the alias changed since. (default: `null`) |
+| `digest` | string (nullable) | no | Optimistic-lock digest forwarded to PVE to abort if the alias changed; this tool's PLAN does not surface a digest to copy (only the rule tools do). (default: `null`) |
 | `confirm` | boolean | no | Set True to execute the mutation; False (default) only returns a dry-run PLAN. (default: `false`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pve_firewall_alias_list`
 
-List firewall aliases (named CIDRs) for the given scope (read). Scope = cluster
+READ-ONLY: list firewall aliases (named CIDRs) for the given scope. Scope = cluster
 or guest only — the PVE API has no node-scope aliases (node firewall = options/rules/log).
+
+No state change. Returns a list of alias dicts (name, cidr, comment, ipversion). To create,
+change, or remove an alias use pve_firewall_alias_create / pve_firewall_alias_update /
+pve_firewall_alias_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -647,6 +708,10 @@ or guest only — the PVE API has no node-scope aliases (node firewall = options
 
 MUTATION: update a firewall alias. Dry-run by default — the PLAN shows the current alias and
 the fields being changed. Changing the CIDR silently alters every referencing rule's match set.
+Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+Requires at least one of cidr/comment/rename. No UNDO — revert by setting it back to its prior
+value; to create a new alias instead use pve_firewall_alias_create.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -658,14 +723,18 @@ the fields being changed. Changing the CIDR silently alters every referencing ru
 | `cidr` | string (nullable) | no | New IP address/CIDR the alias should resolve to; omit to leave unchanged. (default: `null`) |
 | `comment` | string (nullable) | no | New free-text comment; omit to leave unchanged. (default: `null`) |
 | `rename` | string (nullable) | no | New name to rename the alias to; omit to keep the current name. (default: `null`) |
-| `digest` | string (nullable) | no | Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the alias changed since. (default: `null`) |
+| `digest` | string (nullable) | no | Optimistic-lock digest forwarded to PVE to abort if the alias changed; this tool's PLAN does not surface a digest to copy (only the rule tools do). (default: `null`) |
 | `confirm` | boolean | no | Set True to execute the mutation; False (default) only returns a dry-run PLAN. (default: `false`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pve_firewall_ipset_create`
 
 MUTATION: create an empty IP set. Dry-run by default — the PLAN shows the name and scope.
-Passive until a rule references it as '+name' and entries are added.
+Passive until a rule references it as '+name' and entries are added via
+pve_firewall_ipset_entry_add. Synchronous — confirm=True returns
+{"status": "ok", "result": None}; no task UPID to poll.
+
+No UNDO: revert by deleting it with pve_firewall_ipset_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -682,6 +751,9 @@ Passive until a rule references it as '+name' and entries are added.
 
 MUTATION: delete an IP set. Dry-run by default — the PLAN shows member count and the
 force semantics. force=True WIPES all members; PVE refuses while a rule references the set.
+Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+No UNDO: re-create it with pve_firewall_ipset_create and re-add members to revert.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -698,6 +770,9 @@ force semantics. force=True WIPES all members; PVE refuses while a rule referenc
 
 MUTATION: add an IP/Network entry to an IP set. Dry-run by default — the PLAN shows the
 entry and warns it changes every referencing rule's match set. nomatch=True = exclusion.
+Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+No UNDO: revert by removing the entry with pve_firewall_ipset_entry_remove.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -716,6 +791,9 @@ entry and warns it changes every referencing rule's match set. nomatch=True = ex
 
 MUTATION: remove an IP/Network entry from an IP set. Dry-run by default — the PLAN shows the
 entry and warns it changes every referencing rule's match set (may open or close access).
+Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+No UNDO: revert by re-adding the entry with pve_firewall_ipset_entry_add.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -725,13 +803,18 @@ entry and warns it changes every referencing rule's match set (may open or close
 | `node` | string (nullable) | no | Node name, required for scope='guest'. (default: `null`) |
 | `vmid` | string (nullable) | no | Guest VMID/CTID, required for scope='guest'. (default: `null`) |
 | `kind` | string (nullable) | no | Guest kind for scope='guest': 'qemu' or 'lxc'. (default: `null`) |
-| `digest` | string (nullable) | no | Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the set changed since. (default: `null`) |
+| `digest` | string (nullable) | no | Optimistic-lock digest forwarded to PVE to abort if the set changed; this tool's PLAN does not surface a digest to copy (only the rule tools do). (default: `null`) |
 | `confirm` | boolean | no | Set True to execute the mutation; False (default) only returns a dry-run PLAN. (default: `false`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pve_firewall_options_get`
 
-Get firewall options (enable flag, policy, log rate, …) for the given scope (read).
+READ-ONLY: get the firewall option block (enable flag, default in/out policy, log rate limit,
+…) at cluster, node, or guest scope.
+
+No state change. Pair with pve_firewall_options_set to change these, and pve_firewall_rules_list
+to read the rules themselves. scope='node' requires `node`; scope='guest' requires `node`, `vmid`,
+and `kind` ('qemu'|'lxc'). Returns the option block as a dict.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -746,6 +829,10 @@ Get firewall options (enable flag, policy, log rate, …) for the given scope (r
 MUTATION: set firewall options for a scope (policy_in/out, log levels, ebtables, log_ratelimit,
 ...). `options` is a key->value bag; `delete` unsets keys. Dry-run by default — the PLAN shows the
 current values and flags lockout risk. RISK_HIGH when enabling the firewall or changing a policy.
+Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+To read current values first use pve_firewall_options_get; to toggle just the enable flag use
+the focused pve_firewall_set_enabled. No UNDO — revert by setting the prior values.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -755,16 +842,19 @@ current values and flags lockout risk. RISK_HIGH when enabling the firewall or c
 | `kind` | string (nullable) | no | Guest kind for scope='guest': 'qemu' or 'lxc'. (default: `null`) |
 | `options` | object (nullable) | no | Key-value bag of firewall options to set, e.g. policy_in, policy_out, log_ratelimit, enable, ebtables. (default: `null`) |
 | `delete` | array<string> (nullable) | no | List of option keys to unset/remove. (default: `null`) |
-| `digest` | string (nullable) | no | Optimistic-lock digest from the PLAN preview; pass on confirm to abort if the options changed since. (default: `null`) |
+| `digest` | string (nullable) | no | Optimistic-lock digest forwarded to PVE to abort if the options changed; this tool's PLAN does not surface a digest to copy (only the rule tools do). (default: `null`) |
 | `confirm` | boolean | no | Set True to execute the mutation; False (default) only returns a dry-run PLAN. (default: `false`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pve_firewall_rule_add`
 
 MUTATION: add a new firewall rule. Dry-run by default — the PLAN shows scope, direction,
-action, and key address/port fields. Re-call with confirm=True to execute. Synchronous.
+action, and key address/port fields. Re-call with confirm=True to execute. Synchronous —
+confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
 
-WARNING: a misplaced DROP/REJECT can cause a connectivity lockout.
+WARNING: a misplaced DROP/REJECT can cause a connectivity lockout. PVE always inserts the
+new rule at position 0 (top), taking precedence over existing rules. No UNDO — revert by
+removing it with pve_firewall_rule_remove.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -790,7 +880,10 @@ MUTATION: delete a firewall rule by position. Dry-run by default — the PLAN sh
 at that position AND the optimistic-lock digest. Positions SHIFT after inserts/deletes — pass the
 digest from the plan back as `digest=` on confirm so PVE rejects the delete if the rule list moved
 since the preview (otherwise a concurrent insert can shift positions and remove the wrong rule).
-Synchronous.
+Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+No UNDO: firewall config isn't in guest snapshots — revert by re-adding the rule with
+pve_firewall_rule_add.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -808,7 +901,11 @@ Synchronous.
 MUTATION: update an existing firewall rule at position `pos`. Dry-run by default — the PLAN
 shows the rule's current state, the fields being changed, AND the optimistic-lock digest. Pass the
 digest from the plan back as `digest=` on confirm so PVE rejects the update if the rule list moved
-since the preview (positions shift and the wrong rule can be updated otherwise). Synchronous.
+since the preview (positions shift and the wrong rule can be updated otherwise). Synchronous —
+confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+Only the fields you pass are changed; omitted ones keep their current value. No UNDO — revert
+by updating the rule back to its prior values, or remove it with pve_firewall_rule_remove.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -849,7 +946,10 @@ and address/port fields. Use pve_firewall_options_get to read firewall settings
 #### `pve_firewall_security_group_create`
 
 MUTATION: create an empty cluster security group. Dry-run by default — the PLAN shows the
-name. Passive until rules are added and a rule references it (type=group).
+name. Passive until rules are added and a rule references it (type=group). Synchronous —
+confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+No UNDO: revert by deleting it with pve_firewall_security_group_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -862,6 +962,9 @@ name. Passive until rules are added and a rule references it (type=group).
 
 MUTATION: delete a cluster security group. Dry-run by default — the PLAN shows how many rules
 the group holds. PVE refuses while the group is non-empty or still referenced by a rule.
+Synchronous — confirm=True returns {"status": "ok", "result": None}; no task UPID to poll.
+
+No UNDO: re-create it with pve_firewall_security_group_create and re-add its rules to revert.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -873,7 +976,11 @@ the group holds. PVE refuses while the group is non-empty or still referenced by
 
 MUTATION (HIGH RISK): toggle the firewall on or off for the given scope. Dry-run by default.
 RISK_HIGH both directions: enabling may instantly lock you out (default-DROP, no ACCEPT for 22/8006);
-disabling strips all protection. Cluster scope = master kill-switch. Synchronous.
+disabling strips all protection. Cluster scope = master kill-switch. Synchronous — confirm=True
+returns {"status": "ok", "result": None}; no task UPID to poll.
+
+This is the focused tool for just the enable flag; for policy/log-level/ebtables options use
+pve_firewall_options_set. No UNDO — re-toggle manually to revert.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -887,9 +994,9 @@ disabling strips all protection. Cluster scope = master kill-switch. Synchronous
 
 #### `pve_group_create`
 
-MUTATION: create an (empty) group. Dry-run by default (additive, LOW risk).
-Returns the plan preview; confirm=True to execute. The group is inert until users are
-added or an ACL entry grants it privileges.
+MUTATION: create an (empty) group. Dry-run by default (additive, LOW risk); confirm=True
+executes and returns a dict, synchronous with no UPID. The group is inert until users are
+added (pve_user_update/pve_user_create with groups=) or pve_acl_modify grants it privileges.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -901,7 +1008,8 @@ added or an ACL entry grants it privileges.
 #### `pve_group_delete`
 
 MUTATION (HIGH): delete a group. Dry-run by default — the PLAN reads members and warns ACLs
-granted to/on the group are orphaned. confirm=True.
+granted to/on the group are orphaned (permanent, no undo). confirm=True executes and returns a
+dict; synchronous, no UPID. Use pve_group_get first to see current members.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -922,8 +1030,9 @@ ACL entries referencing this group.
 
 #### `pve_group_update`
 
-MUTATION: update a group's comment. Dry-run by default (additive, LOW risk).
-Returns the plan preview; confirm=True to execute. Does not modify group membership.
+MUTATION: update a group's comment. Dry-run by default (comment-only replace, LOW risk); confirm=True
+executes and returns a dict, synchronous with no UPID. Does not modify group membership — use
+pve_user_update (groups=) to add/remove members, or pve_group_get to see current members.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -943,7 +1052,7 @@ Use pve_group_get for full member list; use pve_group_create/update/delete to ma
 
 #### `pve_guest_config_get`
 
-Read a guest's current configuration (kind='lxc' or 'qemu') (read-only). Returns the
+READ-ONLY: read a guest's current configuration (kind='lxc' or 'qemu'). Returns the
 complete config dict with cores, memory, network, disks, metadata, and all settings. Use
 pve_guest_config_set to mutate; capture the returned dict to enable rollback via
 pve_guest_config_revert.
@@ -958,7 +1067,9 @@ pve_guest_config_revert.
 #### `pve_guest_config_revert`
 
 MUTATION (UNDO): re-apply a previously captured guest config (the prior_config returned by
-pve_guest_config_set). Dry-run by default; confirm=True to execute. Synchronous.
+pve_guest_config_set). Dry-run by default; confirm=True to execute. Synchronous — returns
+{reverted_to_keys, deleted, skipped_unsettable}; computed/read-only keys in prior_config are
+silently skipped rather than rejected.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -972,8 +1083,9 @@ pve_guest_config_set). Dry-run by default; confirm=True to execute. Synchronous.
 #### `pve_guest_config_set`
 
 MUTATION: edit a guest's config (cores/memory/net/onboot/...). Dry-run by default — the PLAN
-shows the exact per-key diff; confirm=True to execute. Captures the prior config first so the
-change is revertible via pve_guest_config_revert. Synchronous.
+shows the exact per-key diff; confirm=True to execute. Synchronous — returns
+{prior_config, applied, deleted}; prior_config is what makes the change revertible via
+pve_guest_config_revert.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -989,7 +1101,8 @@ change is revertible via pve_guest_config_revert. Synchronous.
 MUTATION: migrate a guest to a different node. Dry-run by default — the PLAN shows the
 guest's live state, the source→target, and the honest blast radius (LXC 'online' is
 stop→move→start, NOT zero-downtime; QEMU live migration requires shared storage).
-confirm=True to execute. Async — returns a task UPID.
+confirm=True to execute. Async — returns a task UPID; poll with pve_task_status. To drive
+the same move through PDM instead, use pdm_pve_lxc_migrate or pdm_pve_qemu_migrate.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1006,9 +1119,9 @@ confirm=True to execute. Async — returns a task UPID.
 MUTATION: start/stop/reboot/shutdown a guest.
 
 Dry-run by default: without confirm=True you get a PLAN — the exact change, the guest's live
-state, blast radius, and risk (with no-op detection) — recorded to the ledger. Re-call with
-confirm=True to execute. The plan is recorded on BOTH paths: even a one-shot confirm=True call
-records its plan before mutating — no plan, no mutation.
+state, blast radius, and risk (with no-op detection) — recorded to the ledger even on a
+one-shot confirm=True call (no plan, no mutation). confirm=True submits the action (async)
+and returns the task UPID — poll it with pve_task_status.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1035,8 +1148,10 @@ Use pve_guest_config_get for the full configuration.
 
 #### `pve_ha_groups_list`
 
-List all HA resource groups (read). PVE-8 only — PVE 9 migrated groups to rules
-(use pve_ha_rules_list); on PVE 9 this raises a clear error pointing there.
+READ-ONLY: list all HA resource groups. PVE-8 only — PVE 9 migrated groups to rules
+(use pve_ha_rules_list); on PVE 9 this raises a clear ProximoError pointing there instead
+of a raw 500. No state change. Returns a list of group dicts (group, nodes, restricted,
+comment) on PVE 8.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1046,7 +1161,8 @@ List all HA resource groups (read). PVE-8 only — PVE 9 migrated groups to rule
 
 MUTATION: add a guest to HA management. Dry-run by default — the PLAN shows the SID,
 group, initial state, and blast radius (state='stopped' is HIGH: CRM will stop the guest).
-confirm=True to execute. Synchronous (pmxcfs config write; CRM enforces state asynchronously).
+confirm=True to execute. Synchronous (pmxcfs config write; CRM enforces state asynchronously) —
+typically returns null, not a UPID. To remove HA management use pve_ha_resource_remove.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1063,7 +1179,8 @@ confirm=True to execute. Synchronous (pmxcfs config write; CRM enforces state as
 
 MUTATION: remove a guest from HA management. Dry-run by default — the PLAN shows the SID
 and that this loses automated failover protection (guest itself is NOT stopped).
-confirm=True to execute. Synchronous (pmxcfs config write).
+confirm=True to execute. Synchronous (pmxcfs config write) — typically returns null, not a
+UPID. To re-add HA management use pve_ha_resource_add.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1088,7 +1205,8 @@ resource enumeration.
 MUTATION: create an HA rule (the PVE 9 replacement for HA groups). Dry-run by default — the
 PLAN shows the rule type, resources, and placement effect. `rule_type` is 'node-affinity'
 (needs `nodes`; optional `strict`) or 'resource-affinity' (needs `affinity` positive|negative).
-confirm=True to execute. Synchronous (pmxcfs config write). RISK_MEDIUM — constrains CRM placement.
+confirm=True to execute. Synchronous (pmxcfs config write, no UPID). RISK_MEDIUM — constrains
+CRM placement. View rules with pve_ha_rules_list; change one with pve_ha_rule_update.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1107,7 +1225,8 @@ confirm=True to execute. Synchronous (pmxcfs config write). RISK_MEDIUM — cons
 
 MUTATION: delete an HA rule. Dry-run by default — the PLAN shows the current rule and that
 its resources lose this placement constraint (CRM may migrate them). confirm=True to execute.
-Synchronous. RISK_MEDIUM.
+Synchronous (pmxcfs config write, no UPID) — no undo; re-create with pve_ha_rule_create to
+revert. RISK_MEDIUM.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1118,8 +1237,9 @@ Synchronous. RISK_MEDIUM.
 #### `pve_ha_rule_update`
 
 MUTATION: update an HA rule. Dry-run by default — the PLAN shows the current rule and the
-fields being changed. `delete` unsets keys. confirm=True to execute. Synchronous.
-RISK_MEDIUM — may trigger CRM migration of affected resources.
+fields being changed. `delete` unsets keys. confirm=True to execute. Synchronous (pmxcfs
+config write, no UPID). RISK_MEDIUM — may trigger CRM migration of affected resources.
+To create a new rule use pve_ha_rule_create; to remove one use pve_ha_rule_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1138,7 +1258,10 @@ RISK_MEDIUM — may trigger CRM migration of affected resources.
 
 #### `pve_ha_rules_list`
 
-List HA rules (read) — the PVE 9 replacement for HA groups.
+READ-ONLY: list High-Availability rules on the cluster (PVE 9+).
+
+No state change. PVE 9 replaced HA groups with rules; on PVE 8 use pve_ha_groups_list instead.
+Returns a list of rule dicts. To see which guests are actually HA-managed use pve_ha_resources_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1146,8 +1269,12 @@ List HA rules (read) — the PVE 9 replacement for HA groups.
 
 #### `pve_hardware_list`
 
-List physical PCI or USB devices on a PVE node (read).
-hw_type: 'pci' (default) or 'usb'.
+READ-ONLY: list physical PCI or USB devices attached to a PVE node
+(hw_type: 'pci' default or 'usb').
+
+No state change. Returns {"devices": [...]} — the node's raw hardware inventory,
+distinct from the cluster-scope passthrough mappings that VMs actually reference
+(pve_mapping_pci_list / pve_mapping_usb_list).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1157,8 +1284,12 @@ hw_type: 'pci' (default) or 'usb'.
 
 #### `pve_ipset_list`
 
-List IP sets for the given scope (read). Scope = cluster or guest only —
+READ-ONLY: list IP sets for the given scope. Scope = cluster or guest only —
 the PVE API has no node-scope ipsets (node firewall = options/rules/log).
+
+No state change. Returns a list of IPSet dicts. To create/delete a set use
+pve_firewall_ipset_create/pve_firewall_ipset_delete; to edit membership use
+pve_firewall_ipset_entry_add/pve_firewall_ipset_entry_remove.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1170,9 +1301,10 @@ the PVE API has no node-scope ipsets (node firewall = options/rules/log).
 
 #### `pve_list_guests`
 
-List all VMs and LXC containers on a node with their current state (read-only). Returns
-a list of guest objects, each with VMID, name, type (lxc or qemu), and status. Works across
-both kinds in a single call.
+READ-ONLY: list all VMs and LXC containers on a node with their current state. Returns
+a list of guest objects, each with VMID, name, type (lxc or qemu), and status — works across
+both kinds in a single call. For one guest's runtime detail use pve_guest_status; for its
+stored config use pve_guest_config_get.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1181,8 +1313,11 @@ both kinds in a single call.
 
 #### `pve_mapping_pci_create`
 
-MUTATION: create a PCI cluster passthrough mapping. Dry-run by default.
-confirm=True to execute. Smoke-confirm: POST body shape (id in body) against a live PVE instance.
+MUTATION: create a PCI cluster passthrough mapping. Dry-run by default (returns a
+PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+Additive — MEDIUM risk, since a mismatched IOMMU/VFIO map can prevent VMs from starting.
+To modify an existing mapping use pve_mapping_pci_update; to remove one use
+pve_mapping_pci_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1194,8 +1329,10 @@ confirm=True to execute. Smoke-confirm: POST body shape (id in body) against a l
 
 #### `pve_mapping_pci_delete`
 
-MUTATION: delete a PCI cluster mapping. Dry-run by default.
-confirm=True to execute. VMs referencing this mapping lose the device path.
+MUTATION: delete a PCI cluster mapping. Dry-run by default (captures current config
+into the PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+VMs referencing this mapping lose the device path and may fail to start. No UNDO
+primitive — re-create with pve_mapping_pci_create to restore.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1205,9 +1342,13 @@ confirm=True to execute. VMs referencing this mapping lose the device path.
 
 #### `pve_mapping_pci_list`
 
-List all PCI device mappings at cluster scope (read-only). Returns a list of
-dicts defining passthrough mappings for PCI devices assignable to VMs/LXCs,
-each with mapping ID, device list, and description.
+READ-ONLY: list all PCI device mappings at cluster scope.
+
+No state change. Returns a list of dicts defining passthrough mappings for PCI devices
+assignable to VMs (PCI mapping is VM-only — LXC has no PCI-passthrough config), each with
+mapping ID, device list, and description. To see the
+raw physical devices on a node use pve_hardware_list; to create a mapping use
+pve_mapping_pci_create.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1215,8 +1356,11 @@ each with mapping ID, device list, and description.
 
 #### `pve_mapping_pci_update`
 
-MUTATION: update a PCI cluster mapping. Dry-run by default.
-confirm=True to execute. Reads current config for plan honesty.
+MUTATION: update a PCI cluster mapping. Dry-run by default (reads current config into
+the PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+MEDIUM risk — a running VM holding this mapping may need a restart to pick up the new
+device path. No snapshot primitive; re-apply the captured config to revert, or use
+pve_mapping_pci_delete to remove the mapping outright.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1229,8 +1373,11 @@ confirm=True to execute. Reads current config for plan honesty.
 
 #### `pve_mapping_usb_create`
 
-MUTATION: create a USB cluster passthrough mapping. Dry-run by default.
-confirm=True to execute. Smoke-confirm: POST body shape (id in body) against a live PVE instance.
+MUTATION: create a USB cluster passthrough mapping. Dry-run by default (returns a
+PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+Additive — MEDIUM risk, since a mismatched USB device ID can prevent VMs from acquiring
+the device. To modify an existing mapping use pve_mapping_usb_update; to remove one use
+pve_mapping_usb_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1242,8 +1389,10 @@ confirm=True to execute. Smoke-confirm: POST body shape (id in body) against a l
 
 #### `pve_mapping_usb_delete`
 
-MUTATION: delete a USB cluster mapping. Dry-run by default.
-confirm=True to execute. VMs referencing this mapping lose the USB device path.
+MUTATION: delete a USB cluster mapping. Dry-run by default (captures current config
+into the PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+VMs referencing this mapping lose the USB device path and may fail to start. No UNDO
+primitive — re-create with pve_mapping_usb_create to restore.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1253,9 +1402,12 @@ confirm=True to execute. VMs referencing this mapping lose the USB device path.
 
 #### `pve_mapping_usb_list`
 
-List all USB device mappings at cluster scope (read-only). Returns a list of
-dicts defining passthrough mappings for USB devices assignable to VMs/LXCs,
-each with mapping ID, device list, and description.
+READ-ONLY: list all USB device mappings at cluster scope.
+
+No state change. Returns a list of dicts defining passthrough mappings for USB devices
+assignable to VMs/LXCs, each with mapping ID, device list, and description. To see the
+raw physical devices on a node use pve_hardware_list; to create a mapping use
+pve_mapping_usb_create.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1263,8 +1415,11 @@ each with mapping ID, device list, and description.
 
 #### `pve_mapping_usb_update`
 
-MUTATION: update a USB cluster mapping. Dry-run by default.
-confirm=True to execute. Reads current config for plan honesty.
+MUTATION: update a USB cluster mapping. Dry-run by default (reads current config into
+the PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further payload).
+MEDIUM risk — a running VM holding this mapping may lose USB passthrough until
+restarted. No snapshot primitive; re-apply the captured config to revert, or use
+pve_mapping_usb_delete to remove the mapping outright.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1277,8 +1432,9 @@ confirm=True to execute. Reads current config for plan honesty.
 
 #### `pve_metrics_server_delete`
 
-MUTATION: delete a PVE metrics server definition. Dry-run by default.
-confirm=True to execute. Metrics forwarding to this server ceases; no data loss.
+MUTATION: delete a PVE metrics server definition. Dry-run by default. confirm=True
+executes and returns {"status": "ok", "result": null} (no further payload). Metrics forwarding to this
+server ceases; no data loss, and config is re-creatable with pve_metrics_server_set.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1288,9 +1444,11 @@ confirm=True to execute. Metrics forwarding to this server ceases; no data loss.
 
 #### `pve_metrics_server_list`
 
-List all PVE metrics server definitions (read-only). Returns a list of dicts
-for each configured metrics forwarding target (InfluxDB, Graphite, etc.), with
-id, type, server address, and port.
+READ-ONLY: list all PVE metrics server definitions.
+
+No state change. Returns a list of dicts for each configured metrics forwarding target
+(InfluxDB, Graphite, etc.), with id, type, server address, and port. To create or update
+one use pve_metrics_server_set; to remove one use pve_metrics_server_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1298,8 +1456,11 @@ id, type, server address, and port.
 
 #### `pve_metrics_server_set`
 
-MUTATION: create-or-update a PVE metrics server definition. Dry-run by default.
-confirm=True to execute. Config-only; metrics forwarding adjusts to new settings.
+MUTATION: create-or-update a PVE metrics server definition. Dry-run by default
+(returns a PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further
+payload). Config-only — metrics forwarding adjusts to the new settings immediately; no
+snapshot primitive, so re-apply this same tool to revert. To remove it use
+pve_metrics_server_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1315,9 +1476,13 @@ confirm=True to execute. Config-only; metrics forwarding adjusts to new settings
 #### `pve_network_apply`
 
 MUTATION (HIGH RISK): apply staged network config changes to the live network stack.
-Dry-run by default — the PLAN surfaces pending interfaces. confirm=True to execute.
-A misconfigured interface can lose SSH/API access; recovery requires console/physical access.
-May return a UPID (async) or None (sync) — outcome='submitted' in either case.
+
+Stage changes first with pve_network_iface_create / pve_network_iface_update — this applies
+whatever is currently staged; for SDN changes use pve_sdn_apply instead (a separate,
+cluster-scoped commit). Dry-run by default — the PLAN surfaces pending interfaces. confirm=True
+executes with no automatic undo; a misconfigured interface can lose SSH/API access, requiring
+console/physical access to recover. May return a UPID (async) or None (sync) — outcome='submitted'
+in either case.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1328,8 +1493,11 @@ May return a UPID (async) or None (sync) — outcome='submitted' in either case.
 #### `pve_network_iface_create`
 
 MUTATION: create a new network interface config (staged — not live until pve_network_apply).
-Dry-run by default; confirm=True to execute. Synchronous.
-`options` carries type-dependent fields (address, netmask, gateway, bridge_ports, …).
+
+`options` carries type-dependent fields (address, netmask, gateway, bridge_ports, …). To
+update an existing interface instead use pve_network_iface_update. Dry-run by default (returns
+a PLAN); confirm=True stages the interface, synchronously, and returns {status, result} —
+result is often None.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1343,8 +1511,11 @@ Dry-run by default; confirm=True to execute. Synchronous.
 #### `pve_network_iface_update`
 
 MUTATION: update an existing network interface config (staged — not live until pve_network_apply).
-Dry-run by default; confirm=True to execute. Synchronous.
-`options` carries fields to update (address, netmask, bridge_ports, …).
+
+`options` carries fields to update (address, netmask, bridge_ports, …); the interface's type
+is preserved automatically and cannot be changed here — recreate via pve_network_iface_create
+for a type change. Dry-run by default (returns a PLAN); confirm=True stages the update and
+returns {status, result} — result is often None.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1356,8 +1527,11 @@ Dry-run by default; confirm=True to execute. Synchronous.
 
 #### `pve_network_list`
 
-List network interfaces on a node (read-only). Returns iface name, type
-(bridge/bond/vlan/eth/alias), method, and address. Filter by type with iface_type.
+READ-ONLY: list network interfaces (bridges/bonds/VLANs/etc) on a PVE node.
+
+No state change. Returns a list of dicts with iface name, type (bridge/bond/vlan/eth/alias),
+method, and address; filter by type with iface_type. For SDN zones/vnets use
+pve_sdn_zones_list / pve_sdn_vnets_list instead — that's a separate, cluster-scoped layer.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1374,7 +1548,8 @@ pve_acme_plugin_create, then issue with pve_acme_cert_order. plugin=<id> uses a 
 challenge (written as acmedomain0..N=domain=...,plugin=...); omit plugin for standalone
 http-01 (domains ride in acme=...,domains=...). REPLACE semantics: stale acmedomainN entries
 are removed, not merged. MEDIUM — config only, no cert is issued by this step. confirm=True
-to execute. Smoke-confirm: node-config body shape against a live PVE instance.
+executes and returns {"status": "ok"}; the default returns a dry-run PLAN dict. Smoke-confirm:
+node-config body shape against a live PVE instance.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1389,11 +1564,10 @@ to execute. Smoke-confirm: node-config body shape against a live PVE instance.
 
 MUTATION: delete the custom TLS certificate from a PVE node.
 
-RISK_MEDIUM: PVE reverts to its self-signed certificate (recoverable by re-uploading).
-restart=True reloads pveproxy after deletion. confirm=True to execute.
-
-DELETE /nodes/{node}/certificates/custom
-Smoke-confirm: endpoint and params shape not live-verified.
+RISK_MEDIUM: PVE reverts to its self-signed certificate — recoverable by re-uploading via
+pve_node_cert_upload (to view current certs first use pve_node_certificates). restart=True
+reloads pveproxy after deletion. Dry-run by default (returns a PLAN); confirm=True executes
+(DELETE, Smoke-confirm) and returns {"status": "ok", "result": None}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1407,7 +1581,8 @@ Smoke-confirm: endpoint and params shape not live-verified.
 MUTATION: upload a custom TLS certificate to a PVE node.
 
 RISK_HIGH, NO UNDO. A malformed cert/key can lock you out of the PVE web UI and API.
-restart=True reloads pveproxy after upload (brief service interruption).
+restart=True reloads pveproxy after upload (brief service interruption). To view the
+node's currently configured certs use pve_node_certificates.
 
 PRIVATE KEY REDACTION: the 'key' param is a TLS private key (secret). It is
 UNCONDITIONALLY redacted — it NEVER appears in the plan, change, current state,
@@ -1415,10 +1590,8 @@ detail, or ledger (regardless of redact_ledger setting). Only {"key": "[redacted
 is recorded. The cert body (certificates) is public and may appear in plans/logs.
 
 Revert: re-upload a correct cert, or use pve_node_cert_delete to revert to self-signed.
-confirm=True to execute.
-
-POST /nodes/{node}/certificates/custom
-Smoke-confirm: endpoint and body shape not live-verified.
+Dry-run by default (returns a PLAN); confirm=True executes (POST, Smoke-confirm) and
+returns {"status": "ok", "result": <dict | None>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1432,9 +1605,11 @@ Smoke-confirm: endpoint and body shape not live-verified.
 
 #### `pve_node_certificates`
 
-List TLS certificates configured on a Proxmox node (read-only). Returns a
-list of certificate dicts with filename, subject, issuer, validity dates
-(notbefore/notafter), SANs, and fingerprint.
+READ-ONLY: list TLS certificates configured on a Proxmox node.
+
+No state change. Returns a list of certificate dicts with filename, subject, issuer,
+validity dates (notbefore/notafter), SANs, and fingerprint. To add or replace a
+certificate use pve_node_cert_upload; to remove one use pve_node_cert_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1445,11 +1620,10 @@ list of certificate dicts with filename, subject, issuer, validity dates
 
 MUTATION: initialize a GPT partition table on a node disk.
 
-RISK_HIGH: overwrites the existing partition table on the named disk; irreversible.
-confirm=True to execute.
-
-POST /nodes/{node}/disks/initgpt
-Smoke-confirm: endpoint and body shape not live-verified.
+RISK_HIGH: overwrites the existing partition table on the named disk; irreversible —
+less destructive than pve_node_disk_wipe, which also erases the underlying data.
+Dry-run by default (returns a PLAN); confirm=True executes (POST /disks/initgpt,
+Smoke-confirm) and returns {"status": "submitted", "result": <task UPID | None>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1460,10 +1634,11 @@ Smoke-confirm: endpoint and body shape not live-verified.
 
 #### `pve_node_disk_smart`
 
-Get SMART health data for a disk on a PVE node (read).
+READ-ONLY: get SMART health data for one disk on a PVE node.
 
-GET /nodes/{node}/disks/smart?disk=… — SMART attributes and health status.
-Smoke-confirm: GET (read) only — this tool does NOT trigger a self-test.
+GET /nodes/{node}/disks/smart?disk=…. VERIFIED live (PVE 9.2): returns a dict
+(health, type, text/attributes). This GET form does NOT trigger a self-test.
+To list all disks first use pve_node_disks_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1475,11 +1650,10 @@ Smoke-confirm: GET (read) only — this tool does NOT trigger a self-test.
 
 MUTATION: wipe ALL data and the partition table on a node disk.
 
-RISK_HIGH, NO UNDO: DESTROYS all data, partitions, and filesystems on the named disk.
-This is irreversible — all data is permanently erased. confirm=True to execute.
-
-PUT /nodes/{node}/disks/wipedisk
-Smoke-confirm: endpoint and body shape not live-verified.
+RISK_HIGH, NO UNDO: DESTROYS all data, partitions, and filesystems on the named disk —
+more destructive than pve_node_disk_initgpt, which only overwrites the partition table.
+Dry-run by default (returns a PLAN); confirm=True executes (PUT /disks/wipedisk,
+Smoke-confirm) and returns {"status": "submitted", "result": <task UPID | None>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1490,10 +1664,11 @@ Smoke-confirm: endpoint and body shape not live-verified.
 
 #### `pve_node_disks_list`
 
-List physical disks on a PVE node (read).
+READ-ONLY: list physical disks on a PVE node.
 
-GET /nodes/{node}/disks/list — physical disk inventory and health info.
-Smoke-confirm: response shape not live-verified.
+GET /nodes/{node}/disks/list. VERIFIED live (PVE 9.2): returns a list of dicts
+(devpath/health/size/model/serial/used). For one disk's SMART detail use
+pve_node_disk_smart.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1516,11 +1691,9 @@ to change it.
 MUTATION: update DNS resolver configuration on a PVE node.
 
 RISK_MEDIUM (a wrong resolver config breaks name resolution cluster-wide — same failure
-mode as node hosts_set). CAPTURE: reads current DNS config before planning (reuse
-pve_node_dns read); if unreadable → complete=False. confirm=True to execute.
-
-PUT /nodes/{node}/dns
-Smoke-confirm: endpoint and body shape not live-verified.
+mode as node hosts_set). CAPTURE: reads current DNS config before planning (also readable
+directly via pve_node_dns); if unreadable → complete=False. Dry-run by default (returns a
+PLAN); confirm=True executes (PUT, Smoke-confirm) and returns {"status": "ok", "result": None}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1534,10 +1707,10 @@ Smoke-confirm: endpoint and body shape not live-verified.
 
 #### `pve_node_hosts_get`
 
-Get the /etc/hosts content of a PVE node (read).
+READ-ONLY: get the /etc/hosts content of a PVE node.
 
-GET /nodes/{node}/hosts — returns {data, digest}.
-Smoke-confirm: response shape not live-verified.
+GET /nodes/{node}/hosts. VERIFIED live (PVE 9.2): returns a dict {data, digest} —
+digest is used for optimistic-concurrency on a follow-up pve_node_hosts_set.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1548,12 +1721,10 @@ Smoke-confirm: response shape not live-verified.
 
 MUTATION: replace the /etc/hosts file on a PVE node.
 
-RISK_MEDIUM. CAPTURE: reads current /etc/hosts before planning (revert by re-applying captured
-content); if unreadable → complete=False. A bad /etc/hosts can break name resolution.
-confirm=True to execute.
-
-POST /nodes/{node}/hosts
-Smoke-confirm: endpoint and body shape not live-verified.
+RISK_MEDIUM. CAPTURE: reads current /etc/hosts before planning (also readable directly via
+pve_node_hosts_get; revert by re-applying captured content); if unreadable → complete=False.
+A bad /etc/hosts can break name resolution. Dry-run by default (returns a PLAN); confirm=True
+executes (POST, Smoke-confirm) and returns {"status": "ok", "result": None}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1565,12 +1736,17 @@ Smoke-confirm: endpoint and body shape not live-verified.
 
 #### `pve_node_journal`
 
-Fetch journal entries from a PVE node (read; returns log-line strings). lastentries capped at 5000.
+READ-ONLY: fetch systemd journal lines from a PVE node for log inspection.
+
+No state change. Returns a list of journal-line strings. Narrow with since/until (timestamp
+format per PVE — typically epoch seconds or ISO 8601) and lastentries (most-recent N, max 5000;
+higher is rejected with an error). For the classic syslog view
+use pve_node_syslog; for one service's current state use pve_node_service_status.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `node` | string (nullable) | no | PVE node name; defaults to the configured node (default: `null`) |
-| `lastentries` | integer | no | Number of most-recent journal lines to return, capped at 5000 (default: `100`) |
+| `lastentries` | integer | no | Number of most-recent journal lines to return, max 5000 (values above are rejected) (default: `100`) |
 | `since` | string (nullable) | no | Only return entries at or after this timestamp (journalctl-compatible format) (default: `null`) |
 | `until` | string (nullable) | no | Only return entries at or before this timestamp (journalctl-compatible format) (default: `null`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
@@ -1581,10 +1757,9 @@ MUTATION: migrate all (or filtered) guests from a node to a target node.
 
 RISK_HIGH, NOT auto-reversible: reversal requires a second pve_node_migrateall back,
 which may not restore the original state. target = destination node name (required).
-confirm=True to execute.
-
-POST /nodes/{node}/migrateall
-Smoke-confirm: endpoint and body shape not live-verified. May return task UPID.
+For a single guest instead of the whole node use pve_guest_migrate. Dry-run by default
+(returns a PLAN); confirm=True executes (POST, Smoke-confirm) and returns
+{"status": "submitted", "result": <task UPID | None>} — poll with pve_task_status.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1597,10 +1772,11 @@ Smoke-confirm: endpoint and body shape not live-verified. May return task UPID.
 
 #### `pve_node_rrddata`
 
-Fetch RRD (round-robin database) time-series telemetry for a PVE node
-(read-only). Returns a list of data-point dicts with timestamps and metrics
-(cpu, memory, disk, network) over the specified timeframe, optionally
-aggregated by consolidation function (AVERAGE or MAX).
+READ-ONLY: fetch RRD (round-robin database) time-series telemetry for a PVE node.
+
+No state change. Returns a list of data-point dicts with timestamps and per-metric values
+(the exact metric keys vary by PVE version) over the specified timeframe, optionally aggregated by
+consolidation function (AVERAGE or MAX). Node-level only, not per-guest.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1614,7 +1790,9 @@ aggregated by consolidation function (AVERAGE or MAX).
 MUTATION: start/stop/restart/reload a service on a PVE node. Dry-run by default — the
 PLAN flags lockout-class services (sshd/pveproxy/pvedaemon/pve-cluster/corosync/networking/
 ...) as HIGH because stop/restart can sever the management plane or break quorum. There is
-NO auto-undo for a service control. confirm=True to execute. Async — returns a task UPID.
+NO auto-undo for a service control. confirm=True executes and returns
+{"status": "submitted", "result": <UPID>} — poll that UPID with pve_task_status. Check
+current state first with pve_node_service_status.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1626,7 +1804,11 @@ NO auto-undo for a service control. confirm=True to execute. Async — returns a
 
 #### `pve_node_service_status`
 
-Get the current state of a single service on a PVE node (read).
+READ-ONLY: get one systemd service's current state on a PVE node (e.g. pveproxy, sshd).
+
+No state change. Returns a dict with the service's name, state (running/dead/inactive) and
+description. To list every service use pve_node_services_list; to *change* a service's run state
+use pve_node_service_control.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1636,8 +1818,11 @@ Get the current state of a single service on a PVE node (read).
 
 #### `pve_node_services_list`
 
-List all services on a PVE node (read-only). Returns a list of service dicts
-with name, state (running/dead/inactive), and description for each service.
+READ-ONLY: list all services on a PVE node.
+
+No state change. Returns a list of service dicts with name, state (running/dead/
+inactive), and description for each service. For one service's current state use
+pve_node_service_status; to change a service's run state use pve_node_service_control.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1648,11 +1833,10 @@ with name, state (running/dead/inactive), and description for each service.
 
 MUTATION: start all (or filtered) guests on a PVE node.
 
-RISK_MEDIUM. Reversible — the inverse of pve_node_stopall. vms = optional CSV of VMIDs
-to filter the scope. confirm=True to execute.
-
-POST /nodes/{node}/startall
-Smoke-confirm: endpoint and vms param format not live-verified. May return task UPID.
+RISK_MEDIUM. Reversible — the inverse of pve_node_stopall. For a single guest instead of
+the whole node use pve_guest_power. vms = optional CSV of VMIDs to filter the scope.
+Dry-run by default (returns a PLAN); confirm=True executes (POST, Smoke-confirm on the
+vms param format) and returns {"status": "submitted", "result": <task UPID | None>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1663,7 +1847,7 @@ Smoke-confirm: endpoint and vms param format not live-verified. May return task 
 
 #### `pve_node_status`
 
-Read Proxmox node health and resource status (read-only). Returns node metrics including
+READ-ONLY: read Proxmox node health and resource status. Returns node metrics including
 total capacity, current usage, CPU, memory, disk state, and operational status. See pve_diagnose
 for detailed per-node diagnostics including failed tasks.
 
@@ -1676,11 +1860,11 @@ for detailed per-node diagnostics including failed tasks.
 
 MUTATION: stop ALL (or filtered) running guests on a PVE node.
 
-RISK_HIGH — fleet-wide service outage unless vms filters the scope.
-Reversible via pve_node_startall, but guests must be restarted inside. confirm=True to execute.
-
-POST /nodes/{node}/stopall
-Smoke-confirm: endpoint and vms param format not live-verified. May return task UPID.
+RISK_HIGH — fleet-wide service outage unless vms filters the scope. For a single guest
+instead of the whole node use pve_guest_power. Reversible via pve_node_startall, but
+guests must be restarted inside. Dry-run by default (returns a PLAN); confirm=True
+executes (POST, Smoke-confirm on the vms param format) and returns
+{"status": "submitted", "result": <task UPID | None>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1698,10 +1882,11 @@ Per-backend required params:
   lvm/lvmthin: devices (single disk)
   directory: devices (disk path) + filesystem (e.g. ext4)
 
-The named disk(s) are consumed by the new backend. confirm=True to execute.
-
-POST /nodes/{node}/disks/{backend}
-Smoke-confirm: endpoint and body shape not live-verified. May return a task UPID (async).
+RISK_HIGH: FORMATS the named disk(s) immediately — any pre-existing data is destroyed,
+irreversibly. To see what already exists use pve_node_storage_backend_list; to remove
+one use pve_node_storage_backend_delete. Dry-run by default (returns a PLAN);
+confirm=True executes (POST, Smoke-confirm) and returns
+{"status": "submitted", "result": <task UPID | None>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1722,10 +1907,10 @@ RISK_HIGH, NO UNDO — backend-specific blast:
   lvm/lvmthin: removes the VG — any storage built on it breaks
   directory:  removes the directory mapping (data on disk may persist)
 
-confirm=True to execute.
-
-DELETE /nodes/{node}/disks/{backend}/{name}
-Smoke-confirm: endpoint and params shape not live-verified.
+To create one instead use pve_node_storage_backend_create; to see what exists first
+use pve_node_storage_backend_list. Dry-run by default (returns a PLAN); confirm=True
+executes (DELETE, Smoke-confirm) and returns
+{"status": "submitted", "result": <task UPID | None>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1738,11 +1923,12 @@ Smoke-confirm: endpoint and params shape not live-verified.
 
 #### `pve_node_storage_backend_list`
 
-List storage backends of a type on a PVE node (read).
+READ-ONLY: list storage backends of a type on a PVE node.
 
-backend ∈ {lvm, lvmthin, zfs, directory}.
-GET /nodes/{node}/disks/{backend}
-Smoke-confirm: response shape not live-verified.
+backend ∈ {lvm, lvmthin, zfs, directory}. GET /nodes/{node}/disks/{backend}.
+VERIFIED live (PVE 9.2): lvm returns a VG-tree dict; lvmthin/zfs/directory return a
+list. To create or destroy a backend use pve_node_storage_backend_create /
+pve_node_storage_backend_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1752,8 +1938,10 @@ Smoke-confirm: response shape not live-verified.
 
 #### `pve_node_subscription`
 
-Read a Proxmox node's subscription status (read-only). Returns a dict with
-status, product name, check time, next due date, and subscription level.
+READ-ONLY: read a Proxmox node's subscription status.
+
+No state change. Returns a dict with status, product name, check time, next due
+date, and subscription level.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1762,20 +1950,23 @@ status, product name, check time, next due date, and subscription level.
 
 #### `pve_node_syslog`
 
-Fetch syslog entries from a PVE node (read). limit capped at 5000.
+READ-ONLY: fetch syslog entries from a PVE node for log inspection.
+
+No state change. Returns a list of entry dicts, up to `limit` (max 5000; higher is rejected with an error).
+For the systemd journal (with since/until filtering) use pve_node_journal instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `node` | string (nullable) | no | PVE node name; defaults to the configured node (default: `null`) |
-| `limit` | integer | no | Maximum number of syslog entries to return, capped at 5000 (default: `100`) |
+| `limit` | integer | no | Maximum number of syslog entries to return, max 5000 (values above are rejected) (default: `100`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pve_node_time_get`
 
-Get the current time and timezone of a PVE node (read).
+READ-ONLY: get the current time and timezone of a PVE node.
 
-GET /nodes/{node}/time — returns {localtime, time, timezone}.
-Smoke-confirm: response shape not live-verified.
+GET /nodes/{node}/time. VERIFIED live (PVE 9.2): returns a dict
+{localtime, time, timezone}. To change the timezone use pve_node_time_set.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1786,11 +1977,10 @@ Smoke-confirm: response shape not live-verified.
 
 MUTATION: set the timezone on a PVE node.
 
-RISK_LOW. CAPTURE: reads the current timezone before planning; if unreadable → complete=False.
-Revert by re-applying the captured timezone. confirm=True to execute.
-
-PUT /nodes/{node}/time
-Smoke-confirm: endpoint and body shape not live-verified.
+RISK_LOW. CAPTURE: reads the current timezone before planning (also readable directly via
+pve_node_time_get); if unreadable → complete=False. Revert by re-applying the captured
+timezone. Dry-run by default (returns a PLAN); confirm=True executes (PUT, Smoke-confirm)
+and returns {"status": "ok", "result": None}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1802,8 +1992,10 @@ Smoke-confirm: endpoint and body shape not live-verified.
 #### `pve_notification_endpoint_create`
 
 MUTATION: create a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
-Dry-run by default. confirm=True to execute. `options` carries the endpoint-specific config
-(sendmail: {"mailto-user":"root@pam"}; gotify: {"server":..,"token":..}; webhook: {"url":..}).
+`options` carries the endpoint-specific config (sendmail: {"mailto-user":"root@pam"};
+gotify: {"server":..,"token":..}; webhook: {"url":..}). Additive, low risk. Dry-run by
+default (returns a PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no further
+payload). To modify an existing endpoint instead use pve_notification_endpoint_update.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1817,8 +2009,9 @@ Dry-run by default. confirm=True to execute. `options` carries the endpoint-spec
 #### `pve_notification_endpoint_delete`
 
 MUTATION: delete a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
-Dry-run by default — captures current config. confirm=True to execute.
-WARN: matchers referencing this endpoint will silently fail until it is restored.
+Dry-run by default — captures current config. confirm=True executes and returns
+{"status": "ok", "result": null} (no further payload). No UNDO primitive — matchers referencing this
+endpoint silently fail until it is re-created with pve_notification_endpoint_create.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1829,9 +2022,11 @@ WARN: matchers referencing this endpoint will silently fail until it is restored
 
 #### `pve_notification_endpoint_list`
 
-List all PVE notification endpoints (read-only). Returns a list of dicts for
-each configured delivery channel (gotify, SMTP, sendmail, webhook), containing
-type, name, and endpoint-specific configuration.
+READ-ONLY: list all PVE notification endpoints.
+
+No state change. Returns a list of dicts for each configured delivery channel (gotify,
+smtp, sendmail, webhook) with type, name, and endpoint-specific config. To add one use
+pve_notification_endpoint_create; to remove one use pve_notification_endpoint_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1840,8 +2035,10 @@ type, name, and endpoint-specific configuration.
 #### `pve_notification_endpoint_update`
 
 MUTATION: update a PVE notification endpoint. ep_type = gotify|smtp|sendmail|webhook.
-Dry-run by default — captures current config. confirm=True to execute. `options` carries the
-endpoint-specific fields to change (same shape as create).
+`options` carries the endpoint-specific fields to change (same shape as create). Dry-run
+by default — captures current config into the PLAN; confirm=True executes and returns
+{"status": "ok", "result": null} (no further payload). No snapshot primitive; re-apply the captured
+config to revert, or use pve_notification_endpoint_create to make a new one instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1854,8 +2051,9 @@ endpoint-specific fields to change (same shape as create).
 
 #### `pve_notification_matcher_delete`
 
-MUTATION: delete a PVE notification matcher. Dry-run by default.
-confirm=True to execute. WARN: alerts matching this filter go un-routed after deletion.
+MUTATION: delete a PVE notification matcher. Dry-run by default. confirm=True
+executes and returns {"status": "ok", "result": null} (no further payload). No UNDO primitive — alerts
+matching this filter go un-routed until re-created with pve_notification_matcher_set.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1865,8 +2063,10 @@ confirm=True to execute. WARN: alerts matching this filter go un-routed after de
 
 #### `pve_notification_matcher_set`
 
-MUTATION: create-or-update a PVE notification matcher (alert routing rule).
-Dry-run by default. confirm=True to execute.
+MUTATION: create-or-update a PVE notification matcher (alert routing rule). Dry-run
+by default (returns a PLAN); confirm=True executes and returns {"status": "ok", "result": null} (no
+further payload). No snapshot primitive — re-apply with this same tool to restore after
+deletion. To remove a matcher use pve_notification_matcher_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1877,8 +2077,10 @@ Dry-run by default. confirm=True to execute.
 
 #### `pve_notification_test`
 
-MUTATION: send a test notification to a PVE notification target. Dry-run by default.
-confirm=True to execute. SENDS A REAL NOTIFICATION — recipients will receive it.
+MUTATION: send a test notification to a PVE notification target. Dry-run by default
+(returns a PLAN, nothing is sent); confirm=True SENDS A REAL NOTIFICATION to the target's
+recipients and returns {"status": "ok", "result": null}. No config changes. `name` is an existing
+endpoint or matcher name — see pve_notification_endpoint_list for endpoint names.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1888,7 +2090,11 @@ confirm=True to execute. SENDS A REAL NOTIFICATION — recipients will receive i
 
 #### `pve_overbroad_grants`
 
-Surface over-broad ACL grants (Administrator role or root '/' path) as a diagnostic (read).
+READ-ONLY: surface over-broad ACL grants — Administrator-role assignments or grants on the
+root '/' path — as a least-privilege diagnostic.
+
+No state change; this only reports, it does not revoke anything. Returns a list of the flagged ACL
+entries (empty when none). Use pve_acl_list for the full ACL and pve_acl_modify to tighten a finding.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1897,7 +2103,8 @@ Surface over-broad ACL grants (Administrator role or root '/' path) as a diagnos
 #### `pve_pool_create`
 
 MUTATION: create an (empty) resource pool. Dry-run by default (PLAN = additive, LOW).
-confirm=True to execute. Synchronous.
+confirm=True to execute. Synchronous — typically returns null, no members yet; add
+guests/storage with pve_pool_update.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1909,8 +2116,8 @@ confirm=True to execute. Synchronous.
 #### `pve_pool_delete`
 
 MUTATION: delete a resource pool. Dry-run by default — the PLAN warns ACLs on /pool/{poolid}
-are orphaned and the pool must be empty first (members are NOT deleted). confirm=True to
-execute. Synchronous.
+are orphaned and the pool must be empty first (members are NOT deleted; empty it first with
+pve_pool_update). confirm=True to execute. Synchronous — returns null.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1932,8 +2139,9 @@ Use pve_pools_list to enumerate all pools.
 #### `pve_pool_update`
 
 MUTATION: add (delete=False) or remove (delete=True) pool members. Dry-run by default —
-the PLAN notes membership re-scopes ACL coverage. confirm=True to execute. Synchronous.
-delete=True with no vms/storage is refused (ambiguous).
+the PLAN notes membership re-scopes ACL coverage. confirm=True to execute. Synchronous, no
+UPID. delete=True with no vms/storage is refused (ambiguous). To remove the pool itself use
+pve_pool_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1956,9 +2164,10 @@ configuration and complete member list.
 
 #### `pve_realm_create`
 
-MUTATION: create an auth realm. Dry-run by default; confirm=True to execute.
-`options` carries the type-specific fields PVE requires (ldap: server1/base_dn/user_attr;
-ad: domain/server1; openid: issuer-url/client-id) — passed verbatim; PVE validates them.
+MUTATION: create an auth realm. Dry-run by default; confirm=True executes and returns a
+dict, synchronous with no UPID. `options` carries the type-specific fields PVE requires (ldap:
+server1/base_dn/user_attr; ad: domain/server1; openid: issuer-url/client-id) — passed verbatim;
+PVE validates them. Use pve_realms_list to see configured realms first.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1972,7 +2181,9 @@ ad: domain/server1; openid: issuer-url/client-id) — passed verbatim; PVE valid
 #### `pve_realm_delete`
 
 MUTATION (HIGH, lockout-class): delete an auth realm. Dry-run by default — the PLAN reads
-users to count who can no longer log in, and refuses built-in pam/pve. confirm=True.
+users to count who can no longer log in, and refuses built-in pam/pve (permanent, no undo).
+confirm=True executes and returns a dict; synchronous, no UPID. Use pve_users_list to see who
+authenticates through the realm first.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1983,7 +2194,7 @@ users to count who can no longer log in, and refuses built-in pam/pve. confirm=T
 #### `pve_realm_get`
 
 Get a realm's full config (read-only). Returns realm type, comment, TFA requirement, and
-type-specific settings (server/base_dn for ldap; domain/server1 for ad; issuer-url/client-id
+type-specific settings (server1/base_dn for ldap; domain/server1 for ad; issuer-url/client-id
 for openid). Use pve_realm_create/update/delete to manage realms.
 
 | Parameter | Type | Required | Description |
@@ -1994,8 +2205,9 @@ for openid). Use pve_realm_create/update/delete to manage realms.
 #### `pve_realm_update`
 
 MUTATION: update a realm. Dry-run by default — built-in pam/pve realms are flagged HIGH
-(changing them risks breaking logins). confirm=True. `options` carries type-specific fields
-(server1/base_dn/etc.) passed verbatim; PVE validates them.
+(changing them risks breaking logins). confirm=True executes and returns a dict; synchronous,
+no UPID. `options` carries type-specific fields (server1/base_dn/etc.) passed verbatim; PVE
+validates them. Use pve_realm_get to see current config first.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2017,8 +2229,10 @@ type-specific config; use pve_realm_create/update/delete to manage realms.
 
 #### `pve_replication_create`
 
-MUTATION: create a PVE replication job. Dry-run by default.
-rep_type is typically 'local'. confirm=True to execute.
+MUTATION: create a PVE replication job. Dry-run by default; confirm=True to execute and
+returns synchronously (no task UPID) — additive, no existing data affected. rep_type is
+typically 'local'. To modify an existing job use pve_replication_update; to remove one use
+pve_replication_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2034,8 +2248,10 @@ rep_type is typically 'local'. confirm=True to execute.
 
 #### `pve_replication_delete`
 
-MUTATION: delete a PVE replication job. Dry-run by default — captures current config.
-confirm=True to execute. Replication ceases; existing replicated data is NOT removed.
+MUTATION: delete a PVE replication job. Dry-run by default — the PLAN captures current
+config (no UNDO primitive on this plane; re-create with pve_replication_create to restore).
+confirm=True to execute and returns synchronously (no task UPID). Replication ceases; existing
+replicated data on the target is NOT removed.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2045,8 +2261,10 @@ confirm=True to execute. Replication ceases; existing replicated data is NOT rem
 
 #### `pve_replication_update`
 
-MUTATION: update a PVE replication job. Dry-run by default — captures current config.
-confirm=True to execute. Config-only; in-flight replication is not immediately disrupted.
+MUTATION: update a PVE replication job. Dry-run by default — the PLAN captures current
+config for manual revert; confirm=True to execute and returns synchronously (no task UPID).
+Config-only; in-flight replication is not immediately disrupted. To create a new job use
+pve_replication_create; to remove one use pve_replication_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2061,8 +2279,9 @@ confirm=True to execute. Config-only; in-flight replication is not immediately d
 #### `pve_restore`
 
 MUTATION (DESTRUCTIVE if it overwrites an existing guest): restore a guest from a backup
-archive. Dry-run by default — the PLAN states whether it CREATES or OVERWRITES. confirm=True to
-execute. Async — returns a task UPID. pool: place the restored guest in a resource pool.
+archive. Dry-run by default — the PLAN reads live guest state and states whether it CREATES or
+OVERWRITES. confirm=True to execute. Async — returns a task UPID. Find the archive's volid
+first with pve_backup_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2079,8 +2298,9 @@ execute. Async — returns a task UPID. pool: place the restored guest in a reso
 #### `pve_role_create`
 
 MUTATION: create a custom role with an optional privilege set. Dry-run by default (MEDIUM
-risk — inert until an ACL entry references it). Returns the plan preview; confirm=True to
-execute. privs format: comma-separated privilege names (e.g. 'VM.PowerMgmt,VM.Config.Disk').
+risk — inert until an ACL entry references it). confirm=True executes and returns a dict,
+synchronous with no UPID. privs format: comma-separated privilege names (e.g.
+'VM.PowerMgmt,VM.Config.Disk'). Use pve_acl_modify to assign the new role to a principal.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2092,7 +2312,8 @@ execute. privs format: comma-separated privilege names (e.g. 'VM.PowerMgmt,VM.Co
 #### `pve_role_delete`
 
 MUTATION (HIGH): delete a role. Dry-run by default — the PLAN reads ACLs to count grants
-that will break, and refuses built-in roles. confirm=True.
+that will break, and refuses built-in roles (permanent, no undo). confirm=True executes and
+returns a dict; synchronous, no UPID. Use pve_acl_list to see which grants reference the role first.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2103,7 +2324,9 @@ that will break, and refuses built-in roles. confirm=True.
 #### `pve_role_update`
 
 MUTATION: change a role's privileges. Dry-run by default — built-in roles (Administrator,
-PVEAdmin, …) are flagged HIGH (changing them re-scopes every ACL using them). confirm=True.
+PVEAdmin, …) are flagged HIGH (changing them re-scopes every ACL using them). confirm=True
+executes and returns a dict; synchronous, no UPID. Use pve_roles_list to see current roles
+and privileges first.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2126,7 +2349,9 @@ pve_acl_list to see which principals hold which roles at which paths.
 #### `pve_rollback`
 
 MUTATION (DESTRUCTIVE): roll a guest back to a snapshot — discards ALL changes since it.
-Dry-run by default (the PLAN spells out the blast radius); confirm=True to execute. Async -> UPID.
+Dry-run by default (the PLAN spells out the blast radius); confirm=True to execute. Async —
+returns the task UPID, poll with pve_task_status. To create a restore point first use
+pve_snapshot_create.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2140,9 +2365,13 @@ Dry-run by default (the PLAN spells out the blast radius); confirm=True to execu
 #### `pve_sdn_apply`
 
 MUTATION (HIGH RISK): apply pending SDN config changes (cluster-scoped).
-Dry-run by default — the PLAN surfaces pending zones/vnets. confirm=True to execute.
-A misconfigured SDN can disrupt virtual networking for ALL guests cluster-wide.
-May return a UPID (async) or None (sync) — outcome='submitted' in either case.
+
+Stage zones/vnets/subnets first with pve_sdn_zone_create / pve_sdn_vnet_create /
+pve_sdn_subnet_create — this applies whatever is pending; for interface/bridge changes use
+pve_network_apply instead. Dry-run by default — the PLAN surfaces pending zones/vnets.
+confirm=True executes with no automatic undo, disrupting virtual networking for ALL guests
+cluster-wide if misconfigured. May return a UPID (async) or None (sync) — outcome='submitted'
+in either case.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2152,7 +2381,11 @@ May return a UPID (async) or None (sync) — outcome='submitted' in either case.
 #### `pve_sdn_subnet_create`
 
 MUTATION: create an SDN subnet (PENDING). `subnet` is a CIDR (e.g. 10.0.0.0/24); `options`
-carries gateway/snat/dhcp params. Dry-run by default. RISK_LOW (staging; inert until apply).
+carries gateway/snat/dhcp params.
+
+To update this subnet use pve_sdn_subnet_update; to remove it use pve_sdn_subnet_delete.
+Dry-run by default (returns a PLAN); confirm=True creates the pending subnet and returns
+{status, result}. RISK_LOW (staging; inert until apply).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2166,7 +2399,10 @@ carries gateway/snat/dhcp params. Dry-run by default. RISK_LOW (staging; inert u
 #### `pve_sdn_subnet_delete`
 
 MUTATION: delete an SDN subnet (PENDING). `subnet` is the id from pve_sdn_subnet_list.
-Dry-run by default. RISK_MEDIUM (staging a removal an apply would enact).
+
+To create a subnet instead use pve_sdn_subnet_create. Dry-run by default (returns a PLAN);
+confirm=True stages the removal and returns {status, result}; no config UNDO — re-create the
+subnet to revert. RISK_MEDIUM (staging a removal an apply would enact).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2178,9 +2414,9 @@ Dry-run by default. RISK_MEDIUM (staging a removal an apply would enact).
 
 #### `pve_sdn_subnet_list`
 
-List subnets in a vnet (read-only). Returns subnet CIDR, gateway, dhcp,
-snat, and dns settings. Use pve_sdn_subnet_create to add and pve_sdn_apply to
-commit.
+READ-ONLY: list the subnets configured in a vnet. Returns a list of subnet dicts
+(the exact field set is not guaranteed by this endpoint). Use pve_sdn_subnet_create to
+add one and pve_sdn_apply to commit.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2190,7 +2426,10 @@ commit.
 #### `pve_sdn_subnet_update`
 
 MUTATION: update an SDN subnet (PENDING). `subnet` is the id from pve_sdn_subnet_list.
-Dry-run by default. RISK_LOW (staging).
+
+To create a subnet use pve_sdn_subnet_create; to remove one use pve_sdn_subnet_delete. Dry-run
+by default (returns a PLAN); confirm=True stages the edit and returns {status, result}.
+RISK_LOW (staging).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2206,7 +2445,10 @@ Dry-run by default. RISK_LOW (staging).
 #### `pve_sdn_vnet_create`
 
 MUTATION: create an SDN vnet in a zone (PENDING). `options` carries tag/alias/vlanaware/etc.
-Dry-run by default. RISK_LOW (staging; inert until pve_sdn_apply).
+
+To update an existing vnet use pve_sdn_vnet_update; to remove one use pve_sdn_vnet_delete.
+Dry-run by default (returns a PLAN); confirm=True creates the pending vnet and returns
+{status, result}. RISK_LOW (staging; inert until pve_sdn_apply).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2220,7 +2462,10 @@ Dry-run by default. RISK_LOW (staging; inert until pve_sdn_apply).
 #### `pve_sdn_vnet_delete`
 
 MUTATION: delete an SDN vnet (PENDING). Dry-run by default — the PLAN shows the current vnet.
-PVE refuses if a subnet still references it. RISK_MEDIUM.
+
+To create a vnet instead use pve_sdn_vnet_create. PVE refuses if a subnet still references it.
+confirm=True stages the removal and returns {status, result}; no config UNDO — re-create the
+vnet to revert. RISK_MEDIUM.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2232,8 +2477,11 @@ PVE refuses if a subnet still references it. RISK_MEDIUM.
 #### `pve_sdn_vnet_update`
 
 MUTATION: update an SDN vnet (PENDING — inert until pve_sdn_apply).
-Options sets fields (tag/alias/vlanaware/etc), delete removes keys. Dry-run
-by default. RISK_LOW (staging, no live network effect).
+
+`options` sets fields (tag/alias/vlanaware/etc), `delete` removes keys. To create a vnet use
+pve_sdn_vnet_create; to remove one use pve_sdn_vnet_delete. Dry-run by default (returns a
+PLAN); confirm=True stages the edit and returns {status, result}. RISK_LOW (staging, no live
+network effect).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2258,8 +2506,11 @@ to commit.
 #### `pve_sdn_zone_create`
 
 MUTATION: create an SDN zone (PENDING — inert until pve_sdn_apply, NOT applied here).
-`zone_type` is simple/vlan/qinq/vxlan/evpn/faucet; `options` carries type-specific params.
-Dry-run by default. RISK_LOW (staging, no live network effect).
+
+`zone_type` is simple/vlan/qinq/vxlan/evpn/faucet; `options` carries type-specific params. To
+update an existing zone use pve_sdn_zone_update; to remove one use pve_sdn_zone_delete. Dry-run
+by default (returns a PLAN); confirm=True creates the pending zone, returning {status, result}.
+RISK_LOW (staging, no live network effect).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2273,7 +2524,10 @@ Dry-run by default. RISK_LOW (staging, no live network effect).
 #### `pve_sdn_zone_delete`
 
 MUTATION: delete an SDN zone (PENDING). Dry-run by default — the PLAN shows the current zone.
-PVE refuses if a vnet still references it. RISK_MEDIUM (staging a removal an apply would enact).
+
+To create a zone instead use pve_sdn_zone_create. PVE refuses if a vnet still references it.
+confirm=True stages the removal and returns {status, result}; no config UNDO — re-create the
+zone to revert. RISK_MEDIUM (staging a removal an apply would enact).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2285,7 +2539,10 @@ PVE refuses if a vnet still references it. RISK_MEDIUM (staging a removal an app
 #### `pve_sdn_zone_update`
 
 MUTATION: update an SDN zone (PENDING). `options` sets fields; `delete` unsets keys.
-Dry-run by default. RISK_LOW (staging; inert until pve_sdn_apply).
+
+To create a new zone use pve_sdn_zone_create; to remove one use pve_sdn_zone_delete. Dry-run
+by default (returns a PLAN); confirm=True stages the edit and returns {status, result}.
+RISK_LOW (staging; inert until pve_sdn_apply).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2311,7 +2568,7 @@ pve_sdn_apply to commit.
 
 List the cluster's firewall security groups (read-only).
 
-Returns each group's name, comment, and digest. A security group is a reusable
+Returns each group's id (keyed `group`), comment, and digest. A security group is a reusable
 named rule set you attach to a VM/node firewall; use pve_firewall_rules_list to read
 a specific scope's active rules.
 
@@ -2323,6 +2580,8 @@ a specific scope's active rules.
 
 MUTATION: create a snapshot (a restore point). Dry-run by default; confirm=True to execute.
 Async — returns the task UPID; poll pve_task_status. Needs snapshot-capable storage (ZFS/BTRFS/LVM-thin).
+To restore to a snapshot use pve_rollback; to remove one use pve_snapshot_delete; to list them
+use pve_snapshot_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2336,8 +2595,9 @@ Async — returns the task UPID; poll pve_task_status. Needs snapshot-capable st
 
 #### `pve_snapshot_delete`
 
-MUTATION: delete a snapshot (removes a restore point). Dry-run by default; confirm=True to execute.
-Async -> UPID.
+MUTATION: delete a snapshot (removes a restore point) — you can't roll back to it afterward.
+Dry-run by default; confirm=True to execute. Async — returns the task UPID, poll with
+pve_task_status. To create a snapshot instead of removing one use pve_snapshot_create.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2375,8 +2635,8 @@ settings. Use pve_storage_config_list to enumerate all storages.
 
 #### `pve_storage_config_list`
 
-List all storage definitions from storage.cfg cluster-wide (read-only). Returns a list
-of storage dicts with IDs, types, paths, and server addresses. Use
+READ-ONLY: list all storage definitions from storage.cfg cluster-wide. No state change.
+Returns a list of storage dicts with IDs, types, paths, and server addresses. Use
 pve_storage_config_get to fetch a single storage's complete configuration.
 
 | Parameter | Type | Required | Description |
@@ -2385,7 +2645,11 @@ pve_storage_config_get to fetch a single storage's complete configuration.
 
 #### `pve_storage_content`
 
-List a storage's content, optionally filtered (content = iso | vztmpl | backup) (read).
+READ-ONLY: list the volumes a storage holds — ISO images, container templates, backups, disks.
+
+No state change. Optionally filter by content type (iso | vztmpl | backup); omit to list all.
+Returns a list of volume dicts (volid, size, content type, …); use it to find a volid to pass to
+restore/clone tools. To *define* a new storage use pve_storage_create.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2396,8 +2660,10 @@ List a storage's content, optionally filtered (content = iso | vztmpl | backup) 
 
 #### `pve_storage_content_delete`
 
-MUTATION: delete a content volume (ISO / template / backup) from storage. Dry-run by default
-(HIGH risk for a backup volume); confirm=True. Async — UPID or null.
+MUTATION: delete a content volume (ISO / template / backup / disk image) from storage.
+Dry-run by default — escalates to HIGH risk for a backup volume or a disk still attached to a
+guest; confirm=True to execute. Async — returns a UPID or null. Use pve_storage_content to
+find a volid first.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2409,7 +2675,14 @@ MUTATION: delete a content volume (ISO / template / backup) from storage. Dry-ru
 
 #### `pve_storage_create`
 
-MUTATION: define a new storage (storage.cfg). Dry-run by default. confirm=True to execute.
+MUTATION: define a new cluster storage entry in storage.cfg (dir / nfs / pbs / cifs / …).
+
+This registers a storage *definition* the cluster can use; it does NOT format disks or provision
+a backend — to create a disk-backed backend (lvm/zfs/directory) on a node use
+pve_node_storage_backend_create. Required params depend on storage_type (dir needs `path`; nfs
+needs `server`+`export`). MEDIUM risk — a bad definition can fail to mount and slow cluster
+storage enumeration; no existing data is touched. Dry-run by default (returns a PLAN);
+confirm=True writes storage.cfg (the confirm result payload is typically null).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2428,7 +2701,9 @@ MUTATION: define a new storage (storage.cfg). Dry-run by default. confirm=True t
 #### `pve_storage_delete`
 
 MUTATION (HIGH): remove a storage definition cluster-wide. Dry-run by default — the PLAN
-warns guest disks/backups living only there become inaccessible (data not erased). confirm=True.
+warns guest disks/backups living only there become inaccessible (data not erased). confirm=True
+executes — typically returns null; no undo except re-adding via pve_storage_create with the
+same config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2439,7 +2714,9 @@ warns guest disks/backups living only there become inaccessible (data not erased
 #### `pve_storage_download`
 
 MUTATION: download an ISO (content=iso) or CT template (content=vztmpl) from a URL into a
-storage. Dry-run by default; confirm=True. Async — returns a UPID.
+storage. Dry-run by default; confirm=True. Async — returns a UPID (poll with pve_task_status).
+The URL and its content are operator-trusted — Proximo does not verify or sandbox what it
+fetches. Use pve_storage_content to see what's already on a storage.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2468,7 +2745,9 @@ and backups stored on it.
 #### `pve_storage_update`
 
 MUTATION: update a storage definition. Dry-run by default (disable=True warns guests lose
-disk access). confirm=True to execute.
+disk access cluster-wide; a `nodes` change strands guests on excluded nodes). confirm=True to
+execute (synchronous, no UPID). The storage type itself can't be changed here — use
+pve_storage_delete then pve_storage_create instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2497,7 +2776,13 @@ pve_tasks_list to find a UPID.
 
 #### `pve_task_status`
 
-Status of an async Proxmox task (running/stopped + exit status) — poll snapshot/rollback ops (read).
+READ-ONLY: get an async Proxmox task's status by its UPID — running vs stopped, plus the
+exit status once it has finished.
+
+No state change. Use it to poll long-running ops (migrate, snapshot, rollback, backup) that
+return a UPID. Returns a dict with `status` and `exitstatus`. To block until the task completes
+use pve_task_wait, and for its log output use pve_task_log. Pass `node` for a task on a
+non-default node; omitting it falls back to the configured default node (the UPID is not parsed for the node).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2509,7 +2794,8 @@ Status of an async Proxmox task (running/stopped + exit status) — poll snapsho
 
 MUTATION (HIGH): stop (cancel) a running task. Dry-run by default — the PLAN warns that
 stopping a backup/restore/migration/clone mid-flight can leave the target inconsistent, with
-NO undo. confirm=True to execute. Synchronous cancellation signal (returns null).
+NO undo. confirm=True to execute. Synchronous cancellation signal (returns null, not a UPID) —
+the task may run briefly before it sees the signal. Find UPIDs to stop via pve_tasks_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2541,7 +2827,8 @@ timeout is clamped 1..600s, interval 1..60s. Use pve_task_log for the full log.
 
 #### `pve_tasks_list`
 
-List recent tasks on a node (read). limit 1-1000 (clamped).
+READ-ONLY: list recent tasks on a node. limit max 1000 (higher is truncated; 0 or negative
+is rejected). No state change; returns a list of task dicts. Use pve_task_log for a task's full log.
 
 Caveat: this is a windowed, per-node slice — node defaults to the configured node, and
 only the `limit` most-recent tasks return. A task on another node or outside the window
@@ -2551,7 +2838,7 @@ against pve_backup_list or pbs_snapshots_list.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `node` | string (nullable) | no | Node to list tasks from; defaults to the configured node. (default: `null`) |
-| `limit` | integer | no | Max number of most-recent tasks to return, clamped to 1-1000. (default: `50`) |
+| `limit` | integer | no | Max number of most-recent tasks to return, max 1000 (0 or negative is rejected). (default: `50`) |
 | `errors` | boolean | no | If True, only return tasks that ended in error. (default: `false`) |
 | `vmid` | string (nullable) | no | Optional VMID/CTID to filter tasks to a single guest. (default: `null`) |
 | `typefilter` | string (nullable) | no | Optional task-type filter, e.g. 'vzdump', 'qmigrate' (PVE task type string). (default: `null`) |
@@ -2560,8 +2847,10 @@ against pve_backup_list or pbs_snapshots_list.
 
 #### `pve_template_convert`
 
-MUTATION (IRREVERSIBLE): convert a guest into a template — effectively one-way. Dry-run by
-default (the PLAN flags it HIGH/irreversible); confirm=True to execute.
+MUTATION (IRREVERSIBLE): convert a guest into a template — effectively one-way; kind='lxc'
+is refused (this endpoint is QEMU-only — LXC uses a separate, out-of-scope template endpoint).
+Dry-run by default (the PLAN flags it HIGH/irreversible, and separately warns if the guest is
+already a template); confirm=True executes, recorded as submitted (async).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2576,7 +2865,7 @@ default (the PLAN flags it HIGH/irreversible); confirm=True to execute.
 MUTATION (HIGH RISK): delete a user's TFA factor. Dry-run by default — the PLAN shows how many
 factors remain and warns this WEAKENS the account (and can lock the user out if it's the last
 factor on a TFA-required realm). `password` (if PVE requires it) is passed through but never
-logged. confirm=True to execute.
+logged. confirm=True executes and returns a dict; no UNDO (the factor must be re-enrolled).
 
 NOTE (live-verified PVE 9.1.7): PVE requires a ticket-based login session — NOT an API token —
 to mutate TFA, returning `403 ... need proper ticket` under token auth. Proximo is token-authed,
@@ -2604,8 +2893,9 @@ Use pve_tfa_delete (confirm=True) to remove a factor (RISK_HIGH — can lock the
 
 #### `pve_tfa_list`
 
-List all per-user TFA (two-factor) entries across the cluster (read-only). Returns each
-entry's userid, factor type (totp/webauthn/yubico/recovery), factor id, and metadata. Use pve_tfa_get
+List all per-user TFA (two-factor) entries across the cluster (read-only). Returns the
+configured TFA entries; the exact shape varies by PVE version (typically per-user with a
+nested `entries` list of factor type/id). Use pve_tfa_get
 for one user's entries; use pve_tfa_delete (confirm=True) to remove a factor (RISK_HIGH).
 
 | Parameter | Type | Required | Description |
@@ -2617,8 +2907,9 @@ for one user's entries; use pve_tfa_delete (confirm=True) to remove a factor (RI
 MUTATION: create an API token for a user.
 
 Dry-run by default — the PLAN shows risk (privsep=False is HIGH: token inherits ALL owner perms).
-confirm=True to execute. The token secret (value) is returned ONCE to the caller and is NEVER
-written to the audit ledger. Synchronous.
+confirm=True executes and returns a dict whose result carries the token secret (value) ONCE —
+it is never written to the audit ledger and cannot be retrieved again. Synchronous. Use
+pve_tokens_list to see a user's existing tokens, or pve_token_revoke to remove one.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2635,7 +2926,8 @@ written to the audit ledger. Synchronous.
 MUTATION (IRREVERSIBLE): permanently revoke an API token.
 
 Dry-run by default — the PLAN flags HIGH: revocation is permanent, the secret is gone forever.
-confirm=True to execute. Synchronous.
+confirm=True executes and returns a dict; synchronous, no UPID. Use pve_tokens_list to see a
+user's tokens first, or pve_token_create to issue a new one instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2658,7 +2950,8 @@ format: 'user@realm'. Use pve_token_create/revoke to manage tokens.
 #### `pve_user_create`
 
 MUTATION: create a user. Dry-run by default (note: password is set separately — the user
-cannot log in until then). confirm=True to execute.
+cannot log in until then). confirm=True executes and returns a dict; synchronous, no UPID.
+Use pve_user_update to change it afterward, or pve_user_delete to remove it.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2676,7 +2969,9 @@ cannot log in until then). confirm=True to execute.
 #### `pve_user_delete`
 
 MUTATION (HIGH): delete a user. Dry-run by default — the PLAN reads the user's ACLs/tokens
-to show what access vanishes (permanent, no undo; admin = lockout risk). confirm=True.
+to show what access vanishes (permanent, no undo; admin = lockout risk). confirm=True executes
+and returns a dict; synchronous, no UPID. To disable login without deleting, use
+pve_user_update (enable=False) instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2688,7 +2983,8 @@ to show what access vanishes (permanent, no undo; admin = lockout risk). confirm
 
 Get a user's full config (read-only). Returns userid, enabled flag, expiry, email, comment,
 group membership, API tokens, and firstname/lastname. Use pve_user_create/update/delete to
-modify the user; use pve_acl_list to see their effective permissions.
+modify the user; use pve_acl_list to see the cluster's raw ACL entries (not a resolved
+per-user effective-permission view).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2698,7 +2994,8 @@ modify the user; use pve_acl_list to see their effective permissions.
 #### `pve_user_update`
 
 MUTATION: update a user (enable=False stops login; group changes re-scope access).
-Dry-run by default. confirm=True to execute.
+Dry-run by default. confirm=True executes and returns a dict; synchronous, no UPID. Use
+pve_user_get to see current state first, or pve_user_delete to remove the user instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2732,7 +3029,8 @@ MUTATION (MEDIUM): create a new PBS datastore at the given path.
 
 Dry-run by default — additive, but a misconfigured path can conflict with existing storage.
 PBS datastore creation is an async worker task (UPID) → outcome='submitted' (not 'ok').
-No rollback primitive. confirm=True to execute.
+No rollback primitive. confirm=True to execute. Use pbs_datastores_list to check for
+name/path collisions first, or pbs_datastore_update to modify it afterward.
 
 POST /config/datastore
 Smoke-confirm: gc-schedule / prune-schedule / notification-mode param names; sync-vs-async.
@@ -2758,6 +3056,8 @@ destroy_data=True → HIGH, IRREVERSIBLE: PERMANENTLY DESTROYS ALL backup data i
   named datastore — no recovery possible.
 
 PBS deletion is an async worker task (UPID) → outcome='submitted'. confirm=True to execute.
+To recover from a destroy_data=False detach, re-add with pbs_datastore_create at the
+same path.
 
 DELETE /config/datastore/{name}
 Smoke-confirm: destroy-data / keep-job-configs param names; sync-vs-async.
@@ -2798,6 +3098,8 @@ MUTATION (MEDIUM): update PBS datastore configuration. Dry-run by default.
 CAPTURE: reads current config before planning; on read failure the plan is marked incomplete.
 Changing gc-schedule / prune-schedule affects data retention cluster-wide.
 No rollback primitive — revert by re-applying the captured config. confirm=True to execute.
+Use pbs_datastore_get to inspect current config, or pbs_datastore_delete to remove the
+datastore instead.
 
 PUT /config/datastore/{name}
 Smoke-confirm: accepted param names (hyphenated vs underscored).
@@ -2825,7 +3127,8 @@ or pbs_datastore_get for full configuration. Needs PROXIMO_PBS_* config.
 #### `pbs_gc_start`
 
 MUTATION (HIGH): start garbage collection on a PBS datastore. Dry-run by default — GC
-permanently removes unreferenced chunks (no undo). confirm=True to execute. Async — UPID.
+permanently removes unreferenced chunks (no undo). confirm=True to execute; returns the
+UPID (async task) — check progress with pbs_gc_status or pbs_tasks_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2835,8 +3138,9 @@ permanently removes unreferenced chunks (no undo). confirm=True to execute. Asyn
 
 #### `pbs_gc_status`
 
-Get garbage-collection status for one PBS datastore (read-only). Returns GC
-schedule, current state, disk/index statistics, and pending/removed chunk counts.
+Get garbage-collection status for one PBS datastore (read-only). Returns current GC
+state, disk/index statistics, and pending/removed chunk counts (the GC schedule field
+appears only when a schedule is configured on the datastore).
 Use pbs_gc_start to execute garbage collection or pbs_datastore_status for capacity.
 
 | Parameter | Type | Required | Description |
@@ -2849,10 +3153,11 @@ Use pbs_gc_start to execute garbage collection or pbs_datastore_status for capac
 MUTATION (MEDIUM): reassign the owner of a PBS backup group. Dry-run by default.
 
 The new owner controls deletion and prune of this backup group.
-The previous owner loses those permissions immediately.
+The previous owner loses those permissions immediately. Use pbs_snapshots_list to see
+the group's current owner first.
 No PBS snapshot primitive — revert by re-assigning the owner back. confirm=True to execute.
 
-PUT /admin/datastore/{store}/change-owner
+POST /admin/datastore/{store}/change-owner
 Smoke-confirm: exact path + new-owner vs owner param name.
 
 | Parameter | Type | Required | Description |
@@ -2867,8 +3172,10 @@ Smoke-confirm: exact path + new-owner vs owner param name.
 
 #### `pbs_job_create`
 
-MUTATION: create a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PBS_* config. Config-only; no existing data affected.
+MUTATION: create a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default;
+confirm=True to execute and returns synchronously (no task UPID) — additive, no existing data
+affected. Needs PROXIMO_PBS_* config. To modify use pbs_job_update, to remove use
+pbs_job_delete, or to run it once immediately (bypassing the schedule) use pbs_job_run.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2884,8 +3191,9 @@ confirm=True to execute. Needs PROXIMO_PBS_* config. Config-only; no existing da
 #### `pbs_job_delete`
 
 MUTATION: delete a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
-captures current config. confirm=True to execute. Schedule removed; backup data NOT deleted.
-Needs PROXIMO_PBS_* config.
+the PLAN captures current config (no UNDO primitive; re-create with pbs_job_create to restore
+the schedule). confirm=True to execute and returns synchronously (no task UPID). Schedule
+removed, backup data NOT deleted. Needs PROXIMO_PBS_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2896,9 +3204,11 @@ Needs PROXIMO_PBS_* config.
 
 #### `pbs_job_run`
 
-MUTATION: trigger a PBS scheduled job immediately. job_type = sync|verify|prune.
-Dry-run by default. confirm=True to execute. Async — returns UPID.
-Needs PROXIMO_PBS_* config. Prune runs may delete snapshots per the retention policy.
+MUTATION: trigger a PBS scheduled job immediately, outside its normal schedule.
+job_type = sync|verify|prune. Dry-run by default; confirm=True to execute. Async — returns
+a UPID; check progress with pbs_tasks_list. Risk depends on job_type: prune runs permanently
+DELETE snapshots per the retention policy, sync may add/remove directory data, verify is
+read-only. Needs PROXIMO_PBS_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2910,7 +3220,9 @@ Needs PROXIMO_PBS_* config. Prune runs may delete snapshots per the retention po
 #### `pbs_job_update`
 
 MUTATION: update a PBS scheduled job. job_type = sync|verify|prune. Dry-run by default —
-captures current config. confirm=True to execute. Needs PROXIMO_PBS_* config.
+the PLAN captures current config for manual revert; confirm=True to execute and returns
+synchronously (no task UPID). Config-only; existing backup data is unaffected. Needs
+PROXIMO_PBS_* config. To create use pbs_job_create; to remove use pbs_job_delete.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2924,8 +3236,9 @@ captures current config. confirm=True to execute. Needs PROXIMO_PBS_* config.
 
 #### `pbs_jobs_list`
 
-List all PBS scheduled jobs of the given type (read). job_type = sync|verify|prune.
-Returns all jobs with their configs. Raises on invalid job_type. Needs PROXIMO_PBS_* config.
+READ-ONLY: list all PBS scheduled jobs of the given type. job_type = sync|verify|prune.
+Returns all jobs with their configs; raises on invalid job_type. Use pbs_job_create,
+pbs_job_update, or pbs_job_delete to manage one. Needs PROXIMO_PBS_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2935,7 +3248,8 @@ Returns all jobs with their configs. Raises on invalid job_type. Needs PROXIMO_P
 #### `pbs_namespace_create`
 
 MUTATION: create a namespace within a PBS datastore. Dry-run by default (additive, LOW).
-confirm=True to execute. Synchronous.
+confirm=True to execute — returns {"status": "ok", "result": null}. Use pbs_namespaces_list to check for
+name collisions first, or pbs_namespace_delete to remove one.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2949,7 +3263,8 @@ confirm=True to execute. Synchronous.
 
 MUTATION: delete a namespace from a PBS datastore. Dry-run by default — delete_groups=True
 is HIGH (it deletes all backup groups/snapshots inside the namespace, no undo). confirm=True
-to execute. Synchronous.
+to execute — returns {"status": "ok", "result": null}. Use pbs_namespaces_list to confirm it's empty first,
+or pbs_namespace_create to recreate an empty namespace afterward.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2977,7 +3292,8 @@ parent namespace or limit recursion depth. Use pbs_namespace_create to add names
 MUTATION: prune backup snapshots per a retention policy. TWO safety gates: confirm
 (Proximo dry-run vs execute) AND dry_run (PBS-side preview). dry_run=True (default) only
 previews; dry_run=False DELETES recovery points (PLAN is HIGH, no undo). confirm=True to
-execute. Synchronous — returns prune decisions.
+execute. Synchronous — returns prune decisions. For one specific snapshot use
+pbs_snapshot_delete instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2996,10 +3312,11 @@ execute. Synchronous — returns prune decisions.
 
 #### `pbs_realm_sync`
 
-MUTATION: sync PBS auth realm (LDAP/AD) users. Dry-run by default.
-confirm=True to execute. Async — returns UPID. Needs PROXIMO_PBS_* config.
-remove_vanished=True also removes PBS users no longer in the directory.
-(2026-07-10 audit: the old 'scope' param was dropped — PBS /sync has no such field.)
+MUTATION: sync PBS auth realm (LDAP/AD) users into PBS. Dry-run by default; confirm=True to
+execute. Async — returns a UPID; check progress with pbs_tasks_list. remove_vanished=True
+additionally DELETES PBS users no longer present in the directory (recoverable only by
+re-sync, not a true undo). Needs PROXIMO_PBS_* config. (2026-07-10 audit: the old 'scope'
+param was dropped — PBS /sync has no such field.)
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3057,8 +3374,9 @@ Smoke-confirm: response shape on success.
 
 #### `pbs_remote_get`
 
-Get the config of one PBS remote sync-source by name (read). No password returned.
-Needs PROXIMO_PBS_* config.
+READ-ONLY: get the config of one PBS remote sync-source by name. Returns a dict; no
+password returned. Use pbs_remotes_list to list all remotes, or pbs_remote_update to
+change this one. Needs PROXIMO_PBS_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3077,6 +3395,7 @@ a plain parameter — visible in the LLM's output token stream and any MCP clien
 This is an MCP-protocol property; server-side redaction protects the ledger only.
 The TLS cert 'fingerprint' is PUBLIC and appears in plans/logs for audit.
 No rollback primitive — revert by re-applying captured config. confirm=True to execute.
+Use pbs_remote_get to inspect current config first.
 
 PUT /config/remote/{name}
 Smoke-confirm: auth-id param name; whether partial PUT is accepted.
@@ -3095,8 +3414,9 @@ Smoke-confirm: auth-id param name; whether partial PUT is accepted.
 
 #### `pbs_remotes_list`
 
-List all PBS remote sync-sources (read). Passwords are never returned by the PBS API.
-Needs PROXIMO_PBS_* config.
+READ-ONLY: list all PBS remote sync-sources. Returns a list of remote config dicts;
+passwords are never included (PBS never returns them, and this strips defensively too).
+Use pbs_remote_get for one remote's config. Needs PROXIMO_PBS_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3106,6 +3426,8 @@ Needs PROXIMO_PBS_* config.
 
 MUTATION (HIGH): delete a specific backup snapshot (a recovery point) from a PBS
 datastore. Dry-run by default. Permanent — no undo. confirm=True to execute. Synchronous.
+To shield a snapshot instead of deleting it use pbs_snapshot_protected_set(protected=True);
+for bulk retention-based deletion use pbs_prune.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3122,7 +3444,8 @@ datastore. Dry-run by default. Permanent — no undo. confirm=True to execute. S
 MUTATION (LOW): annotate a PBS snapshot with notes. Dry-run by default.
 
 CAPTURE: reads current notes before planning; on failure the plan is marked incomplete.
-Does not affect backup data, retention, or protection.
+Does not affect backup data, retention, or protection — to shield the snapshot from
+pruning/GC use pbs_snapshot_protected_set instead.
 No PBS snapshot primitive — revert by re-applying the captured notes. confirm=True to execute.
 
 PUT /admin/datastore/{store}/notes
@@ -3148,6 +3471,8 @@ protected=False → HIGH: SILENTLY re-enables pruning/GC — this recovery point
   be auto-deleted by the next prune job or GC run. No undo once auto-deleted.
 
 No PBS snapshot primitive for rollback. Dry-run by default. confirm=True to execute.
+To annotate rather than protect a snapshot use pbs_snapshot_notes_set; to delete it
+outright use pbs_snapshot_delete.
 
 PUT /admin/datastore/{store}/protected
 Smoke-confirm: exact path + param names (backup-type, backup-id, backup-time, protected).
@@ -3165,9 +3490,11 @@ Smoke-confirm: exact path + param names (backup-type, backup-id, backup-time, pr
 
 #### `pbs_snapshots_list`
 
-List backup snapshots in a PBS datastore with optional filters (read-only). Returns
+READ-ONLY: list backup snapshots in a PBS datastore with optional filters. Returns
 snapshot metadata including backup type, ID, timestamp, size, owner, and protection
-status; filter by namespace, backup_type (vm/ct/host), or backup_id.
+status; filter by namespace, backup_type (vm/ct/host), or backup_id. To delete one use
+pbs_snapshot_delete; to change its protected flag or notes use pbs_snapshot_protected_set
+or pbs_snapshot_notes_set.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3179,9 +3506,10 @@ status; filter by namespace, backup_type (vm/ct/host), or backup_id.
 
 #### `pbs_tasks_list`
 
-List PBS tasks on a node (read). Defaults to 'localhost' (standard single-node PBS name).
-Optionally filter: running=True for active tasks, errors=True for failed tasks.
-Needs PROXIMO_PBS_* config.
+READ-ONLY: list PBS tasks on a node. Defaults to 'localhost' (standard single-node PBS
+name). Returns a list of task dicts; filter running=True for active tasks or errors=True
+for failed ones. Use this to check on a UPID returned by pbs_gc_start, pbs_verify_start,
+pbs_datastore_create, or pbs_datastore_delete. Needs PROXIMO_PBS_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3193,7 +3521,7 @@ Needs PROXIMO_PBS_* config.
 
 #### `pbs_traffic_control_delete`
 
-MUTATION (LOW): remove a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
+MUTATION (MEDIUM): remove a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
 
 After deletion: backups run unthrottled on the matched network.
 Recoverable by re-creating the rule with pbs_traffic_control_upsert. confirm=True to execute.
@@ -3216,7 +3544,8 @@ Detects create-vs-update by reading the existing rule config (CAPTURE on update 
   update → MEDIUM: changing rate limits can throttle backups or saturate the network.
 
 A too-low rate-in or rate-out throttles PBS backups to a crawl.
-No rollback primitive. confirm=True to execute.
+No rollback primitive. confirm=True to execute. Use pbs_traffic_controls_list to see
+existing rules first, or pbs_traffic_control_delete to remove one.
 
 POST (create) or PUT (update) /config/traffic-control[/{name}]
 Smoke-confirm: create-vs-update dispatch; rate-in/rate-out/burst-in/burst-out/timeframe param names.
@@ -3236,7 +3565,7 @@ Smoke-confirm: create-vs-update dispatch; rate-in/rate-out/burst-in/burst-out/ti
 
 #### `pbs_traffic_controls_list`
 
-List all PBS traffic-control bandwidth-limit rules (read-only). Returns active rules
+READ-ONLY: list all PBS traffic-control bandwidth-limit rules. Returns active rules
 with their rate-in/rate-out limits, network targets, and comment. Use
 pbs_traffic_control_upsert to create or modify rules. Needs PROXIMO_PBS_* config.
 
@@ -3247,7 +3576,8 @@ pbs_traffic_control_upsert to create or modify rules. Needs PROXIMO_PBS_* config
 #### `pbs_verify_start`
 
 MUTATION: start an integrity verification run on a PBS datastore. Dry-run by default —
-non-destructive (read-only check) but heavy I/O. confirm=True to execute. Async — UPID.
+non-destructive (read-only check) but heavy I/O. confirm=True to execute; returns the
+UPID (async task) — check progress with pbs_tasks_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3263,11 +3593,10 @@ non-destructive (read-only check) but heavy I/O. confirm=True to execute. Async 
 #### `pmg_action_bcc_create`
 
 MUTATION (LOW): create a BCC action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/bcc.
-name: action object name. target: BCC recipient email address.
-info: optional description. original: if True, send the ORIGINAL unmodified mail to the BCC
-target (PMG's "send original mail" flag), not the processed copy — controls which version is sent.
+
+List existing action objects with pmg_action_objects_list; attach this one to a rule with
+pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3281,10 +3610,10 @@ target (PMG's "send original mail" flag), not the processed copy — controls wh
 #### `pmg_action_bcc_update`
 
 MUTATION (MEDIUM): update a BCC action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/bcc/{id}.
-id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-Only non-None fields are sent; omitted fields keep current values.
+
+id_ comes from pmg_action_objects_list; to create a new one instead use pmg_action_bcc_create.
+Only non-None fields are sent, others keep their current value. confirm=True executes and
+returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3299,11 +3628,10 @@ Only non-None fields are sent; omitted fields keep current values.
 #### `pmg_action_delete`
 
 MUTATION (MEDIUM): delete an action object from the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/action/objects/{id}.
-id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-NOTE: PMG rejects deletion of non-editable (built-in) system action objects.
-Check 'editable' flag in pmg_action_objects_list before confirming.
+
+Irreversible. PMG rejects deletion of non-editable (built-in) system action objects — check
+the 'editable' flag via pmg_action_objects_list first. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3314,10 +3642,10 @@ Check 'editable' flag in pmg_action_objects_list before confirming.
 #### `pmg_action_disclaimer_create`
 
 MUTATION (LOW): create a disclaimer action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/disclaimer.
-name: action name. disclaimer: disclaimer text. position: start|end.
-add_separator: maps to API param 'add-separator' (bool).
+
+List existing action objects with pmg_action_objects_list; attach this one to a rule with
+pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3332,10 +3660,10 @@ add_separator: maps to API param 'add-separator' (bool).
 #### `pmg_action_disclaimer_update`
 
 MUTATION (MEDIUM): update a disclaimer action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/disclaimer/{id}.
-id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-position: start|end (validated). add_separator → 'add-separator'. Only non-None fields sent.
+
+id_ comes from pmg_action_objects_list. Only non-None fields are sent, others keep their
+current value. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3351,10 +3679,10 @@ position: start|end (validated). add_separator → 'add-separator'. Only non-Non
 #### `pmg_action_field_create`
 
 MUTATION (LOW): create a field-modification action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/field.
-name: action object name. field: mail header field to set. value: value to assign.
-info: optional description.
+
+List existing action objects with pmg_action_objects_list; attach this one to a rule with
+pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3368,10 +3696,10 @@ info: optional description.
 #### `pmg_action_field_update`
 
 MUTATION (MEDIUM): update a field-modification action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/field/{id}.
-id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-name, field, value all required — PMG 9.1 field action PUT rejects partial updates (400).
+
+id_ comes from pmg_action_objects_list; to create a new one instead use
+pmg_action_field_create. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3386,10 +3714,10 @@ name, field, value all required — PMG 9.1 field action PUT rejects partial upd
 #### `pmg_action_notification_create`
 
 MUTATION (LOW): create a notification action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/notification.
-name: action name. to: notification recipient. subject: notification subject.
-body_text: notification body (maps to API param 'body'). attach: attach original message.
+
+List existing action objects with pmg_action_objects_list; attach this one to a rule with
+pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3405,11 +3733,10 @@ body_text: notification body (maps to API param 'body'). attach: attach original
 #### `pmg_action_notification_update`
 
 MUTATION (MEDIUM): update a notification action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/notification/{id}.
-id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-name, to, subject, body_text all required — PMG 9.1 notification PUT rejects partial updates (400).
-body_text maps to API param 'body'.
+
+id_ comes from pmg_action_objects_list; to create a new one instead use
+pmg_action_notification_create. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3425,11 +3752,11 @@ body_text maps to API param 'body'.
 
 #### `pmg_action_objects_list`
 
-List all PMG RuleDB action objects including non-editable (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list all PMG RuleDB action objects, including non-editable. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/action/objects.
-Returns all action objects; each entry carries an 'editable' flag.
-Non-editable action objects are built-in and cannot be modified via the API.
+Returns a list of dicts; each carries an 'editable' flag — non-editable ones are PMG built-ins
+and cannot be modified via the API. For one rule's attached actions use
+pmg_ruledb_rule_actions_list instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3438,11 +3765,10 @@ Non-editable action objects are built-in and cannot be modified via the API.
 #### `pmg_action_removeattachments_create`
 
 MUTATION (LOW): create a remove-attachments action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/action/removeattachments.
-name: action name. text: replacement text for removed attachments.
-all_: maps to API param 'all' (bool; remove all attachments).
-quarantine: if True, quarantine removed attachments.
+
+List existing action objects with pmg_action_objects_list; attach this one to a rule with
+pmg_ruledb_rule_action_attach. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3457,10 +3783,10 @@ quarantine: if True, quarantine removed attachments.
 #### `pmg_action_removeattachments_update`
 
 MUTATION (MEDIUM): update a remove-attachments action object in the PMG RuleDB. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/action/removeattachments/{id}.
-id_: compound action object ID (e.g. '13_26') from pmg_action_objects_list.
-all_: maps to API param 'all' (bool). Only non-None fields are sent.
+
+id_ comes from pmg_action_objects_list. Only non-None fields are sent, others keep their
+current value. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3478,10 +3804,9 @@ all_: maps to API param 'all' (bool). Only non-None fields are sent.
 MUTATION (LOW): create a PMG configuration backup. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/backup.
-notify: always|error|never (default never).
-statistic: include mail statistics in backup (default True).
-Backup is written to /var/lib/pmg/backup/ on the target node.
+Additive — writes a new backup .tar.gz to /var/lib/pmg/backup/ on the target node; does not
+touch existing backups or live config. Dry-run returns a PLAN; confirm=True executes and
+returns {"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3493,12 +3818,12 @@ Backup is written to /var/lib/pmg/backup/ on the target node.
 
 #### `pmg_doctor`
 
-PMG connectivity + credential/permission preflight (read). Checks /nodes/{node}/version
-and /access/users. A successful /version call means ticket login also succeeded —
-connectivity and credentials are proven together. Needs PROXIMO_PMG_* config.
+READ-ONLY: PMG connectivity + credential/permission preflight — checks the global /version
+endpoint and /access/users. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified: PMG has no /access/permissions endpoint (that is PVE-only);
-/access/users is the closest equivalent and returns the same user/role information.
+Returns a dict with "version" and "permissions" keys; a successful call proves connectivity
+and credentials together. Run this first when diagnosing PMG trouble, before other pmg_* tools.
+PMG has no /access/permissions endpoint (that is PVE-only); "permissions" here is /access/users.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3510,8 +3835,9 @@ PMG 9.1 live-verified: PMG has no /access/permissions endpoint (that is PVE-only
 MUTATION (LOW): create a managed mail domain. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: POST /config/domains.
-domain: domain name to add (e.g. 'example.com').
+domain: domain name to add (e.g. 'example.com'). Dry-run returns a PLAN; confirm=True executes
+and returns {"status": "ok", "result": ...}. Additive — reverse with pmg_domain_delete; list
+current domains with pmg_domains_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3525,8 +3851,9 @@ domain: domain name to add (e.g. 'example.com').
 MUTATION (MEDIUM): delete a managed mail domain. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: DELETE /config/domains/{domain}.
-Mail routing rules referencing this domain may break — review before confirming.
+Mail routing rules referencing this domain may break — review before confirming. No UNDO
+primitive; recreate with pmg_domain_create if needed. Dry-run returns a PLAN; confirm=True
+executes and returns {"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3536,10 +3863,10 @@ Mail routing rules referencing this domain may break — review before confirmin
 
 #### `pmg_domains_list`
 
-List PMG managed mail domains (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list PMG managed mail domains. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified: /config/domains path and response shape confirmed via
-pmg-smoke.py W1 round-trip and W3 full domain create/list/delete cycle.
+Returns a list of domain dicts (domain name + comment). Use pmg_domain_create/pmg_domain_delete
+to manage domains.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3550,8 +3877,9 @@ pmg-smoke.py W1 round-trip and W3 full domain create/list/delete cycle.
 MUTATION (LOW): add a CIDR to the PMG mynetworks trusted relay list. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: POST /config/mynetworks.
-cidr: network in CIDR notation (e.g. '10.0.0.0/8'). Only add CIDRs you control.
+Only add CIDRs you control — trusted networks bypass spam filtering. Additive — reverse with
+pmg_mynetworks_remove. Dry-run returns a PLAN; confirm=True executes and returns
+{"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3565,8 +3893,9 @@ cidr: network in CIDR notation (e.g. '10.0.0.0/8'). Only add CIDRs you control.
 MUTATION (MEDIUM): remove a CIDR from the PMG mynetworks trusted relay list. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: DELETE /config/mynetworks/{cidr} (CIDR URL-encoded).
-Internal senders in the range will be subject to spam filtering after removal.
+Internal senders in the range become subject to spam filtering after removal. No UNDO
+primitive; re-add with pmg_mynetworks_add if needed. Dry-run returns a PLAN; confirm=True
+executes and returns {"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3576,11 +3905,10 @@ Internal senders in the range will be subject to spam filtering after removal.
 
 #### `pmg_node_rrddata`
 
-Get PMG node RRD performance data (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get PMG node RRD performance data. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/rrddata.
-timeframe: REQUIRED — hour|day|week|month|year.
-cf: consolidation function AVERAGE|MAX (optional).
+Returns a list of time-series dicts over the given timeframe (hour|day|week|month|year). For
+a PVE hypervisor node's RRD data use pve_node_rrddata instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3591,10 +3919,10 @@ cf: consolidation function AVERAGE|MAX (optional).
 
 #### `pmg_node_status`
 
-Get PMG node cpu/mem/disk/uptime status (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get PMG node cpu/mem/disk/uptime status. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified: /nodes/{node}/status path and response shape confirmed via
-pmg-smoke.py W1 round-trip (node_status PASS).
+Returns a dict with cpu/memory/disk/uptime fields for the node. This is the PMG node
+(Proxmox Mail Gateway); for a PVE hypervisor node use pve_node_status instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3603,11 +3931,10 @@ pmg-smoke.py W1 round-trip (node_status PASS).
 
 #### `pmg_node_syslog`
 
-Get PMG node syslog entries (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get PMG node syslog entries. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/syslog.
-limit: max entries; service: filter by service name.
-since/until: time range; start: pagination offset.
+Returns a list of log-entry dicts. For a PVE hypervisor node's syslog use pve_node_syslog
+instead; for RRD performance data use pmg_node_rrddata.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3624,7 +3951,9 @@ since/until: time range; start: pagination offset.
 MUTATION (LOW): flush all Postfix queues (immediate re-delivery attempt). Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/postfix/flush_queues.
+Dry-run returns a PLAN; confirm=True executes and returns {"status": "ok", "result": ...}.
+Triggers redelivery attempts only — does not clear or drop queued mail. Check queue state
+with pmg_postfix_qshape before and after.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3634,10 +3963,10 @@ PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/postfix/flush_queues
 
 #### `pmg_postfix_qshape`
 
-Get PMG Postfix queue shape (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get PMG Postfix queue shape. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified: /nodes/{node}/postfix/qshape returns a list of
-dicts (one row per domain + a TOTAL row with queue-age bucket counts).
+Returns a list of dicts, one row per domain plus a TOTAL row, each with queue-age bucket
+counts. To force immediate re-delivery of the queued mail use pmg_postfix_flush.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3647,13 +3976,11 @@ dicts (one row per domain + a TOTAL row with queue-age bucket counts).
 #### `pmg_quarantine_action`
 
 MUTATION (MEDIUM; HIGH for action='delete' — permanent, irreversible). Apply an action to
-quarantined message(s). Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
+quarantined message(s). Dry-run by default; confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-action: one of deliver|delete|mark-seen|mark-unseen|blocklist|welcomelist.
-mail_ids: single mail ID or comma-separated list.
-PMG 9.1 live-proven 2026-06-26: POST /quarantine/content — delete and deliver
-both confirmed against real quarantined GTUBE messages.
+action: deliver|delete|mark-seen|mark-unseen|blocklist|welcomelist. Get mail_ids from
+pmg_quarantine_spam (or the virus/attachment quarantine lists). Dry-run returns a PLAN;
+confirm=True executes and returns {"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3664,11 +3991,11 @@ both confirmed against real quarantined GTUBE messages.
 
 #### `pmg_quarantine_attachment`
 
-List attachment quarantine entries (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list attachment quarantine entries. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/attachment.
-pmail: per-user scope — defaults to authenticated user (api.config.username).
-Maps start/end Unix epoch → starttime/endtime query params.
+Returns a list of dicts, one per quarantined attachment. pmail defaults to the authenticated
+user when omitted. For spam quarantine use pmg_quarantine_spam; to act on entries use
+pmg_quarantine_action.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3682,8 +4009,9 @@ Maps start/end Unix epoch → starttime/endtime query params.
 MUTATION (LOW): add an address to the quarantine blocklist. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: POST /quarantine/blocklist.
-pmail: scope to a per-user blocklist (optional).
+Dry-run returns a PLAN; confirm=True executes and returns {"status": "ok", "result": ...}.
+Additive — reverse with pmg_quarantine_blocklist_remove. View current entries with
+pmg_quarantine_blocklist_list. pmail scopes the entry to a per-user blocklist (optional).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3694,12 +4022,12 @@ pmail: scope to a per-user blocklist (optional).
 
 #### `pmg_quarantine_blocklist_list`
 
-List PMG quarantine blocklist entries (read). Optional pmail to scope to one user.
+READ-ONLY: list PMG quarantine blocklist entries. Optional pmail to scope to one user.
 Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: /quarantine/blocklist.
-pmail: scopes the read to one user's blocklist; ALWAYS sent, defaulting to the authenticated
-PMG user when omitted — so an empty result means "none for that user", not "none globally".
+Returns a list of blocklist-entry dicts. pmail is ALWAYS sent, defaulting to the authenticated
+PMG user when omitted — an empty result means "none for that user," not "none globally." Use
+pmg_quarantine_blocklist_add/pmg_quarantine_blocklist_remove to manage entries.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3711,8 +4039,9 @@ PMG user when omitted — so an empty result means "none for that user", not "no
 MUTATION (LOW): remove an address from the quarantine blocklist. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: DELETE /quarantine/blocklist.
-pmail: optional per-user scope (defaults to authenticated user).
+pmail: optional per-user scope (defaults to authenticated user). No UNDO primitive; re-add
+with pmg_quarantine_blocklist_add if needed. Dry-run returns a PLAN; confirm=True executes
+and returns {"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3723,12 +4052,11 @@ pmail: optional per-user scope (defaults to authenticated user).
 
 #### `pmg_quarantine_spam`
 
-List PMG quarantined spam messages (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list PMG quarantined spam messages. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified: endpoint is /quarantine/spam (not /quarantine/mails).
-For virus quarantine use pmg_quarantine_virus; for attachment use pmg_quarantine_attachment.
-To act on quarantined messages (deliver/delete/mark-seen/blocklist/welcomelist) use
-pmg_quarantine_action.
+Returns a list of dicts, one per quarantined message. For virus quarantine use
+pmg_quarantine_virus; for attachment quarantine use pmg_quarantine_attachment. To act on
+quarantined messages (deliver/delete/mark-seen/blocklist/welcomelist) use pmg_quarantine_action.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3736,9 +4064,10 @@ pmg_quarantine_action.
 
 #### `pmg_quarantine_spamstatus`
 
-Get spam quarantine status summary (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get spam quarantine status summary. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/spamstatus.
+Returns a dict of summary counts. For the individual quarantined messages use
+pmg_quarantine_spam instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3746,11 +4075,11 @@ PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/spamstatus.
 
 #### `pmg_quarantine_spamusers`
 
-List users with quarantined mail entries (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list users with quarantined mail entries. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/spamusers.
-quarantine_type: spam|virus|attachment (default spam) — sent to API as 'quarantine-type'.
-Maps start/end Unix epoch → starttime/endtime query params.
+Returns a list of per-user dicts. quarantine_type: spam|virus|attachment (default spam) —
+sent to the PMG API as 'quarantine-type'. To list one user's messages use pmg_quarantine_spam
+(pmail scope) or the matching virus/attachment tool.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3761,11 +4090,11 @@ Maps start/end Unix epoch → starttime/endtime query params.
 
 #### `pmg_quarantine_virus`
 
-List virus quarantine entries (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list virus quarantine entries. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/virus.
-pmail: per-user scope — defaults to authenticated user (api.config.username).
-Maps start/end Unix epoch → starttime/endtime query params.
+Returns a list of dicts, one per quarantined virus message. pmail defaults to the
+authenticated user when omitted. For spam quarantine use pmg_quarantine_spam; to act on
+entries use pmg_quarantine_action.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3776,9 +4105,10 @@ Maps start/end Unix epoch → starttime/endtime query params.
 
 #### `pmg_quarantine_virusstatus`
 
-Get virus quarantine status summary (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get virus quarantine status summary. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/virusstatus.
+Returns a dict of summary counts. For the individual quarantined messages use
+pmg_quarantine_virus instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3789,8 +4119,9 @@ PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/virusstatus.
 MUTATION (LOW): add an address to the quarantine welcomelist. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: POST /quarantine/welcomelist.
-pmail: optional per-user scope (defaults to authenticated user).
+pmail: optional per-user scope (defaults to authenticated user). Additive — reverse with
+pmg_quarantine_welcomelist_remove. Dry-run returns a PLAN; confirm=True executes and returns
+{"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3801,11 +4132,12 @@ pmail: optional per-user scope (defaults to authenticated user).
 
 #### `pmg_quarantine_welcomelist_list`
 
-List PMG quarantine welcomelist entries (read). Optional pmail to scope to one user.
+READ-ONLY: list PMG quarantine welcomelist entries. Optional pmail to scope to one user.
 Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /quarantine/welcomelist.
-pmail defaults to the authenticated user when not provided.
+Returns a list of welcomelist-entry dicts; pmail defaults to the authenticated user when
+omitted. For the blocklist use pmg_quarantine_blocklist_list. Use
+pmg_quarantine_welcomelist_add/pmg_quarantine_welcomelist_remove to manage entries.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3817,8 +4149,9 @@ pmail defaults to the authenticated user when not provided.
 MUTATION (LOW): remove an address from the quarantine welcomelist. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: DELETE /quarantine/welcomelist.
-pmail: optional per-user scope (defaults to authenticated user).
+pmail: optional per-user scope (defaults to authenticated user). No UNDO primitive; re-add
+with pmg_quarantine_welcomelist_add if needed. Dry-run returns a PLAN; confirm=True executes
+and returns {"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3829,9 +4162,10 @@ pmail: optional per-user scope (defaults to authenticated user).
 
 #### `pmg_relay_config`
 
-Get PMG SMTP relay/smarthost configuration (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get PMG SMTP relay/smarthost configuration. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified: relay/smarthost settings live at /config/mail (not /config/relay).
+Returns the full mail config section as a dict, including relay host, relay port, and other
+SMTP delivery settings. Lives at /config/mail — there is no separate /config/relay endpoint.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3839,11 +4173,10 @@ PMG 9.1 live-verified: relay/smarthost settings live at /config/mail (not /confi
 
 #### `pmg_ruledb_digest`
 
-Get the PMG RuleDB digest (change-detection hash) (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get the PMG RuleDB digest (change-detection hash). Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/digest.
-The digest changes whenever any ruledb configuration is modified.
-Use to detect configuration drift without fetching the full rule list.
+Returns a dict with the current hash. The digest changes whenever any ruledb configuration is
+modified — poll it to detect drift cheaply instead of re-fetching pmg_ruledb_rules_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3852,10 +4185,11 @@ Use to detect configuration drift without fetching the full rule list.
 #### `pmg_ruledb_rule_action_attach`
 
 MUTATION (MEDIUM): attach an action group to a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 live-verified path: POST /config/ruledb/rules/{id}/action (singular; /actions returns 501).
-id_: rule ID. ogroup: numeric action group ID from pmg_action_objects_list.
-Only affects mail flow if the rule is active.
+
+ogroup comes from pmg_action_objects_list (the integer part before '_' in a compound ID like
+'13_26'); list a rule's current actions with pmg_ruledb_rule_actions_list. Additive — only
+affects mail flow once the rule is active. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3867,10 +4201,10 @@ Only affects mail flow if the rule is active.
 #### `pmg_ruledb_rule_action_detach`
 
 MUTATION (MEDIUM): detach an action group from a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 live-verified path: DELETE /config/ruledb/rules/{id}/action/{ogroup} (singular; /actions returns 501).
-id_: rule ID. ogroup: numeric action group ID to detach.
-Only affects mail flow if the rule is active.
+
+Only removes the binding — the action object itself is untouched (delete it separately with
+pmg_action_delete if desired). List current actions with pmg_ruledb_rule_actions_list.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3881,11 +4215,11 @@ Only affects mail flow if the rule is active.
 
 #### `pmg_ruledb_rule_actions_list`
 
-List the 'actions' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list the 'actions' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-PMG 9.1: reads GET /config/ruledb/rules/{id}/config and extracts the embedded 'action' list —
-the dedicated .../actions path returns HTTP 501 (not implemented), so it is NOT used.
-id_: rule ID (positive integer string, e.g. '100').
+Returns a list of action-object dicts, extracted from the same config pmg_ruledb_rule_get
+returns — the dedicated .../actions endpoint 501s on PMG 9.1, so this reads /config instead.
+id_: rule ID (e.g. '100') from pmg_ruledb_rules_list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3895,15 +4229,11 @@ id_: rule ID (positive integer string, e.g. '100').
 #### `pmg_ruledb_rule_create`
 
 MUTATION (MEDIUM): create a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules.
-name: rule name. priority: 0-100 (lower = higher priority).
-active: DEFAULTS TO FALSE — rules control live mail processing; only activate
-when the rule configuration and group attachments have been verified.
-direction: 0=inbound, 1=outbound, 2=both.
-from_and/from_invert/to_and/to_invert/what_and/what_invert/when_and/when_invert:
-    optional bool flags for AND/invert logic (map to hyphen-param API names).
-Returns the numeric rule ID assigned by PMG on confirm.
+
+Creates the rule shell only — attach condition/action groups afterward with
+pmg_ruledb_rule_from_attach and its sibling attach tools; list existing rules with
+pmg_ruledb_rules_list. active defaults False (live mail is affected only once active).
+confirm=True executes and returns {"status": "ok", "result": <new rule ID assigned by PMG>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3925,10 +4255,10 @@ Returns the numeric rule ID assigned by PMG on confirm.
 #### `pmg_ruledb_rule_delete`
 
 MUTATION (MEDIUM): delete a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}.
-id_: rule ID (positive integer string, e.g. '100').
-WARNING: permanently removes the rule and all its group bindings.
+
+Irreversible — permanently removes the rule and all its group bindings (the who/what/when/
+action groups themselves survive). List rules first with pmg_ruledb_rules_list.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3939,10 +4269,10 @@ WARNING: permanently removes the rule and all its group bindings.
 #### `pmg_ruledb_rule_from_attach`
 
 MUTATION (MEDIUM): attach a 'from' (sender/who) group to a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/from.
-id_: rule ID. ogroup: numeric who-group ID from pmg_who_groups_list.
-Only affects mail flow if the rule is active.
+
+ogroup comes from pmg_who_groups_list; list a rule's current 'from' groups with
+pmg_ruledb_rule_from_list. Additive — only affects mail flow once the rule is active.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3954,10 +4284,10 @@ Only affects mail flow if the rule is active.
 #### `pmg_ruledb_rule_from_detach`
 
 MUTATION (MEDIUM): detach a 'from' (sender/who) group from a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/from/{ogroup}.
-id_: rule ID. ogroup: numeric who-group ID to detach.
-Only affects mail flow if the rule is active.
+
+Only removes the binding — the who-group itself is untouched (delete it separately with
+pmg_who_group_delete if desired). List current bindings with pmg_ruledb_rule_from_list.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3968,10 +4298,10 @@ Only affects mail flow if the rule is active.
 
 #### `pmg_ruledb_rule_from_list`
 
-List the 'from' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list the 'from' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/from.
-id_: rule ID (positive integer string, e.g. '100').
+Returns a list of object dicts. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list. Use
+pmg_ruledb_rule_to_list for the 'to' side, and the what/when/actions counterparts for the rest.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3980,10 +4310,11 @@ id_: rule ID (positive integer string, e.g. '100').
 
 #### `pmg_ruledb_rule_get`
 
-Get a PMG RuleDB rule's configuration (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get a PMG RuleDB rule's configuration. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/config.
-id_: rule ID (positive integer string, e.g. '100').
+Returns a dict of the rule's config. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list.
+For the rule's individual from/to/what/when object lists use pmg_ruledb_rule_from_list and
+its to/what/when/actions siblings.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3993,10 +4324,10 @@ id_: rule ID (positive integer string, e.g. '100').
 #### `pmg_ruledb_rule_to_attach`
 
 MUTATION (MEDIUM): attach a 'to' (recipient/who) group to a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/to.
-id_: rule ID. ogroup: numeric who-group ID from pmg_who_groups_list.
-Only affects mail flow if the rule is active.
+
+ogroup comes from pmg_who_groups_list; list a rule's current 'to' groups with
+pmg_ruledb_rule_to_list. Additive — only affects mail flow once the rule is active.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4008,10 +4339,10 @@ Only affects mail flow if the rule is active.
 #### `pmg_ruledb_rule_to_detach`
 
 MUTATION (MEDIUM): detach a 'to' (recipient/who) group from a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/to/{ogroup}.
-id_: rule ID. ogroup: numeric who-group ID to detach.
-Only affects mail flow if the rule is active.
+
+Only removes the binding — the who-group itself is untouched (delete it separately with
+pmg_who_group_delete if desired). List current bindings with pmg_ruledb_rule_to_list.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4022,10 +4353,10 @@ Only affects mail flow if the rule is active.
 
 #### `pmg_ruledb_rule_to_list`
 
-List the 'to' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list the 'to' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/to.
-id_: rule ID (positive integer string, e.g. '100').
+Returns a list of object dicts. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list. Use
+pmg_ruledb_rule_from_list for the 'from' side, and the what/when/actions counterparts for the rest.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4035,11 +4366,11 @@ id_: rule ID (positive integer string, e.g. '100').
 #### `pmg_ruledb_rule_update`
 
 MUTATION (MEDIUM): update a PMG RuleDB rule configuration. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/rules/{id}/config.
-id_: rule ID (positive integer string, e.g. '100').
-All other fields are optional; only non-None values are sent.
-WARNING: setting active=True activates the rule and begins live mail processing.
+
+Changes rule-level fields only (name/priority/active/direction/AND-invert flags) — to
+attach or detach condition/action groups use pmg_ruledb_rule_from_attach and its sibling
+attach/detach tools. Only non-None fields are sent. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4062,10 +4393,10 @@ WARNING: setting active=True activates the rule and begins live mail processing.
 #### `pmg_ruledb_rule_what_attach`
 
 MUTATION (MEDIUM): attach a 'what' (content) group to a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/what.
-id_: rule ID. ogroup: numeric what-group ID from pmg_what_groups_list.
-Only affects mail flow if the rule is active.
+
+ogroup comes from pmg_what_groups_list; list a rule's current 'what' groups with
+pmg_ruledb_rule_what_list. Additive — only affects mail flow once the rule is active.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4077,10 +4408,10 @@ Only affects mail flow if the rule is active.
 #### `pmg_ruledb_rule_what_detach`
 
 MUTATION (MEDIUM): detach a 'what' (content) group from a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/what/{ogroup}.
-id_: rule ID. ogroup: numeric what-group ID to detach.
-Only affects mail flow if the rule is active.
+
+Only removes the binding — the what-group itself is untouched (delete it separately with
+pmg_what_group_delete if desired). List current bindings with pmg_ruledb_rule_what_list.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4091,10 +4422,10 @@ Only affects mail flow if the rule is active.
 
 #### `pmg_ruledb_rule_what_list`
 
-List the 'what' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list the 'what' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/what.
-id_: rule ID (positive integer string, e.g. '100').
+Returns a list of object dicts. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list. Use
+pmg_ruledb_rule_when_list for the 'when' side, and the from/to/actions counterparts for the rest.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4104,10 +4435,10 @@ id_: rule ID (positive integer string, e.g. '100').
 #### `pmg_ruledb_rule_when_attach`
 
 MUTATION (MEDIUM): attach a 'when' (timeframe) group to a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/rules/{id}/when.
-id_: rule ID. ogroup: numeric when-group ID from pmg_when_groups_list.
-Only affects mail flow if the rule is active.
+
+ogroup comes from pmg_when_groups_list; list a rule's current 'when' groups with
+pmg_ruledb_rule_when_list. Additive — only affects mail flow once the rule is active.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4119,10 +4450,10 @@ Only affects mail flow if the rule is active.
 #### `pmg_ruledb_rule_when_detach`
 
 MUTATION (MEDIUM): detach a 'when' (timeframe) group from a PMG RuleDB rule. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/rules/{id}/when/{ogroup}.
-id_: rule ID. ogroup: numeric when-group ID to detach.
-Only affects mail flow if the rule is active.
+
+Only removes the binding — the when-group itself is untouched (delete it separately with
+pmg_when_group_delete if desired). List current bindings with pmg_ruledb_rule_when_list.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4133,10 +4464,10 @@ Only affects mail flow if the rule is active.
 
 #### `pmg_ruledb_rule_when_list`
 
-List the 'when' objects attached to a PMG RuleDB rule (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list the 'when' objects attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules/{id}/when.
-id_: rule ID (positive integer string, e.g. '100').
+Returns a list of object dicts. id_: rule ID (e.g. '100') from pmg_ruledb_rules_list. Use
+pmg_ruledb_rule_what_list for the 'what' side, and the from/to/actions counterparts for the rest.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4145,10 +4476,11 @@ id_: rule ID (positive integer string, e.g. '100').
 
 #### `pmg_ruledb_rules_list`
 
-List all PMG RuleDB rules (hydrated rule list) (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list all PMG RuleDB rules (hydrated rule list). Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/rules.
-Returns the full hydrated rule list including from/to/what/when/actions for each rule.
+Returns the full hydrated rule list as dicts, including from/to/what/when/actions for each
+rule. For one rule use pmg_ruledb_rule_get; to detect drift without the full fetch use
+pmg_ruledb_digest.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4159,11 +4491,9 @@ Returns the full hydrated rule list including from/to/what/when/actions for each
 MUTATION (MEDIUM): start, stop, restart, or reload a PMG service. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/services/{service}/{action}.
-service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon', 'clamav', 'spamassassin'.
-action: start|stop|restart|reload.
-
 WARNING: stop on postfix/pmgproxy/pmgdaemon interrupts mail delivery until manually restarted.
+Check current state first with pmg_service_status. Dry-run returns a PLAN; confirm=True
+executes and returns {"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4175,12 +4505,11 @@ WARNING: stop on postfix/pmgproxy/pmgdaemon interrupts mail delivery until manua
 
 #### `pmg_service_status`
 
-Get the status of a PMG system service (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get the status of a PMG system service. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: /nodes/{node}/services/{service}/state.
-service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon', 'pmgmirror', 'pmgtunnel',
-         'pmg-smtp-filter', 'clamav', 'spamassassin'. No hardcoded enum —
-         pass any valid service name; unknown names return a PMG 404.
+Returns a dict with the service's state. service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon',
+'clamav', 'spamassassin' — no hardcoded enum, unknown names return a PMG 404. Use
+pmg_service_control to start/stop/restart/reload the service.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4190,9 +4519,10 @@ service: e.g. 'postfix', 'pmgproxy', 'pmgdaemon', 'pmgmirror', 'pmgtunnel',
 
 #### `pmg_spam_config`
 
-Get PMG spam filter configuration (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get PMG spam filter configuration. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: /config/spam.
+Returns a dict of the current spam-filter settings (score thresholds, Bayes/AWL/Razor/RBL
+toggles, etc). Use pmg_spam_config_update to change them.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4203,10 +4533,10 @@ PMG 9.1 live-verified path via pmgsh ls: /config/spam.
 MUTATION (MEDIUM): update PMG spam filter configuration. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: PUT /config/spam.
-Only non-None fields are sent — omitted fields keep their current PMG values.
-delete: comma-separated list of field names to reset to defaults.
-Changes take effect immediately on new inbound mail.
+Only non-None fields are sent — omitted fields keep their current PMG value; delete resets
+named fields to defaults, effective immediately on new inbound mail. Read current values with
+pmg_spam_config. Dry-run returns a PLAN; confirm=True executes and returns {"status": "ok",
+"result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4226,11 +4556,11 @@ Changes take effect immediately on new inbound mail.
 
 #### `pmg_statistics_domains`
 
-Get PMG per-domain mail statistics (read). Optional Unix epoch start/end timespan.
+READ-ONLY: get PMG per-domain mail statistics. Optional Unix epoch start/end timespan.
 Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: /statistics/domains.
-Maps start/end params → starttime/endtime query params.
+Returns a list of per-domain stat dicts. For overall totals use pmg_statistics_mail; for
+time-bucketed counts use pmg_statistics_mailcount. start/end map to starttime/endtime.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4252,11 +4582,10 @@ for time-ranged data use pmg_statistics_mailcount instead.
 
 #### `pmg_statistics_mailcount`
 
-Get per-bucket mail count statistics (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get per-bucket mail count statistics. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /statistics/mailcount.
-timespan: histogram bucket size in seconds, 3600–31622400 (default 3600 = 1 hour).
-Maps start/end Unix epoch → starttime/endtime query params.
+Returns a list of time-bucketed count dicts (bucket size set by timespan, default 1 hour).
+For today's single aggregate total use pmg_statistics_mail instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4267,11 +4596,11 @@ Maps start/end Unix epoch → starttime/endtime query params.
 
 #### `pmg_statistics_receiver`
 
-Get per-recipient mail statistics (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get per-recipient mail statistics. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /statistics/receiver.
-filter_: optional search string; orderby: raw sort spec passthrough.
-Maps start/end Unix epoch → starttime/endtime query params.
+Returns a list of per-recipient stat dicts. orderby is a raw sort-spec passthrough here
+(unlike pmg_statistics_sender, which ignores it). For per-sender stats use
+pmg_statistics_sender.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4283,9 +4612,10 @@ Maps start/end Unix epoch → starttime/endtime query params.
 
 #### `pmg_statistics_recent`
 
-Get PMG recent mail statistics (read). hours: 1-24 window. Needs PROXIMO_PMG_* config.
+READ-ONLY: get PMG recent mail statistics. hours: 1-24 window. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: /statistics/recent.
+Returns a list of dicts covering only the last `hours`. For today's full aggregate totals use
+pmg_statistics_mail instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4294,13 +4624,11 @@ PMG 9.1 live-verified path via pmgsh ls: /statistics/recent.
 
 #### `pmg_statistics_sender`
 
-Get per-sender mail statistics (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get per-sender mail statistics. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /statistics/sender.
-filter_: optional search string. orderby: accepted for compatibility but IGNORED —
-PMG 9.1 rejects orderby on /statistics/sender (HTTP 400), so rows come back in PMG's
-default order (unlike pmg_statistics_receiver, which does pass orderby through).
-Maps start/end Unix epoch → starttime/endtime query params.
+Returns a list of per-sender stat dicts. orderby is accepted for compatibility but IGNORED —
+PMG rejects it here (HTTP 400) unlike pmg_statistics_receiver, which does honor it. For
+per-recipient stats use pmg_statistics_receiver.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4312,11 +4640,11 @@ Maps start/end Unix epoch → starttime/endtime query params.
 
 #### `pmg_statistics_spamscores`
 
-Get PMG spam score distribution statistics (read). Optional Unix epoch start/end timespan.
+READ-ONLY: get PMG spam score distribution statistics. Optional Unix epoch start/end timespan.
 Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: /statistics/spamscores.
-Maps start/end params → starttime/endtime query params.
+Returns a list of dicts bucketing message counts by spam score. For the raw quarantined spam
+messages use pmg_quarantine_spam instead. start/end map to starttime/endtime.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4326,11 +4654,11 @@ Maps start/end params → starttime/endtime query params.
 
 #### `pmg_statistics_virus`
 
-Get PMG virus statistics (read). Optional Unix epoch start/end timespan.
+READ-ONLY: get PMG virus statistics. Optional Unix epoch start/end timespan.
 Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: /statistics/virus.
-Maps start/end params → starttime/endtime query params.
+Returns a list of dicts with virus-detection counts over the window. For per-message virus
+quarantine entries use pmg_quarantine_virus instead. start/end map to starttime/endtime.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4340,11 +4668,10 @@ Maps start/end params → starttime/endtime query params.
 
 #### `pmg_tasks_list`
 
-List PMG tasks on a node (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list PMG tasks on a node. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tasks.
-start: pagination offset; limit: max entries.
-errors: True = only failed tasks; userfilter/typefilter/statusfilter: text filters.
+Returns a list of task dicts. errors=True returns only failed tasks. For a PVE hypervisor
+node's tasks use pve_tasks_list instead.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4361,12 +4688,10 @@ errors: True = only failed tasks; userfilter/typefilter/statusfilter: text filte
 
 #### `pmg_tracker_detail`
 
-Get tracking detail for a specific mail ID (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get tracking detail for a specific mail ID. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tracker/{id}.
-id_: mail/queue tracker ID, validated path-segment-safe (rejects '..', '/',
-control/whitespace chars) before use — see _check_tracker_id.
-Maps start/end Unix epoch → starttime/endtime query params.
+Returns a list of delivery-hop dicts for that message. Get id_ from pmg_tracker_list first;
+it is validated path-segment-safe (rejects '..', '/', control/whitespace chars).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4378,13 +4703,10 @@ Maps start/end Unix epoch → starttime/endtime query params.
 
 #### `pmg_tracker_list`
 
-List mail tracking entries (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list mail tracking entries. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: GET /nodes/{node}/tracker.
-Maps start/end Unix epoch → starttime/endtime query params.
-from_: filter by envelope sender; target: filter by recipient.
-ndr: NDR filter; greylist: greylisting filter.
-limit: max results 0–100000 (default 2000).
+Returns a list of dicts, one per tracked message (up to `limit`, default 2000). Use
+pmg_tracker_detail for the full delivery trace of one message ID from this list.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4404,10 +4726,8 @@ limit: max results 0–100000 (default 2000).
 MUTATION (LOW): create a mail transport rule. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: POST /config/transport.
-domain: destination domain. host: next-hop relay host.
-port: TCP port 1-65535 (default 25). protocol: smtp|lmtp (default smtp).
-use_mx: use MX lookup for the host (default True).
+Dry-run returns a PLAN; confirm=True executes and returns {"status": "ok", "result": ...}.
+Additive — reverse with pmg_transport_delete. Overrides MX-based routing for the given domain.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4425,8 +4745,9 @@ use_mx: use MX lookup for the host (default True).
 MUTATION (MEDIUM): delete a mail transport rule. Dry-run by default.
 confirm=True to execute. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 live-verified path via pmgsh ls: DELETE /config/transport/{domain}.
-Mail for the domain will fall back to default PMG routing (MX lookup).
+Mail for the domain falls back to default PMG routing (MX lookup) afterward. No UNDO
+primitive; recreate with pmg_transport_create if needed. Dry-run returns a PLAN; confirm=True
+executes and returns {"status": "ok", "result": ...}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4437,13 +4758,10 @@ Mail for the domain will fall back to default PMG routing (MX lookup).
 #### `pmg_what_group_create`
 
 MUTATION (LOW): create a PMG RuleDB 'what' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/what.
-name: group name.
-info: optional description.
-and_: maps to API param 'and' (bool; AND vs OR logic for group members).
-invert: if True, the group match is inverted.
-Returns the numeric ogroup ID assigned by PMG on confirm.
+
+Creates an empty group — add match objects with pmg_what_object_add; list existing groups with
+pmg_what_groups_list. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+{"status": "ok", "result": <new ogroup ID assigned by PMG>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4457,10 +4775,10 @@ Returns the numeric ogroup ID assigned by PMG on confirm.
 #### `pmg_what_group_delete`
 
 MUTATION (MEDIUM): delete a PMG RuleDB 'what' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/what/{ogroup}.
-ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-WARNING: also removes all objects within the group.
+
+Irreversible — also removes every object within the group. List groups first with
+pmg_what_groups_list; to remove just one object instead use pmg_what_object_delete.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4470,10 +4788,10 @@ WARNING: also removes all objects within the group.
 
 #### `pmg_what_group_get`
 
-Get a PMG RuleDB 'what' object group's configuration (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get a PMG RuleDB 'what' object group's configuration. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/config.
-ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+Returns a dict of the group's config. ogroup: numeric ID (e.g. '2') from pmg_what_groups_list —
+NOT the group name. Use pmg_what_group_objects to list the objects inside the group.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4482,10 +4800,10 @@ ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT
 
 #### `pmg_what_group_objects`
 
-List the objects in a PMG RuleDB 'what' object group (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list the objects in a PMG RuleDB 'what' object group. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/what/{ogroup}/objects.
-ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+Returns a list of object dicts. ogroup: numeric ID (e.g. '2') from pmg_what_groups_list — NOT
+the group name. Use pmg_what_group_get for the group's own config (not its member objects).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4495,10 +4813,11 @@ ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT
 #### `pmg_what_group_update`
 
 MUTATION (MEDIUM): update a PMG RuleDB 'what' object group config. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/what/{ogroup}/config.
-ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-Only non-None fields are sent to PMG; omitted fields keep current values.
+
+Renames or reconfigures the group itself; to change its match objects use
+pmg_what_object_add/pmg_what_object_update/pmg_what_object_delete. Only non-None fields are
+sent, others keep their current value. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4512,9 +4831,10 @@ Only non-None fields are sent to PMG; omitted fields keep current values.
 
 #### `pmg_what_groups_list`
 
-List all PMG RuleDB 'what' object groups (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list all PMG RuleDB 'what' object groups. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/what.
+Returns a list of group dicts (id/name/comment). For 'who' or 'when' groups use
+pmg_who_groups_list / pmg_when_groups_list. Use pmg_what_group_get for one group's config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4523,13 +4843,11 @@ PMG 9.1 pmgsh-verified path: GET /config/ruledb/what.
 #### `pmg_what_object_add`
 
 MUTATION (LOW): add an object to a PMG RuleDB 'what' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/what/{ogroup}/{type}.
-ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-type_: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.
-Type-specific fields: contenttype+only_content (contenttype/archivefilter),
-field+value+top_part_only (matchfield), spamlevel (spamfilter), filename (filenamefilter/archivefilenamefilter).
-only_content maps to API param 'only-content'; top_part_only → 'top-part-only'.
+
+To create the group first use pmg_what_group_create; list its objects with
+pmg_what_group_objects. If the group is already attached to a rule, the new object affects
+mail matching immediately. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4548,11 +4866,10 @@ only_content maps to API param 'only-content'; top_part_only → 'top-part-only'
 #### `pmg_what_object_delete`
 
 MUTATION (MEDIUM): delete an object from a PMG RuleDB 'what' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/what/{ogroup}/objects/{id}.
-ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-id_: object ID (numeric string) from pmg_what_group_objects.
-Object DELETE always goes through /objects/{id} regardless of type.
+
+Irreversible. id_ comes from pmg_what_group_objects; to delete the whole group instead use
+pmg_what_group_delete. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4564,13 +4881,10 @@ Object DELETE always goes through /objects/{id} regardless of type.
 #### `pmg_what_object_update`
 
 MUTATION (MEDIUM): update an object in a PMG RuleDB 'what' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/what/{ogroup}/{type}/{id}.
-ogroup: numeric ID string (e.g. '8') from pmg_what_groups_list.
-type_: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.
-id_: object ID (numeric string) from pmg_what_group_objects.
-All type-specific fields optional; only non-None fields are sent.
-only_content → 'only-content'; top_part_only → 'top-part-only'.
+
+id_ comes from pmg_what_group_objects; type_ must match the object's existing type. Only
+non-None fields are sent, others keep their current value. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4590,13 +4904,10 @@ only_content → 'only-content'; top_part_only → 'top-part-only'.
 #### `pmg_when_group_create`
 
 MUTATION (LOW): create a PMG RuleDB 'when' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/when.
-name: group name.
-info: optional description.
-and_: maps to API param 'and' (bool; AND vs OR logic for group members).
-invert: if True, the group match is inverted.
-Returns the numeric ogroup ID assigned by PMG on confirm.
+
+Creates an empty group — add timeframe objects with pmg_when_object_add; list existing groups
+with pmg_when_groups_list. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+{"status": "ok", "result": <new ogroup ID assigned by PMG>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4610,10 +4921,10 @@ Returns the numeric ogroup ID assigned by PMG on confirm.
 #### `pmg_when_group_delete`
 
 MUTATION (MEDIUM): delete a PMG RuleDB 'when' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/when/{ogroup}.
-ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-WARNING: also removes all objects within the group.
+
+Irreversible — also removes every timeframe within the group. List groups first with
+pmg_when_groups_list; to remove just one timeframe instead use pmg_when_object_delete.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4623,10 +4934,10 @@ WARNING: also removes all objects within the group.
 
 #### `pmg_when_group_get`
 
-Get a PMG RuleDB 'when' object group's configuration (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get a PMG RuleDB 'when' object group's configuration. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/config.
-ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+Returns a dict of the group's config. ogroup: numeric ID (e.g. '2') from pmg_when_groups_list —
+NOT the group name. Use pmg_when_group_objects to list the objects inside the group.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4635,10 +4946,10 @@ ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT
 
 #### `pmg_when_group_objects`
 
-List the objects in a PMG RuleDB 'when' object group (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list the objects in a PMG RuleDB 'when' object group. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/when/{ogroup}/objects.
-ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+Returns a list of object dicts. ogroup: numeric ID (e.g. '2') from pmg_when_groups_list — NOT
+the group name. Use pmg_when_group_get for the group's own config (not its member objects).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4648,10 +4959,11 @@ ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT
 #### `pmg_when_group_update`
 
 MUTATION (MEDIUM): update a PMG RuleDB 'when' object group config. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/when/{ogroup}/config.
-ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-Only non-None fields are sent to PMG; omitted fields keep current values.
+
+Renames or reconfigures the group itself; to change its timeframes use
+pmg_when_object_add/pmg_when_object_update/pmg_when_object_delete. Only non-None fields are
+sent, others keep their current value. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4665,9 +4977,10 @@ Only non-None fields are sent to PMG; omitted fields keep current values.
 
 #### `pmg_when_groups_list`
 
-List all PMG RuleDB 'when' object groups (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list all PMG RuleDB 'when' object groups. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/when.
+Returns a list of group dicts (id/name/comment). For 'who' or 'what' groups use
+pmg_who_groups_list / pmg_what_groups_list. Use pmg_when_group_get for one group's config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4676,11 +4989,10 @@ PMG 9.1 pmgsh-verified path: GET /config/ruledb/when.
 #### `pmg_when_object_add`
 
 MUTATION (LOW): add a timeframe object to a PMG RuleDB 'when' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/when/{ogroup}/timeframe.
-ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-start: time in H:i format (e.g. '08:00').
-end: time in H:i format (e.g. '17:00').
+
+To create the group first use pmg_when_group_create; list its objects with
+pmg_when_group_objects. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4693,11 +5005,10 @@ end: time in H:i format (e.g. '17:00').
 #### `pmg_when_object_delete`
 
 MUTATION (MEDIUM): delete a timeframe object from a PMG RuleDB 'when' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/when/{ogroup}/objects/{id}.
-ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-id_: object ID (numeric string) from pmg_when_group_objects.
-Object DELETE always goes through /objects/{id} regardless of type.
+
+Irreversible. id_ comes from pmg_when_group_objects; to delete the whole group instead use
+pmg_when_group_delete. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4709,11 +5020,10 @@ Object DELETE always goes through /objects/{id} regardless of type.
 #### `pmg_when_object_update`
 
 MUTATION (MEDIUM): update a timeframe object in a PMG RuleDB 'when' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/when/{ogroup}/timeframe/{id}.
-ogroup: numeric ID string (e.g. '4') from pmg_when_groups_list.
-id_: object ID (numeric string) from pmg_when_group_objects.
-Both start and end are required — PMG 9.1 timeframe PUT rejects partial updates (400).
+
+id_ comes from pmg_when_group_objects; to add a new timeframe instead use
+pmg_when_object_add. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4727,13 +5037,10 @@ Both start and end are required — PMG 9.1 timeframe PUT rejects partial update
 #### `pmg_who_group_create`
 
 MUTATION (LOW): create a PMG RuleDB 'who' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/who.
-name: group name.
-info: optional description.
-and_: maps to API param 'and' (bool; AND vs OR logic for group members).
-invert: if True, the group match is inverted.
-Returns the numeric ogroup ID assigned by PMG on confirm.
+
+Creates an empty group — add match objects with pmg_who_object_add; list existing groups with
+pmg_who_groups_list. Needs PROXIMO_PMG_* config. confirm=True executes and returns
+{"status": "ok", "result": <new ogroup ID assigned by PMG>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4747,10 +5054,10 @@ Returns the numeric ogroup ID assigned by PMG on confirm.
 #### `pmg_who_group_delete`
 
 MUTATION (MEDIUM): delete a PMG RuleDB 'who' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/who/{ogroup}.
-ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-WARNING: also removes all objects within the group.
+
+Irreversible — also removes every object within the group. List groups first with
+pmg_who_groups_list; to remove just one object instead use pmg_who_object_delete.
+confirm=True executes and returns {"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4760,10 +5067,10 @@ WARNING: also removes all objects within the group.
 
 #### `pmg_who_group_get`
 
-Get a PMG RuleDB 'who' object group's configuration (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: get a PMG RuleDB 'who' object group's configuration. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/config.
-ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+Returns a dict of the group's config. ogroup: numeric ID (e.g. '2') from pmg_who_groups_list —
+NOT the group name. Use pmg_who_group_objects to list the objects inside the group.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4772,10 +5079,10 @@ ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT
 
 #### `pmg_who_group_objects`
 
-List the objects in a PMG RuleDB 'who' object group (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list the objects in a PMG RuleDB 'who' object group. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/who/{ogroup}/objects.
-ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT the group name.
+Returns a list of object dicts. ogroup: numeric ID (e.g. '2') from pmg_who_groups_list — NOT
+the group name. Use pmg_who_group_get for the group's own config (not its member objects).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4785,10 +5092,11 @@ ogroup: numeric ID string (e.g. '2') from the matching pmg_*_groups_list — NOT
 #### `pmg_who_group_update`
 
 MUTATION (MEDIUM): update a PMG RuleDB 'who' object group config. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/who/{ogroup}/config.
-ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-Only non-None fields are sent to PMG; omitted fields keep current values.
+
+Renames or reconfigures the group itself; to change its match objects use
+pmg_who_object_add/pmg_who_object_update/pmg_who_object_delete. Only non-None fields are
+sent, others keep their current value. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4802,9 +5110,10 @@ Only non-None fields are sent to PMG; omitted fields keep current values.
 
 #### `pmg_who_groups_list`
 
-List all PMG RuleDB 'who' object groups (read). Needs PROXIMO_PMG_* config.
+READ-ONLY: list all PMG RuleDB 'who' object groups. Needs PROXIMO_PMG_* config.
 
-PMG 9.1 pmgsh-verified path: GET /config/ruledb/who.
+Returns a list of group dicts (id/name/comment). For 'what' or 'when' groups use
+pmg_what_groups_list / pmg_when_groups_list. Use pmg_who_group_get for one group's config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4813,12 +5122,11 @@ PMG 9.1 pmgsh-verified path: GET /config/ruledb/who.
 #### `pmg_who_object_add`
 
 MUTATION (LOW): add an object to a PMG RuleDB 'who' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: POST /config/ruledb/who/{ogroup}/{type}.
-ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-type_: email|domain|regex|ip|network|ldap — controls the sub-path.
-Type-specific fields: email(email), domain(domain), regex(regex), ip(ip),
-network(cidr), ldap(mode, profile, group).
+
+To create the group first use pmg_who_group_create; list its objects with
+pmg_who_group_objects. If the group is already attached to a rule, the new object affects
+mail matching immediately. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4838,11 +5146,10 @@ network(cidr), ldap(mode, profile, group).
 #### `pmg_who_object_delete`
 
 MUTATION (MEDIUM): delete an object from a PMG RuleDB 'who' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: DELETE /config/ruledb/who/{ogroup}/objects/{id}.
-ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-id_: object ID (numeric string) from pmg_who_group_objects.
-Object DELETE always goes through /objects/{id} regardless of type.
+
+Irreversible. id_ comes from pmg_who_group_objects; to delete the whole group instead use
+pmg_who_group_delete. confirm=True executes and returns {"status": "ok",
+"result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4854,12 +5161,10 @@ Object DELETE always goes through /objects/{id} regardless of type.
 #### `pmg_who_object_update`
 
 MUTATION (MEDIUM): update an object in a PMG RuleDB 'who' object group. Dry-run by default.
-confirm=True to execute. Needs PROXIMO_PMG_* config.
-PMG 9.1 pmgsh-verified path: PUT /config/ruledb/who/{ogroup}/{type}/{id}.
-ogroup: numeric ID string (e.g. '2') from pmg_who_groups_list.
-type_: email|domain|regex|ip|network|ldap — controls the sub-path.
-id_: object ID (numeric string) from pmg_who_group_objects.
-All type-specific fields optional; only non-None fields are sent.
+
+id_ comes from pmg_who_group_objects; type_ must match the object's existing type. Only
+non-None fields are sent, others keep their current value. confirm=True executes and returns
+{"status": "ok", "result": <PMG's raw API response>}.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4881,9 +5186,11 @@ All type-specific fields optional; only non-None fields are sent.
 
 #### `pdm_acl_list`
 
-DIAGNOSE (LOW): list PDM access control entries.
-path: optional ACL path filter (e.g. '/'). exact: if True, exact path only.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list PDM's own access control entries (who can use PDM, not a managed remote's ACL).
+
+No state change. Returns a list of ACL entry dicts. exact=True restricts to the given path
+instead of including sub-paths. For a managed PVE cluster's ACL instead of PDM's own, use
+pve_acl_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4893,9 +5200,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_node_status`
 
-DIAGNOSE (LOW): get resource stats for a PDM node. Defaults to 'localhost'
-(PDM is a single-node appliance). Shape equals PVE node status;
-live-prove-pending. Needs PROXIMO_PDM_* config.
+READ-ONLY: get resource stats for the PDM appliance's own node (not a managed remote's node).
+
+No state change. Returns a dict shaped like PVE node status; live-prove-pending (not yet
+confirmed live). Defaults to node='localhost' since PDM is single-node. For a managed PVE
+node's status instead, use pve_node_status. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4904,10 +5213,11 @@ live-prove-pending. Needs PROXIMO_PDM_* config.
 
 #### `pdm_pbs_datastores_list`
 
-DIAGNOSE (LOW): list datastores on a PDM-registered PBS remote.
-remote: remote name from pdm_remotes_list.
-Live-verified shape: [{"name","path"}, ...] (PDM 1.1 -> PBS 4.2).
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list datastores on a PDM-registered PBS remote, proxied through PDM.
+
+No state change. Returns [{"name", "path"}, ...] (live-verified, PDM 1.1 -> PBS 4.2). For
+snapshots within a datastore use pdm_pbs_snapshots_list; to query PBS directly without PDM,
+use pbs_datastores_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4916,10 +5226,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_pbs_remote_status`
 
-DIAGNOSE (LOW): get node status for a PDM-registered PBS remote.
-remote: remote name from pdm_remotes_list.
-Live-verified (PDM 1.1 -> PBS 4.2).
-Needs PROXIMO_PDM_* config.
+READ-ONLY: get node status (cpu/memory/uptime, etc.) for a PDM-registered PBS remote,
+proxied through PDM.
+
+No state change. Returns a dict (live-verified, PDM 1.1 -> PBS 4.2). For the remote's
+datastores, use pdm_pbs_datastores_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4928,10 +5239,12 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_pbs_snapshots_list`
 
-DIAGNOSE (LOW): list backup snapshots in a datastore on a PDM-registered PBS remote.
-remote: remote name. datastore: PBS datastore name. ns: optional namespace filter.
-Live-verified path (PDM 1.1 -> PBS 4.2); empty datastore returns [].
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list backup snapshots in one datastore on a PDM-registered PBS remote, proxied
+through PDM.
+
+No state change. Returns a list of snapshot dicts (empty list if the datastore has none);
+live-verified (PDM 1.1 -> PBS 4.2). ns optionally filters by namespace. To query PBS
+directly without PDM, use pbs_snapshots_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4942,8 +5255,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_ping`
 
-DIAGNOSE (LOW): health check the PDM appliance. Returns 'pong' on success.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: health check the PDM appliance.
+
+No state change. Returns the string 'pong' on success; raises on connection/auth failure.
+For version details instead of a bare health check, use pdm_version. Needs PROXIMO_PDM_*
+config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4951,10 +5267,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_pve_cluster_status`
 
-DIAGNOSE (LOW): get cluster status for a PDM-registered PVE remote.
-remote: remote name from pdm_remotes_list.
-Shape equals PVE cluster/status; live-proven 2026-06-27 against a registered PVE remote.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: get cluster status for ONE PDM-registered PVE remote, proxied through PDM.
+
+No state change. Returns a list of dicts shaped like PVE's cluster/status (live-proven
+2026-06-27). To query the cluster directly without PDM, use pve_cluster_status. Needs
+PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4963,11 +5280,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_pve_lxc_config`
 
-DIAGNOSE (LOW): get LXC config from a PDM-registered PVE remote.
-remote: remote name. vmid: numeric CT ID.
-node, snapshot: optional query params (node is NOT required).
-state: REQUIRED by PDM ("active" = current config) — defaults to "active"; PDM 400s if omitted.
-Live-proven 2026-06-27 against a registered PVE remote. Needs PROXIMO_PDM_* config.
+READ-ONLY: get an LXC container's config from a PDM-registered PVE remote, proxied through PDM.
+
+No state change. Returns a dict (live-proven 2026-06-27). state defaults to "active" and is
+REQUIRED by PDM's API (it 400s if omitted); node/snapshot are optional. To query the cluster
+directly without PDM, use pve_guest_config_get. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4980,10 +5297,12 @@ Live-proven 2026-06-27 against a registered PVE remote. Needs PROXIMO_PDM_* conf
 
 #### `pdm_pve_lxc_list`
 
-DIAGNOSE (LOW): list LXC containers across a PDM-registered PVE remote (cluster-wide).
-remote: remote name. node: OPTIONAL filter to one PVE node.
-Shape equals PVE lxc list; live-proven 2026-06-27 against a registered PVE remote.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list LXC containers across a PDM-registered PVE remote (cluster-wide), proxied
+through PDM.
+
+No state change. Returns a list of dicts shaped like PVE's lxc list (live-proven 2026-06-27);
+node optionally filters to one PVE node. For one container's config use pdm_pve_lxc_config;
+to query the cluster directly without PDM, use pve_list_guests. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4993,14 +5312,22 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_pve_lxc_migrate`
 
-MUTATION: migrate a container to another node within the remote's cluster (through PDM).
+MUTATION: relocate a container to another node within the same cluster, through PDM.
+
+For a move to a *different* PDM remote/datacenter use pdm_pve_lxc_remote_migrate; to drive a
+cluster directly without PDM use pve_guest_migrate. The container is moved, not copied — the
+source node stops hosting it (there is no separate source to delete). LXC has no live migration:
+online=True does a stop-move-start restart-migration (real downtime); the default (False) requires
+it already be stopped. Dry-run by default (returns a PLAN); confirm=True submits and returns a PDM
+task reference — track it with pdm_tasks_list (pve_task_status cannot poll a PDM UPID). Requires the
+wired PDM remote's token to permit migration (VM.Migrate).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `remote` | string | yes | PDM-registered remote (Proxmox cluster) hosting the container. |
 | `vmid` | string | yes | Numeric CTID of the container to migrate, as a string. |
 | `target` | string | yes | Destination node name within the same remote's cluster. |
-| `online` | boolean | no | True live-migrates the container; else it must be stopped. (default: `false`) |
+| `online` | boolean | no | True attempts online (restart) migration — real downtime for LXC; else the container must be stopped. (default: `false`) |
 | `confirm` | boolean | no | False (default) returns a PLAN only; True submits it. (default: `false`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
@@ -5008,7 +5335,8 @@ MUTATION: migrate a container to another node within the remote's cluster (throu
 
 MUTATION: start/stop/shutdown a container on a PDM-registered remote (through PDM).
 
-Dry-run by default (PLAN); confirm=True to submit. Task-backed → 'submitted'.
+For a VM use pdm_pve_qemu_power; to drive a cluster directly without PDM use
+pve_guest_power. Dry-run by default (PLAN); confirm=True to submit. Task-backed → 'submitted'.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5023,9 +5351,10 @@ Dry-run by default (PLAN); confirm=True to submit. Task-backed → 'submitted'.
 MUTATION: migrate a container to a DIFFERENT PDM-registered remote
 (datacenter-to-datacenter).
 
-target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',
-'local-lvm:local-lvm'). delete=True removes the source after a successful move
-(destructive). Dry-run by default (PLAN); confirm=True to submit.
+For a VM use pdm_pve_qemu_remote_migrate; for a same-cluster move use pdm_pve_lxc_migrate.
+target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0', 'local-lvm:local-lvm').
+delete=True removes the source after a successful move (irreversible). Dry-run by default
+(PLAN); confirm=True submits and returns a PDM task reference — track it with pdm_tasks_list (pve_task_status cannot poll a PDM UPID).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5035,7 +5364,7 @@ target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',
 | `target_bridge` | string | yes | Source-to-target network bridge mapping, e.g. 'vmbr0:vmbr0'. |
 | `target_storage` | string | yes | Source-to-target storage mapping, e.g. 'local-lvm:local-lvm'. |
 | `target_vmid` | string (nullable) | no | CTID on the destination; omit to keep same CTID. (default: `null`) |
-| `online` | boolean | no | True live-migrates the container; else it must be stopped. (default: `false`) |
+| `online` | boolean | no | True attempts online (restart) migration — real downtime for LXC; else the container must be stopped. (default: `false`) |
 | `delete` | boolean | no | True deletes container after successful move (destructive). (default: `false`) |
 | `confirm` | boolean | no | False (default) returns a PLAN only; True submits it. (default: `false`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
@@ -5044,7 +5373,9 @@ target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',
 
 MUTATION: snapshot a container on a PDM-registered remote (through PDM).
 
-Containers have no RAM state, so there is no vmstate option. Dry-run by default.
+For a VM use pdm_pve_qemu_snapshot_create. Containers have no RAM state, so there is no
+vmstate option. Additive (LOW risk) — creates a restore point, touches no existing state.
+Dry-run by default (PLAN); confirm=True creates it and returns the Proxmox task UPID.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5057,7 +5388,12 @@ Containers have no RAM state, so there is no vmstate option. Dry-run by default.
 
 #### `pdm_pve_lxc_snapshot_delete`
 
-MUTATION: delete a container snapshot on a PDM-registered remote. Irreversible; no UNDO.
+MUTATION: delete a named container snapshot on a PDM-registered remote, through PDM.
+
+Removes only the snapshot's saved state, not the container. Irreversible — there is no UNDO.
+For a VM snapshot use pdm_pve_qemu_snapshot_delete; to create rather than delete a snapshot use
+pdm_pve_lxc_snapshot_create. Dry-run by default (returns a PLAN); confirm=True executes and
+returns a PDM task reference (track with pdm_tasks_list; pve_task_status cannot poll a PDM UPID).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5071,7 +5407,10 @@ MUTATION: delete a container snapshot on a PDM-registered remote. Irreversible; 
 
 MUTATION: roll a container back to a snapshot on a PDM-registered remote (through PDM).
 
-DESTRUCTIVE. Takes an auto safety-snapshot first (fail-closed). Dry-run by default.
+For a VM use pdm_pve_qemu_snapshot_rollback; to roll back without PDM use pve_rollback.
+DESTRUCTIVE (discards current state). Takes an auto safety-snapshot first (fail-closed: no
+snapshot, no rollback) and returns its name as safety_snapshot — the handle to undo this
+rollback. Dry-run by default (PLAN); confirm=True submits and returns the Proxmox task UPID.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5083,10 +5422,10 @@ DESTRUCTIVE. Takes an auto safety-snapshot first (fail-closed). Dry-run by defau
 
 #### `pdm_pve_node_list`
 
-DIAGNOSE (LOW): list nodes in a PDM-registered PVE remote.
-remote: remote name from pdm_remotes_list.
-Shape equals PVE /nodes; live-proven 2026-06-27 against a registered PVE remote.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list PVE nodes in a PDM-registered remote's cluster, proxied through PDM.
+
+No state change. Returns a list of dicts shaped like PVE's /nodes endpoint (live-proven
+2026-06-27). Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5095,11 +5434,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_pve_qemu_config`
 
-DIAGNOSE (LOW): get VM config from a PDM-registered PVE remote.
-remote: remote name. vmid: numeric VM ID.
-node, snapshot: optional query params (node is NOT required).
-state: REQUIRED by PDM ("active" = current config) — defaults to "active"; PDM 400s if omitted.
-Live-proven 2026-06-27 against a registered PVE remote. Needs PROXIMO_PDM_* config.
+READ-ONLY: get a VM's config from a PDM-registered PVE remote, proxied through PDM.
+
+No state change. Returns a dict (live-proven 2026-06-27). state defaults to "active" and is
+REQUIRED by PDM's API (it 400s if omitted); node/snapshot are optional. To query the cluster
+directly without PDM, use pve_guest_config_get. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5112,10 +5451,12 @@ Live-proven 2026-06-27 against a registered PVE remote. Needs PROXIMO_PDM_* conf
 
 #### `pdm_pve_qemu_list`
 
-DIAGNOSE (LOW): list VMs across a PDM-registered PVE remote (cluster-wide).
-remote: remote name. node: OPTIONAL filter to one PVE node.
-Shape equals PVE qemu list; live-proven 2026-06-27 against a registered PVE remote.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list VMs across a PDM-registered PVE remote (cluster-wide), proxied through PDM.
+
+No state change. Returns a list of dicts shaped like PVE's qemu list (live-proven
+2026-06-27); node optionally filters to one PVE node. For one VM's config use
+pdm_pve_qemu_config; to query the cluster directly without PDM, use pve_list_guests. Needs
+PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5127,7 +5468,10 @@ Needs PROXIMO_PDM_* config.
 
 MUTATION: migrate a VM to another node within the remote's cluster (through PDM).
 
-online=True migrates a running VM. Dry-run by default (PLAN); confirm=True to submit.
+For a container use pdm_pve_lxc_migrate; for a different remote/datacenter use
+pdm_pve_qemu_remote_migrate; to drive a cluster directly without PDM use pve_guest_migrate.
+online=True migrates it running; the default requires it stopped first. Dry-run by default
+(PLAN); confirm=True submits and returns a PDM task reference — track it with pdm_tasks_list (pve_task_status cannot poll a PDM UPID).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5142,8 +5486,9 @@ online=True migrates a running VM. Dry-run by default (PLAN); confirm=True to su
 
 MUTATION: start/stop/shutdown/resume a VM on a PDM-registered remote (through PDM).
 
-Dry-run by default: returns a PLAN (live state, blast radius, risk) recorded to the
-ledger. Re-call with confirm=True to submit. Task-backed → status='submitted'.
+For a container use pdm_pve_lxc_power; to drive a cluster directly without PDM use
+pve_guest_power. Dry-run by default: returns a PLAN (live state, blast radius, risk)
+recorded to the ledger. Re-call with confirm=True to submit. Task-backed → status='submitted'.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5157,9 +5502,10 @@ ledger. Re-call with confirm=True to submit. Task-backed → status='submitted'.
 
 MUTATION: migrate a VM to a DIFFERENT PDM-registered remote (datacenter-to-datacenter).
 
-target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0',
-'local-lvm:local-lvm'). delete=True removes the source after a successful move (destructive).
-Dry-run by default (PLAN); confirm=True to submit.
+For a container use pdm_pve_lxc_remote_migrate; for a same-cluster move use pdm_pve_qemu_migrate.
+target_bridge and target_storage mappings are required (e.g. 'vmbr0:vmbr0', 'local-lvm:local-lvm').
+delete=True removes the source VM after a successful move (irreversible). Dry-run by default
+(PLAN); confirm=True submits and returns a PDM task reference — track it with pdm_tasks_list (pve_task_status cannot poll a PDM UPID).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5178,7 +5524,9 @@ Dry-run by default (PLAN); confirm=True to submit.
 
 MUTATION: snapshot a VM on a PDM-registered remote (through PDM).
 
-vmstate=True includes the VM's RAM state. Additive (LOW risk). Dry-run by default.
+For a container use pdm_pve_lxc_snapshot_create. vmstate=True includes the VM's RAM state
+(larger, slower). Additive (LOW risk) — creates a restore point, touches no existing state.
+Dry-run by default (PLAN); confirm=True creates it and returns the Proxmox task UPID.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5192,7 +5540,12 @@ vmstate=True includes the VM's RAM state. Additive (LOW risk). Dry-run by defaul
 
 #### `pdm_pve_qemu_snapshot_delete`
 
-MUTATION: delete a VM snapshot on a PDM-registered remote. Irreversible; no UNDO. Dry-run by default.
+MUTATION: delete a named VM snapshot on a PDM-registered remote, through PDM.
+
+Removes only the snapshot's saved state, not the VM. Irreversible — there is no UNDO. For a
+container snapshot use pdm_pve_lxc_snapshot_delete; to create rather than delete a snapshot use
+pdm_pve_qemu_snapshot_create. Dry-run by default (returns a PLAN); confirm=True executes and
+returns a PDM task reference (track with pdm_tasks_list; pve_task_status cannot poll a PDM UPID).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5206,8 +5559,10 @@ MUTATION: delete a VM snapshot on a PDM-registered remote. Irreversible; no UNDO
 
 MUTATION: roll a VM back to a snapshot on a PDM-registered remote (through PDM).
 
-DESTRUCTIVE (discards current state). Takes an auto safety-snapshot first (fail-closed:
-no snapshot, no rollback). Dry-run by default (PLAN); confirm=True to submit.
+For a container use pdm_pve_lxc_snapshot_rollback; to roll back without PDM use pve_rollback.
+DESTRUCTIVE (discards current state). Takes an auto safety-snapshot first (fail-closed: no
+snapshot, no rollback) and returns its name as safety_snapshot — the handle to undo this
+rollback. Dry-run by default (PLAN); confirm=True submits and returns the Proxmox task UPID.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5219,11 +5574,11 @@ no snapshot, no rollback). Dry-run by default (PLAN); confirm=True to submit.
 
 #### `pdm_pve_resources`
 
-DIAGNOSE (LOW): list resources on a PDM-registered PVE remote.
-remote: remote name from pdm_remotes_list.
-kind: optional filter (vm, storage, node, sdn, ...).
-Shape equals PVE cluster/resources; live-proven 2026-06-27 against a registered PVE remote.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list resources on ONE PDM-registered PVE remote, proxied through PDM.
+
+No state change. Returns a list of dicts shaped like PVE's cluster/resources (live-proven
+2026-06-27); kind optionally filters by type (vm, storage, node, sdn, ...). To query the
+cluster directly without PDM, use pve_cluster_resources. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5233,9 +5588,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_remote_config_get`
 
-DIAGNOSE (LOW): get configuration for one PDM-registered remote (no secrets returned).
-remote_id: the remote name as shown in pdm_remotes_list.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: get configuration for one PDM-registered remote.
+
+No state change. Returns a dict; credential-shaped keys (token/password/secret) are stripped
+before returning. To see all registered remotes first, use pdm_remotes_list. Needs
+PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5244,9 +5601,10 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_remote_version`
 
-DIAGNOSE (LOW): get version info for one PDM-registered remote.
-remote_id: the remote name as shown in pdm_remotes_list.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: get version info for one PDM-registered remote, proxied through PDM.
+
+No state change. Returns a dict (the remote's own /version response). To see all registered
+remotes first, use pdm_remotes_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5255,8 +5613,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_remotes_list`
 
-DIAGNOSE (LOW): list all PVE/PBS remotes registered in PDM.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list all PVE/PBS remotes registered in PDM (the datacenters/backup targets it manages).
+
+No state change. Returns a list of remote dicts; credential-shaped keys (token/password/secret)
+are stripped before returning. For one remote's version or config use pdm_remote_version /
+pdm_remote_config_get. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5264,8 +5625,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_resources_list`
 
-DIAGNOSE (LOW): list all fleet resources (VMs, LXCs, storage, etc.) across all remotes.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list every fleet resource (VMs, LXCs, storage, etc.) across ALL PDM-registered remotes.
+
+No state change. Returns a flat list of resource dicts. For counters instead of the full
+list, use pdm_resources_status; to scope to one remote, use pdm_pve_resources. Needs
+PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5273,8 +5637,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_resources_status`
 
-DIAGNOSE (LOW): aggregated fleet status counters (running VMs, LXCs, failed remotes, etc.).
-Needs PROXIMO_PDM_* config.
+READ-ONLY: aggregated fleet status counters (running VMs, LXCs, failed remotes, etc.)
+across all PDM-registered remotes.
+
+No state change. Returns a dict of counters. For the underlying per-resource list, use
+pdm_resources_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5282,8 +5649,10 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_roles_list`
 
-DIAGNOSE (LOW): list all roles and their privileges defined in PDM.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list PDM's own roles and their privileges (not a managed remote's roles).
+
+No state change. Returns a list of role dicts. For a managed PVE cluster's roles instead of
+PDM's own, use pve_roles_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5291,8 +5660,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_tasks_list`
 
-DIAGNOSE (LOW): list recent PDM tasks across all remotes.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list recent PDM tasks (queued/running/finished operations) across all
+registered remotes.
+
+No state change. Returns a list of task dicts. For a target remote's own task list directly
+(without going through PDM), use pve_tasks_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5300,9 +5672,11 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_users_list`
 
-DIAGNOSE (LOW): list all PDM users.
-include_tokens: if True, include API token entries.
-Needs PROXIMO_PDM_* config.
+READ-ONLY: list PDM's own user accounts (not a managed remote's users).
+
+No state change. Returns a list of user dicts; credential-shaped keys are stripped before
+returning. include_tokens=True also includes API token entries. For a managed PVE cluster's
+users instead of PDM's own, use pve_users_list. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5311,8 +5685,10 @@ Needs PROXIMO_PDM_* config.
 
 #### `pdm_version`
 
-DIAGNOSE (LOW): get PDM appliance version (release, repoid, version).
-Needs PROXIMO_PDM_* config.
+READ-ONLY: get the PDM appliance's own version info.
+
+No state change. Returns a dict with release, repoid, and version. For a lightweight health
+check instead, use pdm_ping. Needs PROXIMO_PDM_* config.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5325,8 +5701,10 @@ Needs PROXIMO_PDM_* config.
 READ-ONLY: gather 'what's broken' evidence for a container — API status + a fixed read-only
 in-container battery (failed units, disk, recent errors, memory, listening ports) + advisory flags.
 
-No mutation, no confirm. The in-container probes need PROXIMO_ENABLE_EXEC and the CTID allowlist
-(same as ct_logs); with exec off it returns the API-only part and discloses the skipped probes.
+No mutation, no confirm. Returns a dict with the gathered sections and a flags list. The
+in-container probes need PROXIMO_ENABLE_EXEC and the CTID allowlist (same as ct_logs); with
+exec off it returns the API-only part and discloses the skipped probes. For node-level
+evidence use pve_diagnose.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -5358,9 +5736,11 @@ result carries an `undo_point` you can revert with pve_rollback.
 
 #### `ct_logs`
 
-Tail journalctl for a systemd unit inside a container (read-only). Returns the command's
-returncode, stdout, and stderr. Container-specific diagnostic; gated by the CTID allowlist
-when PROXIMO_ENABLE_EXEC is set. Fails closed if exec is disabled.
+READ-ONLY: tail journalctl for a systemd unit inside a container. Returns the command's
+returncode, stdout, and stderr. Gated by the CTID allowlist when PROXIMO_ENABLE_EXEC is set;
+fails closed (returns a disclosed blocked status, not an exception) if exec is disabled or the
+CTID isn't allowed. For a fixed evidence battery instead of one unit's logs use ct_diagnose;
+for an arbitrary in-container command use ct_exec.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |

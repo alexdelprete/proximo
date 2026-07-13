@@ -108,6 +108,12 @@ jobs:
   mirror-to-dockerhub:
     needs: image
     if: github.event_name == 'release'
+    # Grant what the called reusable workflow requests (packages: read to pull the GHCR source
+    # image). The top-level token is contents:read only; without re-granting here, the reusable
+    # call requests more than this job's token can provide and GitHub fails release.yml at startup.
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/dockerhub-mirror.yml
     with:
       tag: ${{ github.event.release.tag_name }}

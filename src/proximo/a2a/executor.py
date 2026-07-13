@@ -1,33 +1,25 @@
-"""ProximoAgentExecutor — the A2A dispatch seam.
+"""ProximoAgentExecutor — the A2A transport over the governed core.
 
-Every inbound A2A skill call routes through ``_dispatch``, which is the single
-chokepoint that enforces:
-  1. the skill exists in the curated slice;
-  2. ``validate_and_build`` guards params + PLAN-by-default before the server
-     function is called;
-  3. any exception is caught, classified, and surfaced as a clean failed-task
-     status (no traceback / secret leakage to the caller).
-
-The ``execute`` coroutine parses the inbound message, delegates to the
-thread-offloaded ``_dispatch``, then emits the result (or failure) back through
-the A2A event queue.
+Every inbound A2A call routes through ``governed.call_governed`` — the same spine path (PLAN,
+PROVE, UNDO, the gates, the token scope) an MCP client takes. The A2A face exposes the FULL tool
+surface, not a curated slice: a transport carries the surface, it does not curate it, so it never
+decides the surface or re-invents safety. No second mutate path.
 
 Message convention
 ------------------
-The inbound ``Message`` must contain at least one ``DataPart`` whose ``.data``
-is a JSON object with the shape::
+The inbound ``Message`` must contain a ``DataPart`` whose ``.data`` is a JSON object shaped::
 
-    {"skill": "<skill-id>", "params": {<param-dict>}}
+    {"tool": "<tool-name>", "params": {<arg-dict>}}
 
-``params`` may be absent or null (treated as an empty dict).  Any other shape
-produces a clean failed-task response with a description of the expected format.
+``"skill"`` is accepted as an alias for ``"tool"`` (backward-compatible with the earlier slice
+wire format). ``params`` may be absent/null (an empty object). Any other shape produces a clean
+failed-task response.
 """
 
 from __future__ import annotations
 
 import warnings
 
-import anyio.to_thread
 from a2a.helpers.proto_helpers import get_data_parts, new_data_part, new_text_part
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -35,110 +27,68 @@ from a2a.server.tasks import TaskUpdater
 from a2a.utils.errors import UnsupportedOperationError
 
 from .. import server
-from .skills import SKILLS_BY_ID, A2AParamError, validate_and_build
+from ..governed import GovernedError, call_governed
 
 
 class ProximoAgentExecutor(AgentExecutor):
-    """Stateless A2A executor — parses, validates, routes, and replies."""
-
-    # ------------------------------------------------------------------
-    # Sync dispatch (unit-testable without any async machinery)
-    # ------------------------------------------------------------------
-
-    def _dispatch(self, skill_id: str, raw_params: dict | None) -> dict:
-        """Validate and execute one skill call.  Raises ``A2AParamError`` on bad input.
-
-        This is the trust-critical chokepoint:
-          * unknown skill id  → A2AParamError (never reaches any server fn)
-          * non-string skill id (list/dict/...)  → A2AParamError (never an uncaught
-            TypeError from the dict lookup — that would bypass the audited rejection path)
-          * bad/missing/mistyped params  → A2AParamError (via validate_and_build)
-          * PLAN-by-default  → validate_and_build never injects confirm
-          * EXCLUDED_FROM_SLICE used as skill id  → A2AParamError (those are server
-            fn names, not skill ids; they don't appear in SKILLS_BY_ID)
-        """
-        if not isinstance(skill_id, str):
-            raise A2AParamError(f"skill id must be a string, got {type(skill_id).__name__}")
-        skill = SKILLS_BY_ID.get(skill_id)
-        if skill is None:
-            raise A2AParamError(f"unknown skill '{skill_id}'")
-        kwargs = validate_and_build(skill, raw_params)  # the guard — never bypass
-        return skill.tool(**kwargs)
+    """Stateless A2A executor — parses, routes through the governed core, replies."""
 
     async def _fail(self, updater: TaskUpdater, message: str) -> None:
-        """Wrap `message` in a TaskUpdater failed-message — the shared 'fail the task' tail
-        shared by every rejection/error branch in ``execute``."""
+        """Wrap `message` in a TaskUpdater failed-message — the shared 'fail the task' tail."""
         await updater.failed(updater.new_agent_message([new_text_part(message)]))
 
-    def _audit_rejection(self, skill_id: str | None, reason: str) -> None:
-        """Best-effort PROVE trace for a REJECTED A2A call (unknown skill / bad params / no skill).
+    def _audit_rejection(self, tool_name: str | None, reason: str) -> None:
+        """Best-effort PROVE trace for a REJECTED A2A call (unknown tool / bad params / no tool).
 
-        The primary guarantee is the failed-task returned to the caller; this records the rejection
-        to the same tamper-evident ledger the routed tools use, so hostile enumeration of the slice
-        is not invisible (it completes the PROVE chain at the A2A boundary). A ledger write must never
-        mask the rejection response, so it is best-effort. Only the reason + skill id are recorded —
-        never raw params or secrets.
+        The failed-task returned to the caller is the primary guarantee; this records the rejection
+        to the same tamper-evident ledger the tools use, so hostile enumeration isn't invisible.
+        Uses the tolerant ``server._ledger()`` (not ``_svc()``, which raises when the PVE triple is
+        unset — that would blackhole the trace during exactly the enumeration it exists to catch).
+        Only the reason + tool name are recorded — never raw params or secrets.
         """
         try:
-            _, _, _, audit = server._svc()
-            audit.record("a2a_rejected", target=str(skill_id or "<none>"), mutation=False,
-                         outcome="rejected", detail={"reason": reason})
+            server._ledger().record("a2a_rejected", target=str(tool_name or "<none>"),
+                                    mutation=False, outcome="rejected", detail={"reason": reason})
         except Exception as exc:  # noqa: BLE001 — supplementary audit; never break the rejection path
-            # Don't swallow silently: a PROVE ledger that can't record is itself worth surfacing. But
-            # the rejection RESPONSE to the caller is the primary guarantee, so we warn — never raise.
             warnings.warn(f"A2A rejection audit failed to record: {type(exc).__name__}", stacklevel=2)
 
-    # ------------------------------------------------------------------
-    # Async execute (framework entry point)
-    # ------------------------------------------------------------------
-
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        """Parse the inbound message, route to _dispatch, publish result or failure."""
-        task_id = context.task_id or ""
-        context_id = context.context_id or ""
-        updater = TaskUpdater(event_queue, task_id, context_id)
+        """Parse the inbound message, route to the governed core, publish result or failure."""
+        updater = TaskUpdater(event_queue, context.task_id or "", context.context_id or "")
 
-        # --- parse inbound skill invocation ---
-        skill_id: str | None = None
+        tool_name: str | None = None
         params: dict | None = None
-
         message = context.message
         if message is not None:
-            data_parts = get_data_parts(message.parts)
-            for payload in data_parts:
-                if isinstance(payload, dict) and "skill" in payload:
-                    skill_id = payload["skill"]
+            for payload in get_data_parts(message.parts):
+                if isinstance(payload, dict) and ("tool" in payload or "skill" in payload):
+                    tool_name = payload.get("tool", payload.get("skill"))
                     raw = payload.get("params")
                     params = raw if isinstance(raw, dict) else {}
                     break
 
-        if skill_id is None:
-            self._audit_rejection(None, "no skill in inbound message")
+        if tool_name is None:
+            self._audit_rejection(None, "no tool in inbound message")
             await self._fail(
                 updater,
-                "Expected a DataPart with shape {\"skill\": \"<id>\", \"params\": {...}}."
+                'Expected a DataPart with shape {"tool": "<name>", "params": {...}}.'
                 " No such part found in the inbound message.",
             )
             return
 
-        # --- dispatch (blocking I/O offloaded to a thread) ---
         try:
-            result: dict = await anyio.to_thread.run_sync(self._dispatch, skill_id, params)
-        except A2AParamError as exc:
-            self._audit_rejection(skill_id, str(exc))
-            await self._fail(updater, str(exc))
+            result = await call_governed(tool_name, params or {})
+        except GovernedError as exc:
+            if exc.status in (400, 404):
+                self._audit_rejection(tool_name, exc.message)
+            await self._fail(updater, exc.message)
             return
-        except Exception as exc:  # noqa: BLE001
-            await self._fail(updater, f"skill '{skill_id}' failed: {type(exc).__name__}")
+        except Exception as exc:  # noqa: BLE001 -- last-resort sanitize; never leak a traceback
+            await self._fail(updater, f"tool '{tool_name}' failed: {type(exc).__name__}")
             return
 
-        # --- emit result as a data artifact then complete ---
         await updater.add_artifact(parts=[new_data_part(result)], name="result")
         await updater.complete()
-
-    # ------------------------------------------------------------------
-    # Cancel — not supported (skills are short, single-shot operations)
-    # ------------------------------------------------------------------
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise UnsupportedOperationError()

@@ -2,8 +2,9 @@
 
 This module provides a single factory function, ``build_agent_card``, that
 assembles the machine-readable capability advertisement for Proximo's A2A face.
-It maps the curated skill slice (``SKILLS``) 1-to-1 onto ``AgentSkill`` entries
-and exposes a single JSON-RPC 2.0 interface at the caller-supplied URL.
+It maps the FULL governed tool surface (the same list an MCP client sees) 1-to-1
+onto ``AgentSkill`` entries and exposes a single JSON-RPC 2.0 interface at the
+caller-supplied URL — a transport over the governed core, not a curated slice.
 
 Security note: auth is ENFORCED at the server layer (``app.py``) — a non-localhost bind is refused
 without a token, and when a token is set the JSON-RPC control endpoint requires ``Authorization:
@@ -16,6 +17,7 @@ readable so clients can fetch it before authenticating.
 from __future__ import annotations
 
 import importlib.metadata
+from typing import Any
 
 from a2a.types import (
     AgentCapabilities,
@@ -28,8 +30,8 @@ from a2a.utils.constants import PROTOCOL_VERSION_CURRENT, TransportProtocol
 
 from proximo import __version__ as _FALLBACK_VERSION
 
+from ..governed import list_governed_sync
 from .signing import OperatorKey, sign_card
-from .skills import SKILLS
 
 
 def build_agent_card(
@@ -39,34 +41,40 @@ def build_agent_card(
     secured: bool = False,
     signing_key: OperatorKey | None = None,
     jwks_url: str | None = None,
+    tools: list[Any] | None = None,
 ) -> AgentCard:
     """Build the Proximo AgentCard for a given JSON-RPC endpoint URL.
 
     Args:
         rpc_url:  The fully-qualified URL at which the A2A JSON-RPC endpoint is
-                  served (e.g. ``http://localhost:8080/``).  This is embedded in
-                  the returned card's ``supported_interfaces`` list so that A2A
-                  clients know where to send requests.
+                  served (e.g. ``http://localhost:8080/``).  Embedded in the card's
+                  ``supported_interfaces`` so A2A clients know where to send requests.
         version:  Override the package version string.  Only used if
                   ``importlib.metadata`` cannot find the installed package.
+        tools:    The governed tool surface to advertise as skills. Defaults to a
+                  snapshot of ``list_governed()`` (the same set an MCP client sees).
 
     Returns:
-        A fully populated ``AgentCard`` protobuf message.
+        A fully populated ``AgentCard``.
     """
     try:
         pkg_version = importlib.metadata.version("proximo")
     except importlib.metadata.PackageNotFoundError:
         pkg_version = version or _FALLBACK_VERSION
 
+    if tools is None:
+        tools = list_governed_sync()  # snapshot the governed surface (nest-safe, no event loop)
+
+    # One AgentSkill per governed tool — the full surface, discoverable. Tags carry the plane
+    # prefix (pve/pbs/pmg/pdm/ct/audit) so a peer can filter without a naming convention.
     skills = [
         AgentSkill(
-            id=s.id,
-            name=s.name,
-            description=s.description,
-            tags=list(s.tags),
-            examples=list(s.examples),
+            id=t.name,
+            name=t.name,
+            description=t.description or "",
+            tags=[t.name.split("_", 1)[0]],
         )
-        for s in SKILLS
+        for t in tools
     ]
 
     interface = AgentInterface(

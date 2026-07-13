@@ -1,37 +1,29 @@
-"""Unit tests for ProximoAgentExecutor._dispatch (the trust-critical seam).
+"""The A2A face over the governed core — trust properties through ``call_governed``.
 
-All tests exercise ``_dispatch`` directly — no A2A SDK plumbing required.
-The ``_wire`` helper from ``test_server_plan`` is reused so the fake PVE
-backend is consistent with the rest of the test suite.
+The A2A face exposes the FULL tool surface and routes every call through ``governed.call_governed``
+— the same spine path an MCP client takes. These tests reuse the fake PVE backend harness (``_wire``,
+also imported by test_a2a_integration.py) to prove, at the governed level:
 
-Trust properties verified
--------------------------
-* A mutating skill called WITHOUT confirm → returns a plan (status="plan");
-  the fake API records NO mutating call (PLAN-by-default).
-* Same skill WITH confirm=True → executes; the fake API records the call.
-* Unknown skill id → A2AParamError.
-* Missing required param → A2AParamError.
-* Unknown param → A2AParamError.
-* Mistyped param (int where string expected) → A2AParamError.
-* A name from EXCLUDED_FROM_SLICE used as skill id → A2AParamError
-  (those are server function names, not skill ids; they are absent from
-  SKILLS_BY_ID).
-* confirm passed as the string "true" → A2AParamError (no truthy coercion;
-  the guard rejects non-bool confirm).
+* A mutating tool WITHOUT confirm → no mutation fires (PLAN-by-default), even on the "dangerous
+  plane" the old 16-skill slice used to hide.
+* WITH confirm=True → the mutation fires.
+* The whole surface is reachable — a previously-EXCLUDED tool dispatches (governed, not curated out).
+
+Param/existence/error mapping is pinned transport-agnostically in test_governed.py; the executor's
+full async execute() path is covered in test_a2a_integration.py.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
+import anyio
 
 import proximo.server as server
-from proximo.a2a.executor import ProximoAgentExecutor
-from proximo.a2a.skills import EXCLUDED_FROM_SLICE, A2AParamError
 from proximo.audit import AuditLedger
 from proximo.backends import ExecResult
 from proximo.config import ProximoConfig
+from proximo.governed import call_governed
 
 # ---------------------------------------------------------------------------
 # Shared helpers (mirror of test_server_plan._FakeApi / _wire)
@@ -130,158 +122,30 @@ def _wire(tmp_path, monkeypatch, *, status=None, enable_exec=True, allowlist=("*
 
 
 # ---------------------------------------------------------------------------
-# Executor fixture
+# PLAN-by-default and the full surface, through the governed path
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def executor() -> ProximoAgentExecutor:
-    return ProximoAgentExecutor()
+def test_governed_mutating_no_confirm_plans_and_does_not_mutate(tmp_path, monkeypatch):
+    _, api, _, _, _ = _wire(tmp_path, monkeypatch, status={"status": "running", "name": "w", "uptime": 9})
+    anyio.run(call_governed, "pve_guest_power", {"vmid": "1975", "action": "stop"})
+    assert api.powered == [], "no-confirm call must NOT mutate (PLAN-by-default over the governed path)"
 
 
-# ---------------------------------------------------------------------------
-# Test: mutating skill WITHOUT confirm → plan returned, no mutation
-# ---------------------------------------------------------------------------
-
-
-def test_dispatch_mutating_no_confirm_returns_plan_and_no_mutation(tmp_path, monkeypatch, executor):
-    """guest_power without confirm must return a plan dict and not call the API."""
-    _, api, _, _, _ = _wire(tmp_path, monkeypatch, status={"status": "running", "name": "w", "uptime": 500})
-
-    result = executor._dispatch("guest_power", {"vmid": "1975", "action": "stop"})
-
-    assert result["status"] == "plan"
-    assert api.powered == [], "mutation must NOT fire without confirm=true"
-
-
-# ---------------------------------------------------------------------------
-# Test: mutating skill WITH confirm=True → executes
-# ---------------------------------------------------------------------------
-
-
-def test_dispatch_mutating_confirm_true_executes(tmp_path, monkeypatch, executor):
-    """guest_power with confirm=True must route through and record the API call."""
+def test_governed_mutating_confirm_true_executes(tmp_path, monkeypatch):
     _, api, _, _, _ = _wire(tmp_path, monkeypatch)
-
-    result = executor._dispatch("guest_power", {"vmid": "1975", "action": "stop", "confirm": True})
-
-    assert api.powered == [("1975", "stop")], "mutation must fire when confirm=true"
-    # The real server returns a dict with an execution receipt (not {"status": "plan"}).
-    # With the fake API, guest_power returns {"ok": True}; the key check is that
-    # powered was recorded and the result is NOT a plan.
-    assert result != {"status": "plan"}
+    anyio.run(call_governed, "pve_guest_power", {"vmid": "1975", "action": "stop", "confirm": True})
+    assert api.powered == [("1975", "stop")], "explicit confirm=true must execute"
 
 
-# ---------------------------------------------------------------------------
-# Test: unknown skill id → A2AParamError
-# ---------------------------------------------------------------------------
+def test_governed_full_surface_reaches_formerly_excluded_tool(tmp_path, monkeypatch):
+    # pve_delete_guest was EXCLUDED from the old 16-skill A2A slice. It is now governed, not hidden —
+    # so it must be REACHABLE (never a 404). Whether the fake backend lets it plan or errors is not
+    # the point; that the dangerous plane is on the surface at all is.
+    from proximo.governed import GovernedError
 
-
-def test_dispatch_unknown_skill_raises(executor):
-    """A skill id not in SKILLS_BY_ID must raise A2AParamError."""
-    with pytest.raises(A2AParamError, match="unknown skill"):
-        executor._dispatch("does_not_exist", {})
-
-
-# ---------------------------------------------------------------------------
-# Test: missing required param → A2AParamError
-# ---------------------------------------------------------------------------
-
-
-def test_dispatch_missing_required_param_raises(tmp_path, monkeypatch, executor):
-    """Calling guest_power without the required 'action' param must raise."""
     _wire(tmp_path, monkeypatch)
-
-    with pytest.raises(A2AParamError, match="missing required param"):
-        executor._dispatch("guest_power", {"vmid": "1975"})  # action is missing
-
-
-# ---------------------------------------------------------------------------
-# Test: unknown param → A2AParamError
-# ---------------------------------------------------------------------------
-
-
-def test_dispatch_unknown_param_raises(tmp_path, monkeypatch, executor):
-    """Passing a param not declared in the skill contract must raise."""
-    _wire(tmp_path, monkeypatch)
-
-    with pytest.raises(A2AParamError, match="unknown param"):
-        executor._dispatch("guest_power", {"vmid": "1975", "action": "stop", "banana": "split"})
-
-
-# ---------------------------------------------------------------------------
-# Test: mistyped param → A2AParamError
-# ---------------------------------------------------------------------------
-
-
-def test_dispatch_mistyped_param_raises(tmp_path, monkeypatch, executor):
-    """Passing vmid as an integer (should be string) must raise a type error."""
-    _wire(tmp_path, monkeypatch)
-
-    with pytest.raises(A2AParamError, match="must be string"):
-        executor._dispatch("guest_power", {"vmid": 1975, "action": "stop"})  # vmid is int, not str
-
-
-# ---------------------------------------------------------------------------
-# Test: EXCLUDED_FROM_SLICE name used as skill id → A2AParamError
-# ---------------------------------------------------------------------------
-
-
-def test_dispatch_excluded_name_as_skill_id_raises(executor):
-    """Names in EXCLUDED_FROM_SLICE are server fn names, not skill ids.
-    SKILLS_BY_ID will not contain them; the unknown-skill guard fires.
-    """
-    for excluded in EXCLUDED_FROM_SLICE:
-        with pytest.raises(A2AParamError, match="unknown skill"):
-            executor._dispatch(excluded, {})
-
-
-# ---------------------------------------------------------------------------
-# Test: non-string skill id → A2AParamError (not an uncaught TypeError)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("bad_skill_id", [["not", "a", "string"], {"nested": "dict"}, 123, None])
-def test_dispatch_non_string_skill_id_raises_param_error(executor, bad_skill_id):
-    """A non-string 'skill' value (list/dict/int/None) must raise A2AParamError, not a bare
-    TypeError from the dict lookup — so the caller lands in the audited rejection path.
-    """
-    with pytest.raises(A2AParamError):
-        executor._dispatch(bad_skill_id, {})
-
-
-# ---------------------------------------------------------------------------
-# Test: confirm as string "true" → A2AParamError (no truthy coercion)
-# ---------------------------------------------------------------------------
-
-
-def test_dispatch_confirm_string_true_raises(tmp_path, monkeypatch, executor):
-    """confirm='true' (a string) must be rejected — only bool True is valid."""
-    _wire(tmp_path, monkeypatch)
-
-    with pytest.raises(A2AParamError, match="boolean"):
-        executor._dispatch("guest_power", {"vmid": "1975", "action": "stop", "confirm": "true"})
-
-
-# ---------------------------------------------------------------------------
-# Test: audit_verify accepts expected_head param
-# ---------------------------------------------------------------------------
-
-
-def test_audit_verify_skill_accepts_expected_head():
-    """audit_verify skill must declare expected_head param."""
-    from proximo.a2a.skills import SKILLS_BY_ID, validate_and_build
-
-    skill = SKILLS_BY_ID["audit_verify"]
-    names = {p.name for p in skill.params}
-    assert "expected_head" in names
-    kwargs = validate_and_build(skill, {"expected_head": "a" * 64})
-    assert kwargs == {"expected_head": "a" * 64}
-
-
-def test_audit_verify_skill_expected_head_optional():
-    """audit_verify skill expected_head param must be optional."""
-    from proximo.a2a.skills import SKILLS_BY_ID, validate_and_build
-
-    skill = SKILLS_BY_ID["audit_verify"]
-    assert validate_and_build(skill, {}) == {}     # optional: omittable
+    try:
+        anyio.run(call_governed, "pve_delete_guest", {"vmid": "1975"})
+    except GovernedError as e:
+        assert e.status != 404, "the dangerous plane must be reachable over A2A, not curated out"

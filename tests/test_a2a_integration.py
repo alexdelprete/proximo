@@ -33,10 +33,10 @@ class _CapturingQueue:
         self.events.append(event)
 
 
-def _msg(skill: str | None, params=None, *, text_only: bool = False) -> Message:
+def _msg(tool, params=None, *, text_only: bool = False, key: str = "tool") -> Message:
     if text_only:
-        return Message(message_id="m1", parts=[new_text_part("hello, no skill here")])
-    data: dict = {"skill": skill}
+        return Message(message_id="m1", parts=[new_text_part("hello, no tool here")])
+    data: dict = {key: tool}
     if params is not None:
         data["params"] = params
     return Message(message_id="m1", parts=[new_data_part(data)])
@@ -47,8 +47,9 @@ def _ctx(message: Message) -> SimpleNamespace:
     return SimpleNamespace(task_id="t1", context_id="c1", message=message)
 
 
-def _run(skill, params=None, *, text_only=False) -> None:
-    asyncio.run(ProximoAgentExecutor().execute(_ctx(_msg(skill, params, text_only=text_only)), _CapturingQueue()))
+def _run(tool, params=None, *, text_only=False, key="tool") -> None:
+    asyncio.run(ProximoAgentExecutor().execute(
+        _ctx(_msg(tool, params, text_only=text_only, key=key)), _CapturingQueue()))
 
 
 def _entries(log_path: str) -> list[dict]:
@@ -68,7 +69,7 @@ def _entries(log_path: str) -> list[dict]:
 
 def test_execute_mutating_no_confirm_plans_and_does_not_mutate(tmp_path, monkeypatch):
     _, api, _, _, log = _wire(tmp_path, monkeypatch, status={"status": "running", "name": "w", "uptime": 9})
-    _run("guest_power", {"vmid": "102", "action": "reboot"})
+    _run("pve_guest_power", {"vmid": "102", "action": "reboot"})
 
     assert api.powered == [], "no-confirm A2A call must NOT mutate (PLAN-by-default end-to-end)"
     acts = [(e["action"], e["outcome"]) for e in _entries(log)]
@@ -78,7 +79,7 @@ def test_execute_mutating_no_confirm_plans_and_does_not_mutate(tmp_path, monkeyp
 
 def test_execute_mutating_confirm_true_executes(tmp_path, monkeypatch):
     _, api, _, _, log = _wire(tmp_path, monkeypatch)
-    _run("guest_power", {"vmid": "102", "action": "reboot", "confirm": True})
+    _run("pve_guest_power", {"vmid": "102", "action": "reboot", "confirm": True})
 
     assert api.powered == [("102", "reboot")], "explicit confirm=true must execute over A2A"
     acts = [(e["action"], e["outcome"]) for e in _entries(log)]
@@ -87,11 +88,19 @@ def test_execute_mutating_confirm_true_executes(tmp_path, monkeypatch):
     ), "confirm path records BOTH a plan and an execution (PLAN->PROVE weld)"
 
 
-def test_execute_read_skill_returns_result(tmp_path, monkeypatch):
+def test_execute_via_skill_alias_still_works(tmp_path, monkeypatch):
+    # Backward-compat: the earlier wire used {"skill": ...}; the executor accepts it as an alias.
+    _, api, _, _, log = _wire(tmp_path, monkeypatch)
+    _run("pve_guest_power", {"vmid": "102", "action": "reboot"}, key="skill")
+    assert api.powered == []
+    assert any(e["action"] == "pve_guest_power" for e in _entries(log))
+
+
+def test_execute_read_tool_returns_result(tmp_path, monkeypatch):
     _, _, _, _, log = _wire(tmp_path, monkeypatch)
-    _run("node_status", {})
+    _run("pve_node_status", {})
     acts = [e["action"] for e in _entries(log)]
-    assert "pve_node_status" in acts, "a read skill must route through and be audited"
+    assert "pve_node_status" in acts, "a read tool must route through and be audited"
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +108,9 @@ def test_execute_read_skill_returns_result(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_execute_unknown_skill_audits_rejection(tmp_path, monkeypatch):
+def test_execute_unknown_tool_audits_rejection(tmp_path, monkeypatch):
     _, api, _, _, log = _wire(tmp_path, monkeypatch)
-    _run("totally_not_a_skill", {})
+    _run("totally_not_a_tool", {})
 
     assert api.powered == []
     ents = _entries(log)
@@ -117,15 +126,17 @@ def test_execute_no_data_part_audits_rejection(tmp_path, monkeypatch):
     assert any(e["action"] == "a2a_rejected" for e in ents)
 
 
-def test_execute_bad_param_audits_rejection_and_does_not_mutate(tmp_path, monkeypatch):
+def test_execute_missing_required_param_audits_rejection(tmp_path, monkeypatch):
+    # pve_snapshot_list requires a vmid — a missing required param is a malformed request (400),
+    # recorded as a rejection and never reaching a mutation.
     _, api, _, _, log = _wire(tmp_path, monkeypatch)
-    _run("guest_power", {"vmid": "102", "action": "stop", "confirm": "true"})  # confirm as string -> reject
+    _run("pve_snapshot_list", {})
     assert api.powered == []
     assert any(e["action"] == "a2a_rejected" for e in _entries(log))
 
 
-def test_execute_non_string_skill_audits_rejection(tmp_path, monkeypatch):
-    """A non-string 'skill' field (e.g. a list) must not crash past the audit trail —
+def test_execute_non_string_tool_audits_rejection(tmp_path, monkeypatch):
+    """A non-string 'tool' field (e.g. a list) must not crash past the audit trail —
     it must be recorded as a rejected A2A call, same as any other malformed probe."""
     _, api, _, _, log = _wire(tmp_path, monkeypatch)
     _run(["not", "a", "string"], {})
@@ -143,7 +154,6 @@ def test_agent_card_served_over_http():
     from starlette.testclient import TestClient
 
     from proximo.a2a.app import build_app
-    from proximo.a2a.skills import SKILLS
 
     # The DNS-rebind Host guard (TrustedHostMiddleware) is now always installed, so the client must
     # present a loopback Host like a real client hitting the loopback-bound server — TestClient's
@@ -153,4 +163,5 @@ def test_agent_card_served_over_http():
     assert resp.status_code == 200, f"card endpoint returned {resp.status_code}"
     body = resp.json()
     assert "Proximo" in body.get("name", ""), f"unexpected card name: {body.get('name')!r}"
-    assert len(body.get("skills", [])) == len(SKILLS), "every slice skill must be advertised on the card"
+    # The card advertises the FULL governed surface as skills — not a 16-skill slice.
+    assert len(body.get("skills", [])) > 300, "the card must advertise the full governed surface"

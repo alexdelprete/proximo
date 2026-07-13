@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "proximo-proxmox"
-version = "0.20.0"
+version = "0.21.0"
 description = "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway + Datacenter Manager on one clean surface: every dangerous op planned, undoable, and audited."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,7 +12,7 @@ license = "Apache-2.0"
 authors = [{ name = "John Broadway" }, { name = "Claude (Anthropic)" }]
 keywords = ["proxmox", "pve", "pbs", "pmg", "pdm", "mail-gateway", "datacenter-manager", "mcp", "model-context-protocol", "a2a", "agent2agent", "lxc", "homelab", "infrastructure", "self-hosted", "multi-cluster"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: System Administrators",
   "Topic :: System :: Systems Administration",
 ]
@@ -27,6 +27,10 @@ dependencies = [
 # a2a-sdk[signing] pulls PyJWT for the SIGNET card-signing helpers; cryptography is used directly
 # by proximo.a2a.signing — declared explicitly rather than relied on transitively.
 a2a = ["a2a-sdk[signing]>=1.1", "uvicorn>=0.30", "starlette>=1.3.1", "cryptography>=49.0.0"]
+# The HTTP/OpenAPI face is OPTIONAL too — the full governed tool surface + trust funnel, the same
+# shared dispatch as A2A, served as plain REST for no-code clients (Open WebUI etc.). ASGI only; no a2a-sdk.
+# Install with: pip install 'proximo-proxmox[http]'
+http = ["uvicorn>=0.30", "starlette>=1.3.1"]
 dev = [
   "pytest>=8", "pytest-asyncio>=1.4.0", "ruff>=0.6", "pyright>=1.1",
   "a2a-sdk[signing]>=1.1", "uvicorn>=0.30", "starlette>=1.3.1", "cryptography>=49.0.0",  # A2A slice + SIGNET tests
@@ -36,6 +40,7 @@ dev = [
 proximo = "proximo.server:main"            # the MCP server (stdio)
 proximo-proxmox = "proximo.server:main"    # alias matching the PyPI dist name (for `uvx proximo-proxmox`)
 proximo-a2a = "proximo._a2a_entry:main"     # A2A server shim (friendly error without [a2a] extra)
+proximo-http = "proximo._http_entry:main"   # HTTP/OpenAPI face shim (friendly error without [http] extra)
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/proximo"]

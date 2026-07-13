@@ -16,7 +16,6 @@ Security model (fail-closed, like the rest of Proximo):
 
 from __future__ import annotations
 
-import hmac
 import os
 import warnings
 from urllib.parse import urlparse
@@ -27,59 +26,37 @@ from a2a.server.routes.jsonrpc_routes import create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from ..webguard import (
+    BearerAuthMiddleware,
+    CrossOriginGuardMiddleware,
+    load_token_file,
+    require_auth_for_public,
+)
+from ..webguard import (
+    default_allowed_hosts as _default_allowed_hosts,  # noqa: PLC0414 -- keep the pinned local name
+)
 from .card import build_agent_card
 from .executor import ProximoAgentExecutor
 from .signing import OperatorKey, jwks, load_operator_key
 
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 41241
-_LOCALHOST_ADDRS = frozenset({"127.0.0.1", "localhost", "::1"})
 _TOKEN_FILE_ENV = "PROXIMO_A2A_TOKEN_FILE"  # noqa: S105 -- env var NAME, not a secret value
 _SIGNING_KEY_ENV = "PROXIMO_A2A_SIGNING_KEY_FILE"  # noqa: S105 -- env var NAME, not a secret value
 _JWKS_PATH = "/.well-known/jwks.json"
 
-
-def _is_public(host: str | None) -> bool:
-    """True when *host* is reachable off-box — anything that is NOT an explicit localhost address.
-
-    An empty/None/whitespace host means "bind all interfaces" (uvicorn/socket bind ``0.0.0.0``), which
-    is the MOST reachable, so it is treated as PUBLIC (→ requires a token). Only the explicit loopback
-    forms are private. (Regression guard: ``bool("")`` is False once made ``_is_public("")`` read as
-    non-public, so ``PROXIMO_A2A_HOST=""`` slipped the fail-closed gate unauthenticated.)
-    """
-    return (host or "").strip() not in _LOCALHOST_ADDRS
-
-
-def _default_allowed_hosts(rpc_url: str) -> list[str]:
-    """Host allowlist for the DNS-rebind guard: the served host + loopback forms (deduped)."""
-    hosts = set(_LOCALHOST_ADDRS)
-    host = urlparse(rpc_url).hostname
-    if host:
-        hosts.add(host)
-    return sorted(hosts)
+# The perimeter primitives (is_public / default_allowed_hosts / token loading / the bearer
+# middleware / the public-bind refusal) live in ``proximo.webguard`` — shared with the HTTP
+# face so the fail-closed contract cannot drift between transports.
 
 
 def _load_a2a_token() -> str | None:
-    """Load the inbound bearer token from ``PROXIMO_A2A_TOKEN_FILE`` (run-but-not-read by path).
-
-    Returns None when the env var is unset. Fails LOUD (RuntimeError) if the var is set but the file
-    is missing/unreadable or empty — never silently run unauthenticated when auth was intended.
-    """
-    path = os.environ.get(_TOKEN_FILE_ENV)
-    if not path:
-        return None
-    try:
-        token = open(path, encoding="utf-8").read().strip()  # noqa: SIM115
-    except OSError as e:
-        raise RuntimeError(f"{_TOKEN_FILE_ENV}={path!r} could not be read: {e}") from e
-    if not token:
-        raise RuntimeError(f"{_TOKEN_FILE_ENV}={path!r} is empty — refusing to serve with a blank token.")
-    return token
+    """Load the inbound bearer token from ``PROXIMO_A2A_TOKEN_FILE`` (run-but-not-read by path)."""
+    return load_token_file(_TOKEN_FILE_ENV)
 
 
 def _load_signing_key() -> OperatorKey | None:
@@ -105,43 +82,13 @@ def _jwks_url(rpc_url: str) -> str:
 
 
 def _require_auth_for_public(host: str | None, token: str | None, *, where: str) -> None:
-    """FAIL-CLOSED guard: refuse a non-localhost control plane that has no auth token.
+    """FAIL-CLOSED guard: refuse a non-localhost A2A control plane that has no auth token.
 
-    Raises ValueError (not a warning) so a public bind without a token cannot start. Fires from BOTH
+    Delegates to the shared webguard refusal (raises ValueError, never a warning). Fires from BOTH
     the bind path (``main``) and the application factory (``build_app``, on the advertised URL) so it
     can't be sidestepped via the uvicorn ``--factory`` path (defense-in-depth).
     """
-    if _is_public(host) and not token:
-        raise ValueError(
-            f"Refusing to expose the Proximo A2A control plane: {where} is {host!r} (non-localhost) "
-            f"with no auth token. The A2A face drives Proxmox — set {_TOKEN_FILE_ENV} to a file "
-            "containing a bearer token, or bind localhost only."
-        )
-
-
-class _BearerAuthMiddleware(BaseHTTPMiddleware):
-    """Require ``Authorization: Bearer <token>`` on the JSON-RPC control endpoint.
-
-    Protects the exact RPC path only; the agent-card / well-known discovery routes stay open so A2A
-    clients can read the card (and its declared auth requirement) before authenticating.
-    """
-
-    def __init__(self, app, *, token: str, rpc_path: str) -> None:
-        super().__init__(app)
-        self._token = token
-        self._rpc = rpc_path.rstrip("/")
-
-    async def dispatch(self, request, call_next):
-        if request.url.path.rstrip("/") == self._rpc:
-            scheme, _, presented = request.headers.get("authorization", "").partition(" ")
-            if scheme.lower() != "bearer" or not presented or not hmac.compare_digest(presented, self._token):
-                return JSONResponse(
-                    {"jsonrpc": "2.0", "id": None,
-                     "error": {"code": -32001, "message": "unauthorized"}},
-                    status_code=401,
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-        return await call_next(request)
+    require_auth_for_public(host, token, where=where, face="A2A", token_env=_TOKEN_FILE_ENV)
 
 
 def build_app(rpc_url: str | None = None, *, token: str | None = None,
@@ -203,15 +150,43 @@ def build_app(rpc_url: str | None = None, *, token: str | None = None,
             "any Host header is accepted. Only safe behind a trusted reverse-proxy that validates Host.",
             stacklevel=2,
         )
-    middleware: list[Middleware] = [Middleware(TrustedHostMiddleware, allowed_hosts=hosts)]
+    rpc = rpc_path.rstrip("/")
+    # Protect the exact RPC path only; the agent-card / well-known / jwks discovery routes stay
+    # open so A2A clients can read the card (and its declared auth) before authenticating.
+    _protect_rpc = lambda path: path.rstrip("/") == rpc  # noqa: E731
+    middleware: list[Middleware] = [
+        Middleware(TrustedHostMiddleware, allowed_hosts=hosts),
+        # Same loopback-CSRF defense as the HTTP face: a2a-sdk reads the RPC body without enforcing
+        # Content-Type, so a cross-origin page could drive the executor in no-token mode. Shared
+        # guard, shared perimeter — the faces can't drift (redteam finding, 2026-07-13).
+        Middleware(CrossOriginGuardMiddleware, protect=_protect_rpc),
+    ]
     if token:
-        middleware.append(Middleware(_BearerAuthMiddleware, token=token, rpc_path=rpc_path))
+        middleware.append(Middleware(
+            BearerAuthMiddleware, token=token,
+            protect=_protect_rpc,
+            unauthorized_body={"jsonrpc": "2.0", "id": None,
+                               "error": {"code": -32001, "message": "unauthorized"}},
+        ))
     return Starlette(routes=routes, middleware=middleware)
 
 
 def main() -> None:
     """``proximo-a2a`` entry point — run the A2A server with uvicorn (fail-closed)."""
+    import sys  # noqa: PLC0415
+
     import uvicorn  # noqa: PLC0415 -- only needed when actually serving
+
+    from .. import server  # noqa: PLC0415
+
+    # Scope the live tool registry to PROXIMO_SURFACES / configured planes BEFORE serving — the
+    # A2A face reads the same global registry, so without this the operator's surface config is
+    # silently ignored on this face (applied here exactly as the stdio server does it).
+    try:
+        server._apply_surfaces()
+    except ValueError as e:
+        print(f"proximo-a2a: {e}", file=sys.stderr)
+        raise SystemExit(1) from None
 
     host = os.environ.get("PROXIMO_A2A_HOST", _DEFAULT_HOST)
     port = int(os.environ.get("PROXIMO_A2A_PORT", str(_DEFAULT_PORT)))

@@ -2,6 +2,105 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
+## [0.21.0] — 2026-07-13
+
+An HTTP/OpenAPI face, and the full governed surface on every transport. Proximo is a core of 365
+governed tools — each wrapped in the trust spine (PLAN-by-default, PROVE, UNDO, the gates) and
+bounded by the Proxmox token scope — reached through thin transports. This release adds a third
+transport (a plain HTTP/OpenAPI face for the no-code and dashboard clients that speak REST) **and**
+corrects the second one — the A2A face used to expose a hand-curated 16-tool slice, hiding the
+"dangerous plane." That was the exact "safe inspector vs. loaded gun" trade Proximo exists to
+refuse. So both network faces now expose the **full governed surface** through one shared dispatch
+(`proximo.governed`) — the same `call_tool` path an MCP client takes. A transport never curates the
+surface or re-invents safety. A same-day redteam drove the CSRF/audit hardening below before the
+HTTP face shipped. No tool-count change (still 365).
+
+### Added
+- **HTTP/OpenAPI face (`proximo-http`, optional `[http]` extra).** A third transport beside MCP and
+  A2A, for no-code / dashboard clients (Open WebUI etc.): `POST /tools/{name}` with a JSON body,
+  discoverable via a generated `GET /openapi.json` over the **full** tool surface, plus
+  `GET /healthz`. Every call routes through `proximo.governed.call_governed` — the same spine path
+  (PLAN-by-default: no `confirm=true`, no mutation, just a recorded dry-run plan; PROVE; UNDO; the
+  gates; the token scope) an MCP client takes. **No second mutate path.** Fail-closed perimeter
+  shared with A2A in `proximo.webguard`: non-localhost binds refused without a bearer token,
+  constant-time bearer on every `/tools/*` op (discovery stays open), a Host/DNS-rebind allowlist,
+  and a cross-origin (CSRF) guard. Off by default; the MCP core keeps zero extra deps.
+
+### Changed
+- **The A2A face now exposes the full governed surface, not a 16-tool slice.** Both network faces
+  were unified onto `proximo.governed` — one dispatch, one perimeter — so the surface and its
+  safety are the core's, uniform for every transport, scoped only by `PROXIMO_SURFACES` + the
+  Proxmox token ACL (exactly like MCP). The previously-hidden "dangerous plane" (delete, rollback,
+  exec, token/acl, firewall, sdn) is reachable over A2A/HTTP and, like everything else, is
+  PLAN-by-default and bounded by the token scope. **A2A wire:** the inbound key is now `"tool"`
+  (`"skill"` still accepted as an alias). **A2A card:** advertises every governed tool as a skill.
+  **Validation now matches MCP exactly** (the tools' own pydantic models): notably `confirm` is
+  coerced like any bool, so `confirm: 1`/`"true"` execute — same as an MCP client, where the token
+  scope and PLAN-by-default remain the boundary. The old `proximo.a2a.skills` registry
+  (`SKILLS` / `EXCLUDED_FROM_SLICE` / `validate_and_build`) is retired.
+
+### Security
+- **Full-surface faces enforce `PROXIMO_SURFACES` and sanitize tool errors** (a second redteam of
+  the widened surface, pre-ship). Two fixes before the network faces expose the dangerous plane:
+  (1) `PROXIMO_SURFACES` / plane auto-scoping is now applied by the A2A and HTTP entrypoints, not
+  only the stdio one — so an operator who scopes a box to `pve` no longer silently exposes
+  exec/PBS/PMG/PDM over the network; (2) a failed tool's error is surfaced as the exception *type*
+  only (via `__cause__`), never the wrapped message — which for the exec plane would otherwise
+  reflect the remote command (secrets on the argv) and the SSH target into the response. PLAN-by-
+  default was verified to hold for all 216 confirm-gated tools; there is no second dispatch path.
+- **Cross-origin (localhost-CSRF) defense on both network faces.** A loopback-bound face with no
+  token (the dev default) is reachable by any web page the operator loads: a cross-origin page
+  could POST with a CORS-safelisted `Content-Type` (e.g. `text/plain`) — skipping the CORS
+  preflight — and drive a real mutation with no credential. The shared `proximo.webguard` now
+  refuses protected POSTs that look cross-origin: `Sec-Fetch-Site: cross-site`/`same-site` → 403,
+  and a body-carrying request whose `Content-Type` isn't `application/json` → 415 (a browser
+  can't set that cross-origin without a preflight this app fails; legit API clients always send
+  it). Plus a 128 KiB body cap (413). Applied to A2A as well as HTTP — the a2a-sdk RPC endpoint
+  shared the vector.
+- **Rejection audit no longer blackholes when the PVE triple is unset.** Both faces recorded
+  rejected calls via `server._svc()`, which raises when `PROXIMO_API_BASE_URL`/`NODE`/`TOKEN_PATH`
+  aren't configured — silently dropping the PROVE trace during exactly the enumeration it exists
+  to make visible. Switched to the tolerant `server._ledger()`.
+- **Secret-file permission floor.** Config now refuses to build when the PVE token file or
+  the audit HMAC key file is group/other-accessible (`mode & 0o077`): a hand-deployed `0644`
+  secret fails loud at startup with the exact `chmod 600` fix in the message, instead of
+  silently exposing the credential to every user on the box. Write-side hygiene was already
+  `0600` everywhere Proximo creates these files; this closes the read-side gap for files
+  deployed by hand. Skips cleanly when the file is missing (the call-time read still reports
+  that) and on non-POSIX platforms.
+
+### Documentation
+- **"Scoping the token" section in `SECURITY.md`** — the hard floor, in practice: start
+  read-only (`--privsep 1` + `PVEAuditor`), widen deliberately by path, the two-token
+  arm/disarm posture (read-only everyday token + a separately-scoped write token swapped in
+  out-of-band, backstopped by LEASE), verify with `proximo doctor`, protect the file. Points
+  at Proxmox's own server-side model — the layer that holds even against a compromised
+  process — rather than wrapping it in local machinery. `SETUP.md` troubleshooting now covers
+  the new permission-guard refusal.
+- **Tool-definition quality pass (Glama TDQS).** Every tool parameter is now documented and
+  ~322 tool docstrings were enriched (per-tool `tools/list` descriptions and input hints — what
+  every MCP/A2A/HTTP client reads), lifting Glama's tool-def coverage 21% → 99%; adds `glama.json`
+  and a Glama score badge to the README.
+
+### Fixed
+- **9 pre-existing doc/code bugs surfaced by the redteam pass.** Notably: the `compress` field on
+  `pve_backup` / `pve_backup_job_create` / `pve_backup_job_update` documented `"none"` as valid
+  when the Proxmox API rejects it (corrected to `"0"`); PBS async-job docstrings told callers to
+  poll a PBS UPID with `pve_task_wait` (wrong backend — now `pbs_tasks_list`); and two risk-rating
+  corrections (`pbs_traffic_control_delete` LOW → MEDIUM, `pve_node_storage_backend_create` → HIGH).
+- **List-returning tool output over the network faces.** `pve_node_disks_list` returned an
+  inconsistent shape through the A2A/HTTP faces depending on element count (raw JSON strings for
+  2+ disks); its return is now typed `list[dict]` so it flows through the structured-output path
+  like every other list tool, and `proximo.governed` parses multi-block results into objects.
+
+### Packaging
+- **Development status reclassified `Pre-Alpha` → `Beta`** (PyPI trove classifier) — the trust
+  spine, the 5,000+ test suite, and public use since 0.1.1 have long outgrown the placeholder.
+- **Docker Hub mirror (`docker.io/jebroadway/proximo`).** `release.yml` copies the signed GHCR
+  image *by digest, no rebuild* to Docker Hub, whose API exposes a pull count (GHCR doesn't) —
+  GHCR stays primary/signed; Docker Hub is a same-digest reach metric. Base-OS Debian security
+  patches are now applied at image build so base CVEs clear.
+
 ## [0.20.0] — 2026-07-10
 
 The receipts release. Proximo's pitch has always been "hand an AI agent the keys; keep the

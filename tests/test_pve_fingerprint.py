@@ -92,6 +92,7 @@ def _one_shot_tls_server(certfile, keyfile):
 def _cfg(tmp_path, **kw):
     token = tmp_path / "token"
     token.write_text("root@pam!t=sekrit-test-sentinel\n")
+    token.chmod(0o600)  # deploy like production: the config guard refuses group/other-readable tokens
     base = dict(
         api_base_url="https://127.0.0.1:1/api2/json",
         node="pve-test1",
@@ -145,6 +146,7 @@ class TestConfigParsing:
     def test_from_env_reads_proximo_fingerprint(self, tmp_path, monkeypatch):
         token = tmp_path / "tok"
         token.write_text("root@pam!t=x\n")
+        token.chmod(0o600)  # the config guard refuses group/other-readable tokens
         monkeypatch.setenv("PROXIMO_API_BASE_URL", "https://h:8006/api2/json")
         monkeypatch.setenv("PROXIMO_NODE", "n")
         monkeypatch.setenv("PROXIMO_TOKEN_PATH", str(token))

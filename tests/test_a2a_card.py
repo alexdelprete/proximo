@@ -1,51 +1,44 @@
 """Tests for the Proximo A2A AgentCard factory (src/proximo/a2a/card.py).
 
-Verifies:
-- The card builds without error.
-- Every skill id in SKILLS appears exactly once on the card.
-- card.name is "Proximo".
-- card.version is a non-empty string.
-- card.capabilities is present.
-- card.supported_interfaces[0].url matches the rpc_url argument.
+The card advertises the FULL governed tool surface as A2A skills — the same list an MCP client
+sees, not a curated slice. Verifies: it builds; name/version/capabilities/interface/modes; every
+governed tool appears once as a skill (id == tool name), including the "dangerous plane".
 """
 
 from __future__ import annotations
 
+import anyio
+
 from proximo.a2a.card import build_agent_card
-from proximo.a2a.skills import SKILLS
+from proximo.governed import list_governed
 
 _TEST_URL = "http://localhost:9000/rpc"
 
 
+def _governed_names() -> set[str]:
+    return {t.name for t in anyio.run(list_governed)}
+
+
 def test_card_builds() -> None:
-    """build_agent_card returns an AgentCard without raising."""
-    card = build_agent_card(_TEST_URL)
-    assert card is not None
+    assert build_agent_card(_TEST_URL) is not None
 
 
 def test_card_name() -> None:
-    card = build_agent_card(_TEST_URL)
-    assert card.name == "Proximo"
+    assert build_agent_card(_TEST_URL).name == "Proximo"
 
 
 def test_card_version_is_set() -> None:
     card = build_agent_card(_TEST_URL)
-    assert isinstance(card.version, str)
-    assert card.version  # truthy — non-empty
+    assert isinstance(card.version, str) and card.version
 
 
 def test_card_version_fallback() -> None:
-    """The version= parameter is used when the package is not installed."""
     card = build_agent_card(_TEST_URL, version="0.0.0-test")
-    # Either the package is installed (importlib succeeds, param ignored) or
-    # the fallback is used.  Either way the version must be a non-empty string.
-    assert isinstance(card.version, str)
-    assert card.version
+    assert isinstance(card.version, str) and card.version
 
 
 def test_card_capabilities_present() -> None:
-    card = build_agent_card(_TEST_URL)
-    assert card.HasField("capabilities")
+    assert build_agent_card(_TEST_URL).HasField("capabilities")
 
 
 def test_card_interface_url() -> None:
@@ -54,34 +47,32 @@ def test_card_interface_url() -> None:
     assert card.supported_interfaces[0].url == _TEST_URL
 
 
-def test_card_all_skills_present() -> None:
-    """Every id in SKILLS appears exactly once on the card — no drops, no dupes."""
+def test_card_advertises_full_governed_surface() -> None:
     card = build_agent_card(_TEST_URL)
-    expected_ids = {s.id for s in SKILLS}
     card_ids = {sk.id for sk in card.skills}
-    assert card_ids == expected_ids
+    assert card_ids == _governed_names()
+    assert len(card_ids) > 300  # the whole estate, not a 16-skill slice
 
 
-def test_card_skill_count_matches() -> None:
-    card = build_agent_card(_TEST_URL)
-    assert len(card.skills) == len(SKILLS)
+def test_card_includes_the_dangerous_plane() -> None:
+    card_ids = {sk.id for sk in build_agent_card(_TEST_URL).skills}
+    for name in ("pve_delete_guest", "ct_exec", "pve_token_create"):
+        assert name in card_ids, f"{name} must be advertised — governed, not hidden"
 
 
-def test_card_skill_fields() -> None:
-    """Each AgentSkill on the card carries name and description."""
-    card = build_agent_card(_TEST_URL)
-    skill_map = {sk.id: sk for sk in card.skills}
-    for s in SKILLS:
-        sk = skill_map[s.id]
-        assert sk.name == s.name
-        assert sk.description == s.description
-        assert list(sk.tags) == list(s.tags)
-        assert list(sk.examples) == list(s.examples)
+def test_card_skill_id_equals_name() -> None:
+    for sk in build_agent_card(_TEST_URL).skills:
+        assert sk.id == sk.name
+
+
+def test_card_explicit_tools_arg_is_honored() -> None:
+    # build_app passes a snapshot; a caller can pass a subset and the card reflects exactly it.
+    tools = anyio.run(list_governed)[:3]
+    card = build_agent_card(_TEST_URL, tools=tools)
+    assert {sk.id for sk in card.skills} == {t.name for t in tools}
 
 
 def test_card_default_modes() -> None:
     card = build_agent_card(_TEST_URL)
     assert "application/json" in list(card.default_input_modes)
-    assert "text/plain" in list(card.default_input_modes)
     assert "application/json" in list(card.default_output_modes)
-    assert "text/plain" in list(card.default_output_modes)

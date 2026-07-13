@@ -39,7 +39,7 @@ from proximo.server import (
 @tool()
 def pve_node_disks_list(
     node: Annotated[str | None, Field(description="PVE node name to query; defaults to the configured node if omitted.")] = None,
-) -> list:
+) -> list[dict]:
     """READ-ONLY: list physical disks on a PVE node.
 
     GET /nodes/{node}/disks/list. VERIFIED live (PVE 9.2): returns a list of dicts

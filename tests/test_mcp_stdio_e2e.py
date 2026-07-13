@@ -18,6 +18,7 @@ import proximo
 def _params(tmp_path) -> StdioServerParameters:
     tok = tmp_path / "e2e.tok"
     tok.write_text("e2e@pam!t=00000000-0000-0000-0000-000000000000")  # dummy; never used (no live PVE)
+    tok.chmod(0o600)  # deploy like production: the config guard refuses group/other-readable tokens
     env = {
         **os.environ,
         "PROXIMO_API_BASE_URL": "https://127.0.0.1:8006/api2/json",  # unreachable on purpose

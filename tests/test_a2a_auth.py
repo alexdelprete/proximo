@@ -19,8 +19,9 @@ import pytest
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from starlette.testclient import TestClient
 
-from proximo.a2a.app import _is_public, _require_auth_for_public, build_app
+from proximo.a2a.app import _require_auth_for_public, build_app
 from proximo.a2a.card import build_agent_card
+from proximo.webguard import is_public as _is_public  # the shared perimeter is the canon now
 
 PUBLIC_URL = "http://10.1.2.3:41241/"
 LOCAL = "http://localhost"  # a Host in the default allowlist

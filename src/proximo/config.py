@@ -30,6 +30,29 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})  # generic bool-env values (reda
 _DEFAULT_ENV_FILE = "~/.config/proximo/proximo.env"
 
 
+def _refuse_exposed_secret(path: str, what: str) -> None:
+    """Refuse a secret file that group/other can touch (mode & 0o077) — fail LOUD, not silent.
+
+    READ-side floor for the two secrets config references by path (the PVE token and the audit
+    HMAC key). Write-side hygiene is already 0600+O_NOFOLLOW everywhere Proximo *creates* these;
+    this catches the hand-deployed file that arrived 0644. Skips: empty path (ledger-only
+    config), missing file (the call-time read already fails loudly — don't change that), and
+    non-POSIX (no meaningful mode bits).
+    """
+    if not path or os.name != "posix":
+        return
+    try:
+        mode = os.stat(path).st_mode
+    except OSError:
+        return  # missing/unreadable => the call-time open reports it; perms aren't the story
+    if mode & 0o077:
+        raise RuntimeError(
+            f"{what} {path!r} is group/other-accessible (mode {mode & 0o777:03o}). "
+            f"Refusing to start: anything on this box could read the secret. "
+            f"Fix: chmod 600 {path}"
+        )
+
+
 def load_env_file() -> list[str]:
     """Source a ``proximo.env`` file into ``os.environ`` for the STDIO launch, then return the keys
     it set. Call this ONCE at process entry, before any ``ProximoConfig.from_env()``.
@@ -252,6 +275,10 @@ class ProximoConfig:
                 "PROXIMO_AUDIT_EXPECTED_HEAD must be a 64-char hex head() value "
                 "(a sha256/hmac-sha256 hexdigest); got a malformed value"
             )
+
+        # Secret-file permission floor: token + audit key must be owner-only (see the helper).
+        _refuse_exposed_secret(token_path, "PVE token file")
+        _refuse_exposed_secret(audit_key_path or "", "audit HMAC key file")
 
         # Validate the ssh target charset: empty string is the on-host sentinel (is_local);
         # any non-empty value must be a safe hostname/alias/user@host — a leading '-' would be

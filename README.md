@@ -70,6 +70,8 @@ surface for phone-home (there is none), check PyPI publish provenance — is in
   </picture>
 </p>
 
+<p align="center"><sub>The whole design in one picture: every transport — MCP, A2A, HTTP/OpenAPI — enters <b>one governed dispatch</b> and crosses the <b>same trust spine</b> to reach all four Proxmox products. No transport gets its own path, and the token floor beneath it all is enforced by Proxmox itself. Below: what that looks like live.</sub></p>
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/demo/demo.svg" alt="Proximo demo: doctor preflight, a destructive delete returning a PLAN with blast radius instead of acting, and the tamper-evident audit ledger verifying clean" width="860">
 </p>

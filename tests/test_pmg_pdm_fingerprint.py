@@ -171,6 +171,7 @@ class TestConfigParsing:
     def test_pmg_from_env(self, tmp_path, monkeypatch):
         pw = tmp_path / "pw"
         pw.write_text("x\n")
+        pw.chmod(0o600)  # secret files must be owner-only (see test_secret_perms.py)
         monkeypatch.setenv("PROXIMO_PMG_BASE_URL", "https://h:8006/api2/json")
         monkeypatch.setenv("PROXIMO_PMG_PASSWORD_PATH", str(pw))
         monkeypatch.setenv("PROXIMO_PMG_VERIFY_TLS", "false")
@@ -186,6 +187,7 @@ class TestConfigParsing:
     def test_pdm_from_env(self, tmp_path, monkeypatch):
         tok = tmp_path / "tok"
         tok.write_text("x\n")
+        tok.chmod(0o600)  # secret files must be owner-only (see test_secret_perms.py)
         monkeypatch.setenv("PROXIMO_PDM_BASE_URL", "https://h:8443/api2/json")
         monkeypatch.setenv("PROXIMO_PDM_TOKEN_PATH", str(tok))
         monkeypatch.setenv("PROXIMO_PDM_VERIFY_TLS", "false")

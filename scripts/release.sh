@@ -34,6 +34,13 @@ fi
 printf '\n== gate ==\n'
 RC=0
 uv run python scripts/version_tools.py check || RC=1
+# Hash-pinned lockfiles must match uv.lock — CI/Docker install them with --require-hashes.
+./scripts/gen_requirements.sh >/dev/null 2>&1 || { printf 'release: gen_requirements.sh failed\n' >&2; RC=1; }
+git diff --exit-code --stat requirements/ || { printf 'release: requirements/ drifted — commit the regenerated lockfiles.\n' >&2; RC=1; }
+# TOOLS.md is generated (version banner + tool surface) — regenerate and fail on drift.
+# (Redteam catch on v0.21.1: the banner shipped one release stale; nothing gated it.)
+uv run python scripts/gen_tools_doc.py >/dev/null 2>&1 || { printf 'release: gen_tools_doc.py failed\n' >&2; RC=1; }
+git diff --exit-code --stat docs/TOOLS.md || { printf 'release: docs/TOOLS.md drifted — commit the regenerated file.\n' >&2; RC=1; }
 uv run ruff check . || RC=1   # full repo — match CI's `ruff check .` (src+tests+scripts), not a subset
 uv run python -m pytest tests/test_version_consistency.py -q || RC=1
 uv run python scripts/release_leak_audit.py audit || RC=1   # model the public tree; refuse internal-infra leaks

@@ -70,9 +70,9 @@ literal in the shipped source:
 grep -rEoh 'https?://[a-zA-Z0-9._~:/?#@!$&*+,;=-]+' src/proximo --include='*.py' | sort -u
 ```
 
-Everything it prints is one of: an **`example.*` placeholder** in a docstring or config
-sample, a **localhost** bind for the optional A2A face, or the **print-only**
-guestbook/hello links. Those last two are never fetched — `hello.py`
+Everything it prints is one of: an **`example.*` placeholder or `localhost` doc example**
+in a docstring or config sample, a **loopback bind default** (`127.0.0.1`) for the
+optional A2A and HTTP network faces, or the **print-only** guestbook/hello links. Those last two are never fetched — `hello.py`
 builds the guestbook `gh` command as a *string it prints*, and says so in its own
 docstring ("print-only; sends nothing"). Nothing here calls out to us.
 
@@ -90,7 +90,7 @@ gh attestation verify oci://ghcr.io/john-broadway/proximo:latest --owner john-br
 // the attestation ties the image to the real repo + release workflow:
 "predicateType": "https://slsa.dev/provenance/v1"
 "sourceRepositoryURI": "https://github.com/john-broadway/proximo"
-"buildSignerURI": ".github/workflows/release.yml@refs/tags/v0.20.0"
+"buildSignerURI": ".github/workflows/release.yml@refs/tags/v0.21.1"
 ```
 
 The image also ships an **SPDX SBOM** (`release.yml`, `sbom: true`). Inspect it on any
@@ -104,7 +104,7 @@ in the release path to steal. Each artifact has an attached provenance attestati
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' \
-  https://pypi.org/integrity/proximo-proxmox/0.20.0/proximo_proxmox-0.20.0-py3-none-any.whl/provenance
+  https://pypi.org/integrity/proximo-proxmox/0.21.1/proximo_proxmox-0.21.1-py3-none-any.whl/provenance
 # => 200   (the signed provenance PyPI generated at publish time)
 ```
 

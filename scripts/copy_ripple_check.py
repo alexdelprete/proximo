@@ -44,6 +44,15 @@ _TOOL_COUNT_RE = re.compile(r"(?<!\+)\b(\d{2,4}) (?:MCP )?tools\b")
 # Lines carrying these markers are scoped-registration EXAMPLES, not total-count claims.
 _EXAMPLE_MARKERS = ("PROXIMO_SURFACES", "pair =")
 
+# Receipt docs: every semver literal in them is a LIVE claim (a worked example the
+# reader runs, a support-table row) and must be the current version. VERIFY.md's
+# examples and SECURITY.md's support table sat two releases stale before this rule
+# (caught by the 2026-07-13 truth audit). Three-part versions only — "PVE 9.2",
+# "TLS 1.3", "Python 3.13" are platform versions, not release claims, and a dotted-quad
+# ("127.0.0.1") is an address, not a version — the lookarounds keep both out.
+VERSION_LITERAL_DOCS = ("VERIFY.md", "SECURITY.md", "THREAT_MODEL.md")
+_SEMVER_LITERAL_RE = re.compile(r"(?<![\w.])v?(\d+\.\d+\.\d+)(?!\.\d)")
+
 
 def check_new_in(text: str, current: str) -> list[str]:
     hits = _NEW_IN_RE.findall(text)
@@ -101,6 +110,16 @@ def check_tool_counts(
     return problems
 
 
+def check_version_literals(files: dict[str, str], current: str) -> list[str]:
+    return [
+        f"{name}: carries version literal {found} but the current release is {current} "
+        f"— stale worked example / support row; refresh it with the release ripple."
+        for name, text in files.items()
+        for found in sorted(set(_SEMVER_LITERAL_RE.findall(text)))
+        if found != current
+    ]
+
+
 def check_tagline(files: dict[str, str]) -> list[str]:
     return [
         f'{name}: tagline phrase "{TAGLINE_PHRASE}" is missing — the pitch line was '
@@ -142,6 +161,13 @@ def check_repo(root: Path) -> list[str]:
         if (root / name).exists()
     }
     problems += check_tagline(tagline_files)
+
+    receipt_docs = {
+        name: (root / name).read_text(encoding="utf-8")
+        for name in VERSION_LITERAL_DOCS
+        if (root / name).exists()
+    }
+    problems += check_version_literals(receipt_docs, current)
     return problems
 
 

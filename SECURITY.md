@@ -71,7 +71,7 @@ back-port branch.
 
 | Version                                       | Supported    |
 | ---------------------------------------------- | ------------ |
-| latest release (`0.19.1` as of this writing)   | ✅           |
+| the latest release ([PyPI](https://pypi.org/project/proximo-proxmox/) / [GitHub releases](https://github.com/john-broadway/proximo/releases)) | ✅           |
 | anything older                                 | ❌ — upgrade |
 
 ## Security controls & defaults
@@ -246,10 +246,12 @@ access is broadest:
   confirm gate are all in scope.
 - **Secret handling.** Proximo takes its PVE token by path/env, never as a literal in a
   shell line. A path where a token, key, or other secret is logged, echoed into the
-  audit ledger, or otherwise persisted in cleartext is in scope. At startup, config
-  refuses a token or audit-key file that group/other can access (`mode & 0o077`) —
-  a mis-deployed `0644` secret fails loud with the `chmod 600` fix, not silently. A way
-  to construct a config past that guard on a POSIX box is in scope.
+  audit ledger, or otherwise persisted in cleartext is in scope. At load time, every
+  secret file referenced by path — the PVE/PBS/PDM tokens, the PMG password, the audit
+  HMAC key, the A2A/HTTP bearer tokens, and the A2A signing key — is refused if
+  group/other can access it (`mode & 0o077`): a mis-deployed `0644` secret fails loud
+  with the `chmod 600` fix, not silently. A way to load a secret past that guard on a
+  POSIX box is in scope.
 
 ## Honest scope notes
 

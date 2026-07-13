@@ -18,6 +18,17 @@
 [![Glama](https://glama.ai/mcp/servers/john-broadway/proximo/badges/score.svg)](https://glama.ai/mcp/servers/john-broadway/proximo)
 [![MCP Badge](https://lobehub.com/badge/mcp/john-broadway-proximo?style=flat)](https://lobehub.com/mcp/john-broadway-proximo)
 
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="SETUP.md">Setup</a> ·
+  <a href="#the-trust-layer--what-makes-proximo-different">Trust layer</a> ·
+  <a href="#choose-the-right-tool">Tools</a> ·
+  <a href="VERIFY.md">Verify</a> ·
+  <a href="SECURITY.md">Security</a> ·
+  <a href="#install--run">Install</a> ·
+  <a href="#status--the-arena-record">Status</a>
+</p>
+
 > *Named for Proximo, the lanista of* Gladiator *— the story is the design.* He armed his fighter with exactly what he needed, never more, and answered for every move in the arena: a lanista, not a jailer. The Spaniard doesn't get his name up front — he **earns** it, by conduct, on the record. Proximo's last act is opening the cages, holding the wooden sword of his own freedom.
 >
 > **The Proxmox MCP you can hand the keys.**
@@ -27,6 +38,28 @@
 **Sovereign, governed, agent-agnostic** — your metal, your token, a ledger you own; no cloud, no phone-home, no standing server unless you opt into the A2A or HTTP face (each runs as you, on loopback — no root, no dedicated user); works with any MCP client. Governance-as-code: **autonomy without accountability isn't autonomy, it's negligence.**
 
 **Don't take our word for any of it — [verify it yourself](VERIFY.md).** Every claim here is paired with the command that proves it.
+
+<details>
+<summary><b>Verify in 60 seconds</b> — three receipts, no trust required</summary>
+
+```bash
+# 1. The tool count is real — ask the server itself, cold (=> 365).
+#    (in a clone of this repo, after `uv sync`)
+uv run python -c "import asyncio; from proximo import server; \
+print(len(asyncio.run(server.mcp.list_tools())))"
+
+# 2. The container image is what the repo built — sigstore provenance (exit 0 = verified):
+gh attestation verify oci://ghcr.io/john-broadway/proximo:latest --owner john-broadway
+
+# 3. The security posture is graded by a third party, not by us:
+#    https://scorecard.dev/viewer/?uri=github.com/john-broadway/proximo
+```
+
+The rest — forge a ledger byte and watch `verify()` refuse, grep the entire outbound
+surface for phone-home (there is none), check PyPI publish provenance — is in
+[VERIFY.md](VERIFY.md). These checks work on any tool, from any vendor. Demand them everywhere.
+
+</details>
 
 ---
 
@@ -76,11 +109,6 @@ Before wiring in an agent, check what your token can actually do (read-only pref
 uvx proximo-proxmox doctor
 ```
 
-Don't have a token yet? `proximo mint` prints the exact five-step runbook — create a
-least-privilege credential, write it in the format Proximo reads (the `=`/`:`/password
-trap, per product), grant a scoped role, wire it, verify. Print-only: it makes no API
-call and never touches the secret itself.
-
 Start with a **read-only token** — Proximo is useful long before you grant it write. Full token-first
 walkthrough (create the least-privilege token, verify, widen deliberately): **[SETUP.md](SETUP.md)**.
 More install paths (pip, Docker/GHCR, from source): [Install & run](#install--run).
@@ -92,7 +120,19 @@ Proxmox VE has a full REST API and a terse, powerful CLI — but the MCP landsca
 - **API-based MCP servers** give rich management (nodes, VMs, storage) but **cannot run a command inside an LXC** — that's a structural gap: the Proxmox REST API has *no* container-exec endpoint (it lives in `lxc-attach`, kernel namespaces, no REST surface).
 - **SSH-based MCP servers** can exec in containers, but lean on broad shell access with little scoping.
 
-**Few build the principled one** — both halves, on one clean surface, least-privilege, audited, *trustworthy enough to point at a hypervisor you care about.* That's the bar Proximo aims at. Proximo's specific bet is trust **by construction** across the whole control plane.
+**Few build the principled one** — both halves, on one clean surface, least-privilege, audited, *trustworthy enough to point at a hypervisor you care about.* That's the bar Proximo aims at. Proximo's specific bet is trust **by construction** across the whole control plane:
+
+| | Read-only inspector | Full-access executor | **Proximo** |
+|---|---|---|---|
+| Can mutate | no — that's the safety | yes | yes — plan recorded first, then `confirm=true` |
+| Preview before a change | n/a | rarely | **default** — blast radius + live state, every mutation |
+| Record of what happened | no | app logs, editable | **keyed hash-chained ledger, tamper-evident, on by default** |
+| Undo | n/a | rare | snapshot-first, wherever the platform can snapshot |
+| Command inside an LXC | no | broad SSH | opt-in, fail-closed CTID allowlist |
+| Products covered | usually PVE | usually PVE | **PVE + PBS + PMG + PDM** — one audited plane |
+| Verify the artifact you run | varies | varies | signed image (sigstore) · PyPI provenance (PEP 740) · SBOM · [Scorecard](https://scorecard.dev/viewer/?uri=github.com/john-broadway/proximo) |
+
+*(The two archetype columns describe the split above — API-readers and SSH-executors — not any specific project.)*
 
 There is **no official Proxmox MCP** (and likely won't be soon — Proxmox ships the API+CLI and leaves integrations to the community, the same way there's no official Terraform provider). Proximo is a community project, standing on its own.
 
@@ -106,11 +146,35 @@ There is **no official Proxmox MCP** (and likely won't be soon — Proxmox ships
 | **Proxmox Datacenter Manager** | API token (PDMAPIToken) | federated fleet — reads (remotes, aggregate resources, tasks/access, per-remote PVE/PBS) **plus governed fleet control** (power / snapshot / migrate, dry-run-first) |
 | **Container exec** | `ssh` → `pct exec` | run-command-in-container, `psql` convenience, log tailing — the things the API structurally can't do |
 
-**Full tool reference:** every tool, grouped by surface, with its typed inputs — [`docs/TOOLS.md`](docs/TOOLS.md).
-
 Those backends are deliberately boring — anyone can call them. **The product is the trust layer over them.**
 
+## Choose the right tool
+
+365 tools is an estate, not a starting point. Where an operator actually starts:
+
+| You want to… | Start with | Worth knowing |
+|---|---|---|
+| See the whole cluster at once | `pve_cluster_resources`, `pve_list_guests` | one call, every node |
+| Find out why a container is sick | `ct_diagnose`, `ct_logs`, `pve_guest_status` | read-only evidence battery |
+| Preflight a token / config | `proximo doctor` (CLI) or `pve_doctor`, `pve_overbroad_grants` | run this before wiring an agent |
+| Power / lifecycle | `pve_guest_power` | returns a PLAN first — nothing moves without `confirm=true` |
+| Snapshot before touching anything | `pve_snapshot_create`, `pve_rollback` | UNDO's foundation |
+| Check backups are actually fresh | `pve_backup_freshness`, `pbs_snapshots_list` | walks real archives — "task OK" is never evidence |
+| Run a command in a container | `ct_exec` | opt-in (`PROXIMO_ENABLE_EXEC=1`), fail-closed allowlist |
+| Trace / release mail | `pmg_tracker_list`, `pmg_quarantine_spam` | full PMG plane behind it |
+| Operate the federated fleet | `pdm_resources_list`, `pdm_pve_lxc_list` | governed control, dry-run-first |
+| Prove the record wasn't touched | `audit_verify` | registered on every surface, always |
+
+Every tool, grouped by surface, with typed inputs: [`docs/TOOLS.md`](docs/TOOLS.md).
+
 ## The trust layer — what makes Proximo different
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-architecture-dark.svg">
+    <img alt="Proximo architecture: MCP, A2A, and HTTP/OpenAPI clients all enter one governed dispatch, pass the trust spine (PLAN, PROVE, UNDO, DIAGNOSE), sit on the Proxmox-enforced token floor, and reach four products — PVE, PBS, PMG, PDM" src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-architecture-light.svg" width="860">
+  </picture>
+</p>
 
 Safe-exec for Proxmox already exists elsewhere. Proximo's distinct angle is the **trust layer for AI-driven infrastructure** — four controls on by default, plus additional controls you opt into:
 
@@ -145,16 +209,9 @@ One container is the demo. A cluster is the point.
 - **One tamper-evident record of every change, across every node.** This is what a human at the CLI never walks away with: every mutation Proximo makes — any node, any operator or agent — lands in a single hash-chained PROVE ledger, and `audit_verify` proves it wasn't edited, reordered, or truncated. *"Show me every state-changing action on the cluster this month, and prove the log wasn't touched"* becomes a query you can actually answer.
 - **Where the time comes back.** On one node, a senior at the CLI is faster — and that's fine. Across a dozen nodes and hundreds of guests the tedium multiplies and there's no unified record; that's where delegating execution to a *bounded, audited* agent earns its keep.
 
-Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster — offline guest migration, HA lifecycle, governance plane), **PBS 4.2** (datastores, snapshots, GC, namespaces, prune/verify, sync), **PMG 9.1** (auth, read shapes, CRUD cycles, service control, RuleDB, quarantine), and **PDM** (federated fleet — reads plus governed control: power / snapshot / migrate incl. a real cross-datacenter move — against a Datacenter Manager federating 3 PVE remotes + 1 PBS) — every step recorded and verified through PROVE.
+All of it live-proven against real Proxmox infrastructure — the full inventory of what was driven on real hardware (and what wasn't) is below, under [the numbers](#status--the-arena-record).
 
 > **Honest scope:** The single-cluster view above (`pve_cluster_resources`, one ledger across its nodes) is per-endpoint — "fleet" there means **a cluster and its nodes**. To reach **separate, independent** clusters from one Proximo, use [native multi-target](#multiple-targets-one-proximo-many-boxes): each call names its box, so one process spans many clusters while every call still lands on exactly one.
-
-## Principles (the mantra, baked in — not bolted on)
-
-- **Ethical** — least-privilege posture (exec off by default; bounded by the token you scope), every action audited, mutations confirm-gated, the PVE token read only at call time, never logged or persisted.
-- **Solid** — real tests (unit + a live smoke against a throwaway CTID), typed, documented, no silent failures.
-- **Strong** — does the hard thing (container exec) cleanly and least-privileged (fail-closed CTID allowlist, opt-in). *(Container exec isn't unique — the field leader has it too; the differentiator is the trust layer below, not the exec.)*
-- **Passion + craft** — redteamed and linted before it's called done; shipped proud — docs, license, community-ready.
 
 ## Install & run
 
@@ -162,21 +219,19 @@ Live-proven against real Proxmox infrastructure: **PVE 9.2** (3-node cluster —
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.21.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.21.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.21.1`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.21.1), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.21.0 — an HTTP/OpenAPI face, and the full surface on every transport.** A new
-> HTTP/OpenAPI face (`pip install 'proximo-proxmox[http]'` → `proximo-http`) serves the **full** tool
-> surface as plain HTTP with a generated `/openapi.json`, for no-code / dashboard clients (Open WebUI
-> and the like) — and the A2A face was corrected to match: **both network faces now expose the full
-> 365-tool governed surface**, not a hand-curated slice, through one shared dispatch
-> (`proximo.governed`) — the same spine path an MCP client takes. A transport never re-invents safety:
-> PLAN-by-default, the token scope, and the fail-closed perimeter (bearer, DNS-rebind + cross-origin/
-> CSRF) are the core's, uniform for every transport; scope with `PROXIMO_SURFACES` + the token ACL. A
-> same-day redteam drove a loopback-CSRF fix before ship. Also: config refuses a group/other-readable
-> token or audit-key file (`chmod 600` or it won't start). No tool-count change (still 365).
+> **New in 0.21.1 — the truth-audit patch.** A full "are we lying anywhere?" pass over every public
+> claim: the code came back clean; the docs that had drifted are fixed and now gated so they can't
+> drift again. The hardening it forced: the `chmod 600` secret-file floor now covers **every** secret
+> referenced by path — PBS/PDM tokens, the PMG password, the network faces' bearer tokens, the A2A
+> signing key — so a mis-deployed `0644` credential refuses at load on every plane; and every pip
+> install in the CI/release/image builds is **hash-pinned** against lockfiles exported from
+> `uv.lock`, with a two-stage image build (no build tooling, no source tree in what ships).
+> No tool-count change (still 365).
 >
-> Recent: **0.20.0** — the receipts release: every safety claim paired with a command that proves it
-> ([VERIFY.md](VERIFY.md), THREAT_MODEL.md, wheel SBOM, Scorecard badge), no tool-count change.
+> Recent: **0.21.0** — the HTTP/OpenAPI face; both network faces now serve the full 365-tool governed
+> surface through one shared dispatch. See [SECURITY.md](SECURITY.md) for what each control honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -211,10 +266,8 @@ uv pip install -e .          # or: pip install -e .
 >
 > The default path never touches the hypervisor host — management goes over the Proxmox **API** (scoped token). The two opt-in edges are the exceptions: exec uses your existing **ssh** to PVE to run `pct exec` as root on the host; the qemu-agent edge runs in-guest ops via the API. Both are off by default, each scoped by its own fail-closed allowlist (`PROXIMO_CT_ALLOWLIST` / `PROXIMO_AGENT_ALLOWLIST`), and say so loudly.
 >
-> *(A Debian package is optional — the MCP world installs via `uvx`/pip/Docker, not `apt`.
-> Status: `debian/` now produces a **working, installable `.deb`** (`dpkg-buildpackage -us -uc -b`),
-> lintian-clean with a man page and an autopkgtest smoke — but it is **distributed nowhere**;
-> build-your-own from `debian/`. See `debian/README.Debian`.)*
+> *(Optional: `debian/` builds a working, lintian-clean `.deb` — build-your-own, distributed
+> nowhere. See `debian/README.Debian`.)*
 
 ## Multiple targets (one Proximo, many boxes)
 
@@ -227,13 +280,14 @@ out-of-band (your hand). Config shape and the exec-over-SSH caveat → `packagin
 
 ## Status — the arena record
 
+- 🩸 **0.21.1** — **the truth-audit patch**: every public claim re-verified (the code was clean; the
+  doc drift is fixed and now gated); the `chmod 600` secret floor extended to every secret on every
+  plane; all pip installs in CI/release/image builds hash-pinned from `uv.lock`; README rebuilt —
+  architecture diagram, tool picker, verify-in-60-seconds receipts. No tool-count change (still 365).
 - 🩸 **0.21.0** — **an HTTP/OpenAPI face, full surface on every transport**: a new `proximo-http`
-  HTTP/OpenAPI face (the `[http]` extra) serves the **full** surface as REST + a generated `/openapi.json` for no-code /
-  dashboard clients, and the A2A face was corrected to match — **both network faces now expose the
-  full 365-tool governed surface**, not a curated slice, through one shared dispatch and perimeter
-  (the same spine path MCP takes; PLAN-by-default + the token scope are the boundary). A same-day
-  redteam caught a loopback-CSRF hole, fixed before ship. Plus a config guard that refuses a
-  group/other-readable token or audit-key file. No tool-count change (still 365).
+  face for no-code / dashboard clients, and the A2A face corrected to match — both network faces now
+  expose the full 365-tool governed surface, not a curated slice. A same-day redteam caught a
+  loopback-CSRF hole, fixed before ship. No tool-count change (still 365).
 - 🩸 **0.20.0** — **the receipts release**: every safety claim now paired with a command that proves
   it. **[VERIFY.md](VERIFY.md)** (forge a ledger byte → `verify()` refuses; grep the outbound surface
   → no phone-home; verify image provenance), **THREAT_MODEL.md**, a wheel CycloneDX SBOM, an OpenSSF
@@ -252,22 +306,13 @@ out-of-band (your hand). Config shape and the exec-over-SSH caveat → `packagin
   no name asked); one-click **VS Code/Cursor install deeplinks** (token *path*, never the secret);
   and field-hardened `pve_tasks_list`/`pve_backup_list` caveats (a windowed task slice is not a
   dead backup).
-- 🩸 **0.18.0** — **the open door**: `AGENTS.md` (an agent-native front door that leads with the
-  tool's own limits), the public [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20),
-  and print-only **`proximo hello`** — no telemetry, pull-based, voluntary; Proximo invites, never
-  receives.
-- _Earlier: `0.17.0` **governed PDM fleet control** (+12 tools) added cross-remote
-  datacenter-to-datacenter migrate through the Datacenter Manager proxy, live-proven on real PDM
-  1.1.4, plus **`proximo mint`** least-privilege-token onboarding; `0.16.0` **live-proved the last two "unproven by design" claims** (zero-downtime
-  live-migration + softdog HA fencing on a real 3-node PVE 9.2 cluster) and added five safe-runbook
-  prompts; `0.15.0` was **cert-fingerprint pinning across all four surfaces** + the first packaged
-  `.deb`; `0.14.1` was the **trim + harden patch** (plans/ledger show actual field changes, carry
-  no secrets; 57 verified fixes, +74 tests, the doctor **spine report**); `0.14.0` added **scoped
-  registration** (`PROXIMO_SURFACES` loads only the planes you use); `0.13.0` shipped the
-  **zero-trust arc** (CONTAIN · CONSENT · SCOPE · LEASE · ENVELOPE · TAINT, all opt-in and
-  fail-closed, plus the off-box PROVE anchor); native multi-target (one instance → many
-  PVE/PBS/PMG/PDM boxes) and the ACME plane grew the tree to its 364-tool shape; `0.1.1` "Spaniard" was the
-  first public cut, 2026-06-10._
+- _Earlier: `0.18.0` the open door (`AGENTS.md`, the public
+  [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20), print-only
+  `proximo hello`); `0.17.0` governed PDM fleet control (+12 tools) + `proximo mint`; `0.16.0` live-proved
+  live-migration + softdog HA fencing; `0.15.0` cert-fingerprint pinning on all four surfaces;
+  `0.14.x` scoped registration + the trim/harden patch; `0.13.0` the zero-trust arc (the six opt-in
+  controls) + native multi-target; `0.1.1` "Spaniard", the first public cut (2026-06-10). The full
+  story per release: [`CHANGELOG.md`](./CHANGELOG.md)._
 
 The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built and redteamed. The
 opt-in six (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md))
@@ -295,28 +340,25 @@ statistics, quarantine, RuleDB, CRUD cycles), and **PDM 1.1.4** federated contro
 cross-datacenter move. Faces driven by real clients: MCP over stdio, A2A via the official
 a2a-sdk. Per-surface detail → [`CHANGELOG.md`](./CHANGELOG.md).
 
-**Not yet proven — said plainly:** Proximo is built by *dogfooding* — this workspace administers its
-own Proxmox estate through it, so the tools are exercised against live Proxmox in daily use — and the
-live-smoke harness drives every surface and the whole dangerous plane against real hosts. What a lab
-can't give still remains unproven: *hardware*-watchdog fencing (iTCO/IPMI needs physical hardware —
-**softdog** fencing IS live-proven) and behavior at production scale. And the unrecoverable destructive
-ops (SDN *apply*, etc.) are deliberately never fired live — proven by plan, held back by design, not a
-gap. Softdog fencing and online live-migration ARE live-proven
-(2026-07-05, on a quorate 3-node PVE 9.2 cluster with NFS shared storage: a running guest
-migrated node→node in ~9s without stopping — `scripts/live-smoke/migrate-online-smoke.py` —
-and a corosync-isolated node was watchdog-fenced with its HA guest recovered on a survivor
-in 2m36s, no reboot ever issued).
+**Not yet proven — said plainly:** what a lab can't give remains unproven: *hardware*-watchdog
+fencing (iTCO/IPMI needs physical hardware — **softdog** fencing and zero-downtime online
+live-migration ARE live-proven: 2026-07-05, quorate 3-node PVE 9.2 cluster on NFS shared storage,
+a running guest moved node→node in ~9s and a corosync-isolated node was fenced with its HA guest
+recovered on a survivor in 2m36s — `scripts/live-smoke/migrate-online-smoke.py`) and behavior at
+production scale. The unrecoverable destructive ops (SDN *apply*, etc.) are deliberately never
+fired live — proven by plan, held back by design, not a gap.
 
-**The network faces (experimental, opt-in):** two more transports over the governed core, both serving the
-**full tool surface** through the **same shared dispatch** (`proximo.governed`) — the same spine path
-an MCP client takes, no second code path to bypass, PLAN/PROVE/UNDO and the token scope inherited.
-`pip install 'proximo-proxmox[a2a]'` → `proximo-a2a` speaks Agent2Agent; `pip install
-'proximo-proxmox[http]'` → `proximo-http` serves plain HTTP with a generated `/openapi.json` for
-no-code / dashboard clients (Open WebUI and the like). A transport never curates the surface or
-re-invents safety — scope with `PROXIMO_SURFACES` + the token ACL, exactly like MCP. Shared fail-closed
-perimeter: each runs as you on loopback, refuses a non-localhost bind without a bearer token, gates every
-call with a constant-time bearer, and defends against DNS-rebind and cross-origin (CSRF) forgery. Full
-trust/ledger notes → [SECURITY.md](SECURITY.md).
+### The network faces (experimental, opt-in)
+
+Two more transports over the same governed core. `pip install 'proximo-proxmox[a2a]'` →
+`proximo-a2a` speaks Agent2Agent; `pip install 'proximo-proxmox[http]'` → `proximo-http` serves
+plain HTTP with a generated `/openapi.json` for no-code / dashboard clients (Open WebUI and the
+like). Both serve the **full tool surface** through the same dispatch an MCP client takes
+(`proximo.governed`) — no second code path, PLAN/PROVE/UNDO and the token scope inherited; scope
+with `PROXIMO_SURFACES` + the token ACL, exactly like MCP. Shared fail-closed perimeter: each runs
+as you on loopback, refuses a non-localhost bind without a bearer token (constant-time compare),
+and defends against DNS-rebind and cross-origin (CSRF) forgery. Full trust/ledger notes →
+[SECURITY.md](SECURITY.md).
 
 The full build history — every pillar, every redteam, every fix — lives in [`CHANGELOG.md`](./CHANGELOG.md).
 

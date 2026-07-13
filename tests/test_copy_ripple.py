@@ -92,6 +92,30 @@ def test_tool_count_historical_status_bullets_are_pinned_history():
     assert any("300" in p for p in problems), problems
 
 
+def test_version_literals_in_receipt_docs_must_be_current():
+    # Regression (2026-07-13 truth audit): VERIFY.md's worked examples and SECURITY.md's
+    # support table sat two releases stale — nothing gated version literals in the
+    # receipt docs. Any semver literal there is a live claim and must be current.
+    stale = "curl https://pypi.org/integrity/x/0.20.0/x-0.20.0.whl and v0.20.0 examples"
+    problems = copy_ripple_check.check_version_literals({"VERIFY.md": stale}, "0.21.0")
+    assert any("0.20.0" in p for p in problems), problems
+
+    fresh = "curl https://pypi.org/integrity/x/0.21.0/x-0.21.0.whl — v0.21.0"
+    assert copy_ripple_check.check_version_literals({"VERIFY.md": fresh}, "0.21.0") == []
+
+
+def test_version_literals_ignore_two_part_versions():
+    # "PVE 9.2" / "TLS 1.3" / "Python 3.13" are platform versions, not release claims.
+    text = "Works with PVE 9.2, TLS 1.3, Python 3.13."
+    assert copy_ripple_check.check_version_literals({"SECURITY.md": text}, "0.21.0") == []
+
+
+def test_version_literals_ignore_ip_addresses():
+    # A dotted-quad is an address, not a release claim (127.0.0.1 ≠ version "127.0.0").
+    text = "binds 127.0.0.1:41242 by default; 0.0.0.0 is public."
+    assert copy_ripple_check.check_version_literals({"THREAT_MODEL.md": text}, "0.21.0") == []
+
+
 def test_tagline_must_survive_on_metadata_surfaces():
     files = {"pyproject.toml": 'description = "A cool Proxmox helper."'}
     problems = copy_ripple_check.check_tagline(files)

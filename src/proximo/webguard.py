@@ -22,6 +22,8 @@ from urllib.parse import urlparse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from ._secretfile import refuse_exposed_secret
+
 LOCALHOST_ADDRS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 # A cross-origin browser request that carries these Sec-Fetch-Site values is a forgery attempt
@@ -78,6 +80,7 @@ def load_token_file(env_var: str) -> str | None:
     path = os.environ.get(env_var)
     if not path:
         return None
+    refuse_exposed_secret(path, f"{env_var} bearer-token file")
     try:
         token = open(path, encoding="utf-8").read().strip()  # noqa: SIM115
     except OSError as e:

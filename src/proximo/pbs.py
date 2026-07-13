@@ -87,6 +87,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from ._secretfile import refuse_exposed_secret
 from ._tls import fingerprint_pinned_context, httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
@@ -268,6 +269,7 @@ class PbsConfig:
                 stacklevel=2,
             )
 
+        refuse_exposed_secret(token_path, "PBS token file")
         return cls(
             base_url=base_url.rstrip("/"),
             token_path=token_path,
@@ -295,6 +297,7 @@ class PbsConfig:
                 "talking to the PBS API without cert validation.",
                 stacklevel=2,
             )
+        refuse_exposed_secret(token_path, "PBS token file")
         return cls(
             base_url=base_url.rstrip("/"),
             token_path=token_path,

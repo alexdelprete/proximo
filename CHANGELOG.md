@@ -2,6 +2,37 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
+## [0.21.1] — 2026-07-13
+
+The truth-audit patch. A full "are we lying anywhere?" pass over every public claim, score, and
+copy surface — the code came back clean; what had drifted was docs, and everything that drifted is
+now fixed *and gated so it can't drift again*. Plus two real hardenings the audit forced.
+
+### Security
+- **The secret-file permission floor now covers every secret, not just PVE's.** Config already
+  refused a group/other-readable PVE token or audit HMAC key file; the same `chmod 600` guard now
+  applies to the PBS/PDM token files, the PMG password file, the A2A/HTTP bearer-token files, and
+  the A2A signing key. A hand-deployed `0644` credential fails loud at load time on every plane and
+  every face. **Heads-up:** a deployment that was (mis)running with an exposed PBS/PMG/PDM secret
+  file will now refuse to start until the file is `chmod 600` — that refusal is the fix working.
+- **Supply-chain: all five `pip install` steps in CI/release/image builds are hash-pinned**
+  (`--require-hashes` against lockfiles exported from `uv.lock`), closing the last unpinned
+  dependency channel the OpenSSF Scorecard flagged.
+
+### Changed
+- **THREAT_MODEL.md** now covers both network faces (the 0.21.0 HTTP/OpenAPI face was missing from
+  the network-attacker row) and names the shared `webguard` perimeter. **VERIFY.md** worked examples
+  refreshed to v0.21.0 and the §3 outbound-surface categories updated for the HTTP face.
+  **SECURITY.md** support table no longer hardcodes a version (it went stale two releases running);
+  the copy-drift gate now fails on any stale version literal in the receipt docs.
+- **README, fully re-read and rebuilt as a document.** Deduplicated (every story now told once —
+  the network-faces story was told three times), slots brought back to their copy-canon budgets,
+  the self-describing "Principles" section cut. Added: a brand-matched architecture diagram
+  (light + dark), a navigation row, a "Verify in 60 seconds" collapsible with three runnable
+  receipts, a "Choose the right tool" starter table (every tool name verified against
+  `docs/TOOLS.md`), and an inspector/executor/Proximo capability matrix. No new claims anywhere —
+  every table cell was verified before it was written.
+
 ## [0.21.0] — 2026-07-13
 
 An HTTP/OpenAPI face, and the full governed surface on every transport. Proximo is a core of 365

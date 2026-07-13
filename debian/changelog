@@ -1,3 +1,19 @@
+proximo (0.21.1-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.21.1 (patch — the truth-audit release). Secret-file permission
+    floor now covers every secret referenced by path (PBS/PDM tokens, PMG password,
+    A2A/HTTP bearer-token files, A2A signing key — was PVE token + audit key only);
+    a group/other-readable credential now refuses at load on every plane. All five
+    pip installs in CI/release/image builds are hash-pinned against lockfiles
+    exported from uv.lock; the container image build is two-stage (no build tooling
+    or source tree in the final image). Doc truth ripple: THREAT_MODEL.md covers
+    both network faces, VERIFY.md examples current, SECURITY.md support table
+    de-versioned, README rebuilt (deduplicated + architecture diagram, tool picker,
+    verify-in-60s receipts). No tool-count change (still 365). Packaging unchanged;
+    not distributed — build-your-own from debian/.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Mon, 13 Jul 2026 19:08:37 +0000
+
 proximo (0.21.0-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.21.0 (minor — the HTTP/OpenAPI face: a third transport beside MCP

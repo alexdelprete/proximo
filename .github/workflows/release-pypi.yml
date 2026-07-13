@@ -36,10 +36,10 @@ jobs:
         if: github.event_name == 'release'
         run: python scripts/version_tools.py release-check "${GITHUB_REF_NAME#v}"
 
-      - name: Build sdist + wheel
+      - name: Build sdist + wheel (hash-pinned build tooling, no isolated env)
         run: |
-          python -m pip install build
-          python -m build
+          python -m pip install --require-hashes -r requirements/build.txt
+          python -m build --no-isolation
 
       # Receipts: a CycloneDX SBOM for the *published wheel's* dependency tree —
       # generated from a clean venv with exactly the wheel installed, kept OUT of
@@ -48,7 +48,8 @@ jobs:
       - name: Generate CycloneDX SBOM for the wheel
         run: |
           python -m venv /tmp/sbom-env
-          /tmp/sbom-env/bin/pip install --quiet dist/*.whl cyclonedx-bom
+          /tmp/sbom-env/bin/pip install --quiet --require-hashes -r requirements/runtime.txt -r requirements/sbom.txt
+          /tmp/sbom-env/bin/pip install --quiet --no-deps dist/*.whl
           mkdir -p sbom
           /tmp/sbom-env/bin/python -m cyclonedx_py environment --of JSON \
             -o "sbom/proximo-proxmox-${GITHUB_REF_NAME#v}-sbom.cdx.json" /tmp/sbom-env/bin/python

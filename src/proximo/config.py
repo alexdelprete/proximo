@@ -13,6 +13,7 @@ import sys
 import warnings
 from dataclasses import dataclass
 
+from ._secretfile import refuse_exposed_secret
 from .audit import looks_like_head
 from .audit_anchor import AnchorError, AnchorSink, build_anchor_sink
 
@@ -30,27 +31,9 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})  # generic bool-env values (reda
 _DEFAULT_ENV_FILE = "~/.config/proximo/proximo.env"
 
 
-def _refuse_exposed_secret(path: str, what: str) -> None:
-    """Refuse a secret file that group/other can touch (mode & 0o077) — fail LOUD, not silent.
-
-    READ-side floor for the two secrets config references by path (the PVE token and the audit
-    HMAC key). Write-side hygiene is already 0600+O_NOFOLLOW everywhere Proximo *creates* these;
-    this catches the hand-deployed file that arrived 0644. Skips: empty path (ledger-only
-    config), missing file (the call-time read already fails loudly — don't change that), and
-    non-POSIX (no meaningful mode bits).
-    """
-    if not path or os.name != "posix":
-        return
-    try:
-        mode = os.stat(path).st_mode
-    except OSError:
-        return  # missing/unreadable => the call-time open reports it; perms aren't the story
-    if mode & 0o077:
-        raise RuntimeError(
-            f"{what} {path!r} is group/other-accessible (mode {mode & 0o777:03o}). "
-            f"Refusing to start: anything on this box could read the secret. "
-            f"Fix: chmod 600 {path}"
-        )
+# Secret-file permission floor — shared with the PBS/PMG/PDM loaders and the network
+# faces so every secret Proximo reads by path gets the same READ-side guard.
+_refuse_exposed_secret = refuse_exposed_secret
 
 
 def load_env_file() -> list[str]:

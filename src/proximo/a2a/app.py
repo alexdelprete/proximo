@@ -30,6 +30,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from .._secretfile import refuse_exposed_secret
 from ..webguard import (
     BearerAuthMiddleware,
     CrossOriginGuardMiddleware,
@@ -69,6 +70,7 @@ def _load_signing_key() -> OperatorKey | None:
     path = os.environ.get(_SIGNING_KEY_ENV)
     if not path:
         return None
+    refuse_exposed_secret(path, f"{_SIGNING_KEY_ENV} signing-key file")
     try:
         return load_operator_key(path)
     except (OSError, ValueError) as e:

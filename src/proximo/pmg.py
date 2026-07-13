@@ -34,6 +34,7 @@ from urllib.parse import quote
 
 import httpx
 
+from ._secretfile import refuse_exposed_secret
 from ._tls import fingerprint_pinned_context, httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
@@ -231,6 +232,7 @@ class PmgConfig:
                 stacklevel=2,
             )
 
+        refuse_exposed_secret(password_path, "PMG password file")
         return cls(
             base_url=base_url.rstrip("/"),
             password_path=password_path,
@@ -262,6 +264,7 @@ class PmgConfig:
                 "talking to the PMG API without cert validation.",
                 stacklevel=2,
             )
+        refuse_exposed_secret(password_path, "PMG password file")
         return cls(
             base_url=base_url.rstrip("/"),
             password_path=password_path,

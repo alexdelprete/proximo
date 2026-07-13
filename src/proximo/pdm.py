@@ -72,6 +72,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from ._secretfile import refuse_exposed_secret
 from ._tls import fingerprint_pinned_context, httpx_verify, parse_verify_tls
 from .backends import ProximoError
 from .pbs import _check_namespace
@@ -324,6 +325,7 @@ class PdmConfig:
         if not verify_tls and not ca_bundle and not fingerprint:
             cls._warn_unverified_tls("PROXIMO_PDM_VERIFY_TLS=false")
 
+        refuse_exposed_secret(token_path, "PDM token file")
         return cls(
             base_url=url,
             token_path=token_path,
@@ -346,6 +348,7 @@ class PdmConfig:
         fingerprint = fields.get("fingerprint") or None
         if not verify_tls and not ca_bundle and not fingerprint:
             cls._warn_unverified_tls("PDM target verify_tls=false")
+        refuse_exposed_secret(token_path, "PDM token file")
         return cls(
             base_url=url,
             token_path=token_path,

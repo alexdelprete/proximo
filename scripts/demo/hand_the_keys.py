@@ -43,22 +43,31 @@ def yel(s): return _c(s, "1;33")
 
 _AUTO: float | None = None
 
+def _breathe(secs: float) -> None:
+    # tiny pacing so a recording reads at human speed; interactive (Enter-paced) runs skip it
+    if _AUTO is not None:
+        time.sleep(secs)
+
 def beat(title: str) -> None:
     print("\n" + cyn("━" * 64))
     print(cyn(f"  {title}"))
     print(cyn("━" * 64))
+    _breathe(0.8)
 
 def caption(s: str) -> None:   # the voiceover / on-screen caption
     print(bold(f"\n  ▸ {s}"))
+    _breathe(1.2)
 
 def agent(s: str) -> None:     # "the AI agent asks"
     print(f"\n  {yel('AI agent ▸')} {s}")
+    _breathe(1.2)
 
 def shows(label: str, obj) -> None:   # Proximo's real output
     body = json.dumps(obj, indent=2, ensure_ascii=False) if not isinstance(obj, str) else obj
     print(dim(f"  proximo ▸ {label}"))
     for line in body.splitlines():
-        print("    " + line)
+        print("    " + line, flush=True)
+        _breathe(0.12)
 
 def pause() -> None:
     if _AUTO is not None:
@@ -135,6 +144,8 @@ def demo_live() -> int:
         print(red("  --live needs SMOKE_VMID set to a THROWAWAY guest the token is scoped to."))
         print(dim("  (and the PROXIMO_* env — see scripts/live-smoke/README.md). Refusing to guess."))
         return 2
+    import logging
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # keep API URLs off camera (same as demo.py)
     from proximo.audit import AuditLedger
     from proximo.server import (
         _svc,

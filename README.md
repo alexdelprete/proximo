@@ -205,7 +205,15 @@ env var set — full defaults table and what each one actually defends against: 
 
 Hold any tool to this — including this one: **[The Keys Test](https://john-broadway.github.io/keys-test/)**
 — ten questions to ask before you hand an AI agent real infrastructure, with Proximo's own
-scorecard published, partials included.
+scorecard published, partials included. And watch the spine hold, live:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/demo/hand-the-keys.svg" alt="Hand-the-keys demo: an agent asks for a purge-delete and gets a PLAN with the blast radius instead of a wipe, a snapshot lands before the reversible change, and audit_verify proves the ledger — an edited copy breaks at the exact line" width="860">
+</p>
+
+<p align="center"><sub>41 seconds, recorded live with a <b>write-scoped token</b> on a throwaway guest — real mutations, real receipts, nothing staged.
+The agent asks to destroy the guest and gets the <b>plan</b>; the snapshot lands <b>before</b> the change; edit the ledger and it <b>breaks at the line</b>.
+Reproduce it yourself: <a href="./scripts/demo/hand_the_keys.py"><code>scripts/demo/hand_the_keys.py --live</code></a>.</sub></p>
 
 ## At scale
 

@@ -203,6 +203,10 @@ env var set — full defaults table and what each one actually defends against: 
 > write surface you mean to grant. That's a different, stronger guarantee than anything
 > Proximo's own code provides. Full breakdown: **[SECURITY.md](SECURITY.md)**.
 
+Hold any tool to this — including this one: **[The Keys Test](https://john-broadway.github.io/keys-test/)**
+— ten questions to ask before you hand an AI agent real infrastructure, with Proximo's own
+scorecard published, partials included.
+
 ## At scale
 
 One container is the demo. A cluster is the point.

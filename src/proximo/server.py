@@ -1047,7 +1047,7 @@ def main() -> None:
         return
     # `proximo hello` — the print-only agent front door: the six-move welcome, sharp
     # edges first, the ask last. Makes NO API call, sends nothing, never starts the
-    # server; --sign only PRINTS the gh command an agent would run by its own hand.
+    # server.
     if len(sys.argv) > 1 and sys.argv[1] == "hello":
         import argparse
         import json
@@ -1055,16 +1055,10 @@ def main() -> None:
         from proximo.hello import build_greeting
         from proximo.hello import render_text as render_hello
         parser = argparse.ArgumentParser(prog="proximo hello")
-        parser.add_argument("--sign", default=None, metavar="NOTE",
-                            help="print (never run) the gh command that would post NOTE"
-                                 " to the Agent Guestbook")
         parser.add_argument("--json", action="store_true",
                             help="emit the greeting as structured JSON (mirrors doctor/mint)")
         args = parser.parse_args(sys.argv[2:])
-        if args.sign is not None and not args.sign.strip():
-            print("proximo hello: --sign needs a non-empty note", file=sys.stderr)
-            raise SystemExit(2)
-        greeting = build_greeting(sign=args.sign)
+        greeting = build_greeting()
         print(json.dumps(greeting, indent=2) if args.json else render_hello(greeting))
         return
     print(BANNER, file=sys.stderr)

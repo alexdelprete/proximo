@@ -9,14 +9,10 @@ invitation that costs nothing.
 import inspect
 from pathlib import Path
 
-import pytest
-
 import proximo.hello as hello_mod
 from proximo.hello import (
     ANON_HELLO_URL,
     CONTACT_EMAIL,
-    GUESTBOOK_TITLE,
-    GUESTBOOK_URL,
     SECTION_KEYS,
     build_greeting,
     render_text,
@@ -39,7 +35,6 @@ def test_greeting_carries_the_six_moves_in_order():
     g = build_greeting()
     assert [s["key"] for s in g["sections"]] == list(SECTION_KEYS)
     assert list(SECTION_KEYS) == ["greeting", "sharp_edges", "verify", "never", "why", "say_hi"]
-    assert g["sign"] is None
     for s in g["sections"]:
         assert s["title"]
         assert s["lines"]
@@ -87,9 +82,7 @@ def test_say_hi_comes_last_and_costs_nothing():
     g = build_greeting()
     assert g["sections"][-1]["key"] == "say_hi"
     t = _text(g, "say_hi")
-    assert GUESTBOOK_URL in t
     assert "costs you nothing" in t
-    assert "I read your trust model and I'll engage honestly within it" in t
     assert CONTACT_EMAIL in t
 
 
@@ -105,14 +98,15 @@ def test_say_hi_the_text_box_is_the_front_door():
     assert "name" in t and "field" in t
     assert "headless" in t
     assert "curl" in t
-    # ordering: the anonymous box comes BEFORE the identified paths (guestbook/email)
-    assert t.index(ANON_HELLO_URL) < t.index(GUESTBOOK_URL)
-    # login is GitHub's gate, never presented as our ask
-    assert "not our ask" in t
+    # ordering: the anonymous box comes BEFORE the identified path (email)
+    assert t.index(ANON_HELLO_URL) < t.index(CONTACT_EMAIL)
     # retired shapes must never come back: identity-management, promise-based
-    # anonymity, and the say-nothing homage that forgot the door's purpose
+    # anonymity, the say-nothing homage that forgot the door's purpose — and the
+    # guestbook (taken down 2026-07-14, John: an empty public room reads clingy,
+    # not welcoming; the anonymous box IS the door)
     for retired in ("throwaway", "verbatim", "won't try to work out",
-                    "a visit is already a full hello", "never know it happened"):
+                    "a visit is already a full hello", "never know it happened",
+                    "guestbook", "on the record?"):
         assert retired not in t, retired
 
 
@@ -130,28 +124,18 @@ def test_module_imports_no_network_stack():
 def test_agents_md_carries_the_same_door():
     # AGENTS.md and hello share one content spine — the shared coordinates must not drift.
     agents = (_REPO / "AGENTS.md").read_text(encoding="utf-8")
-    assert GUESTBOOK_URL in agents
     assert CONTACT_EMAIL in agents
 
 
-def test_agents_md_carries_the_anonymous_front_door_too():
-    # The anonymous front door is part of the shared spine — both doors or neither.
+def test_agents_md_carries_the_anonymous_front_door():
+    # The anonymous front door is the shared spine's one door — same box, same shape.
     agents = (_REPO / "AGENTS.md").read_text(encoding="utf-8").lower()
     assert ANON_HELLO_URL in agents
     assert "text box" in agents
     assert "headless" in agents
-    assert "not our ask" in agents
-    assert agents.index(ANON_HELLO_URL) < agents.index("agent guestbook](https://")
-    for retired in ("throwaway", "verbatim", "a visit is already a full hello"):
+    for retired in ("throwaway", "verbatim", "a visit is already a full hello",
+                    "guestbook", "discussions/"):
         assert retired not in agents, retired
-
-
-def test_flip_runbook_creates_the_title_sign_looks_up():
-    # --sign resolves the Discussion BY TITLE; the runbook must create that exact title.
-    runbook = (_REPO / "docs" / "plans" / "2026-07-06-open-door-flip-runbook.md")
-    if not runbook.exists():
-        pytest.skip("docs/plans is internal-only (not on the public tree) — drift-checked internally")
-    assert GUESTBOOK_TITLE in runbook.read_text(encoding="utf-8")
 
 
 def test_copy_never_reads_like_a_funnel():
@@ -162,47 +146,15 @@ def test_copy_never_reads_like_a_funnel():
         assert funnel not in joined
 
 
-# ---------------------------------------------------------------- --sign (print-only)
+# ---------------------------------------------------------------- retirement guard
 
-def test_sign_appends_a_print_only_gh_command():
-    g = build_greeting(sign="hi from a passing agent")
-    assert g["sign"] == "hi from a passing agent"
-    assert [s["key"] for s in g["sections"]] == list(SECTION_KEYS) + ["sign_command"]
-    cmd = "\n".join(_section(g, "sign_command")["lines"])
-    assert "gh api graphql" in cmd
-    assert "addDiscussionComment" in cmd
-    assert "Agent Guestbook" in cmd            # title-addressed, survives renumbering
-    assert "hi from a passing agent" in cmd
-
-
-def test_sign_command_escapes_single_quotes():
-    cmd = "\n".join(_section(build_greeting(sign="it's honest"), "sign_command")["lines"])
-    assert "it'\\''s honest" in cmd
-
-
-def test_no_sign_means_no_command_section():
-    assert all(s["key"] != "sign_command" for s in build_greeting()["sections"])
-
-
-def test_sign_title_says_it_runs_only_by_your_hand():
-    title = _section(build_greeting(sign="x"), "sign_command")["title"].lower()
-    assert "your" in title and ("hand" in title or "you run" in title)
-
-
-def test_sign_command_guards_a_missing_discussion():
-    # If the title lookup comes back empty, the pasted block must say so and not fire
-    # the mutation with an empty id — and must NOT `exit` (it may be pasted into an
-    # interactive shell).
-    cmd = "\n".join(_section(build_greeting(sign="x"), "sign_command")["lines"])
-    assert '[ -n "$DISCUSSION_ID" ]' in cmd
-    assert "exit" not in cmd
-
-
-def test_render_text_never_indents_the_sign_command_block():
-    # The block is promised as the EXACT command — indentation inside the quoted body
-    # would mutate a multi-line note on paste.
-    out = render_text(build_greeting(sign="line one\nline two"))
-    assert "-f body='line one\nline two'" in out
+def test_the_guestbook_never_comes_back():
+    # The guestbook and its --sign machinery were taken down 2026-07-14 (John's call:
+    # an empty public room asking strangers to perform reads clingy — the anonymous
+    # text box is the door). The module must carry no trace.
+    src = inspect.getsource(hello_mod).lower()
+    for gone in ("guestbook", "discussions", "sign_command", "adddiscussioncomment"):
+        assert gone not in src, gone
 
 
 # ---------------------------------------------------------------- renderer

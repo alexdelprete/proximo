@@ -2,6 +2,16 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
+## [Unreleased]
+
+### Removed
+- **The Agent Guestbook is gone** — the pinned GitHub Discussion, the repo's Discussions tab,
+  the guestbook invitation in `AGENTS.md`, and `proximo hello --sign` (which printed the posting
+  command). Shipped in 0.18.0 as part of the open door; taken down 2026-07-14 — an empty public
+  room asking visitors to perform isn't a welcome. The doors that remain are the honest ones:
+  the anonymous text box (<https://john-broadway.github.io/hello/>), email, and GitHub Issues.
+  `proximo hello` still prints the six-move welcome; it now carries one door, not two.
+
 ## [0.21.1] — 2026-07-13
 
 The truth-audit patch. A full "are we lying anywhere?" pass over every public claim, score, and

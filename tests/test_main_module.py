@@ -89,29 +89,17 @@ def test_main_hello_json_emits_stable_section_keys(monkeypatch, capsys):
         "greeting", "sharp_edges", "verify", "never", "why", "say_hi"]
 
 
-def test_main_hello_sign_prints_command_posts_nothing(monkeypatch, capsys):
-    import proximo.server as srv
-
-    monkeypatch.setattr(srv.sys, "argv", ["proximo", "hello", "--sign", "hello from a test"])
-    monkeypatch.setattr(srv.mcp, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
-    srv.main()
-    out = capsys.readouterr().out
-    assert "gh api graphql" in out
-    assert "addDiscussionComment" in out
-    assert "hello from a test" in out
-
-
-def test_main_hello_empty_sign_exits_2(monkeypatch, capsys):
-    # --sign "" would build a command posting an empty comment — refuse it plainly.
+def test_main_hello_sign_flag_is_retired(monkeypatch, capsys):
+    # --sign printed the guestbook posting command; the guestbook came down 2026-07-14
+    # and the flag went with it. An unknown flag must exit 2, not silently greet.
     import pytest
 
     import proximo.server as srv
 
-    monkeypatch.setattr(srv.sys, "argv", ["proximo", "hello", "--sign", "  "])
+    monkeypatch.setattr(srv.sys, "argv", ["proximo", "hello", "--sign", "note"])
     with pytest.raises(SystemExit) as exc:
         srv.main()
     assert exc.value.code == 2
-    assert "non-empty" in capsys.readouterr().err
 
 
 def test_main_mint_unknown_product_exits_2_with_valid_set(monkeypatch, capsys):

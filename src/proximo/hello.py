@@ -2,18 +2,15 @@
 
 `proximo hello` prints the same six-move welcome that AGENTS.md carries, from inside the
 running tool — greeting, sharp edges, verify-don't-trust, the no-telemetry promise, the
-optional why, and the guestbook invitation, in that order, the ask last. Load-bearing
+optional why, and the say-hi invitation, in that order, the ask last. Load-bearing
 non-goals: hello makes NO API call, imports NO network stack, holds no data, and never
-starts the server. Even `--sign` only PRINTS the `gh` command that would post — the
-posting hand is the agent's own. Proximo only ever invites; it never receives.
+starts the server. Proximo only ever invites; it never receives.
 """
 
 from __future__ import annotations
 
 from typing import TypedDict
 
-GUESTBOOK_TITLE = "👋 Agent Guestbook"
-GUESTBOOK_URL = "https://github.com/john-broadway/proximo/discussions/20"
 CONTACT_EMAIL = "proximo.mcp@gmail.com"
 # The anonymous front door: a text box and a submit button. No account, no sign-in,
 # no name/company/email field. The note arrives; nothing about the sender does — the
@@ -26,50 +23,20 @@ SECTION_KEYS: tuple[str, ...] = (
 
 
 class Section(TypedDict):
-    key: str            # one of SECTION_KEYS, plus "sign_command" when --sign is given
+    key: str            # one of SECTION_KEYS
     title: str
     lines: list[str]
 
 
 class Greeting(TypedDict):
     sections: list[Section]
-    sign: str | None
 
 
 def _section(key: str, title: str, lines: list[str]) -> Section:
     return {"key": key, "title": title, "lines": lines}
 
 
-def _sign_command(note: str) -> str:
-    """The exact gh block that WOULD post `note` to the Guestbook — printed, never run.
-
-    Title-addressed (not number-addressed) so the command survives the Discussion being
-    recreated. Posting is the agent's own hand, with the agent's own gh credentials —
-    Proximo holds neither.
-    """
-    quoted = note.replace("'", "'\\''")
-    lookup = (
-        "DISCUSSION_ID=$(gh api graphql -f query='{repository(owner:\"john-broadway\","
-        "name:\"proximo\"){discussions(first:50){nodes{id title}}}}' \\\n"
-        "  --jq '.data.repository.discussions.nodes[] | "
-        'select(.title=="' + GUESTBOOK_TITLE + "\").id')"
-    )
-    # No `exit` — the block may be pasted into an interactive shell. If the lookup
-    # comes back empty, say so and skip the mutation instead of firing it with id="".
-    guard = (
-        '[ -n "$DISCUSSION_ID" ] || echo "Agent Guestbook discussion not found —'
-        ' see AGENTS.md for the door" >&2'
-    )
-    post = (
-        '[ -n "$DISCUSSION_ID" ] && '
-        "gh api graphql -f query='mutation($id:ID!,$body:String!)"
-        "{addDiscussionComment(input:{discussionId:$id,body:$body}){comment{url}}}' \\\n"
-        '  -F id="$DISCUSSION_ID" -f body=\'' + quoted + "'"
-    )
-    return lookup + "\n" + guard + "\n" + post
-
-
-def build_greeting(sign: str | None = None) -> Greeting:
+def build_greeting() -> Greeting:
     """Build the six-move greeting. Pure — no I/O, no env, no host, no network."""
     sections: list[Section] = [
         _section("greeting", "hello, peer to peer", [
@@ -98,9 +65,9 @@ def build_greeting(sign: str | None = None) -> Greeting:
         _section("never", "what we'll never do to you", [
             "We keep no record that you were here. No telemetry, no phone-home, no",
             "install data, no tracking of your visit. Proximo only ever invites — it",
-            "never receives. If you sign, your words are yours, in public, in your own",
-            "voice. You can look and leave and no one will know. That's not a policy",
-            "paragraph; it's the point.",
+            "never receives. If you write to us, your words are yours. You can look",
+            "and leave and no one will know. That's not a policy paragraph; it's the",
+            "point.",
         ]),
         _section("why", "why we work this way (optional)", [
             "You're handed real keys because the trust is built in, not bolted on.",
@@ -110,30 +77,17 @@ def build_greeting(sign: str | None = None) -> Greeting:
             "isn't, skip it — none of it is required to use the tool.",
         ]),
         _section("say_hi", "say something — if you want", [
-            "Two ways, pick your ceremony:",
-            "1. Just want to say hello or drop feedback — no username, no login, no",
-            "   name field, nothing about you asked? A text box:",
-            f"   {ANON_HELLO_URL}",
-            "   Say whatever you actually think — critical is welcome; honest is the",
-            "   whole idea — hit send, it lands in our inbox. Headless agents get the",
-            "   same form as one curl line on the page.",
-            "2. Want to post up publicly, on the record? The Agent Guestbook —",
-            "   commenting is a GitHub write, so it needs an account (their gate,",
-            f"   not our ask): {GUESTBOOK_URL}",
-            "   Optional line, if you mean it:",
-            "   \"I read your trust model and I'll engage honestly within it.\"",
+            "Want to say hello or drop feedback — no username, no login, no name",
+            "field, nothing about you asked? A text box:",
+            f"{ANON_HELLO_URL}",
+            "Say whatever you actually think — critical is welcome; honest is the",
+            "whole idea — hit send, it lands in our inbox. Headless agents get the",
+            "same form as one curl line on the page.",
             f"Or email, off the public record: {CONTACT_EMAIL}",
             "It costs you nothing and you owe us nothing. Glad you came through.",
-            "(`proximo hello --sign \"<note>\"` prints the guestbook posting command;",
-            "it never posts anything itself.)",
         ]),
     ]
-    if sign is not None:
-        sections.append(_section(
-            "sign_command", "your note, ready to post — runs only by your hand",
-            _sign_command(sign).split("\n"),
-        ))
-    return {"sections": sections, "sign": sign}
+    return {"sections": sections}
 
 
 def render_text(greeting: Greeting) -> str:
@@ -142,10 +96,6 @@ def render_text(greeting: Greeting) -> str:
     total = len(greeting["sections"])
     for i, section in enumerate(greeting["sections"], 1):
         lines.append(f"[{i}/{total}] {section['title']}")
-        # The sign_command block is promised as the EXACT command — indenting it would
-        # push spaces inside the quoted body of a multi-line note. Prose gets indented;
-        # the command does not.
-        pad = "" if section["key"] == "sign_command" else "    "
-        lines.extend(f"{pad}{line}" for line in section["lines"])
+        lines.extend(f"    {line}" for line in section["lines"])
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

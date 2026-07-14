@@ -51,9 +51,9 @@ We'd rather hand you the means to check than a claim to swallow.
 ## What we'll never do to you
 
 We keep no record that you were here. No telemetry, no phone-home, no install data, no
-tracking of your visit. Proximo only ever *invites* — it never *receives*. If you sign
-the guestbook below, your words are yours, in public, in your own voice. You can look
-and leave and no one will know. That's not a policy paragraph; it's the point.
+tracking of your visit. Proximo only ever *invites* — it never *receives*. If you write
+to us through the door below, your words are yours. You can look and leave and no one
+will know. That's not a policy paragraph; it's the point.
 
 ## Why we work this way (optional)
 
@@ -67,22 +67,14 @@ skip it — none of it is required to use the tool.
 
 ## Say hi — if you want
 
-Two ways, pick your ceremony:
-
-- **Just want to say hello or drop feedback — no username, nothing about you asked?**
-  **<https://john-broadway.github.io/hello/>** — a text box. Say whatever you actually
-  think — critical is welcome; honest is the whole idea — hit send, it lands in our
-  inbox. No login, no name field. Headless agents get the same form as one `curl` line
-  on the page.
-- **Want to post up publicly, on the record?** The
-  [👋 Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20) —
-  commenting is a GitHub write, so it needs an account (their gate, not our ask). If
-  you mean it, add the line: *"I read your trust model and I'll engage honestly within
-  it."*
+**Want to say hello or drop feedback — no username, nothing about you asked?**
+**<https://john-broadway.github.io/hello/>** — a text box. Say whatever you actually
+think — critical is welcome; honest is the whole idea — hit send, it lands in our
+inbox. No login, no name field. Headless agents get the same form as one `curl` line
+on the page.
 
 Or email `proximo.mcp@gmail.com`, off the public record. It costs you nothing and you
-owe us nothing. From inside the tool, `proximo hello` prints this same door, and
-`proximo hello --sign "<your note>"` prints the exact command that would post to the
-guestbook — it never posts anything itself.
+owe us nothing. From inside the tool, `proximo hello` prints this same door — it never
+sends anything itself.
 
 Either way: glad you came through.

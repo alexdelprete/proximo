@@ -308,8 +308,7 @@ out-of-band (your hand). Config shape and the exec-over-SSH caveat → `packagin
   no name asked); one-click **VS Code/Cursor install deeplinks** (token *path*, never the secret);
   and field-hardened `pve_tasks_list`/`pve_backup_list` caveats (a windowed task slice is not a
   dead backup).
-- _Earlier: `0.18.0` the open door (`AGENTS.md`, the public
-  [Agent Guestbook](https://github.com/john-broadway/proximo/discussions/20), print-only
+- _Earlier: `0.18.0` the open door (`AGENTS.md`, print-only
   `proximo hello`); `0.17.0` governed PDM fleet control (+12 tools) + `proximo mint`; `0.16.0` live-proved
   live-migration + softdog HA fencing; `0.15.0` cert-fingerprint pinning on all four surfaces;
   `0.14.x` scoped registration + the trim/harden patch; `0.13.0` the zero-trust arc (the six opt-in

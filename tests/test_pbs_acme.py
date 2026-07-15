@@ -248,8 +248,12 @@ class TestCheckPluginDeleteProps:
             "disable", "validation-delay",
         ]
 
-    def test_empty_list_ok(self):
-        assert _check_plugin_delete_props([]) == []
+    def test_empty_list_rejected(self):
+        # Wave 5b review finding 1: `_check_plugin_delete_props` used to pass an empty list
+        # straight through ("ok") — but httpx's form encoding drops an empty-list `delete`
+        # value entirely, so it never reaches the wire; a silent no-op. Reject loudly instead.
+        with pytest.raises(ProximoError):
+            _check_plugin_delete_props([])
 
     def test_invalid_prop_rejected(self):
         with pytest.raises(ProximoError):
@@ -505,6 +509,14 @@ class TestAcmePluginUpdate:
         with pytest.raises(ProximoError):
             acme_plugin_update(backend, "plug1", delete=["data"])
 
+    def test_empty_delete_list_rejected(self):
+        # Wave 5b review finding 1: httpx's form encoding drops an empty-list `delete` value
+        # entirely on the PUT — an empty list is a silent no-op, so reject it loudly instead.
+        backend = _Api()
+        with pytest.raises(ProximoError):
+            acme_plugin_update(backend, "plug1", delete=[])
+        assert not backend.puts
+
 
 class TestAcmePluginDelete:
     def test_deletes_correct_path(self):
@@ -721,6 +733,12 @@ class TestPlanAcmePluginUpdate:
         backend = _Api(get_return={})
         with pytest.raises(ProximoError):
             plan_acme_plugin_update(backend, "plug1", delete=["data"])
+
+    def test_empty_delete_list_rejected_at_plan_time(self):
+        # Wave 5b review finding 1: delete=[] is REJECTED, not disclosed.
+        backend = _Api(get_return={})
+        with pytest.raises(ProximoError):
+            plan_acme_plugin_update(backend, "plug1", delete=[])
 
     def test_no_implied_undo_in_note(self):
         backend = _Api(get_return={})

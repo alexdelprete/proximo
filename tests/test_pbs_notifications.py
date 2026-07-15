@@ -408,6 +408,14 @@ class TestNotificationMatcherSet:
         assert "digest" not in data
         assert "delete" not in data
 
+    def test_empty_delete_list_rejected_on_update(self):
+        # Wave 5b review finding 1: httpx's form encoding drops an empty-list `delete` value
+        # entirely on the PUT — an empty list is a silent no-op, so reject it loudly instead.
+        api = _Api(get_return=[{"name": "m1"}])
+        with pytest.raises(ProximoError):
+            notification_matcher_set(api, "m1", delete=[])
+        assert not api.puts
+
     def test_hyphenated_fields_mapped(self):
         api = _Api(get_return=[])
         notification_matcher_set(
@@ -629,6 +637,13 @@ class TestPlanNotificationMatcherSet:
     def test_invalid_digest_raises(self):
         with pytest.raises(ProximoError):
             plan_notification_matcher_set("m1", digest="not-hex")
+
+    def test_empty_delete_list_rejected(self):
+        # Wave 5b review finding 1: rejected here too, even though this PURE factory can't yet
+        # know create-vs-update — a race between plan-preview and confirm=True could flip which
+        # branch executes, and delete=[] is a silent no-op on the update branch either way.
+        with pytest.raises(ProximoError):
+            plan_notification_matcher_set("m1", delete=[])
 
 
 class TestPlanNotificationMatcherDelete:

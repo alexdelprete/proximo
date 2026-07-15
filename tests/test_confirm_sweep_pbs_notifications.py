@@ -30,6 +30,7 @@ import pytest
 
 import proximo.server as server
 from proximo.audit import AuditLedger
+from proximo.backends import ProximoError
 from proximo.config import ProximoConfig
 
 
@@ -196,6 +197,15 @@ def test_matcher_set_update_branch_puts_with_digest_and_delete(tmp_path, monkeyp
 
     entry = _confirmed_entry(log, "pbs_notification_matcher_set", "ok")
     assert entry["mutation"] is True
+
+
+def test_matcher_set_empty_delete_confirm_rejected(tmp_path, monkeypatch):
+    """Wave 5b review finding 1: delete=[] is REJECTED (ProximoError), not sent — httpx's form
+    encoding drops an empty-list value entirely, so it never reaches the wire."""
+    _, pbs, _, _ = _wire(tmp_path, monkeypatch, get_return=[{"name": "m1"}])
+    with pytest.raises(ProximoError):
+        server.pbs_notification_matcher_set(name="m1", delete=[], confirm=True)
+    assert not pbs.puts and not pbs.posts
 
 
 # ---------------------------------------------------------------------------

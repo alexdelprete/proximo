@@ -70,7 +70,120 @@ REVIEWED_TRUSTED: frozenset[str] = frozenset({
     'pbs_realm_pbs_set', 'pbs_realm_sync',
     'pbs_remote_create', 'pbs_remote_delete', 'pbs_remote_get', 'pbs_remote_update', 'pbs_remotes_list',
     'pbs_roles_list', 'pbs_snapshot_delete',
-    'pbs_snapshot_notes_set', 'pbs_snapshot_protected_set', 'pbs_tasks_list',
+    'pbs_snapshot_notes_set', 'pbs_snapshot_protected_set',
+    # Wave 4a (2026-07-15): PBS tape hardware config (drive/changer CRUD) — structured,
+    # operator-authored config, no attacker-shapeable free text. The two scan reads carry
+    # device-reported vendor/model/serial strings — hardware-authored, matching the precedent
+    # already set by pve_hardware_list / pbs_node_disks_list / pbs_node_disk_smart (all three
+    # also REVIEWED_TRUSTED despite carrying autodetected hardware fields).
+    'pbs_tape_changer_create', 'pbs_tape_changer_delete', 'pbs_tape_changer_get',
+    'pbs_tape_changer_list', 'pbs_tape_changer_update',
+    'pbs_tape_drive_create', 'pbs_tape_drive_delete', 'pbs_tape_drive_get',
+    'pbs_tape_drive_list', 'pbs_tape_drive_update',
+    'pbs_tape_scan_changers', 'pbs_tape_scan_drives',
+    # Wave 4b (2026-07-15): PBS tape media-pool + encryption-key config — same rationale as
+    # Wave 4a above: structured, operator-authored config, no attacker-shapeable free text.
+    # comment/hint/template are operator-authored free-text fields, same category as
+    # pbs_notifications.py's own comment fields (already REVIEWED_TRUSTED), not an external/
+    # guest-authored channel. Encryption-key reads return PUBLIC metadata only (never key
+    # material/password — schema-verified, pbs_tape_media.py module docstring fact #9).
+    'pbs_tape_key_create', 'pbs_tape_key_delete', 'pbs_tape_key_get', 'pbs_tape_key_list',
+    'pbs_tape_key_update_password',
+    'pbs_tape_pool_create', 'pbs_tape_pool_delete', 'pbs_tape_pool_get', 'pbs_tape_pool_list',
+    'pbs_tape_pool_update',
+    # Wave 4c (2026-07-15): PBS tape drive/changer OPERATIONS. Reads: drive status/
+    # volume-statistics are pure device telemetry — no label-text field in either response
+    # (unlike read-label/inventory/cartridge-memory/changer_status, which ARE in
+    # taint.ADVERSARIAL_TOOLS instead — see pbs_tape_ops.py module docstring's Taint section).
+    # Mutations: all 13 return either an opaque UPID (task identifier, PBS-generated) or null —
+    # none echo back media-authored free text, so all are REVIEWED_TRUSTED regardless of their
+    # real-world physical/robotics side effects (taint classifies the RETURN channel, not the
+    # mutation's physical consequences).
+    'pbs_tape_drive_status', 'pbs_tape_drive_volume_statistics',
+    'pbs_tape_drive_load_media', 'pbs_tape_drive_load_slot', 'pbs_tape_drive_unload',
+    'pbs_tape_drive_eject', 'pbs_tape_drive_rewind', 'pbs_tape_drive_clean',
+    'pbs_tape_drive_inventory_update', 'pbs_tape_drive_label_media',
+    'pbs_tape_drive_barcode_label_media', 'pbs_tape_drive_format', 'pbs_tape_drive_catalog',
+    'pbs_tape_drive_restore_key', 'pbs_tape_changer_transfer',
+    # Wave 4d (2026-07-15): PBS tape media CATALOG + tape-backup JOBS + backup/restore — CLOSES
+    # Wave 4 (PBS tape). Reads: pbs_tape_media_sets carries NO label-text field at all (confirmed
+    # field-by-field against the live schema — media-set-name is PBS-generated from the pool's
+    # operator-authored template, not physical-media content; a deliberate divergence from the
+    # campaign brief's own premise, argued in pbs_tape_jobs.py's module docstring). NOT here:
+    # pbs_tape_media_list/pbs_tape_media_content/pbs_tape_media_status_get — all three are in
+    # taint.ADVERSARIAL_TOOLS instead. pbs_tape_backup_job_list/get are operator-authored
+    # scheduled-job config, matching pve_backup_job_list/create's existing REVIEWED_TRUSTED
+    # classification. Mutations: all 9 return either an opaque UPID or null — none echo back
+    # media/guest-authored free text, including pbs_tape_media_destroy (a GET-verb mutation —
+    # taint classifies the RETURN channel, not the HTTP verb or the mutation's consequences,
+    # same rule Wave 4c's 13 mutations already established).
+    'pbs_tape_media_sets', 'pbs_tape_backup_job_list', 'pbs_tape_backup_job_get',
+    'pbs_tape_media_destroy', 'pbs_tape_media_status_set', 'pbs_tape_media_move',
+    'pbs_tape_backup_job_create', 'pbs_tape_backup_job_update', 'pbs_tape_backup_job_delete',
+    'pbs_tape_backup_job_run', 'pbs_tape_backup', 'pbs_tape_restore',
+    # Wave 5a (2026-07-15): PBS S3 client configs + client encryption keys — starts Wave 5
+    # (closes the PBS plane after 5c). Reads: pbs_s3_client_list/get are operator-authored config
+    # ("without secret" per the live schema — access-key is a non-secret identifier, secret-key
+    # never returned); pbs_encryption_key_list is operator/import-authored metadata, no key
+    # material ever returned. NOT here: pbs_s3_list_buckets — in taint.ADVERSARIAL_TOOLS instead
+    # (externally-authored bucket-name content). Mutations: all 8 return null (opaque, no
+    # content) — pbs_s3_check/pbs_s3_reset_counters are confirm-gated PUT-verb tools with a real
+    # (check) or observability-only (reset_counters) effect but carry no return content either.
+    'pbs_s3_client_list', 'pbs_s3_client_get', 'pbs_s3_client_create', 'pbs_s3_client_update',
+    'pbs_s3_client_delete', 'pbs_s3_check', 'pbs_s3_reset_counters',
+    'pbs_encryption_key_list', 'pbs_encryption_key_create', 'pbs_encryption_key_delete',
+    'pbs_encryption_key_toggle_archive',
+    # Wave 5b (2026-07-15): PBS metrics servers — operator-authored config on both influxdb-http
+    # and influxdb-udp sub-planes; all mutations return null (opaque, no content).
+    # pbs_metrics_influxdb_http_list/get strip `token` at the read layer (a REQUIRED strip — the
+    # live schema's response shape DOES carry it, unlike pbs_s3's documented-secret-free reads) —
+    # once stripped, the remaining shape is the same operator-authored config category as every
+    # other PBS config-CRUD read. pbs_metrics_servers_list is schema-enforced secret-free
+    # (additionalProperties: false, 5 fields, no token property can appear at all).
+    # pbs_metrics_status is server-authored numeric telemetry (host/datastore performance
+    # metrics) — matches the pve_node_rrddata/pmg_node_rrddata REVIEWED_TRUSTED precedent, argued
+    # explicitly in pbs_metrics.py's module docstring (NOT the externally-authored-content
+    # precedent that landed pbs_s3_list_buckets in taint.ADVERSARIAL_TOOLS instead).
+    'pbs_metrics_servers_list', 'pbs_metrics_status',
+    'pbs_metrics_influxdb_http_list', 'pbs_metrics_influxdb_http_get',
+    'pbs_metrics_influxdb_http_create', 'pbs_metrics_influxdb_http_update',
+    'pbs_metrics_influxdb_http_delete',
+    'pbs_metrics_influxdb_udp_list', 'pbs_metrics_influxdb_udp_get',
+    'pbs_metrics_influxdb_udp_create', 'pbs_metrics_influxdb_udp_update',
+    'pbs_metrics_influxdb_udp_delete',
+    # Wave 5c (2026-07-15): PBS admin job views + node odds + pull/push — CLOSES the PBS plane.
+    # Admin job-view LISTs carry job comment/schedule (operator-authored config), matching
+    # pbs_jobs_list's existing REVIEWED_TRUSTED precedent — argued explicitly in pbs_admin.py's
+    # module docstring Taint section, not defaulted. traffic-control status = live counters
+    # (cur-rate-in/cur-rate-out) + operator rule config, no attacker-shapeable free text.
+    # node_config_get/set = structured operator config (http-proxy is defensively masked for any
+    # embedded userinfo credential before it can reach a Plan/ledger surface — see pbs_admin.py
+    # module docstring fact #10 — so even that genuinely-ambiguous field never lands unredacted).
+    # node_identity = a single machine-derived identifier. node_rrd = server-authored numeric
+    # telemetry, matches the pve_node_rrddata/pmg_node_rrddata/pbs_metrics_status precedent.
+    # version = fixed version-identity strings. pull/push both declare returns:null (no content
+    # channel to classify) — matches pbs_s3_check/pbs_s3_reset_counters's identical reasoning.
+    # NOT here: pbs_node_report — in taint.ADVERSARIAL_TOOLS instead (free-text diagnostic
+    # bundle, same category as pve_node_syslog/pbs_node_journal/pbs_node_task_log).
+    'pbs_admin_gc_jobs_list', 'pbs_admin_prune_jobs_list', 'pbs_admin_sync_jobs_list',
+    'pbs_admin_verify_jobs_list', 'pbs_admin_traffic_control_status',
+    'pbs_node_config_get', 'pbs_node_config_set', 'pbs_node_identity', 'pbs_node_rrd',
+    'pbs_version', 'pbs_pull', 'pbs_push',
+    # Wave 5d (2026-07-15): PBS datastore-admin remainder — the ACTUAL plane closer.
+    # snapshot_protected_get: argued via its paired write-half's schema-typed boolean (against
+    # the media_status_get conservative default — see pbs_datastore_admin.py fact #7).
+    # datastore_rrd/active_operations/datastores_usage: numeric/typed server telemetry
+    # (rrddata + datastore_status precedents). Mutations: group_delete returns a closed-shape
+    # counter object; group_notes_set returns null; the other six return opaque UPIDs — no
+    # content channel. NOT here: pbs_groups_list, pbs_group_notes_get, pbs_remote_scan,
+    # pbs_remote_scan_groups, pbs_remote_scan_namespaces — all in taint.ADVERSARIAL_TOOLS
+    # (guest-influenced ids/notes; remote-authored scan content).
+    'pbs_snapshot_protected_get', 'pbs_datastore_rrd', 'pbs_datastore_active_operations',
+    'pbs_datastores_usage',
+    'pbs_group_delete', 'pbs_group_notes_set', 'pbs_group_move', 'pbs_namespace_move',
+    'pbs_datastore_mount', 'pbs_datastore_unmount', 'pbs_datastore_prune',
+    'pbs_datastore_s3_refresh',
+    'pbs_tasks_list',
     'pbs_tfa_add', 'pbs_tfa_delete', 'pbs_tfa_entry_get', 'pbs_tfa_list', 'pbs_tfa_unlock',
     'pbs_tfa_update', 'pbs_tfa_user_get', 'pbs_tfa_webauthn_get', 'pbs_tfa_webauthn_set',
     'pbs_token_create',

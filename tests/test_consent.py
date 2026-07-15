@@ -247,6 +247,13 @@ async def test_no_registered_tool_accepts_a_caller_supplied_consent_id():
     import re
 
     banned = re.compile(r"consent|approval|grant|authoriz", re.IGNORECASE)
+    # pbs_node_config_set(consent_text): a REAL PBS API field (PUT /nodes/{node}/config's
+    # `consent-text` — the login-page consent BANNER TEXT shown to PBS web-UI users, Wave 5c
+    # full-surface campaign, pbs_admin.py). Coincidental substring match only — this is config
+    # content the caller SUPPLIES to PBS, not a Proximo-level consent-grant token the caller could
+    # use to bypass this server's own out-of-band CONSENT gate (consent.py). Narrowly exempted,
+    # not silenced globally.
+    exempt = {"pbs_node_config_set": {"consent_text"}}
     tools = await server.mcp.list_tools()
     offenders = []
     for t in tools:
@@ -254,6 +261,8 @@ async def test_no_registered_tool_accepts_a_caller_supplied_consent_id():
         if fn is None or not callable(fn):
             continue
         for pname in inspect.signature(fn).parameters:
+            if pname in exempt.get(t.name, ()):
+                continue
             if banned.search(pname):
                 offenders.append(f"{t.name}({pname})")
     assert not offenders, f"tool(s) accept a caller-supplied approval-shaped param: {offenders}"

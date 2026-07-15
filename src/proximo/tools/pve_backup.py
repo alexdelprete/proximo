@@ -421,19 +421,30 @@ def pbs_job_run(
     confirm: Annotated[bool, Field(description="Gate: false returns a dry-run PLAN, true executes the run.")] = False,
 ) -> dict:
     """MUTATION: trigger a PBS scheduled job immediately, outside its normal schedule.
-    job_type = sync|verify|prune. Dry-run by default; confirm=True to execute. Async — returns
-    a UPID; check progress with pbs_tasks_list. Risk depends on job_type: prune runs permanently
-    DELETE snapshots per the retention policy, sync may add/remove directory data, verify is
-    read-only. Needs PROXIMO_PBS_* config."""
+    job_type = sync|verify|prune. Dry-run by default; confirm=True to execute. SCHEMA QUIRK
+    (live PBS apidoc, 2026-07-15, Wave 5c review Finding 4): POST /admin/{type}/{id}/run
+    declares returns:null for all three types — when PBS returns nothing the run completed (or
+    at least was accepted) synchronously and the status is "ok"; if a UPID does come back
+    (the schema may be under-documented), the status is "submitted" and pbs_tasks_list tracks
+    it. Risk depends on job_type: prune runs permanently DELETE snapshots per the retention
+    policy, sync may add/remove directory data, verify is read-only. Needs PROXIMO_PBS_*
+    config."""
     _, pbs = _proximo_server._pbs()
     tgt = f"pbs/admin/{job_type}/{job_id}"
     plan = _plan("pbs_job_run", tgt,
                  lambda: plan_pbs_job_run(job_type, job_id))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
+    # Wave 5c review Finding 4: the live schema declares /admin/{prune,sync,verify}/{id}/run
+    # ALL return null — a hardcoded outcome="submitted" recorded a synchronously-completed
+    # trigger as still in-flight, in both the envelope and the raw ledger. Same callable-outcome
+    # fix as pve_backup_delete above; pbs_scheduled_job_run coerces null to "" (`... or ""`), so
+    # the resolver keys on falsy, not `is None`.
     return _audited("pbs_job_run", tgt,
                     lambda: pbs_scheduled_job_run(pbs, job_type, job_id),
-                    mutation=True, outcome="submitted", detail={"confirmed": True})
+                    mutation=True,
+                    outcome=lambda result: "submitted" if result else "ok",
+                    detail={"confirmed": True})
 
 
 @tool()

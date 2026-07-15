@@ -32,6 +32,7 @@ import pytest
 
 import proximo.server as server
 from proximo.audit import AuditLedger
+from proximo.backends import ProximoError
 from proximo.config import ProximoConfig
 
 
@@ -289,6 +290,15 @@ def test_plugin_get_read_reaches_pbs(tmp_path, monkeypatch):
     server.pbs_acme_plugin_get(plugin_id="plug1")
     call_path, _ = pbs.gets[-1]
     assert call_path == "/config/acme/plugins/plug1"
+
+
+def test_plugin_update_empty_delete_confirm_rejected(tmp_path, monkeypatch):
+    """Wave 5b review finding 1: delete=[] is REJECTED (ProximoError), not sent — httpx's form
+    encoding drops an empty-list value entirely, so it never reaches the wire."""
+    _, pbs, _, _ = _wire(tmp_path, monkeypatch, get_return={"plugin": "plug1"})
+    with pytest.raises(ProximoError):
+        server.pbs_acme_plugin_update(plugin_id="plug1", delete=[], confirm=True)
+    assert not pbs.puts
 
 
 # ---------------------------------------------------------------------------

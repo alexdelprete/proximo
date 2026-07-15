@@ -551,6 +551,15 @@ class TestPlanMetricsServerSet:
         with pytest.raises(ProximoError):
             plan_metrics_server_set("bad/id")
 
+    def test_redacts_token_from_change(self):
+        # PVE's live /cluster/metrics/server schema DOES carry an optional per-server `token`
+        # field (InfluxDB http v2 access token) — mirrors plan_notification_endpoint_create's
+        # own gotify-token redaction test above (Wave 5b review finding 2: this factory built
+        # its change string from raw kw while its siblings redacted).
+        plan = plan_metrics_server_set("influx1", token="LIVETOKEN")
+        assert "LIVETOKEN" not in plan.change
+        assert "[redacted]" in plan.change
+
 
 class TestPlanMetricsServerDelete:
     def test_is_low_risk(self):

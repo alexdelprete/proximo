@@ -121,6 +121,63 @@ ADVERSARIAL_TOOLS: frozenset[str] = frozenset({
     # pve_task_log above: free-text logs carry externally-authored bytes (attacker-influenced
     # process/service output can land in a task log or the system journal).
     "pbs_node_journal", "pbs_node_syslog", "pbs_node_task_log",
+    # Wave 4c (2026-07-15): PBS tape drive/changer OPERATIONS — content-carrying reads matching
+    # the pbs_snapshots_list precedent. read-label/inventory carry the physical tape's own
+    # label-text with NO return-side pattern constraint in the schema (whoever labeled the
+    # cartridge controls these bytes). cartridge-memory carries LTO MAM name/value pairs read
+    # directly off the physical medium's own onboard memory chip, no pattern/enum constraint at
+    # all. changer_status is a DELIBERATE DIVERGENCE from a naive "status=trusted" reading (see
+    # pbs_tape_ops.py module docstring's Taint section for the full argument): unlike
+    # pbs_tape_drive_status (pure telemetry, no label-text field), changer status returns a
+    # label-text field per slot/drive entry — the same media-label content class as
+    # read-label/inventory, just via the changer instead of the drive.
+    "pbs_tape_drive_read_label", "pbs_tape_drive_cartridge_memory", "pbs_tape_drive_inventory",
+    "pbs_tape_changer_status",
+    # Wave 4d (2026-07-15): PBS tape media CATALOG. media_list carries `label-text` with NO
+    # return-side pattern constraint at all (an even clearer call than changer_status above,
+    # which at least had a typed pattern and still landed here) — structurally identical to
+    # read-label/inventory from the start. media_content carries BOTH `label-text` and
+    # `snapshot` (a guest-influenced backup id/type/time string) — directly matches the
+    # pbs_snapshots_list precedent. media_status_get is classified ADVERSARIAL as a conservative
+    # default under genuine ambiguity: the live schema declares this endpoint's return type
+    # `null` despite its "Get current media status" description, so the real content is unknown
+    # from the schema alone; by analogy to media_list (whose entries carry `status` ALONGSIDE
+    # `label-text`) a per-media status fetch plausibly returns similar content — see
+    # pbs_tape_jobs.py module docstring's Taint section for the full argument (mirrors
+    # changer_status's own "classify as adversarial when unsure" reasoning from Wave 4c).
+    # NOT here: pbs_tape_media_sets — a deliberate divergence, checked field-by-field against the
+    # live schema and confirmed to carry NO label-text field at all (see REVIEWED_TRUSTED below).
+    "pbs_tape_media_list", "pbs_tape_media_content", "pbs_tape_media_status_get",
+    # Wave 5a (2026-07-15): PBS S3 client configs. `pbs_s3_list_buckets` makes a LIVE outbound
+    # call to an OPERATOR-CONFIGURED S3 endpoint (unlike pbs_acme_tos's caller-chosen URL) — but
+    # classification is by CONTENT CHANNEL, not by who chose the target: the returned bucket
+    # names are authored by whoever controls the remote S3 account, the same externally-authored-
+    # content category that lands pve_storage_content/pbs_snapshots_list here despite their own
+    # targets also being operator-configured. See pbs_s3.py module docstring's Taint section for
+    # the full argument (explicitly weighed against the pbs_acme_tos precedent, not silently
+    # decided the same way).
+    "pbs_s3_list_buckets",
+    # Wave 5c (2026-07-15): PBS admin job views + node odds + pull/push.
+    # `pbs_node_report` generates a free-text diagnostic bundle (schema: returns a bare string)
+    # that plausibly embeds config values, log tails, and system state — same category as
+    # pve_node_syslog/pbs_node_journal/pbs_node_task_log above, not the structured-config
+    # REVIEWED_TRUSTED reads elsewhere in this same wave (job-list views, traffic-control status,
+    # node identity/config/rrd, version, pull/push — all classified REVIEWED_TRUSTED; see
+    # pbs_admin.py module docstring's Taint section for the full per-tool argument).
+    "pbs_node_report",
+    # Wave 5d (2026-07-15): PBS datastore-admin remainder — the ACTUAL PBS plane closer (built
+    # from the Wave 5c adversarial review's missing-endpoint list). groups_list/group_notes_get
+    # carry guest/operator-influenced backup ids + free-text notes (the notes body itself, and
+    # its first line as each group's `comment`) — the pbs_snapshots_list precedent exactly.
+    # The remote_scan family returns REMOTE-authored content (store names/comments/maintenance
+    # messages, group ids + comments, namespace names + comments — all authored on the remote
+    # PBS, whoever controls it controls these bytes) — the pbs_s3_list_buckets precedent
+    # (externally-authored content over an operator-configured channel). NOT here:
+    # pbs_snapshot_protected_get (paired write-half types the field as a schema-typed boolean),
+    # pbs_datastore_rrd/active_operations/datastores_usage (numeric/typed server telemetry) —
+    # see pbs_datastore_admin.py module docstring's Taint section for each argument.
+    "pbs_groups_list", "pbs_group_notes_get",
+    "pbs_remote_scan", "pbs_remote_scan_groups", "pbs_remote_scan_namespaces",
 })
 
 

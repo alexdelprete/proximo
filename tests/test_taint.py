@@ -49,6 +49,38 @@ _EXPECTED_ADVERSARIAL = frozenset({
     # PBS ACME (Wave 3b review finding, 2026-07-15): the PBS host fetches a CALLER-CHOSEN
     # directory URL and returns the response — content authored by whoever controls the URL.
     "pbs_acme_tos",
+    # PBS tape drive/changer OPERATIONS (Wave 4c, 2026-07-15 full-surface campaign):
+    # read-label/inventory/cartridge-memory carry the physical tape's own label-text / LTO MAM
+    # attributes, no return-side pattern constraint in the schema. changer_status is a deliberate
+    # divergence from a naive "status=trusted" reading — it returns a label-text field per slot
+    # too (see pbs_tape_ops.py module docstring's Taint section for the full argument).
+    "pbs_tape_drive_read_label", "pbs_tape_drive_cartridge_memory", "pbs_tape_drive_inventory",
+    "pbs_tape_changer_status",
+    # PBS tape media CATALOG (Wave 4d, 2026-07-15 full-surface campaign — CLOSES Wave 4): media
+    # list/content both carry the physical tape's own label-text (media_list's field has NO
+    # return-side pattern at all, an even clearer call than changer_status above); media_content
+    # ALSO carries `snapshot` (guest-influenced backup id/type/time), matching the
+    # pbs_snapshots_list precedent directly. media_status_get is a conservative default under
+    # genuine ambiguity — the live schema declares its return type null despite the description
+    # implying real per-media data (see pbs_tape_jobs.py module docstring's Taint section).
+    "pbs_tape_media_list", "pbs_tape_media_content", "pbs_tape_media_status_get",
+    # PBS S3 client configs (Wave 5a, 2026-07-15 full-surface campaign): list-buckets makes a
+    # live outbound call to an operator-configured S3 endpoint, but the RETURNED bucket names are
+    # authored by whoever controls the remote S3 account — externally-authored content, argued
+    # against the pbs_acme_tos precedent in pbs_s3.py's module docstring.
+    "pbs_s3_list_buckets",
+    # PBS admin job views + node odds + pull/push (Wave 5c, 2026-07-15 full-surface campaign):
+    # pbs_node_report generates a free-text diagnostic bundle (schema returns a bare string)
+    # that plausibly embeds config values, log tails, and system state — same category as
+    # pve_node_syslog/pbs_node_journal/pbs_node_task_log above.
+    "pbs_node_report",
+    # PBS datastore-admin remainder (Wave 5d, 2026-07-15 — the ACTUAL PBS plane closer, built
+    # from the Wave 5c adversarial review's missing-endpoint list): groups_list/group_notes_get
+    # carry guest/operator-influenced backup ids + free-text notes (pbs_snapshots_list
+    # precedent); the remote_scan family returns REMOTE-authored content (pbs_s3_list_buckets
+    # precedent — see taint.py's own entry comment + pbs_datastore_admin.py's Taint section).
+    "pbs_groups_list", "pbs_group_notes_get",
+    "pbs_remote_scan", "pbs_remote_scan_groups", "pbs_remote_scan_namespaces",
 })
 
 

@@ -4,6 +4,58 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-07-15
+
+**The PBS plane closes.** 493 → **603 tools**. Every management endpoint Proxmox Backup Server's
+live API schema exposes is now either governed by a Proximo tool or on a documented, deliberate
+exclusion list — and that claim is not prose: an exit-code-gated audit script walks the live
+schema against every tool's calls (349 endpoints → 292 covered + 31 directory stubs + 26
+documented exclusions + **0 undocumented**). The exclusions are wire-protocol endpoints (the
+backup/reader client protocol), console endpoints (a different trust category, gated on an
+explicit ruling), browser auth handshakes, and node power — each named in the module docs.
+Same discipline as 0.22.0: every tool built from the live upstream schema, every chunk
+adversarially reviewed before landing, and what the reviews caught is fixed here too.
+
+### Added
+- **PBS tape (56 tools)** — the surface no other Proxmox MCP touches: drive/changer hardware
+  config + scans; media pools; tape **encryption keys** (key material and passwords proven
+  never to reach the audit ledger — raw-bytes tests; key delete rated HIGH with PBS's own
+  "you can no longer access tapes using this key" wording); drive/changer operations
+  (load/unload/eject/rewind/clean, label/barcode-label/**format** — HIGH, destroys tape
+  contents, and the plan says the label-text check is opt-in protection, absent by default);
+  media catalog, tape backup jobs, one-off backup, restore. Includes
+  `pbs_tape_media_destroy` — upstream exposes it as a **GET that destroys**; Proximo gates it
+  like the mutation it really is (verb is not the safety signal).
+- **PBS S3 (8 tools)** — client configs (secret-key never in ledger; access-key deliberately
+  visible, AWS convention), bucket listing, endpoint sanity check, counter reset.
+- **PBS client encryption keys (4 tools)** — list/create/delete/toggle-archive.
+- **PBS metrics servers (12 tools)** — InfluxDB HTTP (token never in ledger — PBS's read API
+  genuinely returns it, so Proximo strips it at the read layer) + UDP CRUD, unified views.
+- **PBS admin + node odds (13 tools)** — job-level GC/prune/sync/verify views, live traffic-
+  control status, node config get/set (http-proxy credentials redacted), identity, RRD stats,
+  diagnostic report (classified adversarial: free-text), version, and **pull/push** — governed
+  datastore sync from/to remotes, where `remove-vanished` escalates the risk rating and the
+  plan states exactly what gets deleted.
+- **PBS datastore admin (17 tools)** — the closers: backup-group list/delete (HIGH — a group
+  delete takes ALL its snapshots), group notes, protected-status read, datastore RRD,
+  active-operations, datastore usage, remote scan (read side of pull/push), namespace move
+  (upstream defaults delete-source=true — disclosed), whole-datastore prune (schema-distinct
+  from the per-group prune; Proximo defaults dry-run **on**, flipping upstream's default —
+  documented), mount/unmount, s3-refresh.
+
+### Fixed
+- **`pbs_job_run` recorded `submitted` for job runs that return nothing.** The
+  prune/sync/verify job-run endpoints return null, not a task UPID — the ledger now records
+  the honest outcome (shipped since the tool's introduction; caught by this wave's review).
+- **Empty `delete=[]` lists are now rejected loudly on every PBS updater** instead of being
+  silently dropped by the HTTP transport — a dry-run/execute parity gap: the plan disclosed a
+  payload the wire never carried.
+
+### Security
+- Proxy URLs with `@` in the password no longer leak the password tail into plans or the
+  ledger; S3/tape/metrics secret reads are stripped at the read layer (never trust a
+  documented secret-free response blindly).
+
 ## [0.22.0] — 2026-07-15
 
 The full-surface campaign opens: **365 → 493 tools**, all through the same trust spine. The goal

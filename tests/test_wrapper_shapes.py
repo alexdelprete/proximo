@@ -630,11 +630,18 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
     # (pbs_notifications._check_matcher_mode), unrelated to the global "mode" sentinel's vzdump
     # backup-mode shape ("snapshot").
     "pbs_notification_endpoint_update": {"digest": "0" * 64},
-    "pbs_notification_matcher_set": {"mode": "all", "digest": "0" * 64},
+    # "delete" is a `list[str] | None` property-clear param — the generic list fallback ([])
+    # is REJECTED (Wave 5b review finding 1: httpx's form encoding drops an empty-list `delete`
+    # value entirely, so pbs.py's shared `_check_delete_list` now raises ProximoError rather
+    # than disclosing a payload confirm=True would never actually send). Every tool below with
+    # a `delete` param needs a non-empty override so this generic sweep can reach a real PLAN.
+    "pbs_notification_matcher_set": {"mode": "all", "digest": "0" * 64, "delete": ["comment"]},
     # PBS ACME (Wave 3b) plugin update "digest" needs the same 64-char lowercase-hex SHA-256
     # shape as pbs_notifications' own digest override above (pbs_acme._check_digest) — the
-    # generic alnum fallback ("sentineldigest") fails it.
-    "pbs_acme_plugin_update": {"digest": "0" * 64},
+    # generic alnum fallback ("sentineldigest") fails it. "delete" is a CLOSED enum
+    # {disable, validation-delay} (pbs_acme._check_plugin_delete_props) — "comment" (the other
+    # tools' un-validated-pass-through sentinel) would fail this one's own enum check.
+    "pbs_acme_plugin_update": {"digest": "0" * 64, "delete": ["disable"]},
     # PBS ACME directory/ToS URLs are validated https-only (pbs_acme._check_acme_url,
     # Wave 3b review) — the generic alnum sentinel fails the scheme check.
     "pbs_acme_tos": {"directory": "https://sentinel-ca.example.com/directory"},
@@ -642,6 +649,112 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
         "directory": "https://sentinel-ca.example.com/directory",
         "tos_url": "https://sentinel-ca.example.com/tos",
     },
+    # PBS tape hardware config (Wave 4a) "digest" needs the same 64-char lowercase-hex SHA-256
+    # shape as pbs_notifications'/pbs_acme's own digest overrides above
+    # (pbs_tape_config._check_digest) — the generic alnum fallback ("sentineldigest") fails it.
+    "pbs_tape_drive_update": {"digest": "0" * 64, "delete": ["comment"]},
+    "pbs_tape_changer_update": {"digest": "0" * 64, "export_slots": "1,2,3", "delete": ["comment"]},
+    # changer "export_slots" is a comma-separated positive-integer list
+    # (pbs_tape_config._check_export_slots) — the generic alnum fallback ("sentinelexportslots")
+    # fails it.
+    "pbs_tape_changer_create": {"export_slots": "1,2,3"},
+    # PBS tape media/keys (Wave 4b) "fingerprint"/"encrypt" need the SAME 32-colon-separated-hex-
+    # byte-pair shape (pbs_tape_media._check_fingerprint) — the global "fingerprint" sentinel
+    # above ("AA:BB:CC:DD:EE:FF", only 6 pairs — a MAC-address shape used elsewhere) is too short,
+    # and "encrypt" has no global entry at all (falls back to a plain alnum token that carries no
+    # colons whatsoever). Built as an expression (32 "ab" pairs) rather than typed out.
+    "pbs_tape_pool_create": {"encrypt": ":".join(["ab"] * 32)},
+    "pbs_tape_pool_update": {"encrypt": ":".join(["ab"] * 32), "delete": ["comment"]},
+    "pbs_tape_key_get": {"fingerprint": ":".join(["ab"] * 32)},
+    "pbs_tape_key_delete": {"fingerprint": ":".join(["ab"] * 32), "digest": "0" * 64},
+    "pbs_tape_key_update_password": {
+        "fingerprint": ":".join(["ab"] * 32), "digest": "0" * 64, "kdf": "scrypt",
+    },
+    # "kdf" is a CLOSED enum {none,scrypt,pbkdf2} (pbs_tape_media._check_kdf) — the generic alnum
+    # fallback ("sentinelkdf") fails it. "key" (pbs_tape_key_create only) is a 300-600 char JSON
+    # blob (pbs_tape_media.tape_key_create's own length check) — the global "key" sentinel above
+    # (a ~40-char placeholder used by other tools' looser key-shaped params) is far too short.
+    "pbs_tape_key_create": {"kdf": "scrypt", "key": "k" * 300},
+    # PBS tape media catalog + jobs (Wave 4d) "uuid"/"media"/"media_set" need a real lowercase-hex
+    # UUID shape (pbs_tape_jobs._check_media_uuid) — the generic alnum fallback ("sentineluuid")
+    # fails it. media_content's own "media"/"media_set" filters share the same UUID validator.
+    "pbs_tape_media_status_get": {"uuid": "12345678-1234-1234-1234-123456789abc"},
+    "pbs_tape_media_destroy": {"uuid": "12345678-1234-1234-1234-123456789abc"},
+    "pbs_tape_media_move": {"uuid": "12345678-1234-1234-1234-123456789abc"},
+    "pbs_tape_media_content": {
+        "media": "12345678-1234-1234-1234-123456789abc",
+        "media_set": "12345678-1234-1234-1234-123456789abc",
+    },
+    # media_status_set's "uuid" needs the same UUID shape; "status" is a PROSE-restricted closed
+    # set {full,damaged,retired} (pbs_tape_jobs._check_media_status — 'writable'/'unknown' are
+    # rejected even though they appear in the raw schema enum) — the generic alnum fallback
+    # ("sentinelstatus") fails it.
+    "pbs_tape_media_status_set": {
+        "uuid": "12345678-1234-1234-1234-123456789abc", "status": "retired",
+    },
+    # tape backup-job/one-off-backup "max_depth" (0-7) / "worker_threads" (1-32) are BOUNDED ints
+    # (pbs_tape_jobs._check_max_depth/_check_worker_threads) — the generic int fallback (100)
+    # fails both. "notify_user" needs a PBS userid shape (user@realm,
+    # pbs_tape_jobs._check_notify_user) — the generic alnum fallback ("sentinelnotifyuser") fails
+    # it; the global "userid" sentinel above is keyed to a DIFFERENT param name.
+    "pbs_tape_backup_job_create": {
+        "max_depth": 3, "worker_threads": 4, "notify_user": "testuser@pbs",
+    },
+    "pbs_tape_backup_job_update": {
+        "max_depth": 3, "worker_threads": 4, "notify_user": "testuser@pbs", "digest": "0" * 64,
+        "delete": ["comment"],
+    },
+    "pbs_tape_backup": {"max_depth": 3, "worker_threads": 4, "notify_user": "testuser@pbs"},
+    # restore's "notify_user"/"owner" need PBS userid/authid shapes
+    # (pbs_tape_jobs._check_notify_user/_check_owner) — same reasoning as above; "owner" also
+    # additionally accepts a '!token-name' suffix but a bare userid is valid too.
+    "pbs_tape_restore": {"notify_user": "testuser@pbs", "owner": "testuser@pbs"},
+    # PBS S3 client configs (Wave 5a) "fingerprint" needs the SAME 32-colon-separated-hex-byte-
+    # pair shape as pbs_tape_media's own fingerprint (pbs_s3._check_fingerprint) — the global
+    # "fingerprint" sentinel above ("AA:BB:CC:DD:EE:FF", only 6 pairs) is too short. "digest"
+    # needs the same 64-char lowercase-hex SHA-256 shape as every other digest-taking tool above
+    # — the generic alnum fallback ("sentineldigest") fails it.
+    "pbs_s3_client_create": {"fingerprint": ":".join(["ab"] * 32)},
+    "pbs_s3_client_update": {"fingerprint": ":".join(["ab"] * 32), "digest": "0" * 64, "delete": ["comment"]},
+    "pbs_s3_client_delete": {"digest": "0" * 64},
+    "pbs_encryption_key_delete": {"digest": "0" * 64},
+    "pbs_encryption_key_toggle_archive": {"digest": "0" * 64},
+    # PBS metrics servers (Wave 5b) "digest" needs the same 64-char lowercase-hex SHA-256 shape
+    # as every other digest-taking tool above (pbs_metrics._check_digest) — the generic alnum
+    # fallback ("sentineldigest") fails it. influxdb-udp's "host" REQUIRES a trailing ":port"
+    # (pbs_metrics._check_host, HOST_RE) — the generic alnum fallback ("sentinelhost") carries no
+    # colon at all and fails the pattern; both create (required) and update (optional, but this
+    # sweep always synthesizes a value for every signature param) need the override.
+    "pbs_metrics_influxdb_http_update": {"digest": "0" * 64, "delete": ["comment"]},
+    "pbs_metrics_influxdb_http_delete": {"digest": "0" * 64},
+    "pbs_metrics_influxdb_udp_create": {"host": "192.0.2.10:8089"},
+    "pbs_metrics_influxdb_udp_update": {
+        "host": "192.0.2.10:8089", "digest": "0" * 64, "delete": ["comment"],
+    },
+    "pbs_metrics_influxdb_udp_delete": {"digest": "0" * 64},
+    # PBS admin node config (Wave 5c) "digest" needs the same 64-char lowercase-hex SHA-256 shape
+    # as every other digest-taking tool above (pbs_admin._check_digest). "delete" is a
+    # list[str] — the global fallback ([]) is REJECTED by pbs.py's shared `_check_delete_list`
+    # (an empty list is dropped by httpx's own form encoding, so it's rejected loudly rather than
+    # disclosed misleadingly) — same override shape as pbs_s3_client_update/
+    # pbs_metrics_influxdb_http_update above. "default_lang" is a CLOSED enum
+    # (pbs_admin._check_default_lang) — the generic alnum fallback ("sentineldefaultlang") fails
+    # it.
+    "pbs_node_config_set": {"digest": "0" * 64, "delete": ["description"], "default_lang": "en"},
+    # PBS pull/push (Wave 5c) "max_depth" (0-7) / "worker_threads" (1-32) are BOUNDED ints
+    # (pbs_admin._check_max_depth/_check_worker_threads) — the generic int fallback (100) fails
+    # both, same reasoning as the tape backup-job overrides above.
+    "pbs_pull": {"max_depth": 3, "worker_threads": 4},
+    "pbs_push": {"max_depth": 3, "worker_threads": 4},
+    # pbs_admin_sync_jobs_list's "sync_direction" is a CLOSED 3-value enum
+    # (pbs_admin._check_sync_direction) — the generic alnum fallback ("sentinelsyncdirection")
+    # fails it. Applies to this READ tool too — _kwargs_for/CUSTOM_KWARGS cover both sweeps.
+    "pbs_admin_sync_jobs_list": {"sync_direction": "push"},
+    # PBS datastore-admin remainder (Wave 5d) "max_depth" is a BOUNDED int (0-7,
+    # pbs_datastore_admin._check_max_depth) — the generic int fallback (100) fails it, same
+    # reasoning as pbs_pull/pbs_push above.
+    "pbs_datastore_prune": {"max_depth": 3},
+    "pbs_namespace_move": {"max_depth": 3},
 }
 
 # Parameters excluded from synthesis entirely (handled specially, or would only broaden/weaken
@@ -733,6 +846,16 @@ IDENTITY_EXEMPT: dict[str, frozenset[str]] = {
     # but NOT path — path is an optional scoping filter passed to pbs_access.permissions_get(),
     # not folded into the target (same "list-filter, not identity" treatment as pbs_acl_get above).
     "pbs_permissions_get": frozenset({"path"}),
+    # pbs_tape_media_list's ledger target is the fixed "pbs/tape/media/list" — mirrors
+    # pbs_snapshots_list's own ns/backup_id exemption above: `pool` is an OPTIONAL narrowing
+    # filter on a directory-style list, not the sole identity of what's being listed (there is no
+    # single-resource target to embed it into the way pbs_tape_pool_get's f"pbs/config/
+    # media-pool/{name}" does). pbs_tape_jobs.py, tape_media_list().
+    "pbs_tape_media_list": frozenset({"pool"}),
+    # pbs_tape_media_content's ledger target is the fixed "pbs/tape/media/content" — same
+    # "list-filter, not identity" treatment as pbs_tape_media_list above; backup_id/pool are both
+    # optional filters on the content listing, not a single resource this read targets.
+    "pbs_tape_media_content": frozenset({"backup_id", "pool"}),
 }
 
 

@@ -463,6 +463,35 @@ class PbsBackend:
         return r.json().get("data")
 
 
+def _check_delete_list(delete: list[str] | None) -> list[str] | None:
+    """Shared guard for every PBS `delete: list[str] | None` updater param (`data["delete"] =
+    list(delete)` forwarded to `PbsBackend._put`/`_post`, PUT-encoded via `_form()` above).
+
+    `None` passes through unchanged (no `delete` key at all — the caller isn't clearing
+    anything). A non-empty list passes through as a `list` (normalizes tuples etc., same as the
+    `list(delete)` call sites it replaces).
+
+    `[]` RAISES. httpx's `data=` form encoding treats a dict value that is an empty *list* as
+    zero repeated `key=value` pairs — the key never appears in the encoded body at all (verified
+    directly against `PbsBackend._put`, Wave 5b review finding 1; contrast a non-empty list,
+    which DOES round-trip via repeated-key form encoding, e.g. `delete=a&delete=b`). Every
+    `plan_*_update` factory in this family used to advertise `delete=[]` in the dry-run `change`
+    string on the theory that "it's a real wire payload the execute side sends" — that theory was
+    false: confirm=True with `delete=[]` silently sends no `delete` param at all, a PLAN/PROVE
+    parity gap. Rather than keep disclosing a payload that never reaches the wire, reject the
+    empty case outright, loudly, at both plan-build and execute time — an empty delete list names
+    nothing to clear, so there is no honest wire payload to send or preview.
+    """
+    if delete is None:
+        return None
+    if not delete:
+        raise ProximoError(
+            "delete list must name at least one property to reset — an empty list is dropped "
+            "by the transport and would be a silent no-op"
+        )
+    return list(delete)
+
+
 # ---------------------------------------------------------------------------
 # READ operations — no plan needed; audited by the server layer
 # ---------------------------------------------------------------------------

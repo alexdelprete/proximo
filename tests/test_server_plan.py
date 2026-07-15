@@ -844,6 +844,47 @@ _READ_ONLY_TOOLS = frozenset({
     # PBS ACME plane (Wave 3b, full-surface campaign) — read-only tools (no confirm param)
     "pbs_acme_account_list", "pbs_acme_account_get", "pbs_acme_directories", "pbs_acme_tos",
     "pbs_acme_challenge_schema", "pbs_acme_plugins_list", "pbs_acme_plugin_get",
+    # PBS tape hardware config plane (Wave 4a, full-surface campaign) — read-only tools
+    # (no confirm param)
+    "pbs_tape_drive_list", "pbs_tape_drive_get", "pbs_tape_changer_list", "pbs_tape_changer_get",
+    "pbs_tape_scan_drives", "pbs_tape_scan_changers",
+    # PBS tape media-pool + encryption-key plane (Wave 4b, full-surface campaign) — read-only
+    # tools (no confirm param)
+    "pbs_tape_pool_list", "pbs_tape_pool_get", "pbs_tape_key_list", "pbs_tape_key_get",
+    # PBS tape drive + changer operations plane (Wave 4c, full-surface campaign) — read-only
+    # tools (no confirm param)
+    "pbs_tape_drive_status", "pbs_tape_drive_read_label", "pbs_tape_drive_cartridge_memory",
+    "pbs_tape_drive_volume_statistics", "pbs_tape_drive_inventory", "pbs_tape_changer_status",
+    # PBS tape media catalog + tape-backup jobs plane (Wave 4d, full-surface campaign — CLOSES
+    # Wave 4: PBS tape) — read-only tools (no confirm param). NOT here: pbs_tape_media_destroy —
+    # a GET verb that PERMANENTLY DESTROYS a media catalog record; it is confirm-gated exactly
+    # like every other mutation on this server, the verb is not the safety signal.
+    "pbs_tape_media_list", "pbs_tape_media_content", "pbs_tape_media_sets",
+    "pbs_tape_media_status_get", "pbs_tape_backup_job_list", "pbs_tape_backup_job_get",
+    # PBS S3 + client encryption keys plane (Wave 5a, full-surface campaign) — read-only tools
+    # (no confirm param). NOT here: pbs_s3_check/pbs_s3_reset_counters — PUT verbs with a real
+    # (check) or observability-only (reset_counters) effect; confirm-gated exactly like every
+    # other mutation on this server (see proximo.pbs_s3 module docstring fact #6).
+    "pbs_s3_client_list", "pbs_s3_client_get", "pbs_s3_list_buckets", "pbs_encryption_key_list",
+    # PBS metrics servers plane (Wave 5b, full-surface campaign) — read-only tools (no confirm
+    # param).
+    "pbs_metrics_servers_list", "pbs_metrics_status",
+    "pbs_metrics_influxdb_http_list", "pbs_metrics_influxdb_http_get",
+    "pbs_metrics_influxdb_udp_list", "pbs_metrics_influxdb_udp_get",
+    # PBS admin job views + node odds + pull/push (Wave 5c, full-surface campaign) — read-only
+    # tools (no confirm param). NOT here: pbs_node_config_set/pbs_pull/pbs_push — all three are
+    # confirm-gated mutations.
+    "pbs_admin_gc_jobs_list", "pbs_admin_prune_jobs_list", "pbs_admin_sync_jobs_list",
+    "pbs_admin_verify_jobs_list", "pbs_admin_traffic_control_status",
+    "pbs_node_config_get", "pbs_node_identity", "pbs_node_rrd", "pbs_node_report", "pbs_version",
+    # PBS datastore-admin remainder (Wave 5d, full-surface campaign — the ACTUAL PBS plane
+    # closer, built from the Wave 5c adversarial review's missing-endpoint list) — read-only
+    # tools (no confirm param). NOT here: pbs_group_delete/pbs_group_notes_set/pbs_group_move/
+    # pbs_namespace_move/pbs_datastore_mount/pbs_datastore_unmount/pbs_datastore_prune/
+    # pbs_datastore_s3_refresh — all eight are confirm-gated mutations.
+    "pbs_groups_list", "pbs_group_notes_get", "pbs_snapshot_protected_get",
+    "pbs_datastore_rrd", "pbs_datastore_active_operations", "pbs_datastores_usage",
+    "pbs_remote_scan", "pbs_remote_scan_groups", "pbs_remote_scan_namespaces",
     # PMG APT plane (Wave 1b, full-surface campaign) — read-only tools (no confirm param)
     "pmg_apt_updates_list", "pmg_apt_changelog", "pmg_apt_repositories_get", "pmg_apt_versions",
     # PMG (Wave 1) — read-only tools (no confirm param)

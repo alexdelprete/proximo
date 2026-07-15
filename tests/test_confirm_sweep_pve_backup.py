@@ -323,3 +323,42 @@ def test_backup_delete_confirm_async_delete_still_reports_submitted(tmp_path, mo
     entry = _confirmed_entry(log, "pve_backup_delete", "submitted")
     assert entry["mutation"] is True
     assert entry["detail"]["confirmed"] is True
+
+
+# ---------------------------------------------------------------------------
+# Wave 5c review Finding 4 (fixed in Wave 5d): pbs_job_run hardcoded outcome="submitted", but
+# the LIVE schema declares POST /admin/{prune,sync,verify}/{id}/run ALL return null — the ledger
+# recorded a synchronously-completed manual job trigger as still in-flight. Same fix shape as
+# Fix A above (pve_backup_delete): the callable-outcome idiom resolves the honest label from the
+# real return value. pbs_scheduled_job_run coerces a null response to "" (`... or ""`), so the
+# resolver keys on falsy, not `is None`.
+# ---------------------------------------------------------------------------
+
+def test_pbs_job_run_null_result_reports_ok_not_submitted(tmp_path, monkeypatch):
+    """The schema-declared case: /admin/{type}/{id}/run returns null. The wrapper must record
+    "ok" (completed synchronously) in BOTH the returned status and the raw ledger outcome —
+    never "submitted" (a UPID that never existed, unpollable)."""
+    _, _, pbs, _, log = _wire(tmp_path, monkeypatch)
+    monkeypatch.setattr(pbs, "_post", lambda path, data=None: None)
+
+    out = server.pbs_job_run(job_type="prune", job_id="nightly", confirm=True)
+
+    assert out["status"] == "ok"
+    assert out["status"] != "submitted"
+
+    entry = _confirmed_entry(log, "pbs_job_run", "ok")
+    assert entry["mutation"] is True
+    assert entry["detail"]["confirmed"] is True
+
+
+def test_pbs_job_run_upid_result_still_reports_submitted(tmp_path, monkeypatch):
+    """Regression guard: if a live PBS DOES return a UPID (the schema may be under-documented —
+    the now-familiar returns-null-despite-real-work quirk cuts both ways), the honest label is
+    still "submitted". The default fake _post returns a UPID (see _Pbs._post above)."""
+    _, _, _, _, log = _wire(tmp_path, monkeypatch)
+
+    out = server.pbs_job_run(job_type="verify", job_id="nightly", confirm=True)
+
+    assert out["status"] == "submitted"
+    entry = _confirmed_entry(log, "pbs_job_run", "submitted")
+    assert entry["mutation"] is True

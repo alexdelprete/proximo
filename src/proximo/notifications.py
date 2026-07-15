@@ -379,12 +379,21 @@ def plan_notification_test(name: str) -> Plan:
 # ---------------------------------------------------------------------------
 
 def plan_metrics_server_set(metrics_id: str, **kw) -> Plan:
-    """Plan creating-or-updating a PVE metrics server definition."""
+    """Plan creating-or-updating a PVE metrics server definition.
+
+    Redacts `kw` before it enters the plan `change` string, same as its
+    `plan_notification_endpoint_create`/`_update` siblings above (`_SECRET_KEYS = {"token",
+    "password"}`). Latent-leak hardening: PVE's live `/cluster/metrics/server` schema DOES carry
+    an optional per-server `token` field ("The InfluxDB access token. Only necessary when using
+    the http v2 api.") — `pve_metrics_server_set`'s current tool surface doesn't expose a `token`
+    parameter to callers, so no live leak exists today, but `metrics_server_set`/this factory both
+    forward arbitrary `**kw`, and a future tool-surface widening to add `token` would otherwise
+    leak it into the dry-run PLAN and the PROVE ledger on day one (Wave 5b review finding 2)."""
     _check_metrics_id(metrics_id)
     return Plan(
         action="pve_metrics_server_set",
         target=f"cluster/metrics/server/{metrics_id}",
-        change=f"create-or-update PVE metrics server {metrics_id!r}: {kw}",
+        change=f"create-or-update PVE metrics server {metrics_id!r}: {_redact_secrets(kw)}",
         current={},
         blast_radius=["creates or updates a metrics forwarding target"],
         risk=RISK_LOW,

@@ -43,7 +43,7 @@
 <summary><b>Verify in 60 seconds</b> — three receipts, no trust required</summary>
 
 ```bash
-# 1. The tool count is real — ask the server itself, cold (=> 493).
+# 1. The tool count is real — ask the server itself, cold (=> 603).
 #    (in a clone of this repo, after `uv sync`)
 uv run python -c "import asyncio; from proximo import server; \
 print(len(asyncio.run(server.mcp.list_tools())))"
@@ -159,7 +159,7 @@ Those backends are deliberately boring — anyone can call them. **The product i
 
 ## Choose the right tool
 
-493 tools is an estate, not a starting point. Where an operator actually starts:
+603 tools is an estate, not a starting point. Where an operator actually starts:
 
 | You want to… | Start with | Worth knowing |
 |---|---|---|
@@ -233,18 +233,18 @@ All of it live-proven against real Proxmox infrastructure — the full inventory
 > create a least-privilege (read-only) token, verify what it can/can't do with `proximo doctor`, then
 > grant scoped write only when you're ready. The token is the floor your keys never leave.
 
-> 📦 **`0.22.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.22.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.23.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.23.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.22.0 — the full-surface campaign opens.** 365 → **493 tools**, every one built from the
-> live upstream API schema and adversarially reviewed before it landed. APT/patching on all three
-> planes (visibility + repo config; no upgrade execution exists upstream, and the docstrings say so).
-> The PBS plane opened wide — identity/tokens/ACL, auth realms + TFA, node OS admin, disks,
-> notifications, ACME: **33 → 147 PBS tools**. Plus a 64-finding coverage audit of the existing
-> surface, closed in full, and the SETUP.md privsep fix reported from production by Proximo's first
-> external adopter (#24).
+> **New in 0.23.0 — the PBS plane closes.** 493 → **603 tools** (PBS 147 → 257). Every management
+> endpoint PBS's live API exposes is now governed or on a documented exclusion list — proven by an
+> audit script, not claimed in prose (349 endpoints, 0 undocumented gaps). The whole tape surface
+> (hardware, media, encryption keys, operations, jobs, restore — no other Proxmox MCP touches it),
+> S3 clients, metrics servers, pull/push datastore sync, and the datastore-admin closers. Upstream's
+> GET-that-destroys is gated like the mutation it is; tape-key material never reaches the ledger.
 >
-> Recent: **0.21.1** — the truth-audit patch: every public claim re-verified, doc drift gated, the
-> secret-file floor on every plane. See [SECURITY.md](SECURITY.md) for what each control honestly holds.
+> Recent: **0.22.0** — the full-surface campaign opened: 365 → 493, all three planes' APT tools, the
+> PBS identity/node/disk planes, and the privsep fix from #24. See [SECURITY.md](SECURITY.md) for
+> what each control honestly holds.
 
 Proximo runs **on your machine** (wherever your MCP client lives), **on demand** — like every other Proxmox MCP.
 
@@ -272,8 +272,8 @@ uv pip install -e .          # or: pip install -e .
 
 > **Safe by default:** Proximo is **API-only** out of the box. The near-root edges are **opt-in** and say so plainly: the LXC exec edge (`PROXIMO_ENABLE_EXEC=1`) grants near-root on the host, and the VM qemu-guest-agent edge (`PROXIMO_ENABLE_AGENT=1`) grants near-root inside a guest.
 >
-> **Big surface, scoped context:** 493 tools is the whole estate — you don't have to load it.
-> `PROXIMO_SURFACES=pve,exec` registers **only those planes** (e.g. that pair = 202 tools; `pbs,exec` = 152) —
+> **Big surface, scoped context:** 603 tools is the whole estate — you don't have to load it.
+> `PROXIMO_SURFACES=pve,exec` registers **only those planes** (e.g. that pair = 202 tools; `pbs,exec` = 262) —
 > unpicked planes are removed from the registry before serving, so they never touch your context window.
 > `audit_verify` always stays; a typo'd surface name refuses startup instead of silently serving the wrong set.
 >
@@ -293,6 +293,11 @@ out-of-band (your hand). Config shape and the exec-over-SSH caveat → `packagin
 
 ## Status — the arena record
 
+- 🩸 **0.23.0** — **the PBS plane closes**: 493 → **603 tools** (PBS 147 → 257) — the full tape
+  surface, S3, metrics, pull/push, datastore admin. Coverage proven by an exit-code-gated audit
+  against the live schema: 349 endpoints, 0 undocumented gaps — the exclusions (wire protocol,
+  console, auth handshakes, node power) are named, not waved at. Every chunk adversarially
+  reviewed; the reviews caught real bugs including a shipped ledger-outcome lie, fixed here.
 - 🩸 **0.22.0** — **the full-surface campaign opens**: 365 → **493 tools** (PBS 33 → 147) — APT on
   all three planes; PBS identity, realms + TFA, node OS admin, disks, notifications, ACME. Every tool
   built from the live upstream schema and adversarially reviewed before landing; the 64-finding
@@ -316,11 +321,7 @@ out-of-band (your hand). Config shape and the exec-over-SSH caveat → `packagin
   check rejected PBS archives whose snapshot timestamp carries colons — a bug our own tests had
   enshrined). PDM honestly labeled reads + governed control; the fence stopped calling sub-daily
   backups "fresh". We pointed the tool at itself.
-- 🩸 **0.19.0** — **the backup-freshness fence**: `pve_backup_freshness` (+1 → 365 tools) walks the
-  actual archives per guest against what the jobs promise — "task OK" is never evidence. Found and
-  fenced two silent PVE permission traps live (hidden backup volumes, hidden guests): blind absence
-  verdicts degrade to `unknown` with the grants named, and `guests_visible` exposes a shrunken fleet.
-- _Earlier: `0.18.1` the text box at the door + VS Code/Cursor install deeplinks; `0.18.0` the open door (`AGENTS.md`, print-only
+- _Earlier: `0.19.0` the backup-freshness fence ("task OK" is never evidence); `0.18.1` the text box at the door + VS Code/Cursor install deeplinks; `0.18.0` the open door (`AGENTS.md`, print-only
   `proximo hello`); `0.17.0` governed PDM fleet control (+12 tools) + `proximo mint`; `0.16.0` live-proved
   live-migration + softdog HA fencing; `0.15.0` cert-fingerprint pinning on all four surfaces;
   `0.14.x` scoped registration + the trim/harden patch; `0.13.0` the zero-trust arc (the six opt-in
@@ -331,7 +332,7 @@ The four on-by-default controls (PLAN · PROVE · UNDO · DIAGNOSE) are built an
 opt-in six (CONSENT · CONTAIN · LEASE · SCOPE · ENVELOPE · TAINT — see [SECURITY.md](SECURITY.md))
 ship off until configured.
 
-**The numbers, honestly:** 493 MCP tools, proved in two deliberate layers. **6,500+ in-process
+**The numbers, honestly:** 603 MCP tools, proved in two deliberate layers. **7,900+ in-process
 tests** (ruff + pyright clean) pin every tool's *shape* and the trust-core logic. Separately, a
 **live-smoke harness drives real Proxmox hardware** — a real 3-node PVE 9.2 cluster, real PBS 4.2 /
 PMG 9.1 / PDM 1.1.4, a real cross-datacenter move (the proofs below). The two are kept apart on

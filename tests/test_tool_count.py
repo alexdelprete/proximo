@@ -32,7 +32,28 @@ from pathlib import Path
 
 import proximo.server as server
 
-EXPECTED_TOOL_COUNT = 493  # +15: pbs_acme_* — PBS ACME, Wave 3b
+EXPECTED_TOOL_COUNT = 603  # +17 (Wave 5d — the ACTUAL PBS plane closer, built from the Wave 5c
+# adversarial review's Finding 1+2 missing-endpoint list): pbs_groups_list, pbs_group_delete,
+# pbs_group_notes_{get,set}, pbs_group_move, pbs_snapshot_protected_get, pbs_namespace_move,
+# pbs_datastore_{mount,unmount,prune,s3_refresh,rrd,active_operations}, pbs_datastores_usage,
+# pbs_remote_scan, pbs_remote_scan_{groups,namespaces}. Was 586 after Wave 5c's
+# +13: pbs_admin_{gc,prune,sync,verify}_jobs_list,
+# pbs_admin_traffic_control_status, pbs_node_{config_get,config_set,identity,rrd,report},
+# pbs_version, pbs_pull, pbs_push — PBS admin job views + node odds + pull/push, Wave 5c
+# (CLOSES Wave 5 / the PBS plane). The task brief estimated ~17; 3 were dedup'd against the
+# already-shipped generic pbs_job_run(job_type, job_id) (which already covers
+# /admin/{prune,sync,verify}/{id}/run) and 1 (/ping) was skipped per the brief's own default —
+# see pbs_admin.py module docstring's NOT BUILT section. Was 573 after Wave 5b's +12:
+# pbs_metrics_servers_list, pbs_metrics_status,
+# pbs_metrics_influxdb_http_{list,get,create,update,delete},
+# pbs_metrics_influxdb_udp_{list,get,create,update,delete} — PBS metrics servers, Wave 5b
+# (continues Wave 5, closes the PBS plane after 5c). Was 561 after Wave 5a's +12:
+# pbs_s3_{client_list,client_get,client_create,client_update,client_delete,list_buckets,check,
+# reset_counters} + pbs_encryption_key_{list,create,delete,toggle_archive} — PBS S3 client
+# configs + client encryption keys (starts Wave 5). Was 549 after Wave 4d's +15:
+# pbs_tape_media_{list,content,sets,status_get,destroy,status_set,move} +
+# pbs_tape_backup_job_{list,get,create,update,delete,run} + pbs_tape_backup + pbs_tape_restore —
+# PBS tape media catalog + tape-backup jobs + backup/restore (CLOSES Wave 4: PBS tape).
 
 _TOOLS_DIR = Path(__file__).resolve().parent.parent / "src" / "proximo" / "tools"
 _SOURCE_FILES = [Path(server.__file__), *sorted(_TOOLS_DIR.glob("*.py"))]

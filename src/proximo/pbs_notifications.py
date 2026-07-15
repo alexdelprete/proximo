@@ -107,7 +107,7 @@ from __future__ import annotations
 import re
 
 from .backends import ProximoError
-from .pbs import PbsBackend
+from .pbs import PbsBackend, _check_delete_list
 from .planning import RISK_LOW, Plan
 
 # ---------------------------------------------------------------------------
@@ -336,7 +336,7 @@ def notification_matcher_set(
         if digest is not None:
             data["digest"] = _check_digest(digest)
         if delete is not None:
-            data["delete"] = list(delete)
+            data["delete"] = _check_delete_list(delete)
         api._put(f"/config/notifications/matchers/{name}", data)
     else:
         api._post("/config/notifications/matchers", {"name": name, **data})
@@ -456,13 +456,20 @@ def plan_notification_matcher_set(
 ) -> Plan:
     """Plan creating-or-updating a PBS notification matcher. PURE — no API read (mirrors PVE's
     own plan_notification_matcher_set; the backend's upsert read happens only on confirm=True).
-    No secret-shaped fields exist on a matcher, so nothing here needs redaction. `mode`/`digest`
-    are validated here too (not just at execution) so a bad value is caught at PLAN time."""
+    No secret-shaped fields exist on a matcher, so nothing here needs redaction. `mode`/`digest`/
+    `delete` are validated here too (not just at execution) so a bad value is caught at PLAN
+    time. `delete` in particular: empty-list is REJECTED, not disclosed — httpx's form encoding
+    drops an empty-list value entirely on the update branch, so a disclosed "delete=[]" would
+    never match what confirm=True actually sends (Wave 5b review finding 1); rejected here even
+    though this PURE factory can't yet know create-vs-update, since a race between plan-preview
+    and confirm=True could flip which branch executes."""
     _check_notification_name(name)
     if mode is not None:
         mode = _check_matcher_mode(mode)
     if digest is not None:
         digest = _check_digest(digest)
+    if delete is not None:
+        delete = _check_delete_list(delete)
     kw = {
         "comment": comment, "mode": mode, "match-severity": match_severity,
         "match-field": match_field, "match-calendar": match_calendar,

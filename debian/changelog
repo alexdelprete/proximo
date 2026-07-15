@@ -1,3 +1,18 @@
+proximo (0.23.0-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.23.0 (minor — the PBS plane closes: 493 -> 603 tools). Full
+    PBS coverage proven by an exit-code-gated audit against the live schema
+    (0 undocumented gaps; exclusions are wire-protocol/console/auth-handshake/
+    node-power, each documented). Adds tape (hardware, media, encryption keys,
+    operations, jobs, restore), S3 clients, client encryption keys, metrics
+    servers, admin job views, node config/identity/report, pull/push, and
+    datastore admin closers (group delete, whole-datastore prune, namespace
+    move, mount/unmount). Fixes pbs_job_run outcome honesty and empty-delete-
+    list transport drops; hardens proxy-URL and secret-read redaction.
+    Packaging unchanged; not distributed — build-your-own from debian/.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Wed, 15 Jul 2026 22:30:00 +0000
+
 proximo (0.22.0-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.22.0 (minor — the full-surface campaign opens: 365 -> 493 tools).

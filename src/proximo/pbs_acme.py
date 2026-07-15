@@ -134,7 +134,7 @@ from __future__ import annotations
 import re
 
 from .backends import ProximoError
-from .pbs import PbsBackend, _check_pbs_node
+from .pbs import PbsBackend, _check_delete_list, _check_pbs_node
 from .planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM, Plan
 
 # ---------------------------------------------------------------------------
@@ -266,6 +266,12 @@ def _check_validation_delay(value: int) -> int:
 
 
 def _check_plugin_delete_props(delete: list[str]) -> list[str]:
+    # `_check_delete_list` rejects `[]` outright (Wave 5b review finding 1 — httpx's form
+    # encoding drops an empty-list `delete` value entirely, so it never reaches the wire; the
+    # enum check below then further narrows a non-empty list to this plane's closed property
+    # set). `delete` is already `list[str]` here (never None — every caller guards `is not
+    # None` first), so the validated return is discarded rather than reassigned.
+    _check_delete_list(delete)
     out = []
     for item in delete:
         s = str(item)

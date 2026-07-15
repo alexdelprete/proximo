@@ -313,10 +313,16 @@ def pbs_scheduled_job_delete(pbs, job_type: str, job_id: str) -> None:
 
 
 def pbs_scheduled_job_run(pbs, job_type: str, job_id: str) -> str:
-    """Trigger a PBS scheduled job immediately. Returns a UPID (async task).
+    """Trigger a PBS scheduled job immediately.
 
     POST /admin/{type}/{id}/run
-    Smoke-confirm: exact path, whether body is required, and that response is a UPID string.
+
+    SCHEMA-VERIFIED (live PBS apidoc 2026-07-15, Wave 5c review Finding 4 — the old "Returns a
+    UPID (async task)" claim here was FALSE): all three of /admin/{prune,sync,verify}/{id}/run
+    declare `returns: {"type": "null"}`. A null response is coerced to "" below; the tool
+    wrapper's callable outcome resolves "" -> "ok" (completed/accepted synchronously) and a
+    non-empty string -> "submitted" (a UPID after all — the schema may be under-documented,
+    the returns-null-despite-real-work quirk cuts both ways).
     MUTATION — confirm-gated + audited at the server layer.
     """
     job_type = _check_pbs_job_type(job_type)

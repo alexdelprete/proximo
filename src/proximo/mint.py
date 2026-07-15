@@ -12,10 +12,15 @@ Per-product credential shapes (authoritative — mirrors the backends; the =/:/p
     PDM  token file  USER@REALM!NAME:SECRET   pdm.py      → Authorization: PDMAPIToken {file}
     PMG  password    the password, one line   pmg.py      → ticket auth (PMG has no API tokens)
 
-Two gotchas baked into the recipes (both learned against live hosts, 2026-07-06):
+Two gotchas baked into the recipes (both learned against live hosts, 2026-07-06; the PVE one
+confirmed against a real adopter dead-token report, issue #24, 2026-07-15):
     - PDM tokens are ALWAYS privilege-separated: effective perms = user ∩ token — the PDM
       grant step grants the USER the role too, or the token stays capped at the user's role.
-    - PVE `--privsep 1` tokens carry their OWN ACL — the grant targets the token's auth-id.
+    - PVE `--privsep 1` tokens are ALSO privilege-separated the same way: effective perms =
+      user ∩ token. A freshly-created user has no ACL of its own, so the grant step grants
+      BOTH the token's auth-id AND the user — token-only leaves the intersection empty (a
+      dead token that authenticates but can do nothing). PBS has no privsep concept (a PBS
+      token's ACL stands alone) so its grant step is token-only by design, not by omission.
 """
 
 from __future__ import annotations
@@ -57,8 +62,10 @@ def _pve_steps(user: str, token_name: str, token_file: str, write: bool) -> list
     role = _WRITE_ROLE["pve"] if write else _READ_ROLE["pve"]
     acl_path = "/vms" if write else "/"
     grant_notes = [
-        "--privsep 1 tokens carry their OWN ACL — grant the token's auth-id directly; "
-        "granting only the user does not empower the token.",
+        "--privsep 1 tokens carry their OWN ACL, but a privsep token's EFFECTIVE permissions "
+        "are the INTERSECTION of the user's ACL and the token's ACL — grant the role to BOTH "
+        "the token's auth-id AND the user, or a freshly-created user (no ACL of its own) leaves "
+        "the intersection empty: the token authenticates but can do nothing.",
     ]
     if write:
         grant_notes.append(
@@ -85,8 +92,11 @@ def _pve_steps(user: str, token_name: str, token_file: str, write: bool) -> list
             f"Exactly one line: {authid}=SECRET — PVE uses '=' between token-id and secret.",
             _SEPARATOR_HINT,
         ]),
-        _step("grant", f"grant the {'scoped write' if write else 'read-only'} role to the token",
-              [f"pveum acl modify {acl_path} --tokens '{authid}' --roles {role}"], grant_notes),
+        _step("grant", f"grant the {'scoped write' if write else 'read-only'} role to the token"
+              " AND the user", [
+            f"pveum acl modify {acl_path} --tokens '{authid}' --roles {role}",
+            f"pveum acl modify {acl_path} --users '{user}' --roles {role}",
+        ], grant_notes),
         _step("wire", "point Proximo at the host (env, or the targets registry)", [
             "export PROXIMO_API_BASE_URL=https://<pve-host>:8006/api2/json",
             "export PROXIMO_NODE=<node-name>",

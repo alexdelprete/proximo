@@ -37,6 +37,18 @@ _EXPECTED_ADVERSARIAL = frozenset({
     "pve_backup_freshness",  # embeds guest names (free text) in verdicts/flags
     "pve_storage_content", "pdm_pve_qemu_config", "pdm_pve_lxc_config",
     "pdm_pve_qemu_list", "pdm_pve_lxc_list", "pdm_pve_resources", "pbs_snapshots_list",
+    # upstream/package-maintainer-authored free text — added Wave 1a (2026-07-15 full-surface
+    # campaign), postdating the 2026-07-02 design doc snapshot above; see taint.py's own comment
+    # on this entry for the reasoning.
+    "pve_apt_changelog",
+    # same rationale, Wave 1b (2026-07-15 full-surface campaign).
+    "pbs_apt_changelog", "pmg_apt_changelog",
+    # PBS node OS admin plane (Wave 2c, 2026-07-15 full-surface campaign): free-text logs carry
+    # externally-authored bytes — same rationale as pve_node_syslog/journal/pve_task_log above.
+    "pbs_node_journal", "pbs_node_syslog", "pbs_node_task_log",
+    # PBS ACME (Wave 3b review finding, 2026-07-15): the PBS host fetches a CALLER-CHOSEN
+    # directory URL and returns the response — content authored by whoever controls the URL.
+    "pbs_acme_tos",
 })
 
 

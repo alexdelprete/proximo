@@ -908,6 +908,25 @@ def test_guest_migrate_rejects_bad_target_node():
         backend.guest_migrate("dc1", "qemu", "100", "bad/../node")
 
 
+def test_guest_migrate_target_storage_is_wrapped_as_single_element_array():
+    """Audit-fixes plan Task 8 Fix B: target_storage (pdm.py:738) was sent as a bare scalar --
+    the live-proven sibling guest_remote_migrate (pdm.py:763) needed array-wrapping because
+    PDM's typed API rejects a scalar mapping value ('Expected array - got scalar value', 400).
+    guest_migrate's target_storage is the identically-named field on the identically-shaped
+    /migrate proxy endpoint, so it must be wrapped the same way rather than left as a scalar
+    (untested and unverified against the same class of PDM rejection)."""
+    backend, mock = _mock_backend_write()
+    backend.guest_migrate("dc1", "qemu", "100", "node2", target_storage="local-lvm:local-lvm")
+    body = mock.post.call_args[1]["json"]
+    assert body["target-storage"] == ["local-lvm:local-lvm"]
+
+
+def test_guest_migrate_omits_target_storage_when_not_given():
+    backend, mock = _mock_backend_write()
+    backend.guest_migrate("dc1", "qemu", "100", "node2")
+    assert "target-storage" not in mock.post.call_args[1]["json"]
+
+
 # --- remote-migrate (cross-remote — the world-first) ---
 
 def test_guest_remote_migrate_qemu_path_and_required_body():

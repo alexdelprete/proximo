@@ -47,10 +47,11 @@ Security posture — secret handling:
   The TLS cert 'fingerprint' is PUBLIC data — it is NOT redacted and may appear in
   plans and the audit ledger for auditability.
 
-EXCLUSION: PBS access management (acl / users / tokens) is deliberately NOT in this wave.
-Access control is a distinct failure mode (access lockout rather than data destruction) and
-belongs in its own focused PBS-access wave — mirroring how PVE access management lives in
-dedicated access.py / access_users.py / access_governance.py modules.
+EXCLUSION (historical — closed 2026-07-15): PBS access management (acl / users / tokens) was
+deliberately NOT in this wave. Access control is a distinct failure mode (access lockout rather
+than data destruction) and belonged in its own focused PBS-access wave — mirroring how PVE
+access management lives in dedicated access.py / access_users.py / access_governance.py modules.
+That wave is now built: see proximo.pbs_access (Wave 2a, full-surface campaign).
 """
 
 from __future__ import annotations

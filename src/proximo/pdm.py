@@ -726,7 +726,11 @@ class PdmBackend:
         """POST /pve/remotes/{remote}/{kind}/{vmid}/migrate → task UPID.
 
         In-cluster migration. `target` is a node name; `online` migrates a running guest.
-        Booleans are sent as JSON true (PDM's typed API rejects int 1); flags omitted unless set.
+        `target_storage` optionally maps the guest's storage to a different target storage
+        on the destination node (e.g. 'local-lvm:local-lvm') — sent as a single-element array,
+        mirroring guest_remote_migrate's target-storage: PDM's typed API rejects a scalar there
+        ('Expected array - got scalar value', 400). Booleans are sent as JSON true (PDM's typed
+        API rejects int 1); flags omitted unless set.
         """
         k = _check_kind(kind)
         v = _check_vmid(vmid)
@@ -735,7 +739,7 @@ class PdmBackend:
         if online:
             body["online"] = True
         if target_storage is not None:
-            body["target-storage"] = _check_opt(target_storage, "target-storage")
+            body["target-storage"] = [_check_opt(target_storage, "target-storage")]
         return self._pve_remote_post(remote, f"{k}/{v}/migrate", body)
 
     def guest_remote_migrate(self, remote: str, kind: str, vmid: int | str, target_remote: str,
@@ -743,7 +747,7 @@ class PdmBackend:
                              online: bool = False, delete: bool = False) -> str:
         """POST /pve/remotes/{remote}/{kind}/{vmid}/remote-migrate → task UPID.
 
-        Cross-remote (datacenter-to-datacenter) migration. `target` is the destination
+        Cross-remote (datacenter-to-datacenter) migration. `target_remote` is the destination
         remote ID; target-bridge and target-storage mappings are REQUIRED by the API.
         `delete` removes the source guest after a successful move — a destructive flag,
         off unless set.

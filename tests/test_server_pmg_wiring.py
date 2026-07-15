@@ -1911,3 +1911,76 @@ def test_pmg_ruledb_rule_action_detach_confirm(tmp_path, monkeypatch):
     assert len(pmg.deletes) == 1
     # PMG 9.1 live-verified: singular /action (not /actions — that path returns 501)
     assert pmg.deletes[0][0] == "/config/ruledb/rules/100/action/13"
+
+
+# --- PMG APT plane (Wave 1b, 2026-07-15 full-surface campaign) — exact-payload confirm rows ---
+# Unlike the partial .get()-style assertions above, these assert FULL payload equality (the
+# "exact-payload" bar set by the sibling test_confirm_sweep_pve_apt.py / test_confirm_sweep_pbs.py
+# sweeps for this same wave) — a full dict-equality check catches an accidental stray key that a
+# partial .get() check would miss.
+
+
+def test_pmg_apt_update_refresh_confirm_exact_payload(tmp_path, monkeypatch):
+    """_FakePmg._post (module-level fake, shared across this whole file) returns None -- the
+    honest callable-outcome resolution in pmg_apt_update_refresh therefore reports "ok" (not
+    "submitted"), exactly like pve_apt_update_refresh's own sync-vs-async distinction: a fixed
+    outcome="submitted" would falsely claim an in-flight task when PMG answers synchronously."""
+    _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
+    out = server.pmg_apt_update_refresh(node="pmg", notify=True, quiet=False, confirm=True)
+    assert out["status"] == "ok"
+    assert out["status"] != "plan"
+    assert out["result"] is None
+    assert pmg.posts[-1] == ("/nodes/pmg/apt/update", {"notify": True, "quiet": False})
+    outcomes = [e["outcome"] for e in _entries(log) if e["action"] == "pmg_apt_update_refresh"]
+    assert "planned" in outcomes
+    assert "ok" in outcomes
+    assert outcomes.index("planned") < outcomes.index("ok")
+    entry = [e for e in _entries(log) if e["action"] == "pmg_apt_update_refresh"
+             and e["outcome"] == "ok"][0]
+    assert entry["mutation"] is True
+    assert entry["detail"]["confirmed"] is True
+
+
+def test_pmg_apt_repository_set_confirm_exact_payload(tmp_path, monkeypatch):
+    _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
+    out = server.pmg_apt_repository_set(
+        path="/etc/apt/sources.list", index=0, node="pmg", enabled=False, digest="0" * 40,
+        confirm=True,
+    )
+    assert out["status"] == "ok"
+    assert out["status"] != "plan"
+    assert pmg.posts[-1] == (
+        "/nodes/pmg/apt/repositories",
+        {"path": "/etc/apt/sources.list", "index": 0, "enabled": False, "digest": "0" * 40},
+    )
+    outcomes = [e["outcome"] for e in _entries(log) if e["action"] == "pmg_apt_repository_set"]
+    assert "planned" in outcomes
+    assert "ok" in outcomes
+    assert outcomes.index("planned") < outcomes.index("ok")
+    entry = [e for e in _entries(log) if e["action"] == "pmg_apt_repository_set"
+             and e["outcome"] == "ok"][0]
+    assert entry["mutation"] is True
+    assert entry["detail"]["confirmed"] is True
+    assert entry["detail"]["path"] == "/etc/apt/sources.list"
+    assert entry["detail"]["index"] == 0
+
+
+def test_pmg_apt_repository_add_confirm_exact_payload(tmp_path, monkeypatch):
+    _, _, pmg, _, log = _wire(tmp_path, monkeypatch)
+    out = server.pmg_apt_repository_add(
+        handle="no-subscription", node="pmg", digest="0" * 40, confirm=True,
+    )
+    assert out["status"] == "ok"
+    assert out["status"] != "plan"
+    assert pmg.puts[-1] == (
+        "/nodes/pmg/apt/repositories", {"handle": "no-subscription", "digest": "0" * 40},
+    )
+    outcomes = [e["outcome"] for e in _entries(log) if e["action"] == "pmg_apt_repository_add"]
+    assert "planned" in outcomes
+    assert "ok" in outcomes
+    assert outcomes.index("planned") < outcomes.index("ok")
+    entry = [e for e in _entries(log) if e["action"] == "pmg_apt_repository_add"
+             and e["outcome"] == "ok"][0]
+    assert entry["mutation"] is True
+    assert entry["detail"]["confirmed"] is True
+    assert entry["detail"]["handle"] == "no-subscription"

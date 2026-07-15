@@ -6,7 +6,8 @@ Covers Plane B (PLAN + PROVE; no UNDO primitive — config is re-creatable after
   - PBS scheduled jobs          (/config/{type}  — type = sync|verify|prune)
   - PBS auth realm sync         (/access/domains/{realm}/sync)
 
-VERIFIED live shapes: None — all endpoint shapes carry "Smoke-confirm:" comments.
+VERIFIED live shapes: PVE backup_job guest-selection (vmid/all/pool/exclude) — verified 2026-06-28.
+Unverified shapes carry "Smoke-confirm:" comments.
 
 Security posture:
   - All path components validated with \\Z-anchored regexes (trailing-newline bypass rejected).
@@ -348,13 +349,20 @@ def pbs_realm_sync(pbs, realm: str, **kw) -> str:
 # ---------------------------------------------------------------------------
 
 def plan_backup_job_create(job_id: str, schedule: str, storage: str, **kw) -> Plan:
-    """Plan a PVE backup job creation (additive, LOW risk)."""
+    """Plan a PVE backup job creation (additive, LOW risk).
+
+    2026-07-14 audit (med): the guest-selection kwargs (vmid/all/pool/exclude) and other
+    options (mode/compress/enabled/comment) are echoed into `change`, matching sibling
+    _create/_update plan factories in this file (plan_backup_job_update, plan_replication_create,
+    plan_pbs_job_create) — a reviewer approving this PLAN must be able to see what will apply.
+    """
     _check_job_id(job_id)
     _check_backup_selection(kw)
     return Plan(
         action="pve_backup_job_create",
         target=f"cluster/backup/{job_id}",
-        change=f"create PVE backup job {job_id!r}: schedule={schedule!r} storage={storage!r}",
+        change=(f"create PVE backup job {job_id!r}: schedule={schedule!r} storage={storage!r} "
+                f"{kw}"),
         current={},
         blast_radius=["adds a new backup schedule (no existing data affected)"],
         risk=RISK_LOW,
@@ -594,7 +602,7 @@ def plan_pbs_realm_sync(realm: str, **kw) -> Plan:
             if remove_vanished else ["user sync without remove-vanished — additive, no deletions"]
         ),
         note=(
-            "Smoke-confirm: exact body params (remove-vanished, dry-run, scope) against a live PBS. "
+            "Smoke-confirm: exact body params (remove-vanished, dry-run) against a live PBS. "
             "Async — returns a UPID. Use pbs_tasks_list to track completion "
             "(a PBS UPID cannot be polled by pve_task_wait/pve_task_status)."
         ),

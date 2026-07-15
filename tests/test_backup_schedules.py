@@ -538,6 +538,33 @@ class TestPlanBackupJobCreate:
         with pytest.raises(ProximoError, match="exclude"):
             plan_backup_job_create("daily", "0 2 * * *", "local", exclude="101")
 
+    # --- 2026-07-14 audit finding (backup_schedules.py, med): change text omits guest
+    # selection + options, unlike sibling _create/_update plan factories in this same file
+    # (plan_backup_job_update, plan_replication_create, plan_pbs_job_create all embed {kw}).
+    # Value presence, not exact prose — a reviewer approving the PLAN must be able to SEE what
+    # will apply before confirm=True.
+
+    def test_change_echoes_vmid_selection(self):
+        plan = plan_backup_job_create("daily", "0 2 * * *", "local", vmid="100,101")
+        assert "100,101" in plan.change
+
+    def test_change_echoes_all_and_exclude_selection(self):
+        plan = plan_backup_job_create("daily", "0 2 * * *", "local", all=True, exclude="105")
+        assert "105" in plan.change
+        assert "True" in plan.change
+
+    def test_change_echoes_pool_selection(self):
+        plan = plan_backup_job_create("daily", "0 2 * * *", "local", pool="prod")
+        assert "prod" in plan.change
+
+    def test_change_echoes_options(self):
+        plan = plan_backup_job_create(
+            "daily", "0 2 * * *", "local", mode="stop", compress="zstd", comment="nightly full",
+        )
+        assert "stop" in plan.change
+        assert "zstd" in plan.change
+        assert "nightly full" in plan.change
+
 
 class TestPlanBackupJobUpdate:
     def test_reads_current_from_api(self):

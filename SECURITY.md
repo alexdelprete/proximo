@@ -41,13 +41,17 @@ own — a local layer would sit in the same trust domain as the agent and add ce
 enforcement. Use Proxmox's model directly:
 
 1. **Start read-only.** A privilege-separated token (`--privsep 1`) carries *its own* ACL —
-   it inherits nothing from the user that owns it. Grant `PVEAuditor` at `/` and the agent
-   can see everything and change nothing, enforced by Proxmox. The click-by-click and CLI
-   versions are in [SETUP.md](SETUP.md) (Step 2); `proximo mint` prints the same runbook
-   for every plane — PVE, PBS, PMG, PDM — each with its read-only and scoped-write role.
+   it inherits nothing from the user's *other* rights. But its effective permissions are the
+   *intersection* of the user's ACL and the token's ACL, not the token's ACL alone — grant
+   `PVEAuditor` at `/` to **both** the token and the user (a freshly-created user has no ACL
+   of its own, so skipping the user grant leaves the intersection empty: a token that
+   authenticates but can do nothing). The click-by-click and CLI versions are in
+   [SETUP.md](SETUP.md) (Step 2); `proximo mint` prints the same runbook for every plane —
+   PVE, PBS, PMG, PDM — each with its read-only and scoped-write role, granted to both.
 2. **Widen deliberately, by path.** Write access is granted where you mean it and nowhere
    else: `pveum acl modify /vms/100 --tokens 'proximo@pve!readonly' --roles PVEVMAdmin`
-   arms exactly one VM. Never grant `Administrator` at `/` to an agent-facing token.
+   followed by the matching `--users 'proximo@pve'` grant arms exactly one VM. Never grant
+   `Administrator` at `/` to an agent-facing token.
 3. **Two tokens, not one big one.** The strongest single-box posture: the everyday
    `PROXIMO_TOKEN_PATH` holds the **read-only** token; a separately-scoped **write** token
    lives in a file the agent's user cannot read, swapped into place by *you*, out-of-band,
@@ -119,7 +123,7 @@ surprise-empty server). An unknown surface name refuses startup rather than sile
 a surface you didn't pick. This is context hygiene and attack-surface reduction, not an
 authorization control — the token's ACL remains the real boundary.
 
-*Status note: CONSENT/CONTAIN/LEASE/SCOPE/ENVELOPE are present in this repository's
+*Status note: CONSENT/CONTAIN/LEASE/SCOPE/ENVELOPE/TAINT are present in this repository's
 current source. Check `CHANGELOG.md` against the version you actually installed — a
 published package can lag the tree you're reading; these gates land in a release only
 when their changelog entry says so.*

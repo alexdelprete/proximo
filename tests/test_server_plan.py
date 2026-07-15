@@ -817,6 +817,35 @@ _READ_ONLY_TOOLS = frozenset({
     # node-lifecycle (Wave 4) — read-only tools (no confirm param)
     "pve_node_disks_list", "pve_node_disk_smart", "pve_node_storage_backend_list",
     "pve_node_time_get", "pve_node_hosts_get",
+    # PVE APT plane (Wave 1a, full-surface campaign) — read-only tools (no confirm param)
+    "pve_apt_updates_list", "pve_apt_changelog", "pve_apt_repositories_get", "pve_apt_versions",
+    # PBS APT plane (Wave 1b, full-surface campaign) — read-only tools (no confirm param)
+    "pbs_apt_updates_list", "pbs_apt_changelog", "pbs_apt_repositories_get", "pbs_apt_versions",
+    # PBS access plane (Wave 2a, full-surface campaign) — read-only tools (no confirm param)
+    "pbs_users_list", "pbs_user_get", "pbs_user_tokens_list", "pbs_user_token_get",
+    "pbs_acl_get", "pbs_roles_list", "pbs_permissions_get",
+    # PBS realms + TFA plane (Wave 2b, full-surface campaign) — read-only tools (no confirm param)
+    "pbs_realm_ad_list", "pbs_realm_ad_get", "pbs_realm_ldap_list", "pbs_realm_ldap_get",
+    "pbs_realm_openid_list", "pbs_realm_openid_get", "pbs_realm_pam_get", "pbs_realm_pbs_get",
+    "pbs_tfa_list", "pbs_tfa_user_get", "pbs_tfa_entry_get", "pbs_tfa_webauthn_get",
+    # PBS node OS admin plane (Wave 2c, full-surface campaign) — read-only tools (no confirm param)
+    "pbs_node_dns_get", "pbs_node_time_get", "pbs_node_network_list", "pbs_node_network_iface_get",
+    "pbs_node_certificates_list", "pbs_node_services_list", "pbs_node_service_status",
+    "pbs_node_subscription_get", "pbs_node_status", "pbs_node_task_status", "pbs_node_task_log",
+    "pbs_node_journal", "pbs_node_syslog",
+    # PBS disk admin plane (Wave 2d, full-surface campaign) — read-only tools (no confirm param)
+    "pbs_node_disks_list", "pbs_node_disk_smart", "pbs_node_disk_directory_list",
+    "pbs_node_disk_zfs_list", "pbs_node_disk_zfs_get",
+    # PBS notifications plane (Wave 3a, full-surface campaign) — read-only tools (no confirm param)
+    "pbs_notification_targets_list", "pbs_notification_endpoint_list",
+    "pbs_notification_endpoint_get", "pbs_notification_matchers_list",
+    "pbs_notification_matcher_get", "pbs_notification_matcher_fields",
+    "pbs_notification_matcher_field_values",
+    # PBS ACME plane (Wave 3b, full-surface campaign) — read-only tools (no confirm param)
+    "pbs_acme_account_list", "pbs_acme_account_get", "pbs_acme_directories", "pbs_acme_tos",
+    "pbs_acme_challenge_schema", "pbs_acme_plugins_list", "pbs_acme_plugin_get",
+    # PMG APT plane (Wave 1b, full-surface campaign) — read-only tools (no confirm param)
+    "pmg_apt_updates_list", "pmg_apt_changelog", "pmg_apt_repositories_get", "pmg_apt_versions",
     # PMG (Wave 1) — read-only tools (no confirm param)
     "pmg_doctor", "pmg_node_status", "pmg_relay_config", "pmg_domains_list",
     "pmg_statistics_mail", "pmg_quarantine_spam",

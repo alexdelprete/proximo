@@ -8,7 +8,7 @@ Verified 2026-06-07 against the official `mcp` Python SDK (FastMCP): import path
 Ethical spine:
 - In-container exec (ct_*) is OFF by default — API-only is the safe default; enable with PROXIMO_ENABLE_EXEC.
 - Every tool call is audited *with its real outcome* (errors recorded, not assumed "ok").
-- Every mutating tool (pve_guest_power, ct_exec, ct_psql) is confirm-gated.
+- Every mutating tool (pve_guest_power, ct_exec, ct_psql, pve_agent_exec) is confirm-gated.
 - The CTID allowlist is enforced fail-closed in the exec backend.
 - Secrets are never read or logged here.
 """
@@ -249,11 +249,22 @@ def _untrusted_detail(action: str, detail: dict | None) -> dict | None:
 
 
 def _audited(action: str, target: str, fn: Callable[[], Any], *,
-             mutation: bool = False, outcome: str = "ok", detail: dict | None = None) -> Any:
+             mutation: bool = False, outcome: str | Callable[[Any], str] = "ok",
+             detail: dict | None = None) -> Any:
     """Run fn, then audit the REAL outcome. On exception, record the error and re-raise.
 
     `outcome` defaults to "ok" (synchronous completion). Async ops that only *start* a task pass
     outcome="submitted" so the ledger never claims an in-flight task is done.
+
+    `outcome` may also be a callable `(result) -> str`, resolved AFTER fn() succeeds — for the
+    rare mutation whose sync-vs-async nature is only knowable from its own return value (e.g. a
+    delete that returns a task UPID on some storage backends but None, already-finished, on
+    others). The callable sees only the successful result: on failure the plain "error" outcome
+    is recorded exactly as for a string outcome, and the callable is never invoked (there is no
+    result to resolve from). If the resolver itself misbehaves AFTER fn() succeeded (raises, or
+    returns a non-str), the executed mutation still gets a ledger entry — outcome
+    "error:outcome_resolution_failed" — before the failure propagates; a real mutation is never
+    trace-free. A plain string outcome behaves byte-for-byte as before.
 
     For mutation calls (mutation=True) the return is a SYMMETRIC envelope:
         {"status": <outcome>, "result": <raw fn() return>}
@@ -326,10 +337,30 @@ def _audited(action: str, target: str, fn: Callable[[], Any], *,
                      detail=_untrusted_detail(action, {**(detail or {}), "error": type(e).__name__}),
                      remote=ledger_remote())
         raise
-    audit.record(action, target=target, mutation=mutation, outcome=outcome,
+    if callable(outcome):
+        # fn() has ALREADY RUN — the mutation is real. A resolver bug (raise, or a non-str
+        # return that would corrupt the ledger outcome / envelope status) must never leave an
+        # executed mutation trace-free: record the resolution failure to the same tamper-evident
+        # chain FIRST, then propagate — mirroring the taint-marker-failure pattern above.
+        try:
+            resolved_outcome = outcome(result)
+            if not isinstance(resolved_outcome, str):
+                raise TypeError(
+                    f"outcome resolver for {action!r} returned "
+                    f"{type(resolved_outcome).__name__}, expected str"
+                )
+        except Exception as e:
+            audit.record(action, target=target, mutation=mutation,
+                         outcome="error:outcome_resolution_failed",
+                         detail=_untrusted_detail(action, {**(detail or {}), "error": type(e).__name__}),
+                         remote=ledger_remote())
+            raise
+    else:
+        resolved_outcome = outcome
+    audit.record(action, target=target, mutation=mutation, outcome=resolved_outcome,
                  detail=_untrusted_detail(action, detail), remote=ledger_remote())
     if mutation:
-        return {"status": outcome, "result": fence_output(action, result)}
+        return {"status": resolved_outcome, "result": fence_output(action, result)}
     return fence_output(action, result)
 
 
@@ -1072,6 +1103,13 @@ def main() -> None:
 # sweeps that do `getattr(server, name)`) keeps working unchanged. ---
 from proximo import prompts as _prompts  # noqa: E402,F401  # safe-runbook MCP prompts (registration side effect)
 from proximo.tools.pbs import (  # noqa: E402,F401
+    pbs_apt_changelog,
+    pbs_apt_repositories_get,
+    pbs_apt_repository_add,
+    pbs_apt_repository_set,
+    pbs_apt_update_refresh,
+    pbs_apt_updates_list,
+    pbs_apt_versions,
     pbs_datastore_create,
     pbs_datastore_delete,
     pbs_datastore_get,
@@ -1100,6 +1138,123 @@ from proximo.tools.pbs import (  # noqa: E402,F401
     pbs_traffic_control_upsert,
     pbs_traffic_controls_list,
     pbs_verify_start,
+)
+from proximo.tools.pbs_access import (  # noqa: E402,F401
+    pbs_acl_get,
+    pbs_acl_update,
+    pbs_permissions_get,
+    pbs_realm_ad_create,
+    pbs_realm_ad_delete,
+    pbs_realm_ad_get,
+    pbs_realm_ad_list,
+    pbs_realm_ad_update,
+    pbs_realm_ldap_create,
+    pbs_realm_ldap_delete,
+    pbs_realm_ldap_get,
+    pbs_realm_ldap_list,
+    pbs_realm_ldap_update,
+    pbs_realm_openid_create,
+    pbs_realm_openid_delete,
+    pbs_realm_openid_get,
+    pbs_realm_openid_list,
+    pbs_realm_openid_update,
+    pbs_realm_pam_get,
+    pbs_realm_pam_set,
+    pbs_realm_pbs_get,
+    pbs_realm_pbs_set,
+    pbs_roles_list,
+    pbs_tfa_add,
+    pbs_tfa_delete,
+    pbs_tfa_entry_get,
+    pbs_tfa_list,
+    pbs_tfa_unlock,
+    pbs_tfa_update,
+    pbs_tfa_user_get,
+    pbs_tfa_webauthn_get,
+    pbs_tfa_webauthn_set,
+    pbs_token_create,
+    pbs_token_delete,
+    pbs_token_update,
+    pbs_user_create,
+    pbs_user_delete,
+    pbs_user_get,
+    pbs_user_token_get,
+    pbs_user_tokens_list,
+    pbs_user_update,
+    pbs_users_list,
+)
+from proximo.tools.pbs_acme import (  # noqa: E402,F401
+    pbs_acme_account_create,
+    pbs_acme_account_delete,
+    pbs_acme_account_get,
+    pbs_acme_account_list,
+    pbs_acme_account_update,
+    pbs_acme_cert_order,
+    pbs_acme_cert_renew,
+    pbs_acme_challenge_schema,
+    pbs_acme_directories,
+    pbs_acme_plugin_create,
+    pbs_acme_plugin_delete,
+    pbs_acme_plugin_get,
+    pbs_acme_plugin_update,
+    pbs_acme_plugins_list,
+    pbs_acme_tos,
+)
+from proximo.tools.pbs_disks import (  # noqa: E402,F401
+    pbs_node_disk_directory_create,
+    pbs_node_disk_directory_delete,
+    pbs_node_disk_directory_list,
+    pbs_node_disk_initgpt,
+    pbs_node_disk_smart,
+    pbs_node_disk_wipe,
+    pbs_node_disk_zfs_create,
+    pbs_node_disk_zfs_get,
+    pbs_node_disk_zfs_list,
+    pbs_node_disks_list,
+)
+from proximo.tools.pbs_node import (  # noqa: E402,F401
+    pbs_node_cert_delete,
+    pbs_node_cert_upload,
+    pbs_node_certificates_list,
+    pbs_node_dns_get,
+    pbs_node_dns_set,
+    pbs_node_journal,
+    pbs_node_network_iface_create,
+    pbs_node_network_iface_delete,
+    pbs_node_network_iface_get,
+    pbs_node_network_iface_update,
+    pbs_node_network_list,
+    pbs_node_network_reload,
+    pbs_node_network_revert,
+    pbs_node_service_control,
+    pbs_node_service_status,
+    pbs_node_services_list,
+    pbs_node_status,
+    pbs_node_subscription_check,
+    pbs_node_subscription_delete,
+    pbs_node_subscription_get,
+    pbs_node_subscription_set,
+    pbs_node_syslog,
+    pbs_node_task_log,
+    pbs_node_task_status,
+    pbs_node_task_stop,
+    pbs_node_time_get,
+    pbs_node_time_set,
+)
+from proximo.tools.pbs_notifications import (  # noqa: E402,F401
+    pbs_notification_endpoint_create,
+    pbs_notification_endpoint_delete,
+    pbs_notification_endpoint_get,
+    pbs_notification_endpoint_list,
+    pbs_notification_endpoint_update,
+    pbs_notification_matcher_delete,
+    pbs_notification_matcher_field_values,
+    pbs_notification_matcher_fields,
+    pbs_notification_matcher_get,
+    pbs_notification_matcher_set,
+    pbs_notification_matchers_list,
+    pbs_notification_target_test,
+    pbs_notification_targets_list,
 )
 from proximo.tools.pdm import (  # noqa: E402,F401
     pdm_acl_list,
@@ -1138,6 +1293,15 @@ from proximo.tools.pdm_fleet import (  # noqa: E402,F401
     pdm_pve_qemu_snapshot_create,
     pdm_pve_qemu_snapshot_delete,
     pdm_pve_qemu_snapshot_rollback,
+)
+from proximo.tools.pmg_apt import (  # noqa: E402,F401
+    pmg_apt_changelog,
+    pmg_apt_repositories_get,
+    pmg_apt_repository_add,
+    pmg_apt_repository_set,
+    pmg_apt_update_refresh,
+    pmg_apt_updates_list,
+    pmg_apt_versions,
 )
 from proximo.tools.pmg_mail import (  # noqa: E402,F401
     pmg_action_objects_list,
@@ -1283,6 +1447,15 @@ from proximo.tools.pve_agent import (  # noqa: E402,F401
     pve_agent_fs,
     pve_agent_info,
     pve_agent_set_password,
+)
+from proximo.tools.pve_apt import (  # noqa: E402,F401
+    pve_apt_changelog,
+    pve_apt_repositories_get,
+    pve_apt_repository_add,
+    pve_apt_repository_set,
+    pve_apt_update_refresh,
+    pve_apt_updates_list,
+    pve_apt_versions,
 )
 from proximo.tools.pve_backup import (  # noqa: E402,F401
     pbs_job_create,

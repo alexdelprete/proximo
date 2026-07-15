@@ -122,9 +122,15 @@ def pve_backup_delete(
     plan = _plan("pve_backup_delete", volid, lambda: plan_backup_delete(api, storage, volid))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
+    # backup_delete() may return None for a synchronous (dir-storage) delete rather than a task
+    # UPID (backup.py's own documented contract) -- a fixed outcome="submitted" would then falsely
+    # claim an already-finished delete is still in-flight, in BOTH the returned status and the
+    # ledger's own record. _audited()'s callable-outcome form resolves the honest label from the
+    # actual result, after backup_delete() runs, so the ledger is honest too (not just the envelope).
     return _audited("pve_backup_delete", volid,
                     lambda: backup_delete(api, storage, volid, node),
-                    mutation=True, outcome="submitted", detail={"confirmed": True})
+                    mutation=True, outcome=lambda result: "ok" if result is None else "submitted",
+                    detail={"confirmed": True})
 
 
 @tool()

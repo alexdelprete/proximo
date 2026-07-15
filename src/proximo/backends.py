@@ -167,6 +167,78 @@ def _check_timezone(tz: str) -> str:
     return s
 
 
+# --- Wave 1a: PVE APT-plane validators ---
+# Package name: matches PVE's own upstream changelog-endpoint pattern
+# (PVE::API2::APT changelog 'name' param: qr/[a-z0-9][-+.a-z0-9:]+/, cross-checked against the
+# upstream Perl source 2026-07-15) — lowercase alnum, then lowercase alnum/-+.: , min length 2.
+_APT_PACKAGE_RE = re.compile(r"^[a-z0-9][-+.a-z0-9:]+\Z")
+
+# Repository config file path: absolute, no control chars, no traversal (mirrors _check_file_path
+# below — apt/repositories 'path' is a filesystem path, e.g. /etc/apt/sources.list.d/pve.sources).
+_APT_REPO_PATH_RE = re.compile(r"^/[^\x00-\x1f\x7f]*\Z")
+
+# Standard-repo handle: shape-only — the valid set (no-subscription/enterprise/test, plus
+# product/codename-specific ceph-* variants) is version/product-dependent, not a fixed enum
+# upstream. Alnum + hyphen, leading alnum, capped length; no arbitrary string into the URL body.
+_APT_HANDLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}\Z")
+
+# Digest: PVE's config-file content hash (hex, sha1/sha256-shaped), maxLength 80 per the upstream
+# schema (PVE::API2::APT add_repository/change_repository 'digest' param).
+_APT_DIGEST_RE = re.compile(r"^[0-9a-fA-F]{1,80}\Z")
+
+
+def _check_apt_package_name(name: str) -> str:
+    """Validate an APT package name against PVE's own changelog-endpoint pattern."""
+    s = str(name)
+    if not _APT_PACKAGE_RE.match(s):
+        raise ProximoError(
+            f"invalid package name: {name!r} "
+            "(must start with lowercase alnum, then lowercase alnum/-+.:, min length 2)"
+        )
+    return s
+
+
+def _check_apt_repo_path(path: str) -> str:
+    """Validate an APT repository config file path (absolute, no control chars, no traversal)."""
+    s = str(path)
+    if not _APT_REPO_PATH_RE.match(s):
+        raise ProximoError(f"invalid repository file path: {path!r} (must be an absolute path)")
+    if ".." in s.split("/"):
+        raise ProximoError(f"path traversal not allowed in repository path: {path!r}")
+    return s
+
+
+def _check_apt_index(index: int) -> int:
+    """Validate a repository entry index (0-based position within its file)."""
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise ProximoError(f"invalid repository index: {index!r} (must be a non-negative integer)")
+    return index
+
+
+# APT digest/handle validators below are client-side tightening: PVE's schema places no pattern
+# constraints (digest: maxLength 80 only; handle: unconstrained). Defensive for real-world Proxmox
+# values (hex digests, alnum-hyphen handles), not schema-mandated.
+def _check_apt_handle(handle: str) -> str:
+    """Validate a standard-repository handle (shape-only — the valid set is version/product-dependent)."""
+    s = str(handle)
+    if not _APT_HANDLE_RE.match(s):
+        raise ProximoError(
+            f"invalid repository handle: {handle!r} "
+            "(must start with alnum, then alnum/hyphen, max 64 chars)"
+        )
+    return s
+
+
+def _check_apt_digest(digest: str | None) -> str | None:
+    """Validate an optional optimistic-concurrency digest (hex, <=80 chars per schema)."""
+    if digest is None:
+        return None
+    s = str(digest)
+    if not _APT_DIGEST_RE.match(s):
+        raise ProximoError(f"invalid digest: {digest!r} (expected hex string, max 80 chars)")
+    return s
+
+
 # Absolute-path file validator for qemu-agent file-read/file-write.
 # Must start with '/'; reject ALL C0 control chars (incl. CR/LF/TAB) and DEL — these have no
 # place in a path and are the header/URL-injection vectors. Printable chars (incl. space, which
@@ -621,6 +693,111 @@ class ApiBackend:
             if v is not None
         }
         self._put(f"/nodes/{n}/dns", body)  # Smoke-confirm: PUT
+
+    # --- Wave 1a: APT plane (patch-visibility + repository governance) ---
+    # Schema truth: .scratch/api-schemas-2026-07-15/methods-pve.json (`/apt`) + the upstream
+    # PVE::API2::APT.pm Perl source (param names/types cross-checked 2026-07-15). NONE of these
+    # seven are live-verified yet — every method below carries its own Smoke-confirm comment.
+    # HONESTY: Proxmox's API deliberately does not expose upgrade execution; the upgrade itself
+    # happens at your console. These methods govern visibility and repo config only.
+
+    def apt_updates_list(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/apt/update — list available package updates (cached apt index).
+
+        Smoke-confirm: GET /apt/update — shape not live-verified. Expected per-package dicts
+        (Package/Title/Description/Origin/Version/OldVersion/Priority/Section/Arch) per schema
+        truth (PVE::API2::APT list_updates).
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/apt/update") or []
+
+    def apt_update_refresh(
+        self, node: str | None = None, notify: bool | None = None, quiet: bool | None = None
+    ) -> str | None:
+        """POST /nodes/{node}/apt/update — resynchronize the APT package index (apt-get update).
+
+        Smoke-confirm: POST /apt/update with body {notify?, quiet?} — shape not live-verified.
+        Returns a worker task UPID (async) per schema truth (PVE::API2::APT update_database).
+        Refreshes the index ONLY — does not install or upgrade any package.
+        """
+        n = self._resolve_node(node)
+        body = {k: v for k, v in {"notify": notify, "quiet": quiet}.items() if v is not None}
+        return self._post(f"/nodes/{n}/apt/update", body)  # Smoke-confirm: POST
+
+    def apt_changelog(self, name: str, node: str | None = None, version: str | None = None) -> str:
+        """GET /nodes/{node}/apt/changelog — package changelog text.
+
+        Smoke-confirm: GET /apt/changelog?name=…[&version=…] — shape not live-verified.
+        `name` is validated against PVE's own upstream package-name pattern. The returned text
+        is UPSTREAM/package-maintainer-authored (not Proxmox-authored) — classified
+        taint.ADVERSARIAL_TOOLS, unlike the other six apt_* tools.
+        """
+        _check_apt_package_name(name)
+        n = self._resolve_node(node)
+        q = f"?name={quote(name, safe='')}"
+        if version is not None:
+            q += f"&version={quote(version, safe='')}"
+        return self._get(f"/nodes/{n}/apt/changelog{q}") or ""
+
+    def apt_repositories_get(self, node: str | None = None) -> dict:
+        """GET /nodes/{node}/apt/repositories — current APT repository configuration.
+
+        Smoke-confirm: GET /apt/repositories — shape not live-verified. Expected
+        {files, errors, digest, infos, standard-repos} per schema truth
+        (PVE::API2::APT repositories).
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/apt/repositories") or {}
+
+    def apt_repository_set(
+        self,
+        path: str,
+        index: int,
+        node: str | None = None,
+        enabled: bool | None = None,
+        digest: str | None = None,
+    ) -> None:
+        """POST /nodes/{node}/apt/repositories — enable/disable one repository entry by path+index.
+
+        Smoke-confirm: POST /apt/repositories with body {path, index, enabled?, digest?}
+        — shape not live-verified. digest forwarded for optimistic-concurrency when supplied.
+        """
+        _check_apt_repo_path(path)
+        _check_apt_index(index)
+        _check_apt_digest(digest)
+        n = self._resolve_node(node)
+        body: dict = {"path": path, "index": index}
+        if enabled is not None:
+            body["enabled"] = enabled
+        if digest is not None:
+            body["digest"] = digest
+        self._post(f"/nodes/{n}/apt/repositories", body)  # Smoke-confirm: POST
+
+    def apt_repository_add(
+        self, handle: str, node: str | None = None, digest: str | None = None
+    ) -> None:
+        """PUT /nodes/{node}/apt/repositories — add a standard repository to the configuration.
+
+        Smoke-confirm: PUT /apt/repositories with body {handle, digest?} — shape not live-verified.
+        digest forwarded for optimistic-concurrency when supplied.
+        """
+        _check_apt_handle(handle)
+        _check_apt_digest(digest)
+        n = self._resolve_node(node)
+        body: dict = {"handle": handle}
+        if digest is not None:
+            body["digest"] = digest
+        self._put(f"/nodes/{n}/apt/repositories", body)  # Smoke-confirm: PUT
+
+    def apt_versions(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/apt/versions — installed versions of important Proxmox packages.
+
+        Smoke-confirm: GET /apt/versions — shape not live-verified. Expected per-package dicts
+        (Package/Version/OldVersion + CurrentState/RunningKernel/ManagerVersion) per schema
+        truth (PVE::API2::APT versions).
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/apt/versions") or []
 
     def node_cert_upload(
         self,

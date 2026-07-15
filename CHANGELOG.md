@@ -4,6 +4,63 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-07-15
+
+The full-surface campaign opens: **365 → 493 tools**, all through the same trust spine. The goal
+(measured against the live PVE/PBS/PMG api-viewer schemas, not guessed): Proximo governs the
+entire tool-worthy Proxmox family API. This release ships the first three waves — APT/patching on
+all three planes, and the PBS plane opened wide (identity, realms + TFA, node OS admin, disks,
+notifications, ACME). Every tool was built from the live upstream schema and adversarially
+reviewed before landing; every review caught something, and what it caught is fixed here too.
+Alongside the new surface: a 64-finding coverage audit of the existing 365 tools, closed in full.
+
+### Added
+- **APT/patching, all three planes (21 tools)** — `{pve,pbs,pmg}_apt_*`: update list/refresh,
+  changelog, repositories get/set/add, versions. Honesty note baked into every docstring:
+  Proxmox's API deliberately exposes **no upgrade execution** — these tools govern visibility and
+  repo config; the upgrade itself happens at your console.
+- **PBS identity & access (42 tools)** — users, API tokens (secret returned, **never** in the
+  audit ledger — same contract as PVE token create), ACL, roles, permissions; AD/LDAP/OpenID
+  realm CRUD + PAM/PBS realm config; TFA management incl. recovery codes (secret material under
+  the same never-in-ledger contract).
+- **PBS node OS admin (27 tools)** — DNS, time, network interfaces, certificates, services,
+  subscription, tasks, journal/syslog (classified adversarial: free-text logs).
+- **PBS disks (10 tools)** — list/SMART plus ZFS and directory backend creation, initgpt, wipe.
+  All five mutations rated HIGH; the docstrings state PBS's real API shape plainly (no LVM
+  backend exists on PBS; a ZFS pool created via this API has **no delete endpoint at all**).
+- **PBS notifications (13 tools)** — gotify/sendmail/smtp/webhook endpoint CRUD, matchers,
+  targets + test. Secret redaction here is *wider* than the PVE sibling: `{token, password,
+  secret, header}` never reach a plan or the ledger — including captured current-config reads,
+  because PBS returns webhook header values on GET.
+- **PBS ACME (15 tools)** — accounts, DNS-challenge plugins (credential blobs never in the
+  ledger), directories/ToS/challenge-schema, node cert order + renew. Schema-verified honesty:
+  PBS has **no ACME cert revoke** (PVE does), and account delete **deactivates the account at
+  the CA** — rated HIGH and the plan says so.
+
+### Fixed
+- **SETUP.md privsep grant was incomplete — dead token on the happy path** (#24, reported by
+  @alexdelprete running Proximo in production — the report every project hopes for). A fresh
+  `--privsep 1` user with the role granted to the token only yields an empty permission
+  intersection; every API call 403s. Both grants (user AND token) now appear in Option A and B,
+  the privsep explanation states the intersection rule correctly, Step 6's scoped-write grant
+  includes the user, and the 403 troubleshooting row says "always required." `proximo mint`'s
+  printed runbook had the same hole — also fixed.
+- **The 64-finding tool-coverage audit, closed in full.** An 82-agent sweep of all 365 existing
+  tools against their tests found one systemic gap (≈55 mutation wrappers' confirm-path never
+  exercised with exact payloads) and a handful of real behavioral defects — all fixed:
+  `_audited` outcome honesty for bulk node ops (start/stop/migrate-all wrappers hardcoded
+  "submitted"; now resolved per-call), `backup_delete` outcome honesty, fail-closed outcome
+  resolver, `ct_psql` fail-closed, `pve_agent_exec` taint-guard, PLAN transparency for backup
+  jobs/notifications/LXC online-migrate (admits brief downtime). Plus an exact-payload
+  confirm-sweep harness — 139 tests across 8 files — so the gap class is structurally closed.
+
+### Security
+- **`pbs_acme_tos` classified adversarial + https-only URL validation.** The tool makes the PBS
+  host fetch a caller-chosen ACME directory URL and returns the response — that content is
+  authored by whoever controls the URL, so it now carries the same taint classification as the
+  apt changelogs, and directory/ToS URLs are validated https-only with no control characters
+  (stricter than the upstream schema, on purpose).
+
 ### Removed
 - **The Agent Guestbook is gone** — the pinned GitHub Discussion, the repo's Discussions tab,
   the guestbook invitation in `AGENTS.md`, and `proximo hello --sign` (which printed the posting

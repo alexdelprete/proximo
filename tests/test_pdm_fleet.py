@@ -109,6 +109,26 @@ def test_plan_remote_migrate_delete_names_deletion_in_blast_radius():
     assert any("delet" in b.lower() for b in plan.blast_radius)
 
 
+def test_plan_migrate_lxc_online_warns_of_restart_downtime_in_blast_radius():
+    # Audit-fixes plan Task 8 Fix A: pdm_pve_lxc_migrate's own docstring admits online=True is
+    # a stop-move-start "restart-migration" with real downtime (there is no true live migration
+    # for lxc) -- the dry-run PLAN a human approves before confirm=True must say so, not stay
+    # silent about exactly the harm the tool's docs promise. Before the fix, plan_pdm_migrate had
+    # no kind-specific branch at all: the only interruption warning fired for `running and not
+    # online` (an offline migrate), which online=True never reaches.
+    plan = plan_pdm_migrate(_StubPdm("running"), "dc1", "lxc", "201", "node2", online=True)
+    assert any("restart" in b.lower() or "downtime" in b.lower() for b in plan.blast_radius), (
+        f"lxc online=True migrate PLAN must warn of restart/downtime; got {plan.blast_radius}"
+    )
+
+
+def test_plan_migrate_qemu_online_does_not_get_the_lxc_restart_warning():
+    # Regression guard: qemu online=True is a TRUE live migration (no downtime) -- the new
+    # lxc-only warning must not leak onto its qemu sibling.
+    plan = plan_pdm_migrate(_StubPdm("running"), "dc1", "qemu", "100", "node2", online=True)
+    assert not any("restart" in b.lower() or "downtime" in b.lower() for b in plan.blast_radius)
+
+
 # ---------------------------------------------------------------------------
 # Tool wiring — dry-run-by-default, confirm-to-fire, ledger PROVE, auto-undo.
 # ---------------------------------------------------------------------------

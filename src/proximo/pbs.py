@@ -219,6 +219,84 @@ def _check_namespace_component(name: str) -> str:
     return s
 
 
+# --- Wave 1b: PBS APT-plane validators ---
+# Schema truth: .scratch/api-schemas-2026-07-15/methods-pbs.json (`/apt`) cross-checked against
+# the live api-viewer full schema (pbs.proxmox.com/docs/api-viewer/apidoc.js, fetched 2026-07-15
+# since the scratch snapshot carries no param-level detail) AND the upstream Rust source
+# (src/api2/node/apt.rs, proxmox-backup git). PBS's shapes differ from PVE's in two places (the
+# other five params match PVE's shape exactly): digest is a STRICT sha256 hex (64 lowercase hex
+# chars, pattern `^[a-f0-9]{64}$` — proxmox_config_digest::ConfigDigest), and handle is a STRICT
+# lowercase-leading pattern (`^[a-z][a-z0-9]*(-[a-z0-9]+)*$` — APTRepositoryHandle), unlike PVE's
+# shape-only permissive validators for both.
+#
+# apt_get_changelog's `returns` metadata in the generated schema claims UPID_SCHEMA (an async
+# task identifier) — but the actual handler (`fn apt_get_changelog(...) -> Result<String, Error>`
+# calling `proxmox_apt::get_changelog(&options)` directly, no `WorkerTask::new_thread` spawn) is
+# synchronous and returns the changelog text itself, exactly like PVE/PMG. The UPID_SCHEMA
+# annotation appears to be a copy-paste artifact from the adjacent `apt_update_database` handler
+# (which DOES spawn a WorkerTask) — cross-checked directly against the Rust source, not just the
+# generated doc. Treated here as returning `str` (the changelog text), matching PVE/PMG.
+_PBS_APT_PACKAGE_RE = re.compile(r"^[a-z0-9][-+.a-z0-9:]+\Z")
+_PBS_APT_REPO_PATH_RE = re.compile(r"^/[^\x00-\x1f\x7f]*\Z")
+_PBS_APT_HANDLE_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*\Z")
+_PBS_APT_DIGEST_RE = re.compile(r"^[a-f0-9]{64}\Z")
+
+
+def _check_pbs_apt_package_name(name: str) -> str:
+    """Validate an APT package name — PBS's own upstream changelog pattern (identical to PVE's)."""
+    s = str(name)
+    if not _PBS_APT_PACKAGE_RE.match(s):
+        raise ProximoError(
+            f"invalid package name: {name!r} "
+            "(must start with lowercase alnum, then lowercase alnum/-+.:, min length 2)"
+        )
+    return s
+
+
+def _check_pbs_apt_repo_path(path: str) -> str:
+    """Validate an APT repository config file path (absolute, no control chars, no traversal)."""
+    s = str(path)
+    if not _PBS_APT_REPO_PATH_RE.match(s):
+        raise ProximoError(f"invalid repository file path: {path!r} (must be an absolute path)")
+    if ".." in s.split("/"):
+        raise ProximoError(f"path traversal not allowed in repository path: {path!r}")
+    return s
+
+
+def _check_pbs_apt_index(index: int) -> int:
+    """Validate a repository entry index (0-based position within its file)."""
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise ProximoError(f"invalid repository index: {index!r} (must be a non-negative integer)")
+    return index
+
+
+def _check_pbs_apt_handle(handle: str) -> str:
+    """Validate a standard-repository handle — PBS's own strict upstream pattern (APTRepositoryHandle:
+    lowercase-leading, alnum/hyphen groups), unlike PVE/PMG's shape-only permissive validator."""
+    s = str(handle)
+    if not _PBS_APT_HANDLE_RE.match(s):
+        raise ProximoError(
+            f"invalid repository handle: {handle!r} "
+            "(PBS requires: lowercase letter, then lowercase alnum, optionally hyphen-separated "
+            "lowercase alnum groups — e.g. 'no-subscription')"
+        )
+    return s
+
+
+def _check_pbs_apt_digest(digest: str | None) -> str | None:
+    """Validate an optional optimistic-concurrency digest — PBS's own strict upstream pattern
+    (ConfigDigest: exactly 64 lowercase hex chars, i.e. a SHA-256 hex digest), unlike PVE/PMG's
+    permissive hex-up-to-80-chars validator."""
+    if digest is None:
+        return None
+    s = str(digest)
+    if not _PBS_APT_DIGEST_RE.match(s):
+        raise ProximoError(
+            f"invalid digest: {digest!r} (expected exactly 64 lowercase hex chars — a SHA-256 digest)"
+        )
+    return s
+
+
 # ---------------------------------------------------------------------------
 # PbsConfig
 # ---------------------------------------------------------------------------
@@ -538,8 +616,144 @@ def tasks_list(
 
 
 # ---------------------------------------------------------------------------
+# APT plane (Wave 1b, 2026-07-15): patch-visibility + repository governance.
+# Schema truth: .scratch/api-schemas-2026-07-15/methods-pbs.json (`/apt`) + the live api-viewer
+# full schema + the upstream Rust source (src/api2/node/apt.rs) — see the validator-block comment
+# above for the digest/handle/changelog cross-check notes. HONESTY LINE (every apt_* docstring in
+# this plane, mirrored from PVE Wave 1a): Proxmox's API deliberately does not expose upgrade
+# execution; the upgrade itself happens at your console. These methods govern visibility and repo
+# config only.
+# ---------------------------------------------------------------------------
+
+def apt_updates_list(api: PbsBackend, node: str = "localhost") -> list[dict]:
+    """List available package updates (cached apt index) on a PBS node.
+
+    GET /nodes/{node}/apt/update
+
+    Smoke-confirm: shape not live-verified. Expected per-package dicts (Package/Title/
+    Description/Origin/Version/OldVersion/Priority/Section/Arch/ExtraInfo) per schema truth.
+    """
+    node = _check_pbs_node(node)
+    return api._get(f"/nodes/{node}/apt/update") or []
+
+
+def apt_changelog(api: PbsBackend, name: str, node: str = "localhost", version: str | None = None) -> str:
+    """Get a package's changelog text on a PBS node.
+
+    GET /nodes/{node}/apt/changelog?name=…[&version=…]
+
+    Smoke-confirm: shape not live-verified. `name` is validated against PBS's own upstream
+    package-name pattern (identical to PVE's). The returned text is UPSTREAM/package-
+    maintainer-authored (not Proxmox-authored) — classified taint.ADVERSARIAL_TOOLS, like
+    pve_apt_changelog and pmg_apt_changelog. See the validator-block comment above: despite the
+    generated schema's `returns: UPID_SCHEMA` annotation, the upstream Rust handler is
+    synchronous and returns the changelog text directly (cross-checked against the Rust source).
+    """
+    node = _check_pbs_node(node)
+    _check_pbs_apt_package_name(name)
+    params: dict = {"name": name}
+    if version is not None:
+        params["version"] = version
+    return api._get(f"/nodes/{node}/apt/changelog", params=params) or ""
+
+
+def apt_repositories_get(api: PbsBackend, node: str = "localhost") -> dict:
+    """Get the current APT repository configuration of a PBS node.
+
+    GET /nodes/{node}/apt/repositories
+
+    Smoke-confirm: shape not live-verified. Expected {files, errors, digest, infos,
+    standard-repos} per schema truth (APTRepositoriesResult).
+    """
+    node = _check_pbs_node(node)
+    return api._get(f"/nodes/{node}/apt/repositories") or {}
+
+
+def apt_versions(api: PbsBackend, node: str = "localhost") -> list[dict]:
+    """Get installed versions of important Proxmox Backup Server packages on a PBS node.
+
+    GET /nodes/{node}/apt/versions
+
+    Smoke-confirm: shape not live-verified. Expected per-package dicts (Package/Version/
+    OldVersion/Arch/... — the PBS-specific package list, e.g. proxmox-backup-server) per
+    schema truth.
+    """
+    node = _check_pbs_node(node)
+    return api._get(f"/nodes/{node}/apt/versions") or []
+
+
+# ---------------------------------------------------------------------------
 # MUTATION operations — confirm-gated at the server layer
 # ---------------------------------------------------------------------------
+
+def apt_update_refresh(
+    api: PbsBackend, node: str = "localhost", notify: bool | None = None, quiet: bool | None = None,
+) -> str | None:
+    """Resynchronize the APT package index on a PBS node (apt-get update).
+
+    POST /nodes/{node}/apt/update  →  UPID (async PBS task; upstream Rust handler genuinely
+    spawns a WorkerTask here, unlike the changelog endpoint's doc-annotation artifact above).
+
+    Refreshes the index ONLY — does not install or upgrade any package.
+    MUTATION — confirm-gated + audited at the server layer.
+
+    Smoke-confirm: response is a UPID string vs null.
+    """
+    node = _check_pbs_node(node)
+    body = {k: v for k, v in {"notify": notify, "quiet": quiet}.items() if v is not None}
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/nodes/{node}/apt/update", body)
+
+
+def apt_repository_set(
+    api: PbsBackend,
+    path: str,
+    index: int,
+    node: str = "localhost",
+    enabled: bool | None = None,
+    digest: str | None = None,
+) -> None:
+    """Enable/disable one APT repository entry on a PBS node, by file path + index.
+
+    POST /nodes/{node}/apt/repositories  body: {path, index, enabled?, digest?}  →  null
+
+    digest (SHA-256 hex, exactly 64 chars) asserts the current config file digest for
+    optimistic-concurrency — forwarded when the caller supplies it.
+    MUTATION — confirm-gated + audited at the server layer.
+    """
+    node = _check_pbs_node(node)
+    _check_pbs_apt_repo_path(path)
+    _check_pbs_apt_index(index)
+    _check_pbs_apt_digest(digest)
+    body: dict = {"path": path, "index": index}
+    if enabled is not None:
+        body["enabled"] = enabled
+    if digest is not None:
+        body["digest"] = digest
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/nodes/{node}/apt/repositories", body)
+
+
+def apt_repository_add(
+    api: PbsBackend, handle: str, node: str = "localhost", digest: str | None = None,
+) -> None:
+    """Add a standard repository to the configuration on a PBS node.
+
+    PUT /nodes/{node}/apt/repositories  body: {handle, digest?}  →  null
+
+    digest (SHA-256 hex, exactly 64 chars) asserts the current config file digest for
+    optimistic-concurrency — forwarded when the caller supplies it.
+    MUTATION — confirm-gated + audited at the server layer.
+    """
+    node = _check_pbs_node(node)
+    _check_pbs_apt_handle(handle)
+    _check_pbs_apt_digest(digest)
+    body: dict = {"handle": handle}
+    if digest is not None:
+        body["digest"] = digest
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._put(f"/nodes/{node}/apt/repositories", body)
+
 
 def gc_start(api: PbsBackend, store: str) -> str:
     """Start a GC (garbage collection) run on a PBS datastore.
@@ -1096,5 +1310,136 @@ def plan_verify_start(
         note=(
             "Verify is async — returns a UPID; poll task status for completion. "
             "I/O load may be significant on large datastores."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# APT plane PLAN factories (Wave 1b, 2026-07-15)
+# ---------------------------------------------------------------------------
+
+def plan_apt_update_refresh(
+    node: str = "localhost", notify: bool | None = None, quiet: bool | None = None,
+) -> Plan:
+    """Plan for pbs_apt_update_refresh — resynchronize the APT package index (apt-get update).
+
+    No CAPTURE: refreshing the index is idempotent (re-running it any time is always safe) —
+    there is no meaningful "current index state" to snapshot for revert.
+    """
+    node = _check_pbs_node(node)
+    return Plan(
+        action="pbs_apt_update_refresh",
+        target=f"nodes/{node}/apt/update",
+        change=f"resynchronize the APT package index on PBS node '{node}' (apt-get update)",
+        current={},
+        blast_radius=[
+            f"node/{node} APT package index cache — refreshes available-update metadata only; "
+            "does NOT install or upgrade any package (Proxmox's API deliberately does not "
+            "expose upgrade execution — the upgrade itself happens at your console)"
+        ],
+        risk=RISK_LOW,
+        risk_reasons=["no package state change — only refreshes the local index cache"],
+        note="Idempotent — safe to re-run any time; no revert needed.",
+    )
+
+
+def plan_apt_repository_set(
+    api: PbsBackend,
+    path: str,
+    index: int,
+    node: str = "localhost",
+    enabled: bool | None = None,
+    digest: str | None = None,
+) -> Plan:
+    """Plan for pbs_apt_repository_set — enable/disable one repository entry by path+index.
+
+    CAPTURE-or-declare: reads current repository state via GET /apt/repositories (reuses
+    apt_repositories_get) and looks up the file+index entry's current shape; a successful read
+    that simply finds no match degrades to current={} (honest empty snapshot), not a failure —
+    only a raised exception on the read itself sets complete=False.
+    """
+    node = _check_pbs_node(node)
+    _check_pbs_apt_repo_path(path)
+    _check_pbs_apt_index(index)
+    _check_pbs_apt_digest(digest)
+    current: dict = {}
+    complete = True
+    note_capture = ""
+    try:
+        result = api._get(f"/nodes/{node}/apt/repositories") or {}
+        for f in result.get("files") or []:
+            if f.get("path") == path:
+                current["file_digest"] = f.get("digest")
+                repos = f.get("repositories") or []
+                if 0 <= index < len(repos):
+                    current["entry"] = repos[index]
+                break
+    except Exception:
+        complete = False
+        note_capture = " Could not capture current repository state — no guided revert available."
+    changes = {k: v for k, v in {"enabled": enabled}.items() if v is not None}
+    return Plan(
+        action="pbs_apt_repository_set",
+        target=f"nodes/{node}/apt/repositories:{path}#{index}",
+        change=f"change repository entry {index} in {path!r} on PBS node '{node}': {changes}",
+        current=current,
+        blast_radius=[
+            f"node/{node} APT sources — {path!r} entry {index}: changes where packages come "
+            "from; the NEXT apt-get upgrade (run at your console — this API does not execute "
+            "it) pulls from the new set"
+        ],
+        risk=RISK_MEDIUM,
+        risk_reasons=[
+            "changes which repository entry is enabled/disabled — affects package provenance "
+            "for the next upgrade"
+        ],
+        complete=complete,
+        note=(
+            "Revert by re-applying the captured enabled-state with pbs_apt_repository_set."
+            + note_capture
+        ),
+    )
+
+
+def plan_apt_repository_add(
+    api: PbsBackend, handle: str, node: str = "localhost", digest: str | None = None,
+) -> Plan:
+    """Plan for pbs_apt_repository_add — add a standard repository to the configuration.
+
+    CAPTURE-or-declare: reads current repository state via GET /apt/repositories (reuses
+    apt_repositories_get) and looks up the handle's current standard-repo status; a successful
+    read that simply finds no match degrades to current={} (honest empty snapshot — the handle
+    was never added), not a failure — only a raised exception on the read itself sets
+    complete=False.
+    """
+    node = _check_pbs_node(node)
+    _check_pbs_apt_handle(handle)
+    _check_pbs_apt_digest(digest)
+    current: dict = {}
+    complete = True
+    note_capture = ""
+    try:
+        result = api._get(f"/nodes/{node}/apt/repositories") or {}
+        standard = result.get("standard-repos") or []
+        current = next((r for r in standard if r.get("handle") == handle), {})
+    except Exception:
+        complete = False
+        note_capture = " Could not capture current standard-repo status — no guided revert available."
+    return Plan(
+        action="pbs_apt_repository_add",
+        target=f"nodes/{node}/apt/repositories:{handle}",
+        change=f"add standard repository {handle!r} to the configuration on PBS node '{node}'",
+        current=current,
+        blast_radius=[
+            f"node/{node} APT sources — adds {handle!r}; the NEXT apt-get upgrade (run at your "
+            "console — this API does not execute it) additionally pulls packages from it"
+        ],
+        risk=RISK_MEDIUM,
+        risk_reasons=["adds a new package source — affects package provenance for the next upgrade"],
+        complete=complete,
+        note=(
+            "No automatic revert: removing an added repository requires pbs_apt_repository_set "
+            "to disable the resulting entry (there is no repository-delete endpoint)."
+            + note_capture
         ),
     )

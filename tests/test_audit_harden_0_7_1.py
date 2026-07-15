@@ -434,3 +434,123 @@ def test_audit_target_clean_string_passes_through_unchanged(tmp_path, monkeypatc
     entry = led.record("pbs_remote_get", target=normal)
     assert entry["target"] == normal
     assert led.verify().ok
+
+
+# --- Task 5b: _audited's `outcome` may resolve from the mutation result ------------------------
+#
+# Some mutations (pve_backup_delete's underlying backup_delete()) only reveal sync-vs-async
+# AFTER they run -- a task UPID string means "submitted", a None return means "ok" (already
+# finished). Before this change, _audited() bound `outcome` to a plain string at the caller's
+# call site, before fn() ran, so the LEDGER's recorded outcome could never reflect that. This
+# extends `outcome` to accept a callable `(result) -> str`, resolved only after fn() succeeds.
+# String-outcome callers (the other ~360 call sites) must be byte-for-byte unaffected, and a
+# raising fn() must still record today's plain "error" outcome without ever invoking the callable.
+# -------------------------------------------------------------------------------------------
+
+
+def test_audited_outcome_callable_resolved_from_result(tmp_path, monkeypatch):
+    """A callable `outcome` is invoked with fn()'s return value AFTER fn() succeeds, and its
+    resolved string becomes both the ledger's recorded outcome and the mutation envelope's
+    "status" -- e.g. None (sync/no-UPID) resolves to "ok", a UPID string resolves to "submitted"."""
+    server, led = _wire_server(tmp_path, monkeypatch)
+    log = str(tmp_path / "audit.log")
+    import proximo.server as srv
+
+    def resolver(result):
+        return "ok" if result is None else "submitted"
+
+    out_sync = srv._audited("test_action", "node/x", lambda: None,
+                             mutation=True, outcome=resolver)
+    assert out_sync["status"] == "ok"
+    assert _entries(log)[-1]["outcome"] == "ok"
+
+    out_async = srv._audited("test_action", "node/x", lambda: "UPID:pve:1:0:0:0:task:1:root@pam:",
+                              mutation=True, outcome=resolver)
+    assert out_async["status"] == "submitted"
+    assert _entries(log)[-1]["outcome"] == "submitted"
+
+
+def test_audited_outcome_string_still_behaves_identically(tmp_path, monkeypatch):
+    """Regression guard: a plain string `outcome` (the existing contract, ~360 call sites) is
+    unchanged byte-for-byte -- recorded to the ledger and returned as "status" exactly as before."""
+    server, led = _wire_server(tmp_path, monkeypatch)
+    log = str(tmp_path / "audit.log")
+    import proximo.server as srv
+
+    out = srv._audited("test_action", "node/x", lambda: {"ok": True},
+                        mutation=True, outcome="submitted")
+    assert out["status"] == "submitted"
+    assert _entries(log)[-1]["outcome"] == "submitted"
+
+
+def test_audited_outcome_callable_never_invoked_on_failure(tmp_path, monkeypatch):
+    """A raising fn() records the same failure outcome as today ("error"), unconditionally --
+    the outcome callable has no result to resolve from and must never be invoked."""
+    server, led = _wire_server(tmp_path, monkeypatch)
+    log = str(tmp_path / "audit.log")
+    import proximo.server as srv
+
+    calls: list[object] = []
+
+    def resolver(result):
+        calls.append(result)
+        return "should-not-be-recorded"
+
+    def _boom():
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError):
+        srv._audited("test_action", "node/x", _boom, mutation=True, outcome=resolver)
+
+    assert calls == []
+    assert _entries(log)[-1]["outcome"] == "error"
+
+
+def test_audited_outcome_resolver_failure_still_writes_ledger_entry(tmp_path, monkeypatch):
+    """If the outcome RESOLVER raises after fn() succeeded, the mutation is already REAL --
+    it must never be trace-free. The failure is recorded to the ledger (outcome
+    "error:outcome_resolution_failed", detail carrying the resolver's exception type) and THEN
+    the exception propagates, mirroring the taint-marker-failure pattern."""
+    server, led = _wire_server(tmp_path, monkeypatch)
+    log = str(tmp_path / "audit.log")
+    import proximo.server as srv
+
+    ran: list[object] = []
+
+    def _mutation():
+        ran.append(1)
+        return {"done": True}
+
+    def _bad_resolver(result):
+        raise KeyError("resolver bug")
+
+    with pytest.raises(KeyError):
+        srv._audited("test_action", "node/x", _mutation, mutation=True, outcome=_bad_resolver)
+
+    assert ran == [1]  # the mutation really executed
+    entries = _entries(log)
+    assert len(entries) == 1  # ...and it left a ledger trace despite the resolver failure
+    assert entries[0]["outcome"] == "error:outcome_resolution_failed"
+    assert entries[0]["mutation"] is True
+    assert entries[0]["detail"]["error"] == "KeyError"
+    assert led.verify().ok
+
+
+def test_audited_outcome_resolver_nonstr_return_is_resolution_failure(tmp_path, monkeypatch):
+    """A buggy resolver returning a non-str (e.g. None) must not write None into the ledger
+    outcome / envelope status -- it takes the same guarded resolution-failure path: the ledger
+    entry records "error:outcome_resolution_failed" and the failure propagates."""
+    server, led = _wire_server(tmp_path, monkeypatch)
+    log = str(tmp_path / "audit.log")
+    import proximo.server as srv
+
+    with pytest.raises(TypeError):
+        srv._audited("test_action", "node/x", lambda: {"done": True},
+                     mutation=True, outcome=lambda result: None)  # type: ignore[arg-type,return-value]
+
+    entries = _entries(log)
+    assert len(entries) == 1
+    assert entries[0]["outcome"] == "error:outcome_resolution_failed"
+    assert entries[0]["mutation"] is True
+    assert entries[0]["detail"]["error"] == "TypeError"
+    assert led.verify().ok

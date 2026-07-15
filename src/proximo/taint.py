@@ -1,10 +1,13 @@
 """Content-trust taint — the foundation of Proximo's prompt-injection mitigation.
 
-Design: `.scratch/taint-design-v2-2026-07-02.md`. This module is Stage S1 only (classification +
-the marker primitives + the advisory fence wrapper). Wiring taint into `_audited` (setting it),
-`enforce_envelope_forbid` (taint -> forbid coupling), and `enforce_consent` (taint -> consent
-coupling) are later stages — this module is inert on its own; nothing here is called by the
-server yet.
+Design: `.scratch/taint-design-v2-2026-07-02.md`. **Wired live:** classification + marker
+primitives live in this module; `server.py` calls `mark_tainted` from `_audited()`'s
+adversarial-read hook and from `pve_agent_exec`'s own fail-closed guard; `is_tainted` is
+consulted by `envelope.py`'s `enforce_envelope_forbid` (taint -> forbid coupling) and
+`consent.py`'s `enforce_consent` (taint -> consent coupling); the advisory fence wrapper
+`fence_output` labels adversarial returns as data-not-instructions (a courtesy to the model,
+not a control). Server integration is active — the taint marker is set, read, and enforced as
+configured.
 
 **Classification is by CHANNEL, not read-vs-mutation.** `ADVERSARIAL_TOOLS` is a curated set of
 tool names whose RETURN carries guest- or externally-authored bytes an attacker can shape: guest
@@ -102,6 +105,22 @@ ADVERSARIAL_TOOLS: frozenset[str] = frozenset({
     "pve_backup_freshness",  # embeds guest names (free text) in verdicts/flags
     "pve_storage_content", "pdm_pve_qemu_config", "pdm_pve_lxc_config",
     "pdm_pve_qemu_list", "pdm_pve_lxc_list", "pdm_pve_resources", "pbs_snapshots_list",
+    # upstream/package-maintainer-authored free text (Wave 1a, 2026-07-15): unlike the other six
+    # pve_apt_* tools (structured, Proxmox-authored config/status), the changelog body is authored
+    # by whoever maintains the package in the configured repo — an attacker who compromises a
+    # configured repo (or gets a malicious one added) could shape this text.
+    "pve_apt_changelog",
+    # same rationale, Wave 1b (2026-07-15): PBS/PMG's apt_changelog is equally
+    # upstream/package-maintainer-authored free text, not Proxmox-authored.
+    "pbs_apt_changelog", "pmg_apt_changelog",
+    # Wave 3b review finding (2026-07-15): `pbs_acme_tos` makes the PBS host fetch a
+    # CALLER-CHOSEN directory URL and returns the response text — the content source is
+    # whoever controls that URL, a more direct version of the changelog rationale above.
+    "pbs_acme_tos",
+    # Wave 2c (2026-07-15): PBS node OS admin — same rationale as pve_node_syslog/journal/
+    # pve_task_log above: free-text logs carry externally-authored bytes (attacker-influenced
+    # process/service output can land in a task log or the system journal).
+    "pbs_node_journal", "pbs_node_syslog", "pbs_node_task_log",
 })
 
 

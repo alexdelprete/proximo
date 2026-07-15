@@ -325,7 +325,7 @@ def pve_network_iface_create(
     `options` carries type-dependent fields (address, netmask, gateway, bridge_ports, …). To
     update an existing interface instead use pve_network_iface_update. Dry-run by default (returns
     a PLAN); confirm=True stages the interface, synchronously, and returns {status, result} —
-    result is often None.
+    result is often None. RISK_MEDIUM (staged change, reversible before apply).
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"nodes/{node or cfg.node}/network/{iface}"
@@ -350,7 +350,7 @@ def pve_network_iface_update(
     `options` carries fields to update (address, netmask, bridge_ports, …); the interface's type
     is preserved automatically and cannot be changed here — recreate via pve_network_iface_create
     for a type change. Dry-run by default (returns a PLAN); confirm=True stages the update and
-    returns {status, result} — result is often None.
+    returns {status, result} — result is often None. RISK_MEDIUM (staged change, reversible before apply).
     """
     cfg, api, _, _ = _proximo_server._svc()
     tgt = f"nodes/{node or cfg.node}/network/{iface}"

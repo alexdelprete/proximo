@@ -409,9 +409,14 @@ def pve_node_startall(
                  lambda: plan_node_startall(node, vms))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
+    # node_startall() may return None for a synchronous, already-finished start rather than a
+    # task UPID (backends.py's own documented contract: "Returns a task UPID or None") -- a
+    # fixed outcome="submitted" would then falsely claim an in-flight task, in BOTH the returned
+    # status and the ledger's own record. _audited()'s callable-outcome form resolves the honest
+    # label from the actual result, after node_startall() runs, so the ledger is honest too.
     return _audited("pve_node_startall", tgt,
                     lambda: api.node_startall(node, vms),
-                    mutation=True, outcome="submitted",
+                    mutation=True, outcome=lambda result: "ok" if result is None else "submitted",
                     detail={"confirmed": True, **({"vms": vms} if vms else {})})
 
 
@@ -435,9 +440,14 @@ def pve_node_stopall(
                  lambda: plan_node_stopall(node, vms))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
+    # node_stopall() may return None for a synchronous, already-finished stop rather than a
+    # task UPID (backends.py's own documented contract: "Returns a task UPID or None") -- a
+    # fixed outcome="submitted" would then falsely claim an in-flight task, in BOTH the returned
+    # status and the ledger's own record. _audited()'s callable-outcome form resolves the honest
+    # label from the actual result, after node_stopall() runs, so the ledger is honest too.
     return _audited("pve_node_stopall", tgt,
                     lambda: api.node_stopall(node, vms),
-                    mutation=True, outcome="submitted",
+                    mutation=True, outcome=lambda result: "ok" if result is None else "submitted",
                     detail={"confirmed": True, **({"vms": vms} if vms else {})})
 
 
@@ -463,7 +473,13 @@ def pve_node_migrateall(
                  lambda: plan_node_migrateall(target, node, vms, maxworkers))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
+    # node_migrateall() may return None for a synchronous, already-finished migration rather
+    # than a task UPID (backends.py's own documented contract: "Returns a task UPID or None")
+    # -- a fixed outcome="submitted" would then falsely claim an in-flight task, in BOTH the
+    # returned status and the ledger's own record. _audited()'s callable-outcome form resolves
+    # the honest label from the actual result, after node_migrateall() runs, so the ledger is
+    # honest too.
     return _audited("pve_node_migrateall", tgt,
                     lambda: api.node_migrateall(target, node, vms, maxworkers),
-                    mutation=True, outcome="submitted",
+                    mutation=True, outcome=lambda result: "ok" if result is None else "submitted",
                     detail={"target": target, "confirmed": True})

@@ -1,3 +1,19 @@
+proximo (0.22.0-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.22.0 (minor — the full-surface campaign opens: 365 -> 493 tools).
+    APT/patching tools on all three planes (visibility + repo config; no upgrade
+    execution exists upstream and the docstrings say so). PBS plane opened wide:
+    identity/tokens/ACL, AD/LDAP/OpenID realms + TFA, node OS admin, disks,
+    notifications, ACME — every tool built from the live upstream schema and
+    adversarially reviewed. SETUP.md privsep fix (user AND token grants; dead-token
+    happy path reported by first external production adopter). 64-finding coverage
+    audit of the prior 365 tools closed (outcome honesty for bulk node ops, fail-closed
+    resolver, an exact-payload confirm-sweep harness). pbs_acme_tos classified
+    adversarial + https-only URL validation. Packaging unchanged; not distributed —
+    build-your-own from debian/.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Wed, 15 Jul 2026 14:30:00 +0000
+
 proximo (0.21.1-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.21.1 (patch — the truth-audit release). Secret-file permission

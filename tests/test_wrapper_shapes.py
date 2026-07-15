@@ -556,6 +556,16 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
     # guest-disk identifier (scsi0/virtio0/...) the global "disk" sentinel is shaped for.
     "pve_node_disk_initgpt": {"disk": "/dev/sdb"},
     "pve_node_disk_wipe": {"disk": "/dev/sdb"},
+    # PBS disk admin (Wave 2d) "disk"/"devices" are BARE /sys/block/<name> basenames (pbs_disks.
+    # _check_pbs_wholedisk / _check_pbs_disk_or_partition) — the OPPOSITE convention from PVE's
+    # /dev/-prefixed form above, and unrelated to the guest-disk (scsi0) global sentinel too.
+    "pbs_node_disk_smart": {"disk": "sda"},
+    "pbs_node_disk_initgpt": {"disk": "sda"},
+    "pbs_node_disk_wipe": {"disk": "sda1"},
+    "pbs_node_disk_directory_create": {"disk": "sda", "filesystem": "ext4"},
+    "pbs_node_disk_zfs_create": {
+        "devices": "sda,sdb", "raidlevel": "mirror", "ashift": 12, "compression": "lz4",
+    },
     # Guest backup-job selection (vmid/all_guests/pool) is mutually exclusive; leave only vmid set.
     "pve_backup_job_create": {"pool": None, "exclude": None, "all_guests": None},
     # cloud-init and template-convert are QEMU-only on Proxmox (kind="lxc" raises).
@@ -590,6 +600,48 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
     # pve_agent_info's "command" is a qemu-agent info-command enum (backends._VALID_AGENT_INFO_CMDS),
     # not an argv list like ct_exec's "command" — keep the tool's own default (already valid).
     "pve_agent_info": {"command": "info"},
+    # apt "digest" is PVE's content-hash optimistic-lock field (backends._check_apt_digest wants
+    # hex, <=80 chars) — unlike the generic alnum-token sentinel fallback ("sentineldigest").
+    "pve_apt_repository_set": {"digest": "0" * 40},
+    "pve_apt_repository_add": {"digest": "0" * 40},
+    # PBS apt "digest" is stricter: pbs._check_pbs_apt_digest wants EXACTLY 64 lowercase hex
+    # chars (a SHA-256 digest, per PBS's own upstream schema), unlike PVE/PMG's permissive
+    # hex-up-to-80-chars validator.
+    "pbs_apt_repository_set": {"digest": "0" * 64},
+    "pbs_apt_repository_add": {"digest": "0" * 64},
+    # PMG apt "digest" mirrors PVE's shape (hex, <=80 chars) — same override reason as PVE above.
+    "pmg_apt_repository_set": {"digest": "0" * 40},
+    "pmg_apt_repository_add": {"digest": "0" * 40},
+    # PBS ACL "auth_id"/"group" are mutually exclusive on this endpoint (pbs_access._check_acl_
+    # principal requires EXACTLY one) — the generic sweep synthesizes both, so pin auth_id to a
+    # valid PBS 'user@realm' shape and explicitly null out group to avoid the "exactly one" error.
+    # PBS's own auth-id pattern is unrelated to the global "userid" sentinel's PVE shape, so give
+    # it its own value here too.
+    "pbs_acl_update": {"auth_id": "testuser@pbs", "group": None},
+    # pbs_permissions_get's "auth_id" needs the same PBS 'user@realm' shape as above — the
+    # generic alnum fallback ("sentinelauth") fails pbs_access._check_authid.
+    "pbs_permissions_get": {"auth_id": "testuser@pbs"},
+    # pbs_tfa_add's "tfa_type" is a fixed enum (totp/u2f/webauthn/recovery/yubico —
+    # pbs_access._check_tfa_type), not a free alnum token like the generic fallback synthesizes.
+    "pbs_tfa_add": {"tfa_type": "totp"},
+    # PBS notifications (Wave 3a) "digest" needs the same 64-char lowercase-hex SHA-256 shape as
+    # pbs_apt's own digest override above (pbs_notifications._check_digest) — the generic alnum
+    # fallback ("sentineldigest") fails it. matcher_set's "mode" is a closed {all,any} enum
+    # (pbs_notifications._check_matcher_mode), unrelated to the global "mode" sentinel's vzdump
+    # backup-mode shape ("snapshot").
+    "pbs_notification_endpoint_update": {"digest": "0" * 64},
+    "pbs_notification_matcher_set": {"mode": "all", "digest": "0" * 64},
+    # PBS ACME (Wave 3b) plugin update "digest" needs the same 64-char lowercase-hex SHA-256
+    # shape as pbs_notifications' own digest override above (pbs_acme._check_digest) — the
+    # generic alnum fallback ("sentineldigest") fails it.
+    "pbs_acme_plugin_update": {"digest": "0" * 64},
+    # PBS ACME directory/ToS URLs are validated https-only (pbs_acme._check_acme_url,
+    # Wave 3b review) — the generic alnum sentinel fails the scheme check.
+    "pbs_acme_tos": {"directory": "https://sentinel-ca.example.com/directory"},
+    "pbs_acme_account_create": {
+        "directory": "https://sentinel-ca.example.com/directory",
+        "tos_url": "https://sentinel-ca.example.com/tos",
+    },
 }
 
 # Parameters excluded from synthesis entirely (handled specially, or would only broaden/weaken
@@ -645,11 +697,11 @@ IDENTITY_EXEMPT: dict[str, frozenset[str]] = {
     # ...), never the new VALUES — so a passed value never appears verbatim anywhere in the plan.
     # cluster_ops.py, plan_ha_rule_update().
     "pve_ha_rule_update": frozenset({"resources", "nodes", "rule_type", "affinity"}),
-    # plan_backup_job_create(job_id, schedule, storage, **kw) only reflects job_id/schedule/
-    # storage in its change text — the guest-selection kwargs (vmid/all_guests/pool/exclude)
-    # are validated (_check_backup_selection) but never echoed into the plan.
-    # backup_schedules.py, plan_backup_job_create().
-    "pve_backup_job_create": frozenset({"vmid"}),
+    # NOTE: plan_backup_job_create() used to be exempted here (its change text only reflected
+    # job_id/schedule/storage — the guest-selection kwargs were validated but never echoed).
+    # Fixed 2026-07-14 audit (backup_schedules.py: change now embeds `{kw}`, matching sibling
+    # _create/_update plan factories) — vmid now DOES appear in the plan, so this tool no
+    # longer over-exempts; the entry was removed rather than left stale/contradictory.
     # --- read-tool exemptions (test_read_wrapper_request_shape) ---
     # pve_tasks_list's ledger target is the NODE being queried (node or cfg.node); vmid/typefilter/
     # statusfilter are query-side filters passed to tasks_list(), never folded into the target.
@@ -673,6 +725,14 @@ IDENTITY_EXEMPT: dict[str, frozenset[str]] = {
     "pve_firewall_options_get": frozenset({"vmid"}),
     "pve_firewall_rules_list": frozenset({"vmid"}),
     "pve_ipset_list": frozenset({"vmid"}),
+    # pbs_acl_get's ledger target is the fixed "pbs/access/acl" — mirrors pdm_acl_list exactly:
+    # `path` is an optional exact-match filter passed to pbs_access.acl_get(), not folded into
+    # the target.
+    "pbs_acl_get": frozenset({"path"}),
+    # pbs_permissions_get's ledger target embeds auth_id (f"pbs/access/permissions/{auth_id}")
+    # but NOT path — path is an optional scoping filter passed to pbs_access.permissions_get(),
+    # not folded into the target (same "list-filter, not identity" treatment as pbs_acl_get above).
+    "pbs_permissions_get": frozenset({"path"}),
 }
 
 

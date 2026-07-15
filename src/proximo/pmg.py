@@ -107,6 +107,72 @@ def _check_service(service: str) -> str:
     return s
 
 
+# --- Wave 1b: PMG APT-plane validators ---
+# Schema truth: .scratch/api-schemas-2026-07-15/methods-pmg.json (`/apt`) cross-checked against
+# the live api-viewer full schema (pmg.proxmox.com/pmg-docs/api-viewer/apidoc.js, fetched
+# 2026-07-15 since the scratch snapshot carries no param-level detail). PMG's apt shapes mirror
+# PVE's exactly (same permissive digest/handle validators, same synchronous changelog text
+# return) — unlike PBS, which documents strict sha256-digest and lowercase-handle patterns.
+_PMG_APT_PACKAGE_RE = re.compile(r"^[a-z0-9][-+.a-z0-9:]+\Z")
+_PMG_APT_REPO_PATH_RE = re.compile(r"^/[^\x00-\x1f\x7f]*\Z")
+_PMG_APT_HANDLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}\Z")
+_PMG_APT_DIGEST_RE = re.compile(r"^[0-9a-fA-F]{1,80}\Z")
+
+
+def _check_pmg_apt_package_name(name: str) -> str:
+    """Validate an APT package name — PMG's own upstream changelog pattern (identical to PVE's)."""
+    s = str(name)
+    if not _PMG_APT_PACKAGE_RE.match(s):
+        raise ProximoError(
+            f"invalid package name: {name!r} "
+            "(must start with lowercase alnum, then lowercase alnum/-+.:, min length 2)"
+        )
+    return s
+
+
+def _check_pmg_apt_repo_path(path: str) -> str:
+    """Validate an APT repository config file path (absolute, no control chars, no traversal)."""
+    s = str(path)
+    if not _PMG_APT_REPO_PATH_RE.match(s):
+        raise ProximoError(f"invalid repository file path: {path!r} (must be an absolute path)")
+    if ".." in s.split("/"):
+        raise ProximoError(f"path traversal not allowed in repository path: {path!r}")
+    return s
+
+
+def _check_pmg_apt_index(index: int) -> int:
+    """Validate a repository entry index (0-based position within its file)."""
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise ProximoError(f"invalid repository index: {index!r} (must be a non-negative integer)")
+    return index
+
+
+# PMG APT digest/handle validators below are client-side tightening: PMG's schema places no pattern
+# constraints (digest: maxLength 80 only; handle: unconstrained). Defensive for real-world Proxmox
+# values (hex digests, alnum-hyphen handles), not schema-mandated.
+def _check_pmg_apt_handle(handle: str) -> str:
+    """Validate a standard-repository handle (shape-only — PMG's schema documents no fixed
+    pattern, same posture as PVE's shape-only validator)."""
+    s = str(handle)
+    if not _PMG_APT_HANDLE_RE.match(s):
+        raise ProximoError(
+            f"invalid repository handle: {handle!r} "
+            "(must start with alnum, then alnum/hyphen, max 64 chars)"
+        )
+    return s
+
+
+def _check_pmg_apt_digest(digest: str | None) -> str | None:
+    """Validate an optional optimistic-concurrency digest (hex, <=80 chars per schema — PMG's
+    schema documents maxLength 80 with no pattern, same posture as PVE)."""
+    if digest is None:
+        return None
+    s = str(digest)
+    if not _PMG_APT_DIGEST_RE.match(s):
+        raise ProximoError(f"invalid digest: {digest!r} (expected hex string, max 80 chars)")
+    return s
+
+
 # Valid quarantine action values (pmgsh ls-verified path: POST /quarantine/content).
 _QUARANTINE_ACTIONS = frozenset({
     "deliver", "delete", "mark-seen", "mark-unseen", "blocklist", "welcomelist",
@@ -461,6 +527,136 @@ def node_status(api: PmgBackend, node: str) -> dict:
     """
     node = _check_node(node)
     return api._get(f"/nodes/{node}/status") or {}
+
+
+# ---------------------------------------------------------------------------
+# APT plane (Wave 1b, 2026-07-15): patch-visibility + repository governance.
+# Schema truth: .scratch/api-schemas-2026-07-15/methods-pmg.json (`/apt`) + the live api-viewer
+# full schema (pmg.proxmox.com/pmg-docs/api-viewer/apidoc.js) — PMG's shapes mirror PVE's
+# exactly (see the validator-block comment above). HONESTY LINE (every apt_* docstring in this
+# plane, mirrored from PVE Wave 1a): Proxmox's API deliberately does not expose upgrade
+# execution; the upgrade itself happens at your console. These methods govern visibility and
+# repo config only.
+# ---------------------------------------------------------------------------
+
+def apt_updates_list(api: PmgBackend, node: str) -> list[dict]:
+    """List available package updates (cached apt index) on a PMG node.
+
+    GET /nodes/{node}/apt/update
+
+    Smoke-confirm: shape not live-verified. Expected per-package dicts per schema truth.
+    """
+    node = _check_node(node)
+    return api._get(f"/nodes/{node}/apt/update") or []
+
+
+def apt_changelog(api: PmgBackend, name: str, node: str, version: str | None = None) -> str:
+    """Get a package's changelog text on a PMG node.
+
+    GET /nodes/{node}/apt/changelog?name=…[&version=…]
+
+    Smoke-confirm: shape not live-verified. `name` is validated against PMG's own upstream
+    package-name pattern (identical to PVE's). The returned text is UPSTREAM/package-
+    maintainer-authored (not Proxmox-authored) — classified taint.ADVERSARIAL_TOOLS, like
+    pve_apt_changelog and pbs_apt_changelog.
+    """
+    node = _check_node(node)
+    _check_pmg_apt_package_name(name)
+    params: dict = {"name": name}
+    if version is not None:
+        params["version"] = version
+    return api._get(f"/nodes/{node}/apt/changelog", params=params) or ""
+
+
+def apt_repositories_get(api: PmgBackend, node: str) -> dict:
+    """Get the current APT repository configuration of a PMG node.
+
+    GET /nodes/{node}/apt/repositories
+
+    Smoke-confirm: shape not live-verified. Expected {files, errors, digest, infos,
+    standard-repos} per schema truth.
+    """
+    node = _check_node(node)
+    return api._get(f"/nodes/{node}/apt/repositories") or {}
+
+
+def apt_versions(api: PmgBackend, node: str) -> list[dict]:
+    """Get installed versions of important Proxmox packages on a PMG node.
+
+    GET /nodes/{node}/apt/versions
+
+    Smoke-confirm: shape not live-verified. Expected per-package dicts per schema truth.
+    """
+    node = _check_node(node)
+    return api._get(f"/nodes/{node}/apt/versions") or []
+
+
+def apt_update_refresh(
+    api: PmgBackend, node: str, notify: bool | None = None, quiet: bool | None = None,
+) -> str | None:
+    """Resynchronize the APT package index on a PMG node (apt-get update).
+
+    POST /nodes/{node}/apt/update  →  task identifier string (async)
+
+    Refreshes the index ONLY — does not install or upgrade any package.
+    MUTATION — confirm-gated + audited at the server layer.
+
+    Smoke-confirm: exact return shape (task id string vs null).
+    """
+    node = _check_node(node)
+    body = {k: v for k, v in {"notify": notify, "quiet": quiet}.items() if v is not None}
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/nodes/{node}/apt/update", body)
+
+
+def apt_repository_set(
+    api: PmgBackend,
+    path: str,
+    index: int,
+    node: str,
+    enabled: bool | None = None,
+    digest: str | None = None,
+) -> None:
+    """Enable/disable one APT repository entry on a PMG node, by file path + index.
+
+    POST /nodes/{node}/apt/repositories  body: {path, index, enabled?, digest?}  →  null
+
+    digest (hex, <=80 chars) asserts the current config file digest for optimistic-concurrency —
+    forwarded when the caller supplies it.
+    MUTATION — confirm-gated + audited at the server layer.
+    """
+    node = _check_node(node)
+    _check_pmg_apt_repo_path(path)
+    _check_pmg_apt_index(index)
+    _check_pmg_apt_digest(digest)
+    body: dict = {"path": path, "index": index}
+    if enabled is not None:
+        body["enabled"] = enabled
+    if digest is not None:
+        body["digest"] = digest
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._post(f"/nodes/{node}/apt/repositories", body)
+
+
+def apt_repository_add(
+    api: PmgBackend, handle: str, node: str, digest: str | None = None,
+) -> None:
+    """Add a standard repository to the configuration on a PMG node.
+
+    PUT /nodes/{node}/apt/repositories  body: {handle, digest?}  →  null
+
+    digest (hex, <=80 chars) asserts the current config file digest for optimistic-concurrency —
+    forwarded when the caller supplies it.
+    MUTATION — confirm-gated + audited at the server layer.
+    """
+    node = _check_node(node)
+    _check_pmg_apt_handle(handle)
+    _check_pmg_apt_digest(digest)
+    body: dict = {"handle": handle}
+    if digest is not None:
+        body["digest"] = digest
+    # MUTATION — confirm-gated + audited at the server layer.
+    return api._put(f"/nodes/{node}/apt/repositories", body)
 
 
 def relay_config(api: PmgBackend) -> dict:
@@ -866,6 +1062,137 @@ def plan_postfix_flush(node: str) -> Plan:
             "LOW: standard Postfix operation; temporary connection burst is expected behavior",
         ],
         note="PMG 9.1 live-verified path via pmgsh ls: POST /nodes/{node}/postfix/flush_queues.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# APT plane PLAN factories (Wave 1b, 2026-07-15)
+# ---------------------------------------------------------------------------
+
+def plan_apt_update_refresh(
+    node: str, notify: bool | None = None, quiet: bool | None = None,
+) -> Plan:
+    """Plan for pmg_apt_update_refresh — resynchronize the APT package index (apt-get update).
+
+    No CAPTURE: refreshing the index is idempotent (re-running it any time is always safe) —
+    there is no meaningful "current index state" to snapshot for revert.
+    """
+    node = _check_node(node)
+    return Plan(
+        action="pmg_apt_update_refresh",
+        target=f"pmg/{node}/apt/update",
+        change=f"resynchronize the APT package index on PMG node '{node}' (apt-get update)",
+        current={},
+        blast_radius=[
+            f"node/{node} APT package index cache — refreshes available-update metadata only; "
+            "does NOT install or upgrade any package (Proxmox's API deliberately does not "
+            "expose upgrade execution — the upgrade itself happens at your console)"
+        ],
+        risk=RISK_LOW,
+        risk_reasons=["no package state change — only refreshes the local index cache"],
+        note="Idempotent — safe to re-run any time; no revert needed.",
+    )
+
+
+def plan_apt_repository_set(
+    api: PmgBackend,
+    path: str,
+    index: int,
+    node: str,
+    enabled: bool | None = None,
+    digest: str | None = None,
+) -> Plan:
+    """Plan for pmg_apt_repository_set — enable/disable one repository entry by path+index.
+
+    CAPTURE-or-declare: reads current repository state via GET /apt/repositories (reuses
+    apt_repositories_get) and looks up the file+index entry's current shape; a successful read
+    that simply finds no match degrades to current={} (honest empty snapshot), not a failure —
+    only a raised exception on the read itself sets complete=False.
+    """
+    node = _check_node(node)
+    _check_pmg_apt_repo_path(path)
+    _check_pmg_apt_index(index)
+    _check_pmg_apt_digest(digest)
+    current: dict = {}
+    complete = True
+    note_capture = ""
+    try:
+        result = api._get(f"/nodes/{node}/apt/repositories") or {}
+        for f in result.get("files") or []:
+            if f.get("path") == path:
+                current["file_digest"] = f.get("digest")
+                repos = f.get("repositories") or []
+                if 0 <= index < len(repos):
+                    current["entry"] = repos[index]
+                break
+    except Exception:
+        complete = False
+        note_capture = " Could not capture current repository state — no guided revert available."
+    changes = {k: v for k, v in {"enabled": enabled}.items() if v is not None}
+    return Plan(
+        action="pmg_apt_repository_set",
+        target=f"pmg/{node}/apt/repositories:{path}#{index}",
+        change=f"change repository entry {index} in {path!r} on PMG node '{node}': {changes}",
+        current=current,
+        blast_radius=[
+            f"node/{node} APT sources — {path!r} entry {index}: changes where packages come "
+            "from; the NEXT apt-get upgrade (run at your console — this API does not execute "
+            "it) pulls from the new set"
+        ],
+        risk=RISK_MEDIUM,
+        risk_reasons=[
+            "changes which repository entry is enabled/disabled — affects package provenance "
+            "for the next upgrade"
+        ],
+        complete=complete,
+        note=(
+            "Revert by re-applying the captured enabled-state with pmg_apt_repository_set."
+            + note_capture
+        ),
+    )
+
+
+def plan_apt_repository_add(
+    api: PmgBackend, handle: str, node: str, digest: str | None = None,
+) -> Plan:
+    """Plan for pmg_apt_repository_add — add a standard repository to the configuration.
+
+    CAPTURE-or-declare: reads current repository state via GET /apt/repositories (reuses
+    apt_repositories_get) and looks up the handle's current standard-repo status; a successful
+    read that simply finds no match degrades to current={} (honest empty snapshot — the handle
+    was never added), not a failure — only a raised exception on the read itself sets
+    complete=False.
+    """
+    node = _check_node(node)
+    _check_pmg_apt_handle(handle)
+    _check_pmg_apt_digest(digest)
+    current: dict = {}
+    complete = True
+    note_capture = ""
+    try:
+        result = api._get(f"/nodes/{node}/apt/repositories") or {}
+        standard = result.get("standard-repos") or []
+        current = next((r for r in standard if r.get("handle") == handle), {})
+    except Exception:
+        complete = False
+        note_capture = " Could not capture current standard-repo status — no guided revert available."
+    return Plan(
+        action="pmg_apt_repository_add",
+        target=f"pmg/{node}/apt/repositories:{handle}",
+        change=f"add standard repository {handle!r} to the configuration on PMG node '{node}'",
+        current=current,
+        blast_radius=[
+            f"node/{node} APT sources — adds {handle!r}; the NEXT apt-get upgrade (run at your "
+            "console — this API does not execute it) additionally pulls packages from it"
+        ],
+        risk=RISK_MEDIUM,
+        risk_reasons=["adds a new package source — affects package provenance for the next upgrade"],
+        complete=complete,
+        note=(
+            "No automatic revert: removing an added repository requires pmg_apt_repository_set "
+            "to disable the resulting entry (there is no repository-delete endpoint)."
+            + note_capture
+        ),
     )
 
 

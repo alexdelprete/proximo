@@ -13,6 +13,27 @@ from pydantic import Field
 import proximo.server as _proximo_server
 from proximo.backup_schedules import pbs_scheduled_jobs_list
 from proximo.pbs import (
+    apt_changelog as pbs_apt_changelog_op,
+)
+from proximo.pbs import (
+    apt_repositories_get as pbs_apt_repositories_get_op,
+)
+from proximo.pbs import (
+    apt_repository_add as pbs_apt_repository_add_op,
+)
+from proximo.pbs import (
+    apt_repository_set as pbs_apt_repository_set_op,
+)
+from proximo.pbs import (
+    apt_update_refresh as pbs_apt_update_refresh_op,
+)
+from proximo.pbs import (
+    apt_updates_list as pbs_apt_updates_list_op,
+)
+from proximo.pbs import (
+    apt_versions as pbs_apt_versions_op,
+)
+from proximo.pbs import (
     datastore_list as pbs_datastore_list_op,
 )
 from proximo.pbs import (
@@ -32,6 +53,15 @@ from proximo.pbs import (
 )
 from proximo.pbs import (
     namespace_list as pbs_namespace_list_op,
+)
+from proximo.pbs import (
+    plan_apt_repository_add as pbs_plan_apt_repository_add,
+)
+from proximo.pbs import (
+    plan_apt_repository_set as pbs_plan_apt_repository_set,
+)
+from proximo.pbs import (
+    plan_apt_update_refresh as pbs_plan_apt_update_refresh,
 )
 from proximo.pbs import (
     plan_gc_start as pbs_plan_gc_start,
@@ -935,3 +965,179 @@ def pbs_traffic_control_delete(
     return _audited("pbs_traffic_control_delete", tgt,
                     lambda: pbs_cfg_traffic_control_delete(pbs, name),
                     mutation=True, outcome="ok", detail={"confirmed": True})
+
+
+# --- PBS APT plane (patch-visibility + repository governance, Wave 1b) ---
+#
+# HONESTY LINE, shipped in every docstring below: Proxmox's API deliberately does not expose
+# upgrade execution; the upgrade itself happens at your console. This tool governs visibility
+# and repo config only.
+#
+# PBS is typically single-node — node defaults to "localhost" directly (PbsConfig carries no
+# .node field), matching pbs_tasks_list's existing precedent, unlike PVE/PMG's "node or cfg.node"
+# idiom.
+
+
+@tool()
+def pbs_apt_updates_list(
+    node: Annotated[str, Field(description="PBS node name; defaults to 'localhost' (standard single-node PBS name).")] = "localhost",
+) -> list[dict]:
+    """READ-ONLY: list available package updates (cached apt index) on a PBS node.
+
+    GET /nodes/{node}/apt/update. Smoke-confirm: shape not live-verified — expected per-package
+    dicts (Package/Title/Description/Origin/Version/OldVersion/Priority/Section/Arch). Proxmox's
+    API deliberately does not expose upgrade execution; the upgrade itself happens at your
+    console. This tool governs visibility only. To refresh this list first use
+    pbs_apt_update_refresh. Needs PROXIMO_PBS_* config.
+    """
+    _, pbs = _proximo_server._pbs()
+    return _audited("pbs_apt_updates_list", f"pbs/nodes/{node}/apt/update",
+                    lambda: pbs_apt_updates_list_op(pbs, node))
+
+
+@tool()
+def pbs_apt_changelog(
+    name: Annotated[str, Field(description="Package name to fetch the changelog for (e.g. as listed by pbs_apt_updates_list).")],
+    node: Annotated[str, Field(description="PBS node name; defaults to 'localhost' (standard single-node PBS name).")] = "localhost",
+    version: Annotated[str | None, Field(description="Specific package version to fetch the changelog for; omit for the latest available.")] = None,
+) -> str:
+    """READ-ONLY: get a package's changelog text on a PBS node.
+
+    GET /nodes/{node}/apt/changelog?name=…[&version=…]. Smoke-confirm: shape not live-verified.
+    The returned text is UPSTREAM/package-maintainer-authored (not Proxmox-authored) —
+    classified ADVERSARIAL content (taint.ADVERSARIAL_TOOLS), like pve_apt_changelog and
+    pmg_apt_changelog. Proxmox's API deliberately does not expose upgrade execution; the upgrade
+    itself happens at your console. This tool governs visibility only. Needs PROXIMO_PBS_* config.
+    """
+    _, pbs = _proximo_server._pbs()
+    return _audited("pbs_apt_changelog", f"pbs/nodes/{node}/apt/changelog:{name}",
+                    lambda: pbs_apt_changelog_op(pbs, name, node, version))
+
+
+@tool()
+def pbs_apt_repositories_get(
+    node: Annotated[str, Field(description="PBS node name; defaults to 'localhost' (standard single-node PBS name).")] = "localhost",
+) -> dict:
+    """READ-ONLY: get the current APT repository configuration of a PBS node.
+
+    GET /nodes/{node}/apt/repositories. Smoke-confirm: shape not live-verified — expected
+    {files, errors, digest, infos, standard-repos}. `files[].path` + entry index are the
+    coordinates pbs_apt_repository_set needs; `standard-repos[].handle` is what
+    pbs_apt_repository_add needs. Proxmox's API deliberately does not expose upgrade execution;
+    the upgrade itself happens at your console. This tool governs visibility and repo config
+    only. Needs PROXIMO_PBS_* config.
+    """
+    _, pbs = _proximo_server._pbs()
+    return _audited("pbs_apt_repositories_get", f"pbs/nodes/{node}/apt/repositories",
+                    lambda: pbs_apt_repositories_get_op(pbs, node))
+
+
+@tool()
+def pbs_apt_versions(
+    node: Annotated[str, Field(description="PBS node name; defaults to 'localhost' (standard single-node PBS name).")] = "localhost",
+) -> list[dict]:
+    """READ-ONLY: get installed versions of important Proxmox Backup Server packages on a PBS node.
+
+    GET /nodes/{node}/apt/versions. Smoke-confirm: shape not live-verified — expected
+    per-package dicts (Package/Version/OldVersion + Arch/...). Proxmox's API deliberately does
+    not expose upgrade execution; the upgrade itself happens at your console. This tool governs
+    visibility only. Needs PROXIMO_PBS_* config.
+    """
+    _, pbs = _proximo_server._pbs()
+    return _audited("pbs_apt_versions", f"pbs/nodes/{node}/apt/versions",
+                    lambda: pbs_apt_versions_op(pbs, node))
+
+
+@tool()
+def pbs_apt_update_refresh(
+    node: Annotated[str, Field(description="PBS node name; defaults to 'localhost' (standard single-node PBS name).")] = "localhost",
+    notify: Annotated[bool | None, Field(description="If True, ask PBS to send a notification email about newly available packages.")] = None,
+    quiet: Annotated[bool | None, Field(description="If True, ask PBS to omit progress output suitable only for interactive logging.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the index refresh.")] = False,
+) -> dict:
+    """MUTATION: resynchronize the APT package index on a PBS node (apt-get update).
+
+    RISK_LOW: no package state change — refreshes the local index cache only. Proxmox's API
+    deliberately does not expose upgrade execution; the upgrade itself happens at your console.
+    This tool governs visibility only — it does NOT install or upgrade any package. Idempotent —
+    safe to re-run any time. Dry-run by default (returns a PLAN); confirm=True executes (POST,
+    Smoke-confirm) and returns {"status": "submitted"|"ok", "result": <task UPID | None>}.
+    Needs PROXIMO_PBS_* config.
+    """
+    _, pbs = _proximo_server._pbs()
+    tgt = f"pbs/nodes/{node}/apt/update"
+    plan = _plan("pbs_apt_update_refresh", tgt,
+                 lambda: pbs_plan_apt_update_refresh(node, notify, quiet))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    # apt_update_refresh() is documented "Returns a task UPID" but backends.py types it
+    # `str | None` defensively (same honesty posture as pve_apt_update_refresh) — a fixed
+    # outcome="submitted" would falsely claim an in-flight task if PBS ever answers
+    # synchronously. _audited()'s callable-outcome form resolves the honest label from the
+    # actual result.
+    return _audited("pbs_apt_update_refresh", tgt,
+                    lambda: pbs_apt_update_refresh_op(pbs, node, notify, quiet),
+                    mutation=True, outcome=lambda result: "ok" if result is None else "submitted",
+                    detail={"confirmed": True,
+                            **({"notify": notify} if notify is not None else {}),
+                            **({"quiet": quiet} if quiet is not None else {})})
+
+
+@tool()
+def pbs_apt_repository_set(
+    path: Annotated[str, Field(description="Absolute path of the sources file containing the repository entry (as returned by pbs_apt_repositories_get).")],
+    index: Annotated[int, Field(description="0-based index of the repository entry within that file (as returned by pbs_apt_repositories_get).")],
+    node: Annotated[str, Field(description="PBS node name; defaults to 'localhost' (standard single-node PBS name).")] = "localhost",
+    enabled: Annotated[bool | None, Field(description="Set the entry's enabled state; omit to leave the enabled state unchanged.")] = None,
+    digest: Annotated[str | None, Field(description="Expected SHA-256 content digest (64 hex chars) of the repositories file, for optimistic-concurrency conflict detection.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the change.")] = False,
+) -> dict:
+    """MUTATION: enable/disable one APT repository entry on a PBS node, by file path + index.
+
+    RISK_MEDIUM: changes where packages come from — affects the NEXT upgrade's package
+    provenance. CAPTURE: reads current repository state before planning (also readable directly
+    via pbs_apt_repositories_get); if unreadable -> complete=False. Proxmox's API deliberately
+    does not expose upgrade execution; the upgrade itself happens at your console. This tool
+    governs repo config only. Dry-run by default (returns a PLAN); confirm=True executes (POST,
+    Smoke-confirm) and returns {"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+    """
+    _, pbs = _proximo_server._pbs()
+    tgt = f"pbs/nodes/{node}/apt/repositories:{path}#{index}"
+    plan = _plan("pbs_apt_repository_set", tgt,
+                 lambda: pbs_plan_apt_repository_set(pbs, path, index, node, enabled, digest))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_apt_repository_set", tgt,
+                    lambda: pbs_apt_repository_set_op(pbs, path, index, node, enabled, digest),
+                    mutation=True, outcome="ok",
+                    detail={"path": path, "index": index, "confirmed": True})
+
+
+@tool()
+def pbs_apt_repository_add(
+    handle: Annotated[str, Field(description="Handle identifying the standard repository to add (as returned by pbs_apt_repositories_get's standard-repos list, e.g. 'no-subscription'). PBS requires a lowercase-leading handle.")],
+    node: Annotated[str, Field(description="PBS node name; defaults to 'localhost' (standard single-node PBS name).")] = "localhost",
+    digest: Annotated[str | None, Field(description="Expected SHA-256 content digest (64 hex chars) of the repositories file, for optimistic-concurrency conflict detection.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True executes the addition.")] = False,
+) -> dict:
+    """MUTATION: add a standard repository to the configuration on a PBS node.
+
+    RISK_MEDIUM: adds a new package source — affects the NEXT upgrade's package provenance.
+    CAPTURE: reads current repository state before planning (also readable directly via
+    pbs_apt_repositories_get); if unreadable -> complete=False. No automatic revert: removing an
+    added repository requires pbs_apt_repository_set to disable the resulting entry (there is no
+    repository-delete endpoint). Proxmox's API deliberately does not expose upgrade execution;
+    the upgrade itself happens at your console. This tool governs repo config only. Dry-run by
+    default (returns a PLAN); confirm=True executes (PUT, Smoke-confirm) and returns
+    {"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+    """
+    _, pbs = _proximo_server._pbs()
+    tgt = f"pbs/nodes/{node}/apt/repositories:{handle}"
+    plan = _plan("pbs_apt_repository_add", tgt,
+                 lambda: pbs_plan_apt_repository_add(pbs, handle, node, digest))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pbs_apt_repository_add", tgt,
+                    lambda: pbs_apt_repository_add_op(pbs, handle, node, digest),
+                    mutation=True, outcome="ok",
+                    detail={"handle": handle, "confirmed": True})

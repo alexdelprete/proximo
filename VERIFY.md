@@ -17,14 +17,14 @@ is not a favor a maintainer does you. It's the floor. Hold every tool to it.
 
 ---
 
-## 1. The tool count is real (365) — introspect it, don't read it
+## 1. The tool count is real (493) — introspect it, don't read it
 
 Claims of "N tools" are cheap. Ask the server itself, cold:
 
 ```bash
 uv run python -c "import asyncio; from proximo import server; \
 print(len(asyncio.run(server.mcp.list_tools())))"
-# => 365
+# => 493
 ```
 
 That number is the count of `@mcp.tool()` definitions the FastMCP server actually
@@ -90,7 +90,7 @@ gh attestation verify oci://ghcr.io/john-broadway/proximo:latest --owner john-br
 // the attestation ties the image to the real repo + release workflow:
 "predicateType": "https://slsa.dev/provenance/v1"
 "sourceRepositoryURI": "https://github.com/john-broadway/proximo"
-"buildSignerURI": ".github/workflows/release.yml@refs/tags/v0.21.1"
+"buildSignerURI": ".github/workflows/release.yml@refs/tags/v0.22.0"
 ```
 
 The image also ships an **SPDX SBOM** (`release.yml`, `sbom: true`). Inspect it on any
@@ -104,7 +104,7 @@ in the release path to steal. Each artifact has an attached provenance attestati
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' \
-  https://pypi.org/integrity/proximo-proxmox/0.21.1/proximo_proxmox-0.21.1-py3-none-any.whl/provenance
+  https://pypi.org/integrity/proximo-proxmox/0.22.0/proximo_proxmox-0.22.0-py3-none-any.whl/provenance
 # => 200   (the signed provenance PyPI generated at publish time)
 ```
 

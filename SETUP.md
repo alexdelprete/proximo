@@ -64,7 +64,12 @@ We'll make a **read-only** one first. Pick the GUI *or* the CLI — they do the 
    **Privilege Separation CHECKED**. Click Add, then **copy the Secret now** — it's shown only once.
 4. **Datacenter → Permissions → Add → API Token Permission** → Path `/`, API Token
    `proximo@pve!readonly`, Role **`PVEAuditor`**, Propagate checked. This grants **read-only across
-   everything**.
+   everything** — to the token.
+5. **Datacenter → Permissions → Add → User Permission** → Path `/`, User `proximo@pve`, Role
+   **`PVEAuditor`**, Propagate checked. **Required, not optional:** a `--privsep`-checked token's
+   effective permissions are the *intersection* of the user's grants and the token's grants — the
+   user you just created has no ACL of its own, so without this step the intersection is empty and
+   the token can do nothing.
 
 ### Option B — command line (on the Proxmox host)
 
@@ -73,10 +78,14 @@ pveum user add proximo@pve --comment "Proximo MCP (least-privilege)"
 pveum user token add proximo@pve readonly --privsep 1
 #   ^ copy the printed  value=<secret>  NOW — it is shown only once
 pveum acl modify / --tokens 'proximo@pve!readonly' --roles PVEAuditor
+# A privsep token's effective permissions are the INTERSECTION of the user's ACL and the
+# token's ACL — the freshly-created user above has no ACL of its own, so it needs the role too:
+pveum acl modify / --users 'proximo@pve' --roles PVEAuditor
 ```
 
-`PVEAuditor` = look but never touch. (`--privsep 1` means the token's powers are exactly what *you*
-grant to the token — it does not inherit your admin rights.)
+`PVEAuditor` = look but never touch. (`--privsep 1` means a token's effective permissions are the
+**intersection** of the user's ACL and the token's ACL, not the token's ACL alone — grant the role
+to *both* the token and the user, and the token never inherits your admin rights either way.)
 
 ### Save the token to a file
 
@@ -164,6 +173,9 @@ Say you want the AI to be able to snapshot or restart **one** VM (id `100`) — 
 
 ```bash
 pveum acl modify /vms/100 --tokens 'proximo@pve!readonly' --roles PVEVMAdmin
+# same intersection rule as Step 2 — the privsep token needs the user's ACL to match, scoped
+# to this same path, or the write grant to the token alone is a no-op:
+pveum acl modify /vms/100 --users 'proximo@pve' --roles PVEVMAdmin
 ```
 
 Run `proximo doctor` again — power/snapshot/rollback now appear, **scoped to `/vms/100`**. Everything
@@ -193,7 +205,7 @@ The moment the token is gone, Proximo can do nothing at all.
 | **TLS / certificate error** | Your Proxmox uses a self-signed cert. Point `PROXIMO_CA_BUNDLE` at the cluster CA — don't disable verification. |
 | **401 Unauthorized** | Token secret wrong, or the file isn't exactly `user@realm!tokenid=secret` (no trailing newline). |
 | **`Refusing to start: … group/other-accessible`** | Your token (or audit-key) file is readable by other users on the box. The message names the file — `chmod 600` it, exactly as in Step 2. Proximo won't run with an exposed secret. |
-| **403 / a capability is in `cannot`** | The token lacks that privilege. Run `proximo doctor` — it prints the exact `pveum` command to grant it. If a grant doesn't take on a privsep token, some setups also want it on the user: `pveum acl modify <path> --users proximo@pve --roles <ROLE>`. |
+| **403 / a capability is in `cannot`** | The token lacks that privilege. Run `proximo doctor` — it prints the exact `pveum` command to grant it. For a `--privsep 1` token, effective permissions are the *intersection* of the user's ACL and the token's ACL: a freshly-created user has no ACL of its own, so the user-side grant is **always required**, not situational — `pveum acl modify <path> --users proximo@pve --roles <ROLE>`. |
 | **Connection refused / timeout** | Wrong host or port (the Proxmox API is `:8006`), or a firewall in the way. |
 | **`ct_exec` refused** | Exec is off by default (grants host root). It's opt-in via `PROXIMO_ENABLE_EXEC=1` + a CTID allowlist — only if you truly need it. |
 

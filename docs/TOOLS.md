@@ -1,17 +1,17 @@
 # Proximo — tool reference
 
-The complete external interface of Proximo **v0.21.1**: every MCP tool it exposes, with its inputs. This file is generated from the live server's `tools/list` output (via `lhm.plugin.json`) by [`scripts/gen_tools_doc.py`](../scripts/gen_tools_doc.py) — do not hand-edit.
+The complete external interface of Proximo **v0.22.0**: every MCP tool it exposes, with its inputs. This file is generated from the live server's `tools/list` output (via `lhm.plugin.json`) by [`scripts/gen_tools_doc.py`](../scripts/gen_tools_doc.py) — do not hand-edit.
 
 **Interface conventions.** Proximo speaks the [Model Context Protocol](https://modelcontextprotocol.io); each tool is also self-describing at runtime over the standard `tools/list` method. **Inputs** are the typed parameters listed per tool below. **Output** is a structured JSON result: read tools return the requested data; every mutating tool first returns a **PLAN** preview (the action and its blast radius) rather than acting, and each call is recorded in the tamper-evident audit ledger. Which tools are registered depends on `PROXIMO_SURFACES` and whether the opt-in exec/agent edges are enabled; this reference lists the **full** catalog.
 
-**365 tools** across 7 surfaces.
+**493 tools** across 7 surfaces.
 
 ## Contents
 
 - [Proxmox VE — in-guest agent (opt-in)](#proxmox-ve--in-guest-agent-opt-in) — 6
-- [Proxmox VE (PVE)](#proxmox-ve-pve) — 184
-- [Proxmox Backup Server (PBS)](#proxmox-backup-server-pbs) — 33
-- [Proxmox Mail Gateway (PMG)](#proxmox-mail-gateway-pmg) — 103
+- [Proxmox VE (PVE)](#proxmox-ve-pve) — 191
+- [Proxmox Backup Server (PBS)](#proxmox-backup-server-pbs) — 147
+- [Proxmox Mail Gateway (PMG)](#proxmox-mail-gateway-pmg) — 110
 - [Proxmox Datacenter Manager (PDM)](#proxmox-datacenter-manager-pdm) — 34
 - [Container exec (opt-in)](#container-exec-opt-in) — 4
 - [Core / trust spine](#core--trust-spine) — 1
@@ -335,6 +335,127 @@ executes and returns {"status": "ok"}.
 | `disable` | boolean (nullable) | no | Set to enable/disable the plugin; omit to leave unchanged. (default: `null`) |
 | `digest` | string (nullable) | no | Config digest for optimistic-locking the update against concurrent changes; omit to skip the check. (default: `null`) |
 | `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the update. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pve_apt_changelog`
+
+READ-ONLY: get a package's changelog text on a PVE node.
+
+GET /nodes/{node}/apt/changelog?name=…[&version=…]. Smoke-confirm: shape not live-verified.
+The returned text is UPSTREAM/package-maintainer-authored (not Proxmox-authored) — classified
+ADVERSARIAL content (taint.ADVERSARIAL_TOOLS), unlike the other six pve_apt_* tools. Proxmox's
+API deliberately does not expose upgrade execution; the upgrade itself happens at your
+console. This tool governs visibility only.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Package name to fetch the changelog for (e.g. as listed by pve_apt_updates_list). |
+| `node` | string (nullable) | no | PVE node name to query; defaults to the configured node if omitted. (default: `null`) |
+| `version` | string (nullable) | no | Specific package version to fetch the changelog for; omit for the latest available. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pve_apt_repositories_get`
+
+READ-ONLY: get the current APT repository configuration of a PVE node.
+
+GET /nodes/{node}/apt/repositories. Smoke-confirm: shape not live-verified — expected
+{files, errors, digest, infos, standard-repos}. `files[].path` + entry index are the
+coordinates pve_apt_repository_set needs; `standard-repos[].handle` is what
+pve_apt_repository_add needs. Proxmox's API deliberately does not expose upgrade execution;
+the upgrade itself happens at your console. This tool governs visibility and repo config only.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string (nullable) | no | PVE node name to query; defaults to the configured node if omitted. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pve_apt_repository_add`
+
+MUTATION: add a standard repository to the configuration on a PVE node.
+
+RISK_MEDIUM: adds a new package source — affects the NEXT upgrade's package provenance.
+CAPTURE: reads current repository state before planning (also readable directly via
+pve_apt_repositories_get); if unreadable -> complete=False. No automatic revert: removing an
+added repository requires pve_apt_repository_set to disable the resulting entry (there is no
+repository-delete endpoint). Proxmox's API deliberately does not expose upgrade execution;
+the upgrade itself happens at your console. This tool governs repo config only. Dry-run by
+default (returns a PLAN); confirm=True executes (PUT, Smoke-confirm) and returns
+{"status": "ok", "result": None}.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `handle` | string | yes | Handle identifying the standard repository to add (as returned by pve_apt_repositories_get's standard-repos list, e.g. 'no-subscription'). |
+| `node` | string (nullable) | no | PVE node name to configure; defaults to the configured node if omitted. (default: `null`) |
+| `digest` | string (nullable) | no | Expected content digest of the repositories file, for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the addition. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pve_apt_repository_set`
+
+MUTATION: enable/disable one APT repository entry on a PVE node, by file path + index.
+
+RISK_MEDIUM: changes where packages come from — affects the NEXT upgrade's package
+provenance. CAPTURE: reads current repository state before planning (also readable directly
+via pve_apt_repositories_get); if unreadable -> complete=False. Proxmox's API deliberately
+does not expose upgrade execution; the upgrade itself happens at your console. This tool
+governs repo config only. Dry-run by default (returns a PLAN); confirm=True executes (POST,
+Smoke-confirm) and returns {"status": "ok", "result": None}.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | string | yes | Absolute path of the sources file containing the repository entry (as returned by pve_apt_repositories_get). |
+| `index` | integer | yes | 0-based index of the repository entry within that file (as returned by pve_apt_repositories_get). |
+| `node` | string (nullable) | no | PVE node name to configure; defaults to the configured node if omitted. (default: `null`) |
+| `enabled` | boolean (nullable) | no | Set the entry's enabled state; omit to leave the enabled state unchanged. (default: `null`) |
+| `digest` | string (nullable) | no | Expected content digest of the repositories file, for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the change. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pve_apt_update_refresh`
+
+MUTATION: resynchronize the APT package index on a PVE node (apt-get update).
+
+RISK_LOW: no package state change — refreshes the local index cache only. Proxmox's API
+deliberately does not expose upgrade execution; the upgrade itself happens at your console.
+This tool governs visibility only — it does NOT install or upgrade any package. Idempotent —
+safe to re-run any time. Dry-run by default (returns a PLAN); confirm=True executes (POST,
+Smoke-confirm) and returns {"status": "submitted"|"ok", "result": <task UPID | None>}.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string (nullable) | no | PVE node name to refresh; defaults to the configured node if omitted. (default: `null`) |
+| `notify` | boolean (nullable) | no | If True, ask Proxmox to send a notification email about newly available packages. (default: `null`) |
+| `quiet` | boolean (nullable) | no | If True, ask Proxmox to omit progress output suitable only for interactive logging. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the index refresh. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pve_apt_updates_list`
+
+READ-ONLY: list available package updates (cached apt index) on a PVE node.
+
+GET /nodes/{node}/apt/update. Smoke-confirm: shape not live-verified — expected per-package
+dicts (Package/Title/Description/Origin/Version/OldVersion/Priority/Section/Arch). Proxmox's
+API deliberately does not expose upgrade execution; the upgrade itself happens at your
+console. This tool governs visibility only. To refresh this list first use
+pve_apt_update_refresh.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string (nullable) | no | PVE node name to query; defaults to the configured node if omitted. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pve_apt_versions`
+
+READ-ONLY: get installed versions of important Proxmox packages on a PVE node.
+
+GET /nodes/{node}/apt/versions. Smoke-confirm: shape not live-verified — expected per-package
+dicts (Package/Version/OldVersion + CurrentState/RunningKernel/ManagerVersion). Proxmox's API
+deliberately does not expose upgrade execution; the upgrade itself happens at your console.
+This tool governs visibility only.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string (nullable) | no | PVE node name to query; defaults to the configured node if omitted. (default: `null`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pve_backup`
@@ -1497,7 +1618,7 @@ MUTATION: create a new network interface config (staged — not live until pve_n
 `options` carries type-dependent fields (address, netmask, gateway, bridge_ports, …). To
 update an existing interface instead use pve_network_iface_update. Dry-run by default (returns
 a PLAN); confirm=True stages the interface, synchronously, and returns {status, result} —
-result is often None.
+result is often None. RISK_MEDIUM (staged change, reversible before apply).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -1515,7 +1636,7 @@ MUTATION: update an existing network interface config (staged — not live until
 `options` carries fields to update (address, netmask, bridge_ports, …); the interface's type
 is preserved automatically and cannot be changed here — recreate via pve_network_iface_create
 for a type change. Dry-run by default (returns a PLAN); confirm=True stages the update and
-returns {status, result} — result is often None.
+returns {status, result} — result is often None. RISK_MEDIUM (staged change, reversible before apply).
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3023,6 +3144,396 @@ full config, tokens, and effective ACL.
 
 ## Proxmox Backup Server (PBS)
 
+#### `pbs_acl_get`
+
+READ-ONLY: list PBS ACL entries. Returns each entry's path, roleid, ugid (the
+user/token/group id), ugid_type ('user' or 'group'), and propagate flag. Use pbs_acl_update
+to grant/revoke, or pbs_roles_list to see PBS's fixed set of built-in roles. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | string (nullable) | no | ACL path to filter by; omit to return every entry on the server. (default: `null`) |
+| `exact` | boolean (nullable) | no | If True (with path set), return only entries at the exact path, not the subtree. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acl_update`
+
+MUTATION (HIGH): grant or revoke a PBS ACL entry (PUT /access/acl) — this GRANTS or
+REVOKES AUTHORITY, so it is treated as HIGH risk unconditionally on this plane (PBS's
+ACL-inheritance/shadow semantics are not schema-documented or live-verified here, unlike
+PVE's plan_acl_modify which computes a shadow/widen preview — every change here is flagged
+HIGH rather than risk under-flagging one this module cannot yet analyze).
+
+Dry-run by default (reads the current entries at this exact path for context). Exactly one
+of auth_id (a user or token principal) / group is required — PBS's PUT /access/acl carries
+a single 'role' (not PVE's comma-separated multi-role list) and folds user+token identity
+into one 'auth-id' field. delete=False = grant; delete=True = revoke. confirm=True executes
+and returns a dict; synchronous, no UPID. Use pbs_acl_get to see current entries or
+pbs_roles_list to see PBS's fixed set of built-in roles. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | string | yes | ACL path the entry applies to, e.g. '/datastore/ds1' or '/'. |
+| `role` | string | yes | A single PBS role id to grant or revoke, e.g. 'DatastoreAdmin'. |
+| `auth_id` | string (nullable) | no | User or token principal ('user@realm' or 'user@realm!token-name'). Exactly one of auth_id/group is required. (default: `null`) |
+| `group` | string (nullable) | no | Group principal. Exactly one of auth_id/group is required. (default: `null`) |
+| `propagate` | boolean (nullable) | no | Whether the grant propagates to child paths below `path`; omit for PBS's default (true). (default: `null`) |
+| `delete` | boolean | no | False to grant the role, True to revoke it. (default: `false`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_account_create`
+
+MUTATION: register a new ACME account with the CA. Dry-run by default.
+
+Additive — does not affect any existing account. Pair with pbs_acme_plugin_create (DNS-01
+challenge), then pbs_acme_cert_order, to actually issue a cert; to remove an account instead
+use pbs_acme_account_delete. confirm=True executes (POST /config/acme/account, synchronous —
+PBS returns null) and returns {"status": "ok", "result": None}; the default returns a dry-run
+PLAN dict. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `contact` | string | yes | Contact email address for the ACME account (CA renewal/expiry notices). |
+| `name` | string (nullable) | no | Name to register the account under; omit to let PBS assign a default name. (default: `null`) |
+| `directory` | string (nullable) | no | ACME directory URL of the CA to register with; omit to use PBS's default CA. (default: `null`) |
+| `eab_hmac_key` | string (nullable) | no | HMAC key for External Account Binding (required by some CAs, e.g. ZeroSSL). Redacted from the PLAN preview and the audit ledger, but IS sent to PBS on confirm=True. (default: `null`) |
+| `eab_kid` | string (nullable) | no | Key identifier for External Account Binding; pairs with eab_hmac_key. (default: `null`) |
+| `tos_url` | string (nullable) | no | URL of the CA's terms-of-service to accept; omit to accept the CA's default ToS. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the account registration. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_account_delete`
+
+MUTATION: IRREVERSIBLE — DEACTIVATES an ACME account at the CA (not just local config
+removal) and deletes the local record. Dry-run by default.
+
+HIGH risk: TLS lockout at cert expiry if this is the only account. The account key is
+destroyed — registering again with pbs_acme_account_create creates a DIFFERENT CA account,
+not a restore of this one. force=delete local data even if the CA refuses to deactivate
+(PBS-only escape hatch; PVE's equivalent tool has no such flag). The dry-run PLAN captures the
+current config as evidence only. confirm=True executes (synchronous — PBS returns null) and
+returns {"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Name of the ACME account to deactivate and delete from the CA. |
+| `force` | boolean | no | Delete the local account record even if the CA refuses to deactivate it. (default: `false`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the irreversible deletion. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_account_get`
+
+READ-ONLY: get one PBS ACME account's full config (account/directory/location/tos). Does
+NOT include eab_hmac_key — PBS never returns it on read. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Name of the ACME account. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_account_list`
+
+READ-ONLY: list registered PBS ACME account NAMES (the schema's own response item is
+`{"name": str}` only — use pbs_acme_account_get for full account detail). Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_account_update`
+
+MUTATION: update ACME account contact info. Dry-run by default.
+
+LOW risk — metadata update only, no cert impact. PBS's PUT accepts ONLY contact (no eab/tos
+fields on update — those are create-only). To delete the account instead use
+pbs_acme_account_delete. confirm=True executes (synchronous — PBS returns null) and returns
+{"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Name of the existing ACME account to update. |
+| `contact` | string (nullable) | no | New contact email address for the ACME account; omit to leave unchanged. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the update. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_cert_order`
+
+MUTATION: order a NEW ACME TLS certificate for a PBS node. Dry-run by default.
+
+MEDIUM (mirrors pve_acme_cert_order's rating): the cert is CA-validated and installed ONLY on
+a successful challenge — a failed challenge leaves the existing cert untouched. PBS's schema
+declares a null return (unlike PVE's task UPID) — this does NOT mean issuance is synchronous;
+the ACME challenge round-trip with the CA still happens on the PBS side after this call
+returns, and there is nothing to poll here (no UPID exists to wait on). PBS has NO ACME cert
+revoke (unlike PVE). force=overwrite existing files. confirm=True executes (POST
+/nodes/{node}/certificates/acme/certificate) and returns {"status": "ok", "result": None}.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `force` | boolean | no | Overwrite existing certificate files on the node if already present. (default: `false`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True submits the ACME order. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_cert_renew`
+
+MUTATION: renew the existing ACME TLS certificate for a PBS node. Dry-run by default.
+
+MEDIUM (mirrors pve_acme_cert_renew's rating): CA-validated, installed only on success (a
+failure can't lock you out). Same null-return honesty as pbs_acme_cert_order — PBS declares
+no return value for this call, but the renewal itself still completes asynchronously on the
+PBS side; there is no UPID to poll. force=renew even if not yet within the renewal lead time.
+PBS has NO ACME cert revoke. confirm=True executes (PUT /nodes/{node}/certificates/acme/
+certificate) and returns {"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `force` | boolean | no | Renew even if the current certificate is not yet within its renewal lead time. (default: `false`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True submits the ACME renewal. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_challenge_schema`
+
+READ-ONLY: list the catalog of known ACME challenge plugin types (id/name/schema/type per
+entry) — the parameter schema each plugin `type`+`data` pairing must satisfy. No params.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_directories`
+
+READ-ONLY: list PBS's built-in catalog of known ACME CA directory endpoints (name + URL
+pairs, e.g. Let's Encrypt production/staging). No params. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_plugin_create`
+
+MUTATION: create an ACME DNS challenge plugin. Dry-run by default.
+
+Additive — does not affect any existing plugin. dns_api = DNS provider name (e.g. 'cf',
+'route53'). Reference plugin_id when ordering a cert via a DNS-01 challenge; to remove the
+plugin use pbs_acme_plugin_delete. confirm=True executes (POST /config/acme/plugins,
+synchronous — PBS returns null) and returns {"status": "ok", "result": None}. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin_id` | string | yes | Identifier for the new ACME DNS challenge plugin (1-32 chars, alnum/_/./- ; config/acme/plugins/{plugin_id}). |
+| `plugin_type` | string | yes | ACME challenge plugin type (e.g. 'dns' or 'standalone'). PBS's own schema declares no enum here — validated defensively by charset only; see pbs_acme_challenge_schema for the live catalog of known types. |
+| `dns_api` | string (nullable) | no | DNS provider API name for a DNS-01 challenge (e.g. 'cf', 'route53'); maps to PBS's 'api' field. (default: `null`) |
+| `data` | string (nullable) | no | Base64-encoded plugin credential/config data (e.g. DNS provider API tokens) required by the challenge type. Redacted from the PLAN preview and the audit ledger, but IS sent to PBS on confirm=True. (default: `null`) |
+| `disable` | boolean (nullable) | no | Set to disable the plugin on creation; omit to leave it enabled. (default: `null`) |
+| `validation_delay` | integer (nullable) | no | Extra delay in seconds (0-172800) to wait before requesting validation — copes with long DNS TTLs. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the plugin creation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_plugin_delete`
+
+MUTATION: delete an ACME DNS challenge plugin. Dry-run by default.
+
+HIGH risk: cert auto-renewal breaks for every domain using this plugin — TLS lockout at cert
+expiry unless a fallback challenge method is configured. No UNDO primitive — recreate with
+pbs_acme_plugin_create, but the credentials must be re-supplied by the caller. The dry-run
+PLAN captures the current config (credential redacted) as evidence only; confirm=True executes
+(synchronous — PBS returns null) and returns {"status": "ok", "result": None}. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin_id` | string | yes | Identifier of the ACME DNS challenge plugin to delete. |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the deletion. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_plugin_get`
+
+READ-ONLY: get one PBS ACME plugin's full config, INCLUDING the raw `data` credential
+blob (PBS does not strip it on read). Handle the result as sensitive. Needs PROXIMO_PBS_*
+config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin_id` | string | yes | ID of the ACME DNS challenge plugin. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_plugin_update`
+
+MUTATION: update an ACME DNS challenge plugin. Dry-run by default.
+
+MEDIUM risk — invalid new credentials break cert renewal for every domain using this plugin
+at the next attempt. To remove a plugin instead use pbs_acme_plugin_delete. The dry-run PLAN
+includes the plugin's current config with the credential blob redacted (PBS DOES return it on
+read — see module docstring); confirm=True executes (PUT /config/acme/plugins/{id},
+synchronous — PBS returns null) and returns {"status": "ok", "result": None}. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin_id` | string | yes | Identifier of the existing ACME DNS challenge plugin to update. |
+| `dns_api` | string (nullable) | no | New DNS provider API name; maps to PBS's 'api' field. Omit to leave unchanged. (default: `null`) |
+| `data` | string (nullable) | no | New base64-encoded plugin credential/config data; omit to leave unchanged. Redacted from the PLAN preview and the audit ledger, but IS sent to PBS on confirm=True. (default: `null`) |
+| `disable` | boolean (nullable) | no | Set to enable/disable the plugin; omit to leave unchanged. (default: `null`) |
+| `validation_delay` | integer (nullable) | no | New validation-delay in seconds (0-172800); omit to leave unchanged. (default: `null`) |
+| `digest` | string (nullable) | no | Config digest for optimistic-locking the update against concurrent changes; omit to skip the check. (default: `null`) |
+| `delete` | array<string> (nullable) | no | Property names to clear: 'disable' and/or 'validation-delay' (the only two the schema allows). (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the update. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_plugins_list`
+
+READ-ONLY: list all configured PBS ACME DNS challenge plugins, INCLUDING the raw `data`
+credential blob for each (PBS does not strip it on read). Handle the result as sensitive.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_acme_tos`
+
+READ-ONLY: get the Terms-of-Service URL for an ACME directory (or None if the CA
+advertises no ToS). The PBS host fetches the given directory URL live (https-only,
+validated) and the response is authored by whoever controls that URL — classified
+ADVERSARIAL in the taint control for exactly that reason. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `directory` | string (nullable) | no | ACME directory URL to look up the Terms of Service for; omit to use PBS's default CA. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_apt_changelog`
+
+READ-ONLY: get a package's changelog text on a PBS node.
+
+GET /nodes/{node}/apt/changelog?name=…[&version=…]. Smoke-confirm: shape not live-verified.
+The returned text is UPSTREAM/package-maintainer-authored (not Proxmox-authored) —
+classified ADVERSARIAL content (taint.ADVERSARIAL_TOOLS), like pve_apt_changelog and
+pmg_apt_changelog. Proxmox's API deliberately does not expose upgrade execution; the upgrade
+itself happens at your console. This tool governs visibility only. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Package name to fetch the changelog for (e.g. as listed by pbs_apt_updates_list). |
+| `node` | string | no | PBS node name; defaults to 'localhost' (standard single-node PBS name). (default: `"localhost"`) |
+| `version` | string (nullable) | no | Specific package version to fetch the changelog for; omit for the latest available. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_apt_repositories_get`
+
+READ-ONLY: get the current APT repository configuration of a PBS node.
+
+GET /nodes/{node}/apt/repositories. Smoke-confirm: shape not live-verified — expected
+{files, errors, digest, infos, standard-repos}. `files[].path` + entry index are the
+coordinates pbs_apt_repository_set needs; `standard-repos[].handle` is what
+pbs_apt_repository_add needs. Proxmox's API deliberately does not expose upgrade execution;
+the upgrade itself happens at your console. This tool governs visibility and repo config
+only. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name; defaults to 'localhost' (standard single-node PBS name). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_apt_repository_add`
+
+MUTATION: add a standard repository to the configuration on a PBS node.
+
+RISK_MEDIUM: adds a new package source — affects the NEXT upgrade's package provenance.
+CAPTURE: reads current repository state before planning (also readable directly via
+pbs_apt_repositories_get); if unreadable -> complete=False. No automatic revert: removing an
+added repository requires pbs_apt_repository_set to disable the resulting entry (there is no
+repository-delete endpoint). Proxmox's API deliberately does not expose upgrade execution;
+the upgrade itself happens at your console. This tool governs repo config only. Dry-run by
+default (returns a PLAN); confirm=True executes (PUT, Smoke-confirm) and returns
+{"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `handle` | string | yes | Handle identifying the standard repository to add (as returned by pbs_apt_repositories_get's standard-repos list, e.g. 'no-subscription'). PBS requires a lowercase-leading handle. |
+| `node` | string | no | PBS node name; defaults to 'localhost' (standard single-node PBS name). (default: `"localhost"`) |
+| `digest` | string (nullable) | no | Expected SHA-256 content digest (64 hex chars) of the repositories file, for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the addition. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_apt_repository_set`
+
+MUTATION: enable/disable one APT repository entry on a PBS node, by file path + index.
+
+RISK_MEDIUM: changes where packages come from — affects the NEXT upgrade's package
+provenance. CAPTURE: reads current repository state before planning (also readable directly
+via pbs_apt_repositories_get); if unreadable -> complete=False. Proxmox's API deliberately
+does not expose upgrade execution; the upgrade itself happens at your console. This tool
+governs repo config only. Dry-run by default (returns a PLAN); confirm=True executes (POST,
+Smoke-confirm) and returns {"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | string | yes | Absolute path of the sources file containing the repository entry (as returned by pbs_apt_repositories_get). |
+| `index` | integer | yes | 0-based index of the repository entry within that file (as returned by pbs_apt_repositories_get). |
+| `node` | string | no | PBS node name; defaults to 'localhost' (standard single-node PBS name). (default: `"localhost"`) |
+| `enabled` | boolean (nullable) | no | Set the entry's enabled state; omit to leave the enabled state unchanged. (default: `null`) |
+| `digest` | string (nullable) | no | Expected SHA-256 content digest (64 hex chars) of the repositories file, for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the change. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_apt_update_refresh`
+
+MUTATION: resynchronize the APT package index on a PBS node (apt-get update).
+
+RISK_LOW: no package state change — refreshes the local index cache only. Proxmox's API
+deliberately does not expose upgrade execution; the upgrade itself happens at your console.
+This tool governs visibility only — it does NOT install or upgrade any package. Idempotent —
+safe to re-run any time. Dry-run by default (returns a PLAN); confirm=True executes (POST,
+Smoke-confirm) and returns {"status": "submitted"|"ok", "result": <task UPID | None>}.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name; defaults to 'localhost' (standard single-node PBS name). (default: `"localhost"`) |
+| `notify` | boolean (nullable) | no | If True, ask PBS to send a notification email about newly available packages. (default: `null`) |
+| `quiet` | boolean (nullable) | no | If True, ask PBS to omit progress output suitable only for interactive logging. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the index refresh. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_apt_updates_list`
+
+READ-ONLY: list available package updates (cached apt index) on a PBS node.
+
+GET /nodes/{node}/apt/update. Smoke-confirm: shape not live-verified — expected per-package
+dicts (Package/Title/Description/Origin/Version/OldVersion/Priority/Section/Arch). Proxmox's
+API deliberately does not expose upgrade execution; the upgrade itself happens at your
+console. This tool governs visibility only. To refresh this list first use
+pbs_apt_update_refresh. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name; defaults to 'localhost' (standard single-node PBS name). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_apt_versions`
+
+READ-ONLY: get installed versions of important Proxmox Backup Server packages on a PBS node.
+
+GET /nodes/{node}/apt/versions. Smoke-confirm: shape not live-verified — expected
+per-package dicts (Package/Version/OldVersion + Arch/...). Proxmox's API deliberately does
+not expose upgrade execution; the upgrade itself happens at your console. This tool governs
+visibility only. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name; defaults to 'localhost' (standard single-node PBS name). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
 #### `pbs_datastore_create`
 
 MUTATION (MEDIUM): create a new PBS datastore at the given path.
@@ -3287,6 +3798,734 @@ parent namespace or limit recursion depth. Use pbs_namespace_create to add names
 | `max_depth` | integer (nullable) | no | Maximum recursion depth below the parent namespace. (default: `null`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
+#### `pbs_node_cert_delete`
+
+MUTATION (MEDIUM): delete the custom TLS certificate on a PBS node; PBS regenerates a
+self-signed one. Dry-run by default. NOTE: PBS's 'restart' param on this endpoint is
+documented as ignored — not exposed here. confirm=True executes (DELETE
+/nodes/{node}/certificates/custom) and returns {"status": "ok", "result": None}. Recoverable
+by re-uploading (pbs_node_cert_upload). Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the deletion. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_cert_upload`
+
+MUTATION (HIGH, no undo): upload a custom TLS certificate to a PBS node. A malformed
+cert/key can lock you out of the PBS web UI and API. Dry-run by default.
+
+PRIVATE KEY REDACTION: `key` is UNCONDITIONALLY redacted — never appears in the plan, change,
+detail, or ledger. Only {"key": "[redacted]"} is recorded. NOTE: PBS's own schema documents a
+'restart' param on this endpoint as ignored ("UI compatibility parameter") — deliberately not
+exposed here.
+
+confirm=True executes (POST /nodes/{node}/certificates/custom) and returns
+{"status": "ok", "result": [...cert info dicts...]}. Revert with pbs_node_cert_delete. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `certificates` | string | yes | PEM-encoded certificate chain (public, may appear in plans/logs). |
+| `key` | string (nullable) | no | PEM-encoded TLS private key matching the certificate; a secret, unconditionally redacted in all output. (default: `null`) |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `force` | boolean | no | If True, overwrite an existing custom certificate. (default: `false`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the certificate upload. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_certificates_list`
+
+READ-ONLY: list TLS certificates configured on a PBS node. Returns filename/subject/
+issuer/validity dates/fingerprint per certificate. Use pbs_node_cert_upload to add/replace, or
+pbs_node_cert_delete to remove. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_directory_create`
+
+MUTATION: format a disk and mount it as a directory datastore on a PBS node.
+
+RISK_HIGH: FORMATS the named disk immediately — any pre-existing data is destroyed,
+irreversibly. To see what already exists use pbs_node_disk_directory_list; to remove one use
+pbs_node_disk_directory_delete (note: PBS's delete has NO cleanup-disks option — it never
+wipes the disk). Dry-run by default (returns a PLAN); confirm=True executes (POST
+/nodes/{node}/disks/directory, Smoke-confirm) and returns
+{"status": "submitted", "result": <task UPID | None>}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `disk` | string | yes | Bare whole-disk name to format (e.g. 'sda') — NOT a /dev/ path. |
+| `name` | string | yes | Datastore name to create (3-32 chars, alnum/underscore start). |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `filesystem` | string (nullable) | no | Filesystem to format with: 'ext4' or 'xfs'. PBS default is ext4 if omitted. (default: `null`) |
+| `add_datastore` | boolean (nullable) | no | If True, also register a PBS datastore using this directory. (default: `null`) |
+| `removable_datastore` | boolean (nullable) | no | If True, mark the datastore as removable media. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the creation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_directory_delete`
+
+MUTATION: remove a directory datastore's mount unit and config mapping on a PBS node.
+
+RISK_HIGH: irreversibly destroys the datastore mapping. UNLIKE PVE's equivalent, PBS exposes
+NO cleanup-disks option here — the underlying disk data is NEVER wiped by this call, only the
+mount unit and config mapping are removed. This call is SYNCHRONOUS on PBS (unlike PVE's async
+version): confirm=True executes (DELETE /nodes/{node}/disks/directory/{name}) and returns
+{"status": "ok", "result": None} directly, not "submitted". Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Datastore name (directory backend) to remove. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the removal. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_directory_list`
+
+READ-ONLY: list systemd datastore mount units (the directory backend) on a PBS node.
+Returns device/name/path/removable/unitfile/filesystem/options per mount. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_initgpt`
+
+MUTATION: initialize a GPT partition table on a whole PBS disk.
+
+RISK_HIGH: overwrites the existing partition table on the named disk; irreversible — less
+destructive than pbs_node_disk_wipe, which also erases the underlying data and accepts a
+partition target. Dry-run by default (returns a PLAN); confirm=True executes (POST
+/nodes/{node}/disks/initgpt, Smoke-confirm) and returns
+{"status": "submitted", "result": <task UPID | None>}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `disk` | string | yes | Bare WHOLE-disk name to initialize with a new GPT partition table (e.g. 'sda', 'nvme0n1') — NOT a /dev/ path and NOT a partition; overwrites the existing partition table. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `uuid` | string (nullable) | no | Optional UUID to assign to the new GPT table. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the irreversible GPT init. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_smart`
+
+READ-ONLY: get SMART attributes and health for one disk on a PBS node. Returns {status,
+attributes, wearout}. This is the GET form — it does NOT trigger a self-test. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `disk` | string | yes | Bare block device name (e.g. 'sda', 'nvme0n1') — NOT a /dev/ path. As listed by pbs_node_disks_list. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `healthonly` | boolean (nullable) | no | If True, returns only the health status (not the full attribute table). (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_wipe`
+
+MUTATION: wipe ALL data and the partition table on a PBS disk or partition.
+
+RISK_HIGH, NO UNDO: DESTROYS all data, partitions, and filesystems on the named device — more
+destructive than pbs_node_disk_initgpt, which only overwrites the partition table. Unlike
+initgpt, 'disk' here MAY be a partition, not just a whole disk. Dry-run by default (returns a
+PLAN); confirm=True executes (PUT /nodes/{node}/disks/wipedisk, Smoke-confirm) and returns
+{"status": "submitted", "result": <task UPID | None>}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `disk` | string | yes | Bare block device or partition name to wipe (e.g. 'sda', 'sda1', 'nvme0n1p1') — NOT a /dev/ path. ALL data on the target is destroyed. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the irreversible wipe. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_zfs_create`
+
+MUTATION: create a zpool from disks and mount it as a zfs datastore on a PBS node.
+
+RISK_HIGH: FORMATS the named device(s) immediately — any pre-existing data is destroyed,
+irreversibly. Unlike the directory backend, PBS's API has NO delete endpoint for a zfs backend
+at all (module docstring gap #3) — once created, this zpool cannot be destroyed through this
+API. Dry-run by default (returns a PLAN, which names this no-delete gap explicitly);
+confirm=True executes (POST /nodes/{node}/disks/zfs, Smoke-confirm) and returns
+{"status": "submitted", "result": <task UPID | None>}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `devices` | string | yes | Comma-separated bare disk names to consume (e.g. 'sda,sdb') — NOT /dev/ paths. |
+| `name` | string | yes | Datastore name to create (3-32 chars, alnum/underscore start). |
+| `raidlevel` | string | yes | ZFS RAID level: single, mirror, raid10, raidz, raidz2, or raidz3. (No dRAID — PBS's schema doesn't offer it, unlike PVE.) |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `ashift` | integer (nullable) | no | Pool sector size exponent, 9-16 (PBS default 12 if omitted). (default: `null`) |
+| `compression` | string (nullable) | no | ZFS compression algorithm: gzip, lz4, lzjb, zle, zstd, on, or off. (default: `null`) |
+| `add_datastore` | boolean (nullable) | no | If True, also register a PBS datastore using this zpool. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the creation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_zfs_get`
+
+READ-ONLY: get one zpool's status/vdev tree on a PBS node. This endpoint also exists on
+PVE at the identical path+verb, but Proximo has never built a wrapper for it there — a gap in
+Proximo's own PVE coverage, not a PBS-only feature. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | ZFS pool name (must start with a letter). |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disk_zfs_list`
+
+READ-ONLY: list zpools (the zfs backend) on a PBS node. Returns name/health/size/alloc/
+free/frag/dedup per pool (summary only — for one pool's full vdev tree use
+pbs_node_disk_zfs_get). Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_disks_list`
+
+READ-ONLY: list physical disks on a PBS node. Returns name/devpath/disk-type/size/status/
+used/model/serial/wwn/wearout/rpm/gpt/partitions per disk. For one disk's SMART detail use
+pbs_node_disk_smart. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `include_partitions` | boolean (nullable) | no | Also include partitions in the result. (default: `null`) |
+| `skipsmart` | boolean (nullable) | no | Skip SMART checks (faster, less detail). (default: `null`) |
+| `usage_type` | string (nullable) | no | Filter by usage: one of unused, mounted, lvm, zfs, devicemapper, partitions, filesystem. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_dns_get`
+
+READ-ONLY: read a PBS node's DNS resolver configuration. Returns {search, dns1, dns2,
+dns3, digest}. Use pbs_node_dns_set to change it. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost', the standard single-node PBS hostname). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_dns_set`
+
+MUTATION (MEDIUM): update DNS resolver configuration on a PBS node. Dry-run by default —
+the PLAN reads the node's current DNS config first (CAPTURE-or-declare). confirm=True executes
+(PUT /nodes/{node}/dns) and returns {"status": "ok", "result": None}. Needs PROXIMO_PBS_*
+config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `search` | string (nullable) | no | DNS search domain to set. (default: `null`) |
+| `dns1` | string (nullable) | no | Primary DNS resolver IP address. (default: `null`) |
+| `dns2` | string (nullable) | no | Secondary DNS resolver IP address. (default: `null`) |
+| `dns3` | string (nullable) | no | Tertiary DNS resolver IP address. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the DNS change. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_journal`
+
+READ-ONLY: fetch systemd journal lines from a PBS node. Returns a list of journal-line
+strings. Note: since/until here are UNIX-epoch INTEGERS (the /journal convention on both PBS
+and PVE); the free-text date-time-string form is on the /syslog endpoint, not here. For the
+classic syslog view use pbs_node_syslog. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `lastentries` | integer (nullable) | no | Limit to the last N lines; conflicts with a cursor/time range. (default: `null`) |
+| `since` | integer (nullable) | no | Display log since this UNIX epoch (integer); conflicts with startcursor. (default: `null`) |
+| `until` | integer (nullable) | no | Display log until this UNIX epoch (integer); conflicts with endcursor. (default: `null`) |
+| `startcursor` | string (nullable) | no | Start after this journal cursor token; conflicts with since. (default: `null`) |
+| `endcursor` | string (nullable) | no | End before this journal cursor token; conflicts with until. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_network_iface_create`
+
+MUTATION (MEDIUM): create a network interface configuration on a PBS node (staged, written
+to interfaces.new — NOT live until pbs_node_network_reload). Dry-run by default (checks for a
+name collision). confirm=True executes (POST /nodes/{node}/network) and returns
+{"status": "submitted", "result": None}. Apply with pbs_node_network_reload (RISK_HIGH) or
+discard with pbs_node_network_revert. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `iface` | string | yes | New network interface name. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `iface_type` | string (nullable) | no | Interface type: one of loopback, eth, bridge, bond, vlan, alias, unknown. PBS marks this OPTIONAL even on create. (default: `null`) |
+| `options` | object (nullable) | no | Additional interface fields (cidr, gateway, bridge_ports, bond_mode, mtu, autostart, comments, ...) forwarded verbatim. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the creation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_network_iface_delete`
+
+MUTATION (MEDIUM): remove a network interface's staged configuration on a PBS node (NOT
+live until pbs_node_network_reload). Dry-run by default — reads the interface's current
+config. confirm=True executes (DELETE /nodes/{node}/network/{iface}) and returns
+{"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `iface` | string | yes | Network interface name to remove. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the removal. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_network_iface_get`
+
+READ-ONLY: read one network interface's configuration on a PBS node. Needs PROXIMO_PBS_*
+config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `iface` | string | yes | Network interface name, e.g. 'eth0' or 'vmbr0'. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_network_iface_update`
+
+MUTATION (MEDIUM): update a network interface's configuration on a PBS node (staged — NOT
+live until pbs_node_network_reload). Dry-run by default — reads the interface's current
+config. Unlike PVE, PBS does not require re-sending 'type'. confirm=True executes (PUT
+/nodes/{node}/network/{iface}) and returns {"status": "ok", "result": None}. Apply with
+pbs_node_network_reload (RISK_HIGH) or discard with pbs_node_network_revert. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `iface` | string | yes | Existing network interface name to update. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `iface_type` | string (nullable) | no | Interface type: one of loopback, eth, bridge, bond, vlan, alias, unknown; omit to leave unchanged. (default: `null`) |
+| `options` | object (nullable) | no | Interface fields to change (cidr, gateway, bridge_ports, mtu, autostart, comments, ...) forwarded verbatim. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the update. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_network_list`
+
+READ-ONLY: list network interfaces on a PBS node (with config digest). Use
+pbs_node_network_iface_get for one interface's full config. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_network_reload`
+
+MUTATION (HIGH): apply staged network configuration changes on a PBS node — makes
+interfaces.new live. Dry-run by default. *** CONNECTIVITY-LOCKOUT RISK *** a misconfigured
+interface can drop SSH/API access; recovery requires console/physical access. confirm=True
+executes (PUT /nodes/{node}/network) and returns {"status": "ok", "result": None}. Review
+staged changes with pbs_node_network_list first; discard them instead with
+pbs_node_network_revert. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True applies the staged changes. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_network_revert`
+
+MUTATION (LOW): discard staged network configuration changes on a PBS node (interfaces.new
+reverted) — the live config is untouched; safe. Dry-run by default. confirm=True executes
+(DELETE /nodes/{node}/network) and returns {"status": "ok", "result": None}. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True discards the staged changes. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_service_control`
+
+MUTATION: start/stop/restart/reload a service on a PBS node. Dry-run by default — the PLAN
+flags lockout-class services (proxmox-backup/proxmox-backup-proxy/sshd/networking/ifupdown2/
+chrony) as HIGH because stop/restart can sever management access or break backup jobs. There
+is NO auto-undo. confirm=True executes (POST /nodes/{node}/services/{service}/{action}) and
+returns {"status": "ok", "result": None}. Check current state first with
+pbs_node_service_status. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `service` | string | yes | systemd service name to control, e.g. 'proxmox-backup-proxy' or 'sshd'. |
+| `action` | string | yes | Control action: 'start', 'stop', 'restart', or 'reload'. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the service control. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_service_status`
+
+READ-ONLY: get one systemd service's current state on a PBS node. Use
+pbs_node_services_list to list every service; pbs_node_service_control to change run state.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `service` | string | yes | systemd service name, e.g. 'proxmox-backup-proxy' or 'sshd'. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_services_list`
+
+READ-ONLY: list all systemd services on a PBS node. Returns desc/name/service/state/
+unit-state per service. Use pbs_node_service_status for one service's state, or
+pbs_node_service_control to change a service's run state. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_status`
+
+READ-ONLY: read a PBS node's memory/CPU/(root) disk usage. NOTE: PBS's own schema also
+exposes POST /nodes/{node}/status ("Reboot or shutdown the node") — deliberately NOT built
+here (mirrors PVE's identical, also-never-built POST /nodes/{node}/status; too dangerous for
+the default surface, same posture as the excluded node/execute endpoint). Needs PROXIMO_PBS_*
+config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_subscription_check`
+
+MUTATION (LOW): check and refresh a PBS node's subscription status by contacting Proxmox's
+server. Dry-run by default. No key/identity change — status-cache refresh only. confirm=True
+executes (POST /nodes/{node}/subscription) and returns {"status": "ok", "result": None}.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `force` | boolean | no | If True, always re-check even if the cached status is fresh. (default: `false`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the check. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_subscription_delete`
+
+MUTATION (MEDIUM): delete the locally-stored subscription info on a PBS node. Dry-run by
+default. confirm=True executes (DELETE /nodes/{node}/subscription) and returns
+{"status": "ok", "result": None}. Reversible via pbs_node_subscription_set. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the deletion. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_subscription_get`
+
+READ-ONLY: read a PBS node's subscription status. Use pbs_node_subscription_set to
+install/change a key, pbs_node_subscription_check to force a status refresh, or
+pbs_node_subscription_delete to remove the record. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_subscription_set`
+
+MUTATION (MEDIUM): install and validate a subscription key on a PBS node. Dry-run by
+default. confirm=True executes (PUT /nodes/{node}/subscription) and returns
+{"status": "ok", "result": None}. Reversible via pbs_node_subscription_delete. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `key` | string | yes | Subscription key to install. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the installation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_syslog`
+
+READ-ONLY: fetch syslog entries from a PBS node. Returns a list of {n, t} dicts (n=line
+number, t=text). For the systemd journal (with epoch/cursor filtering) use pbs_node_journal
+instead. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `limit` | integer (nullable) | no | Max number of syslog entries to return. (default: `null`) |
+| `start` | integer (nullable) | no | Start line number. (default: `null`) |
+| `since` | string (nullable) | no | Display log since this date-time string. (default: `null`) |
+| `until` | string (nullable) | no | Display log until this date-time string. (default: `null`) |
+| `service` | string (nullable) | no | Filter to one systemd service's lines. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_task_log`
+
+READ-ONLY: retrieve a PBS task's log output by UPID, paginated via start/limit. Use
+pbs_tasks_list to find UPIDs, or pbs_node_task_status for the terminal status only. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `upid` | string | yes | The task's Unique Process ID (UPID) string. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `start` | integer | no | Line offset to start returning log output from (for pagination). (default: `0`) |
+| `limit` | integer | no | Max number of log lines to return. (default: `50`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_task_status`
+
+READ-ONLY: get one PBS task's status by UPID (status/exitstatus/pid/starttime/...). Use
+pbs_tasks_list to find UPIDs, or pbs_node_task_log for the full log. Needs PROXIMO_PBS_*
+config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `upid` | string | yes | The task's Unique Process ID (UPID) string. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_task_stop`
+
+MUTATION (HIGH): stop (cancel) a running PBS task. Dry-run by default — the PLAN warns that
+stopping a backup/restore/verify/sync/prune/GC task mid-flight can leave the datastore or a
+snapshot inconsistent, with NO undo. confirm=True executes (DELETE
+/nodes/{node}/tasks/{upid}) and returns {"status": "ok", "result": None} — a cancellation
+signal, not immediate. Find UPIDs via pbs_tasks_list. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `upid` | string | yes | The task's Unique Process ID (UPID) string to cancel. |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the cancellation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_time_get`
+
+READ-ONLY: read a PBS node's current time and timezone. Returns {localtime, time,
+timezone}. Use pbs_node_time_set to change the timezone. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_node_time_set`
+
+MUTATION (LOW): set the timezone on a PBS node. Dry-run by default — reads the current
+timezone first (also readable via pbs_node_time_get). confirm=True executes (PUT
+/nodes/{node}/time) and returns {"status": "ok", "result": None}. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `timezone` | string | yes | IANA timezone name to set on the node (e.g. UTC, America/Chicago). |
+| `node` | string | no | PBS node name (or 'localhost'). (default: `"localhost"`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the timezone change. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_endpoint_create`
+
+MUTATION: create a PBS notification endpoint. ep_type = gotify|sendmail|smtp|webhook.
+`options` carries the endpoint-specific config. Additive, RISK_LOW. Dry-run by default
+(returns a PLAN — any secret in `options` is masked to "[redacted]" in the preview);
+confirm=True executes (POST .../endpoints/{type}, synchronous — PBS returns null, not a task)
+and returns {"status": "ok", "result": None}. To modify an existing endpoint use
+pbs_notification_endpoint_update. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ep_type` | string | yes | Notification endpoint type: 'gotify', 'sendmail', 'smtp', or 'webhook'. |
+| `name` | string | yes | Unique name for the new notification endpoint (2-32 chars, alnum start). |
+| `comment` | string (nullable) | no | Optional free-text comment stored with the endpoint. (default: `null`) |
+| `disable` | boolean (nullable) | no | If True, create the endpoint disabled. (default: `null`) |
+| `options` | object (nullable) | no | Type-specific config fields, e.g. gotify: {'server':.., 'token':..}; sendmail: {'mailto':[..]}; smtp: {'server':.., 'port':.., 'mailto':[..]}; webhook: {'url':.., 'method':.., 'header':[..], 'secret':[..]}. Credential-shaped keys (token/password/secret/header) are redacted from the PLAN preview and the audit ledger, but ARE sent to PBS on confirm=True. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the creation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_endpoint_delete`
+
+MUTATION: delete a PBS notification endpoint. ep_type = gotify|sendmail|smtp|webhook.
+Dry-run by default — captures current config (secrets masked). confirm=True executes
+(DELETE .../endpoints/{type}/{name}, synchronous — PBS returns null) and returns
+{"status": "ok", "result": None}. No UNDO primitive — matchers referencing this endpoint
+silently fail until it is re-created with pbs_notification_endpoint_create. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ep_type` | string | yes | Notification endpoint type: 'gotify', 'sendmail', 'smtp', or 'webhook'. |
+| `name` | string | yes | Name of the notification endpoint to delete. |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the deletion. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_endpoint_get`
+
+READ-ONLY: get one PBS notification endpoint's full type-specific config. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ep_type` | string | yes | Notification endpoint type: 'gotify', 'sendmail', 'smtp', or 'webhook'. |
+| `name` | string | yes | Name of the notification endpoint. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_endpoint_list`
+
+READ-ONLY: list PBS notification endpoints with their full type-specific config.
+Aggregates GET .../endpoints/{type} across all 4 types (or just one if ep_type is given) —
+PBS's own GET .../endpoints (no type) is a directory index, not a usable list. Each item is
+tagged with its 'type' (the per-type responses don't carry one). Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ep_type` | string (nullable) | no | Optional filter: one of gotify, sendmail, smtp, webhook. Omit to aggregate all 4 types. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_endpoint_update`
+
+MUTATION: update a PBS notification endpoint. ep_type = gotify|sendmail|smtp|webhook.
+Dry-run by default — captures current config into the PLAN (secrets masked); confirm=True
+executes (PUT .../endpoints/{type}/{name}, synchronous — PBS returns null) and returns
+{"status": "ok", "result": None}. No snapshot primitive; re-apply the captured config to
+revert, or use pbs_notification_endpoint_create to make a new one instead. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ep_type` | string | yes | Notification endpoint type: 'gotify', 'sendmail', 'smtp', or 'webhook'. |
+| `name` | string | yes | Name of the existing notification endpoint to update. |
+| `comment` | string (nullable) | no | Optional free-text comment to set on the endpoint. (default: `null`) |
+| `disable` | boolean (nullable) | no | True disables the endpoint; False re-enables it. (default: `null`) |
+| `digest` | string (nullable) | no | Optimistic-lock: 64-char lowercase hex SHA-256 of the config PBS last returned. If set and stale, PBS rejects the update. (default: `null`) |
+| `options` | object (nullable) | no | Type-specific fields to change, same shape as create. Credential-shaped keys (token/password/secret/header) are redacted from the PLAN preview and the audit ledger, but ARE sent to PBS on confirm=True. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the update. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_matcher_delete`
+
+MUTATION: delete a PBS notification matcher. Dry-run by default. confirm=True executes
+(DELETE .../matchers/{name}, synchronous — PBS returns null) and returns
+{"status": "ok", "result": None}. No UNDO primitive — alerts matching this filter go
+un-routed until re-created with pbs_notification_matcher_set. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Name of the notification matcher to delete. |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the deletion. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_matcher_field_values`
+
+READ-ONLY: list all known (field, value) pairs the system currently recognizes for
+matcher rules. No params. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_matcher_fields`
+
+READ-ONLY: list all known metadata field NAMES a matcher's match-field rule can target
+(e.g. 'type', 'datastore'). No params. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_matcher_get`
+
+READ-ONLY: get one PBS notification matcher's full config. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Name of the notification matcher. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_matcher_set`
+
+MUTATION: create-or-update a PBS notification matcher (alert routing rule). One safe read
+of the matchers collection decides create (POST, name in body) vs update (PUT .../{name}) —
+`digest`/`delete` only apply to the update branch. Dry-run by default (returns a PLAN);
+confirm=True executes (synchronous — PBS returns null) and returns
+{"status": "ok", "result": None}. No snapshot primitive — re-apply with this same tool to
+restore after deletion. To remove a matcher use pbs_notification_matcher_delete. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Name of the notification matcher (alert routing rule) to create or update (2-32 chars, alnum start). |
+| `comment` | string (nullable) | no | Optional free-text comment stored with the matcher. (default: `null`) |
+| `mode` | string (nullable) | no | How match-* filters combine: 'all' (default on PBS) or 'any'. (default: `null`) |
+| `match_severity` | array<string> (nullable) | no | Severity levels to match (e.g. ['error','warning']). (default: `null`) |
+| `match_field` | array<string> (nullable) | no | Metadata field filters to match (see pbs_notification_matcher_fields for known names). (default: `null`) |
+| `match_calendar` | array<string> (nullable) | no | Calendar-event time-window filters to match. (default: `null`) |
+| `invert_match` | boolean (nullable) | no | If True, invert the whole filter's match result. (default: `null`) |
+| `target` | array<string> (nullable) | no | Names of endpoints/targets to notify when this matcher fires. (default: `null`) |
+| `disable` | boolean (nullable) | no | If True, disable this matcher without deleting it. (default: `null`) |
+| `digest` | string (nullable) | no | Optimistic-lock (update only): 64-char lowercase hex SHA-256 of the config PBS last returned. Ignored on create — PBS's own create schema has no digest field. (default: `null`) |
+| `delete` | array<string> (nullable) | no | Update only: property names to clear (e.g. ['comment','target']). Ignored on create. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the create/update. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_matchers_list`
+
+READ-ONLY: list all PBS notification matchers (alert routing rules). Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_target_test`
+
+MUTATION: send a REAL test notification to a PBS notification target. Dry-run by default
+(returns a PLAN, nothing is sent); confirm=True SENDS A REAL NOTIFICATION to the target's
+recipients/webhook/gotify server and returns {"status": "ok", "result": None} (synchronous —
+PBS returns null). No config changes. `name` is an existing endpoint or matcher name — see
+pbs_notification_targets_list for target names. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Name of the notification target (endpoint or matcher) to send a test notification to. |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True SENDS A REAL test notification. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_notification_targets_list`
+
+READ-ONLY: list all PBS notification targets (the unified list — name, type, comment,
+disable, origin — across every endpoint type). For an endpoint's full type-specific config
+use pbs_notification_endpoint_get. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_permissions_get`
+
+READ-ONLY: resolve effective privileges for a PBS user/token. Returns a map of ACL path
+to a map of privilege name to propagate-bit — the RESOLVED (inherited + direct) view, unlike
+pbs_acl_get's raw entry list. Use pbs_acl_get to see the raw ACL entries this resolves from.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `auth_id` | string (nullable) | no | User or token to resolve permissions for ('user@realm' or 'user@realm!token-name'); omit for the calling credential's own permissions. (default: `null`) |
+| `path` | string (nullable) | no | ACL path to scope the result to; omit for every path the principal has any privilege on. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
 #### `pbs_prune`
 
 MUTATION: prune backup snapshots per a retention policy. TWO safety gates: confirm
@@ -3308,6 +4547,328 @@ pbs_snapshot_delete instead.
 | `backup_id` | string (nullable) | no | Backup group ID (e.g. VMID/CTID or host name) to scope pruning to. (default: `null`) |
 | `dry_run` | boolean | no | PBS-side preview: True (default) previews only; False actually deletes snapshots. (default: `true`) |
 | `confirm` | boolean | no | Proximo dry-run gate: True executes (subject to dry_run); default only plans. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ad_create`
+
+MUTATION (MEDIUM): create an AD authentication realm. Dry-run by default.
+
+PASSWORD REDACTION: `password` (the AD bind password), when supplied, is UNCONDITIONALLY
+redacted from the plan, detail, and audit ledger (only {"password": "[redacted]"} is
+recorded). confirm=True executes and returns a dict; synchronous, no UPID. Use
+pbs_realm_ad_update to change it afterward, or pbs_realm_ad_delete to remove it. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | New AD realm name. |
+| `server1` | string | yes | Primary AD server address. |
+| `base_dn` | string (nullable) | no | LDAP base DN to search under; optional for AD. (default: `null`) |
+| `bind_dn` | string (nullable) | no | LDAP bind DN for the service account. (default: `null`) |
+| `capath` | string (nullable) | no | Path to a CA certificate file or directory to trust for TLS. (default: `null`) |
+| `comment` | string (nullable) | no | Optional free-text comment. (default: `null`) |
+| `default` | boolean (nullable) | no | True to make this the default realm preselected on login. (default: `null`) |
+| `filter` | string (nullable) | no | Custom LDAP search filter for user sync. (default: `null`) |
+| `mode` | string (nullable) | no | LDAP connection type: 'ldap', 'ldap+starttls', or 'ldaps'. (default: `null`) |
+| `password` | string (nullable) | no | AD bind password for the service account; redacted from all plans/logs/ledger. (default: `null`) |
+| `port` | integer (nullable) | no | AD server port. (default: `null`) |
+| `server2` | string (nullable) | no | Fallback AD server address. (default: `null`) |
+| `sync_attributes` | string (nullable) | no | Comma-separated key=value LDAP-attribute-to-PBS-field sync map, forwarded verbatim. (default: `null`) |
+| `sync_defaults_options` | string (nullable) | no | Default sync-run options string, forwarded verbatim (exact syntax not live-verified). (default: `null`) |
+| `user_classes` | string (nullable) | no | Comma-separated allowed objectClass values for user sync. (default: `null`) |
+| `verify` | boolean (nullable) | no | Whether to verify the AD server's TLS certificate. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ad_delete`
+
+MUTATION (MEDIUM): permanently delete an AD realm. Dry-run by default — the PLAN reads the
+realm's current config and flags that any users authenticating via it lose login access.
+confirm=True executes and returns a dict; synchronous, no UPID. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | AD realm name to delete. |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ad_get`
+
+READ-ONLY: get one AD realm's config. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | AD realm name to look up. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ad_list`
+
+READ-ONLY: list configured AD realms. Use pbs_realm_ad_get for one realm's full config.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ad_update`
+
+MUTATION (MEDIUM): update an AD realm's config. Dry-run by default — the PLAN reads the
+realm's current config first. `password`, if supplied, is redacted identically to
+pbs_realm_ad_create's. confirm=True executes and returns a dict; synchronous, no UPID. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | AD realm name to update. |
+| `base_dn` | string (nullable) | no | LDAP base DN; omit to leave unchanged. (default: `null`) |
+| `bind_dn` | string (nullable) | no | LDAP bind DN; omit to leave unchanged. (default: `null`) |
+| `capath` | string (nullable) | no | CA certificate path; omit to leave unchanged. (default: `null`) |
+| `comment` | string (nullable) | no | Optional free-text comment; omit to leave unchanged. (default: `null`) |
+| `default` | boolean (nullable) | no | Default-realm-on-login flag; omit to leave unchanged. (default: `null`) |
+| `filter` | string (nullable) | no | Custom LDAP search filter; omit to leave unchanged. (default: `null`) |
+| `mode` | string (nullable) | no | LDAP connection type; omit to leave unchanged. (default: `null`) |
+| `password` | string (nullable) | no | New AD bind password; redacted from all plans/logs/ledger. (default: `null`) |
+| `port` | integer (nullable) | no | AD server port; omit to leave unchanged. (default: `null`) |
+| `server1` | string (nullable) | no | Primary AD server address; omit to leave unchanged. (default: `null`) |
+| `server2` | string (nullable) | no | Fallback AD server address; omit to leave unchanged. (default: `null`) |
+| `sync_attributes` | string (nullable) | no | Sync-attribute map string; omit to leave unchanged. (default: `null`) |
+| `sync_defaults_options` | string (nullable) | no | Sync-defaults options string; omit to leave unchanged. (default: `null`) |
+| `user_classes` | string (nullable) | no | Allowed objectClass values; omit to leave unchanged. (default: `null`) |
+| `verify` | boolean (nullable) | no | TLS verification flag; omit to leave unchanged. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ldap_create`
+
+MUTATION (MEDIUM): create an LDAP authentication realm. Dry-run by default. `base_dn` and
+`user_attr` are REQUIRED (unlike AD, which needs neither on create).
+
+PASSWORD REDACTION: `password` is UNCONDITIONALLY redacted identically to
+pbs_realm_ad_create's. confirm=True executes and returns a dict; synchronous, no UPID. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | New LDAP realm name. |
+| `server1` | string | yes | Primary LDAP server address. |
+| `base_dn` | string | yes | LDAP base DN to search under (required for LDAP, unlike AD). |
+| `user_attr` | string | yes | Username attribute used to map a userid to an LDAP dn (required for LDAP). |
+| `bind_dn` | string (nullable) | no | LDAP bind DN for the service account. (default: `null`) |
+| `capath` | string (nullable) | no | Path to a CA certificate file or directory to trust for TLS. (default: `null`) |
+| `comment` | string (nullable) | no | Optional free-text comment. (default: `null`) |
+| `default` | boolean (nullable) | no | True to make this the default realm preselected on login. (default: `null`) |
+| `filter` | string (nullable) | no | Custom LDAP search filter for user sync. (default: `null`) |
+| `mode` | string (nullable) | no | LDAP connection type: 'ldap', 'ldap+starttls', or 'ldaps'. (default: `null`) |
+| `password` | string (nullable) | no | LDAP bind password for the service account; redacted from all plans/logs/ledger. (default: `null`) |
+| `port` | integer (nullable) | no | LDAP server port. (default: `null`) |
+| `server2` | string (nullable) | no | Fallback LDAP server address. (default: `null`) |
+| `sync_attributes` | string (nullable) | no | Comma-separated key=value LDAP-attribute-to-PBS-field sync map, forwarded verbatim. (default: `null`) |
+| `sync_defaults_options` | string (nullable) | no | Default sync-run options string, forwarded verbatim (exact syntax not live-verified). (default: `null`) |
+| `user_classes` | string (nullable) | no | Comma-separated allowed objectClass values for user sync. (default: `null`) |
+| `verify` | boolean (nullable) | no | Whether to verify the LDAP server's TLS certificate. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ldap_delete`
+
+MUTATION (MEDIUM): permanently delete an LDAP realm. Dry-run by default — the PLAN reads
+the realm's current config and flags that any users authenticating via it lose login access.
+confirm=True executes and returns a dict; synchronous, no UPID. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | LDAP realm name to delete. |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ldap_get`
+
+READ-ONLY: get one LDAP realm's config. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | LDAP realm name to look up. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ldap_list`
+
+READ-ONLY: list configured LDAP realms. Use pbs_realm_ldap_get for one realm's full
+config. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_ldap_update`
+
+MUTATION (MEDIUM): update an LDAP realm's config. Dry-run by default — the PLAN reads the
+realm's current config first. `password`, if supplied, is redacted identically to
+pbs_realm_ldap_create's. confirm=True executes and returns a dict; synchronous, no UPID.
+Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | LDAP realm name to update. |
+| `base_dn` | string (nullable) | no | LDAP base DN; omit to leave unchanged. (default: `null`) |
+| `bind_dn` | string (nullable) | no | LDAP bind DN; omit to leave unchanged. (default: `null`) |
+| `capath` | string (nullable) | no | CA certificate path; omit to leave unchanged. (default: `null`) |
+| `comment` | string (nullable) | no | Optional free-text comment; omit to leave unchanged. (default: `null`) |
+| `default` | boolean (nullable) | no | Default-realm-on-login flag; omit to leave unchanged. (default: `null`) |
+| `filter` | string (nullable) | no | Custom LDAP search filter; omit to leave unchanged. (default: `null`) |
+| `mode` | string (nullable) | no | LDAP connection type; omit to leave unchanged. (default: `null`) |
+| `password` | string (nullable) | no | New LDAP bind password; redacted from all plans/logs/ledger. (default: `null`) |
+| `port` | integer (nullable) | no | LDAP server port; omit to leave unchanged. (default: `null`) |
+| `server1` | string (nullable) | no | Primary LDAP server address; omit to leave unchanged. (default: `null`) |
+| `server2` | string (nullable) | no | Fallback LDAP server address; omit to leave unchanged. (default: `null`) |
+| `sync_attributes` | string (nullable) | no | Sync-attribute map string; omit to leave unchanged. (default: `null`) |
+| `sync_defaults_options` | string (nullable) | no | Sync-defaults options string; omit to leave unchanged. (default: `null`) |
+| `user_attr` | string (nullable) | no | Username attribute; omit to leave unchanged. (default: `null`) |
+| `user_classes` | string (nullable) | no | Allowed objectClass values; omit to leave unchanged. (default: `null`) |
+| `verify` | boolean (nullable) | no | TLS verification flag; omit to leave unchanged. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_openid_create`
+
+MUTATION (MEDIUM): create an OpenID authentication realm. Dry-run by default.
+
+CLIENT-KEY REDACTION: `client_key` (the OAuth client secret), when supplied, is
+UNCONDITIONALLY redacted from the plan, detail, and audit ledger (only
+{"client-key": "[redacted]"} is recorded). confirm=True executes and returns a dict;
+synchronous, no UPID. NOTE: the browser-based auth-url/login handshake is out of scope for
+this plane (token-auth-shaped tools only) — see module docstring. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | New OpenID realm name. |
+| `issuer_url` | string | yes | OpenID issuer URL. |
+| `client_id` | string | yes | OpenID client id. |
+| `client_key` | string (nullable) | no | OpenID client secret; redacted from all plans/logs/ledger. (default: `null`) |
+| `comment` | string (nullable) | no | Optional free-text comment. (default: `null`) |
+| `default` | boolean (nullable) | no | True to make this the default realm preselected on login. (default: `null`) |
+| `acr_values` | string (nullable) | no | OpenID ACR list string, forwarded verbatim. (default: `null`) |
+| `audiences` | string (nullable) | no | OpenID audience list string, forwarded verbatim. (default: `null`) |
+| `autocreate` | boolean (nullable) | no | Automatically create PBS users on first login if they don't exist. (default: `null`) |
+| `prompt` | string (nullable) | no | OpenID prompt parameter. (default: `null`) |
+| `scopes` | string (nullable) | no | OpenID scope list, SPACE-separated (schema default: 'email profile'). (default: `null`) |
+| `username_claim` | string (nullable) | no | Claim to use as the unique username; the identity provider must guarantee uniqueness. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_openid_delete`
+
+MUTATION (MEDIUM): permanently delete an OpenID realm. Dry-run by default — the PLAN reads
+the realm's current config and flags that any users authenticating via it lose login access.
+confirm=True executes and returns a dict; synchronous, no UPID. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | OpenID realm name to delete. |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_openid_get`
+
+READ-ONLY: get one OpenID realm's config (never includes client_key). Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | OpenID realm name to look up. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_openid_list`
+
+READ-ONLY: list configured OpenID realms. Use pbs_realm_openid_get for one realm's full
+config. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_openid_update`
+
+MUTATION (MEDIUM): update an OpenID realm's config. Dry-run by default — the PLAN reads
+the realm's current config first. `client_key`, if supplied, is redacted identically to
+pbs_realm_openid_create's. confirm=True executes and returns a dict; synchronous, no UPID.
+
+NOTE: there is NO username_claim parameter here — the live PBS schema makes it create-only
+(set it at pbs_realm_openid_create time); PUT is additionalProperties:false, so accepting it
+here would only hard-fail the whole update server-side. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `realm` | string | yes | OpenID realm name to update. |
+| `issuer_url` | string (nullable) | no | OpenID issuer URL; omit to leave unchanged. (default: `null`) |
+| `client_id` | string (nullable) | no | OpenID client id; omit to leave unchanged. (default: `null`) |
+| `client_key` | string (nullable) | no | New OpenID client secret; redacted from all plans/logs/ledger. (default: `null`) |
+| `comment` | string (nullable) | no | Optional free-text comment; omit to leave unchanged. (default: `null`) |
+| `default` | boolean (nullable) | no | Default-realm-on-login flag; omit to leave unchanged. (default: `null`) |
+| `acr_values` | string (nullable) | no | OpenID ACR list string; omit to leave unchanged. (default: `null`) |
+| `audiences` | string (nullable) | no | OpenID audience list string; omit to leave unchanged. (default: `null`) |
+| `autocreate` | boolean (nullable) | no | Autocreate-on-login flag; omit to leave unchanged. (default: `null`) |
+| `prompt` | string (nullable) | no | OpenID prompt parameter; omit to leave unchanged. (default: `null`) |
+| `scopes` | string (nullable) | no | OpenID scope list, SPACE-separated; omit to leave unchanged. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_pam_get`
+
+READ-ONLY: get the built-in PAM realm's config (comment/default only). Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_pam_set`
+
+MUTATION (MEDIUM): update the built-in PAM realm's comment/default-preselect flag. Dry-run
+by default. PAM has NO delete endpoint — the worst case here is a comment/default change, not
+a lockout. confirm=True executes and returns a dict; synchronous, no UPID. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `comment` | string (nullable) | no | Optional free-text comment; omit to leave unchanged. (default: `null`) |
+| `default` | boolean (nullable) | no | Default-realm-on-login flag; omit to leave unchanged. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_pbs_get`
+
+READ-ONLY: get the built-in PBS-auth realm's config (comment/default only). Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_realm_pbs_set`
+
+MUTATION (MEDIUM): update the built-in PBS-auth realm's comment/default-preselect flag.
+Dry-run by default. This realm has NO delete endpoint — the worst case here is a
+comment/default change, not a lockout. confirm=True executes and returns a dict;
+synchronous, no UPID. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `comment` | string (nullable) | no | Optional free-text comment; omit to leave unchanged. (default: `null`) |
+| `default` | boolean (nullable) | no | Default-realm-on-login flag; omit to leave unchanged. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pbs_realm_sync`
@@ -3422,6 +4983,17 @@ Use pbs_remote_get for one remote's config. Needs PROXIMO_PBS_* config.
 | --- | --- | --- | --- |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
+#### `pbs_roles_list`
+
+READ-ONLY: list PBS's built-in roles. Returns each role's id, privilege list, and
+comment. PBS roles are a FIXED enum (Admin, Audit, NoAccess, Datastore*/Remote*/Tape* roles)
+— unlike PVE, there is no create/update/delete endpoint for PBS roles. Use pbs_acl_update to
+assign a role to a principal. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
 #### `pbs_snapshot_delete`
 
 MUTATION (HIGH): delete a specific backup snapshot (a recovery point) from a PBS
@@ -3519,6 +5091,197 @@ pbs_datastore_create, or pbs_datastore_delete. Needs PROXIMO_PBS_* config.
 | `errors` | boolean (nullable) | no | If True, return only tasks that ended in error. (default: `null`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
+#### `pbs_tfa_add`
+
+MUTATION (MEDIUM): add a TFA entry for a user. Dry-run by default.
+
+SECRET-BEARING RESPONSE for type='recovery': confirm=True's result carries
+{"recovery": [<one-time codes>], ...} — SERVER-GENERATED secret material, shown ONCE and
+never retrievable again. It is never written to the audit ledger (the `detail=` dict below
+never includes 'recovery'/'challenge'/'id'). `password`, if supplied, is UNCONDITIONALLY
+redacted identically to pbs_user_create's. For type='totp', the caller supplies the secret
+(via `totp`) — PBS does not generate one server-side for that type. confirm=True executes and
+returns a dict; synchronous, no UPID. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id to add a TFA entry for, format 'user@realm'. |
+| `tfa_type` | string | yes | TFA entry type: 'totp', 'u2f', 'webauthn', 'recovery', or 'yubico'. |
+| `description` | string (nullable) | no | Optional description to distinguish this entry from the user's others. (default: `null`) |
+| `password` | string (nullable) | no | The ACTING user's own current password (re-authenticates the change); redacted from all plans/logs/ledger. (default: `null`) |
+| `totp` | string (nullable) | no | For type='totp': the totp: URI the caller generated (PBS does not generate this). (default: `null`) |
+| `value` | string (nullable) | no | Registration/verification value (e.g. the current TOTP code, or a WebAuthn/U2F challenge response). (default: `null`) |
+| `challenge` | string (nullable) | no | For u2f: the original challenge string being responded to. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_tfa_delete`
+
+MUTATION (HIGH, IRREVERSIBLE): permanently remove one TFA factor from a user. HIGH because
+it WEAKENS authentication — an account-takeover enabler, and a lockout if it's the user's last
+factor on a TFA-required realm. Dry-run by default — the PLAN flags the permanence and the
+takeover/lockout risk. `password`, if supplied, is redacted identically to pbs_tfa_add's.
+confirm=True executes and returns a dict; synchronous, no UPID. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id, format 'user@realm'. |
+| `tfa_id` | string | yes | TFA entry id to remove. |
+| `password` | string (nullable) | no | The ACTING user's own current password; redacted from all plans/logs/ledger. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_tfa_entry_get`
+
+READ-ONLY: get one TFA entry. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id, format 'user@realm'. |
+| `tfa_id` | string | yes | TFA entry id (from pbs_tfa_user_get). |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_tfa_list`
+
+READ-ONLY: list ALL users' TFA configuration (per-user entries + lock state). Use
+pbs_tfa_user_get to scope to one user. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_tfa_unlock`
+
+MUTATION (HIGH): clear a user's TOTP lockout (PUT /access/users/{userid}/unlock-tfa — note
+the path lives under /access/users/, not /access/tfa/{userid}/). HIGH because it removes the
+anti-brute-force throttle guarding a 6-digit TOTP keyspace — an account-takeover enabler if
+the lockout was triggered by a real guessing attack. Dry-run by default. confirm=True executes
+and returns a dict whose result is a bool: whether the user was previously locked out.
+Synchronous. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id to clear a TOTP lockout for, format 'user@realm'. |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_tfa_update`
+
+MUTATION (MEDIUM): update a TFA entry's description/enabled flag. Dry-run by default —
+the PLAN reads the current entry first. `password`, if supplied, is redacted identically to
+pbs_tfa_add's. confirm=True executes and returns a dict; synchronous, no UPID. Needs
+PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id, format 'user@realm'. |
+| `tfa_id` | string | yes | TFA entry id to update. |
+| `description` | string (nullable) | no | New description; omit to leave unchanged. (default: `null`) |
+| `enable` | boolean (nullable) | no | Whether the entry is currently enabled; False disables it immediately. Omit to leave unchanged. (default: `null`) |
+| `password` | string (nullable) | no | The ACTING user's own current password; redacted from all plans/logs/ledger. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_tfa_user_get`
+
+READ-ONLY: list one user's TFA entries. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id, format 'user@realm'. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_tfa_webauthn_get`
+
+READ-ONLY: get the server-wide WebAuthn relying-party config (id/origin/rp/
+allow-subdomains). Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_tfa_webauthn_set`
+
+MUTATION (MEDIUM): update the server-wide WebAuthn config. Dry-run by default — the PLAN
+reads the current config and calls out that changing `rp_id` WILL break every existing
+WebAuthn credential on the server, and `origin` MAY. confirm=True executes and returns a
+dict; synchronous, no UPID. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rp_id` | string (nullable) | no | Relying party ID (the domain name, no protocol/port/path). Changing this WILL break every existing WebAuthn credential on the server. (default: `null`) |
+| `origin` | string (nullable) | no | Site origin (https:// URL, or http://localhost). Changing this MAY break existing WebAuthn credentials. (default: `null`) |
+| `rp_name` | string (nullable) | no | Relying party display name (any text identifier). Changing this MAY break existing credentials. (default: `null`) |
+| `allow_subdomains` | boolean (nullable) | no | Whether subdomains of origin are considered valid too. Defaults to true per PBS. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_token_create`
+
+MUTATION (MEDIUM): create an API token for a PBS user.
+
+Dry-run by default. PBS has NO privsep concept (unlike PVE) — the new token has NO
+privileges until an ACL entry grants it some (pbs_acl_update with
+auth_id='{userid}!{token_name}'). confirm=True executes and returns a dict whose result
+carries the token secret (value) ONCE — it is never written to the audit ledger and cannot
+be retrieved again (only regenerated via pbs_token_update, which invalidates it).
+Synchronous. Use pbs_user_tokens_list to see a user's existing tokens, or pbs_token_delete to
+remove one. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | Owning PBS user, format 'user@realm'. |
+| `token_name` | string | yes | Name for the new API token, unique per user. |
+| `comment` | string (nullable) | no | Optional free-text comment describing the token's purpose. (default: `null`) |
+| `enable` | boolean (nullable) | no | Whether the token is usable immediately; None defers to PBS's default (enabled). (default: `null`) |
+| `expire` | integer (nullable) | no | Optional token expiry as a Unix timestamp; None/0 means no expiry. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_token_delete`
+
+MUTATION (MEDIUM, IRREVERSIBLE): permanently revoke a PBS API token. Dry-run by default —
+the PLAN flags that revocation is permanent, the secret is gone forever, and any integration
+using it loses PBS API access immediately. confirm=True executes and returns a dict;
+synchronous, no UPID. Use pbs_user_tokens_list to see a user's tokens first, or
+pbs_token_create to issue a new one instead. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | Owning PBS user, format 'user@realm'. |
+| `token_name` | string | yes | Name of the API token to revoke. |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_token_update`
+
+MUTATION: update a PBS API token's metadata. Dry-run by default.
+
+RISK IS CONDITIONAL: regenerate=False is MEDIUM (metadata-only); regenerate=True is HIGH —
+it issues a brand-new secret and invalidates the OLD one IMMEDIATELY, with no grace period,
+breaking any integration still using it. When regenerate=True, confirm=True's result carries
+the NEW secret ONCE (key 'secret') — same never-in-ledger contract as pbs_token_create: the
+detail dict passed to the audit ledger never contains it.
+
+confirm=True executes and returns a dict; synchronous, no UPID. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | Owning PBS user, format 'user@realm'. |
+| `token_name` | string | yes | Name of the API token to update. |
+| `comment` | string (nullable) | no | Optional free-text comment; omit to leave unchanged. (default: `null`) |
+| `enable` | boolean (nullable) | no | Whether the token is usable; False disables it immediately. Omit to leave unchanged. (default: `null`) |
+| `expire` | integer (nullable) | no | Token expiry as a Unix timestamp; omit to leave unchanged. (default: `null`) |
+| `regenerate` | boolean | no | If True, issue a BRAND-NEW secret and invalidate the old one immediately (RISK_HIGH — any system using the old token loses access instantly). (default: `false`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear: only 'comment' is supported by PBS on this endpoint. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
 #### `pbs_traffic_control_delete`
 
 MUTATION (MEDIUM): remove a PBS traffic-control (bandwidth-limit) rule. Dry-run by default.
@@ -3571,6 +5334,121 @@ pbs_traffic_control_upsert to create or modify rules. Needs PROXIMO_PBS_* config
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_user_create`
+
+MUTATION (MEDIUM): create a PBS user. Dry-run by default.
+
+PASSWORD REDACTION: `password` is OPTIONAL and, when supplied, a real credential — it is
+UNCONDITIONALLY redacted from the plan, detail, and audit ledger (only
+{"password": "[redacted]"} is recorded; omitted entirely when no password was given).
+
+confirm=True executes and returns a dict; synchronous, no UPID. Use pbs_user_update to
+change it afterward, or pbs_user_delete to remove it. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | New PBS user id, format 'user@realm'. |
+| `comment` | string (nullable) | no | Optional free-text comment. (default: `null`) |
+| `email` | string (nullable) | no | Optional email address. (default: `null`) |
+| `enable` | boolean (nullable) | no | Whether the account can log in; None defers to PBS's default (enabled). (default: `null`) |
+| `expire` | integer (nullable) | no | Optional account expiry as a Unix timestamp; None/0 means no expiry. (default: `null`) |
+| `firstname` | string (nullable) | no | Optional first name. (default: `null`) |
+| `lastname` | string (nullable) | no | Optional last name. (default: `null`) |
+| `password` | string (nullable) | no | Optional initial password (min 8 chars per PBS); redacted from all plans/logs/ledger. Can also be set later via a separate password-change flow. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_user_delete`
+
+MUTATION (MEDIUM): delete a PBS user. Dry-run by default — the PLAN reads the user's
+current config and tokens to show what vanishes with it (permanent, no undo — any tokens
+owned by this user are removed with it, and ACL entries granted directly to this userid
+become orphaned). confirm=True executes and returns a dict; synchronous, no UPID. To disable
+login without deleting, use pbs_user_update (enable=False) instead. Needs PROXIMO_PBS_*
+config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id to delete, format 'user@realm'. |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_user_get`
+
+READ-ONLY: get a PBS user's config. Returns userid, enabled flag, expiry, email, comment,
+firstname/lastname (no tokens, no secrets). Use pbs_user_tokens_list for the user's API
+tokens, or pbs_user_create/update/delete to manage the user. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id to look up, format 'user@realm'. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_user_token_get`
+
+READ-ONLY: get one PBS API token's metadata. Returns comment, expiry, enabled flag,
+token-name, and tokenid — NOT the secret. Use pbs_user_tokens_list to enumerate a user's
+tokens first. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | Owning PBS user, format 'user@realm'. |
+| `token_name` | string | yes | Token name (the part after '!' in the full tokenid). |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_user_tokens_list`
+
+READ-ONLY: list API tokens for a PBS user. Returns each token's token-name, tokenid,
+comment, expiry, and enabled flag — NOT the secret (shown only once, at creation or
+regeneration). Use pbs_token_create/update/delete to manage tokens. Needs PROXIMO_PBS_*
+config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | Owning PBS user, format 'user@realm'. |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_user_update`
+
+MUTATION (MEDIUM): update a PBS user (enable=False stops login immediately). Dry-run by
+default — the PLAN reads the user's current config first.
+
+NOTE: this tool does NOT accept a password parameter — PBS's own PUT /access/users
+'password' field is documented as ignored ("use PUT /access/password instead"); exposing a
+working-looking no-op parameter here would mislead a caller into thinking it changed the
+password.
+
+confirm=True executes and returns a dict; synchronous, no UPID. Use pbs_user_get to see
+current state first, or pbs_user_delete to remove the user instead. Needs PROXIMO_PBS_*
+config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `userid` | string | yes | PBS user id to update, format 'user@realm'. |
+| `comment` | string (nullable) | no | Optional free-text comment; omit to leave unchanged. (default: `null`) |
+| `email` | string (nullable) | no | Optional email address; omit to leave unchanged. (default: `null`) |
+| `enable` | boolean (nullable) | no | Whether the account can log in; False stops login. Omit to leave unchanged. (default: `null`) |
+| `expire` | integer (nullable) | no | Account expiry as a Unix timestamp; omit to leave unchanged. (default: `null`) |
+| `firstname` | string (nullable) | no | Optional first name; omit to leave unchanged. (default: `null`) |
+| `lastname` | string (nullable) | no | Optional last name; omit to leave unchanged. (default: `null`) |
+| `delete_props` | array<string> (nullable) | no | Property names to clear: any of 'comment', 'firstname', 'lastname', 'email'. (default: `null`) |
+| `digest` | string (nullable) | no | Optional SHA256 config digest to prevent concurrent modifications. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN preview; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pbs_users_list`
+
+READ-ONLY: list all PBS users. Returns each user's userid, enabled flag, expiry, email,
+comment, and firstname/lastname; include_tokens=True also embeds token metadata (never
+secrets). Use pbs_user_get for one user's full config or pbs_user_tokens_list for a
+dedicated token listing. Needs PROXIMO_PBS_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `include_tokens` | boolean | no | If True, embed each user's API tokens (metadata only, no secrets) in the result. (default: `false`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pbs_verify_start`
@@ -3797,6 +5675,127 @@ current value. confirm=True executes and returns {"status": "ok",
 | `all_` | boolean (nullable) | no | If True, remove all attachments; maps to API param 'all'. (default: `null`) |
 | `quarantine` | boolean (nullable) | no | If True, quarantine removed attachments instead of discarding them. (default: `null`) |
 | `confirm` | boolean | no | False (default) returns a dry-run PLAN; True executes the mutation. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pmg_apt_changelog`
+
+READ-ONLY: get a package's changelog text on a PMG node.
+
+GET /nodes/{node}/apt/changelog?name=…[&version=…]. Smoke-confirm: shape not live-verified.
+The returned text is UPSTREAM/package-maintainer-authored (not Proxmox-authored) —
+classified ADVERSARIAL content (taint.ADVERSARIAL_TOOLS), like pve_apt_changelog and
+pbs_apt_changelog. Proxmox's API deliberately does not expose upgrade execution; the upgrade
+itself happens at your console. This tool governs visibility only. Needs PROXIMO_PMG_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Package name to fetch the changelog for (e.g. as listed by pmg_apt_updates_list). |
+| `node` | string (nullable) | no | PMG node name; defaults to the configured node if omitted. (default: `null`) |
+| `version` | string (nullable) | no | Specific package version to fetch the changelog for; omit for the latest available. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pmg_apt_repositories_get`
+
+READ-ONLY: get the current APT repository configuration of a PMG node.
+
+GET /nodes/{node}/apt/repositories. Smoke-confirm: shape not live-verified — expected
+{files, errors, digest, infos, standard-repos}. `files[].path` + entry index are the
+coordinates pmg_apt_repository_set needs; `standard-repos[].handle` is what
+pmg_apt_repository_add needs. Proxmox's API deliberately does not expose upgrade execution;
+the upgrade itself happens at your console. This tool governs visibility and repo config
+only. Needs PROXIMO_PMG_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string (nullable) | no | PMG node name; defaults to the configured node if omitted. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pmg_apt_repository_add`
+
+MUTATION: add a standard repository to the configuration on a PMG node.
+
+RISK_MEDIUM: adds a new package source — affects the NEXT upgrade's package provenance.
+CAPTURE: reads current repository state before planning (also readable directly via
+pmg_apt_repositories_get); if unreadable -> complete=False. No automatic revert: removing an
+added repository requires pmg_apt_repository_set to disable the resulting entry (there is no
+repository-delete endpoint). Proxmox's API deliberately does not expose upgrade execution;
+the upgrade itself happens at your console. This tool governs repo config only. Dry-run by
+default (returns a PLAN); confirm=True executes (PUT, Smoke-confirm) and returns
+{"status": "ok", "result": None}. Needs PROXIMO_PMG_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `handle` | string | yes | Handle identifying the standard repository to add (as returned by pmg_apt_repositories_get's standard-repos list, e.g. 'no-subscription'). |
+| `node` | string (nullable) | no | PMG node name; defaults to the configured node if omitted. (default: `null`) |
+| `digest` | string (nullable) | no | Expected content digest of the repositories file, for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the addition. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pmg_apt_repository_set`
+
+MUTATION: enable/disable one APT repository entry on a PMG node, by file path + index.
+
+RISK_MEDIUM: changes where packages come from — affects the NEXT upgrade's package
+provenance. CAPTURE: reads current repository state before planning (also readable directly
+via pmg_apt_repositories_get); if unreadable -> complete=False. Proxmox's API deliberately
+does not expose upgrade execution; the upgrade itself happens at your console. This tool
+governs repo config only. Dry-run by default (returns a PLAN); confirm=True executes (POST,
+Smoke-confirm) and returns {"status": "ok", "result": None}. Needs PROXIMO_PMG_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | string | yes | Absolute path of the sources file containing the repository entry (as returned by pmg_apt_repositories_get). |
+| `index` | integer | yes | 0-based index of the repository entry within that file (as returned by pmg_apt_repositories_get). |
+| `node` | string (nullable) | no | PMG node name; defaults to the configured node if omitted. (default: `null`) |
+| `enabled` | boolean (nullable) | no | Set the entry's enabled state; omit to leave the enabled state unchanged. (default: `null`) |
+| `digest` | string (nullable) | no | Expected content digest of the repositories file, for optimistic-concurrency conflict detection. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the change. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pmg_apt_update_refresh`
+
+MUTATION: resynchronize the APT package index on a PMG node (apt-get update).
+
+RISK_LOW: no package state change — refreshes the local index cache only. Proxmox's API
+deliberately does not expose upgrade execution; the upgrade itself happens at your console.
+This tool governs visibility only — it does NOT install or upgrade any package. Idempotent —
+safe to re-run any time. Dry-run by default (returns a PLAN); confirm=True executes (POST,
+Smoke-confirm) and returns {"status": "submitted"|"ok", "result": <task id | None>}.
+Needs PROXIMO_PMG_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string (nullable) | no | PMG node name; defaults to the configured node if omitted. (default: `null`) |
+| `notify` | boolean (nullable) | no | If True, ask PMG to send a notification email about newly available packages. (default: `null`) |
+| `quiet` | boolean (nullable) | no | If True, ask PMG to omit progress output suitable only for interactive logging. (default: `null`) |
+| `confirm` | boolean | no | False (default) returns a dry-run PLAN only; True executes the index refresh. (default: `false`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pmg_apt_updates_list`
+
+READ-ONLY: list available package updates (cached apt index) on a PMG node.
+
+GET /nodes/{node}/apt/update. Smoke-confirm: shape not live-verified. Proxmox's API
+deliberately does not expose upgrade execution; the upgrade itself happens at your console.
+This tool governs visibility only. To refresh this list first use pmg_apt_update_refresh.
+Needs PROXIMO_PMG_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string (nullable) | no | PMG node name; defaults to the configured node if omitted. (default: `null`) |
+| `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
+
+#### `pmg_apt_versions`
+
+READ-ONLY: get installed versions of important Proxmox packages on a PMG node.
+
+GET /nodes/{node}/apt/versions. Smoke-confirm: shape not live-verified. Proxmox's API
+deliberately does not expose upgrade execution; the upgrade itself happens at your console.
+This tool governs visibility only. Needs PROXIMO_PMG_* config.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `node` | string (nullable) | no | PMG node name; defaults to the configured node if omitted. (default: `null`) |
 | `proximo_target` | string (nullable) | no | Which configured Proxmox target to run this call against — a target name from your multi-target config (a specific PVE/PBS/PMG/PDM box). Omit to use the single/default target from the environment; the selection applies only to this call. (default: `null`) |
 
 #### `pmg_backup_create`

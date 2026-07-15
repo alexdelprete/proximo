@@ -515,6 +515,11 @@ def plan_pdm_migrate(pdm, remote: str, kind: str, vmid: str, target: str, *,
         blast.append(f"source copy on '{remote}' is DELETED after a successful move (irreversible)")
     if running and not online:
         blast.append("running guest — an offline migrate interrupts it")
+    if kind == "lxc" and online:
+        blast.append(
+            "lxc has no live migration — online=True is a restart-migration "
+            "(stop, move, start): real downtime, not a true online move"
+        )
     return Plan(
         action="pdm_fleet_migrate", target=f"{remote}:{kind}/{vmid}",
         change=f"migrate {kind} {vmid} from '{remote}' to {where}" + (" (online)" if online else ""),

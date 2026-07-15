@@ -242,7 +242,8 @@ def pve_notification_endpoint_create(
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/notifications/endpoints/{ep_type}/{name}"
     plan = _plan("pve_notification_endpoint_create", tgt,
-                 lambda: plan_notification_endpoint_create(ep_type, name, comment=comment))
+                 lambda: plan_notification_endpoint_create(
+                     ep_type, name, **{"comment": comment, **(options or {})}))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_notification_endpoint_create", tgt,
@@ -267,8 +268,8 @@ def pve_notification_endpoint_update(
     _, api, _, _ = _proximo_server._svc()
     tgt = f"cluster/notifications/endpoints/{ep_type}/{name}"
     plan = _plan("pve_notification_endpoint_update", tgt,
-                 lambda: plan_notification_endpoint_update(api, ep_type, name,
-                                                           comment=comment))
+                 lambda: plan_notification_endpoint_update(
+                     api, ep_type, name, **{"comment": comment, **(options or {})}))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_notification_endpoint_update", tgt,

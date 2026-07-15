@@ -76,6 +76,26 @@ def test_pve_grant_defaults_read_only_token_acl():
     assert "own acl" in _notes(build_recipe("pve"), "grant").lower()
 
 
+def test_pve_grant_covers_token_AND_user():
+    # issue #24 (alexdelprete): a --privsep 1 token's effective perms are the INTERSECTION of
+    # the user's ACL and the token's ACL. A freshly-created user (SETUP.md creates one) has NO
+    # ACL of its own, so granting the token alone leaves the intersection empty — the token
+    # authenticates but can do NOTHING. Both grants are required, always, not situationally.
+    r = build_recipe("pve")
+    c = _commands(r, "grant")
+    assert "pveum acl modify / --tokens 'proximo@pve!mcp' --roles PVEAuditor" in c
+    assert "pveum acl modify / --users 'proximo@pve' --roles PVEAuditor" in c
+    notes = _notes(r, "grant").lower()
+    assert "intersection" in notes
+
+
+def test_pve_write_flag_grant_covers_token_AND_user():
+    r = build_recipe("pve", write=True)
+    c = _commands(r, "grant")
+    assert "--tokens 'proximo@pve!mcp' --roles PVEVMAdmin" in c
+    assert "--users 'proximo@pve' --roles PVEVMAdmin" in c
+
+
 def test_pve_write_flag_swaps_grant():
     r = build_recipe("pve", write=True)
     c = _commands(r, "grant")

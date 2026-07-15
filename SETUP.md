@@ -186,6 +186,136 @@ token still says so. Grant only what you mean to, only where you mean it.
 
 ---
 
+## Remote / multi-client (optional)
+
+Steps 1–5 run Proximo **beside your client**: the client spawns it, it talks to Proxmox, and nothing
+listens on the network. That's the default on purpose — daemonless, no open port, nothing exposed.
+
+If you want *one* Proximo that several machines or clients reach over the network, start from what
+your client speaks:
+
+| Your client speaks | Use | Extra | Bridge? |
+|---|---|---|---|
+| **REST / OpenAPI** — Open WebUI, dashboards, scripts, `curl` | `proximo-http` | `[http]` | No |
+| **A2A** — agent-to-agent callers | `proximo-a2a` | `[a2a]` | No |
+| **MCP** — Claude Desktop, Claude Code, Cursor | MCP is served over **stdio** only today | — | Yes — see below |
+
+Both network faces serve the **full governed surface** through the same spine (PLAN · PROVE · UNDO —
+and your token's ACL is still the floor). Both are opt-in, off unless you start them, and both carry
+the same fail-closed perimeter: a non-localhost bind refuses to start without a bearer token, the
+bearer is checked on every op, plus a Host/DNS-rebind allowlist and a CSRF guard.
+
+### MCP over the network — a bridge, for now
+
+The HTTP face speaks REST, not the MCP wire protocol, so an MCP client can't connect to it. Until a
+native MCP-over-HTTP transport lands ([#25](https://github.com/john-broadway/proximo/issues/25)), a
+remote MCP client needs a **stdio→HTTP bridge** in front of Proximo.
+
+> ⚠️ **The bridge becomes your perimeter.** It wraps Proximo's *stdio* path, so the fail-closed
+> perimeter above is **not** in the request path — whatever the bridge enforces is all there is. And
+> bridges differ: the Python `sparfenyuk/mcp-proxy` has **no inbound auth at all** (its
+> `API_ACCESS_TOKEN` is outbound-only, for when it acts as a client). Don't put an unauthenticated
+> bridge in front of a hypervisor.
+>
+> Keep the token **read-only** (Step 2) until you've verified the perimeter yourself, and prefer
+> reaching it over a VPN to exposing it publicly.
+
+The recipe below uses [`punkpeye/mcp-proxy`](https://github.com/punkpeye/mcp-proxy) (npm), which
+enforces an `X-API-Key` on inbound requests, serves streamable HTTP at `/mcp`, and passes the
+container's environment to the Proximo child it spawns.
+
+**`Dockerfile`** — Proximo plus the bridge, one image:
+
+```dockerfile
+FROM ghcr.io/john-broadway/proximo:0.22.0
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+ && npm install -g mcp-proxy@6.5.2 \
+ && apt-get purge -y npm && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+ENTRYPOINT ["mcp-proxy"]
+```
+
+**`proximo.env`** — as Step 3, but with the token path *inside* the container:
+
+```bash
+PROXIMO_API_BASE_URL=https://YOUR-PVE-HOST:8006/api2/json
+PROXIMO_NODE=YOUR-NODE-NAME
+PROXIMO_TOKEN_PATH=/etc/proximo/pve-token
+PROXIMO_VERIFY_TLS=true
+```
+
+**`docker-compose.yml`** — keep `pve-token` (mode `600`, from Step 2) beside it:
+
+```yaml
+services:
+  proximo:
+    build: .
+    container_name: proximo
+    env_file: proximo.env
+    environment:
+      # The BRIDGE's inbound key — generate with: openssl rand -hex 32
+      # Keep it here, not in proximo.env: that file is mounted into the container.
+      - MCP_PROXY_API_KEY=YOUR_KEY
+    volumes:
+      - .:/etc/proximo:ro
+    command: ["--host","0.0.0.0","--port","8096","--","proximo"]
+    expose:
+      - "8096"
+    # attach to your reverse proxy's network; don't publish the port to the host
+    networks: [proxy]
+networks:
+  proxy:
+    external: true
+```
+
+`--` separates the bridge's own flags from the command it spawns (`proximo`). Put a reverse proxy in
+front for TLS; the bridge answers an unauthenticated `GET /ping` for health checks.
+
+**Verify the perimeter before you wire any client** — a request with no key must be refused:
+
+```bash
+docker compose exec proximo sh -lc \
+  'node -e "fetch(\"http://127.0.0.1:8096/mcp\",{method:\"POST\"}).then(r=>console.log(r.status))"'
+#   -> 401
+
+docker compose exec proximo sh -lc \
+  'node -e "fetch(\"http://127.0.0.1:8096/mcp\",{method:\"POST\",headers:{\"x-api-key\":\"YOUR_KEY\"}}).then(r=>console.log(r.status))"'
+#   -> 400/406, i.e. the key was accepted and the request reached the MCP layer
+```
+
+**Claude Code** — connects natively, no shim:
+
+```bash
+claude mcp add --scope user --transport http proximo https://YOUR-HOST/mcp \
+  --header "X-API-Key: YOUR_KEY"
+```
+
+`--scope user` matters: without it, `claude mcp add` defaults to *local* scope and the server is
+registered only for the current directory.
+
+**Claude Desktop** — needs a local shim to attach the header. Edit the config while Desktop is fully
+closed (it rewrites that file from memory on exit, clobbering edits made while it runs):
+
+```json
+{
+  "mcpServers": {
+    "proximo": {
+      "command": "uvx",
+      "args": [
+        "mcp-proxy",
+        "--transport", "streamablehttp",
+        "--headers", "X-API-Key", "YOUR_KEY",
+        "https://YOUR-HOST/mcp"
+      ]
+    }
+  }
+}
+```
+
+Then ask either client **"run pve_doctor"** — the same boundary you verified in Step 4, now over the
+network.
+
+---
+
 ## Pull the keys anytime
 
 Revoke instantly in the GUI (**Datacenter → Permissions → API Tokens → Remove**) or:
@@ -208,6 +338,7 @@ The moment the token is gone, Proximo can do nothing at all.
 | **403 / a capability is in `cannot`** | The token lacks that privilege. Run `proximo doctor` — it prints the exact `pveum` command to grant it. For a `--privsep 1` token, effective permissions are the *intersection* of the user's ACL and the token's ACL: a freshly-created user has no ACL of its own, so the user-side grant is **always required**, not situational — `pveum acl modify <path> --users proximo@pve --roles <ROLE>`. |
 | **Connection refused / timeout** | Wrong host or port (the Proxmox API is `:8006`), or a firewall in the way. |
 | **`ct_exec` refused** | Exec is off by default (grants host root). It's opt-in via `PROXIMO_ENABLE_EXEC=1` + a CTID allowlist — only if you truly need it. |
+| **A remote MCP client can't connect** | MCP is served over stdio only (see **Remote / multi-client**); the HTTP face speaks REST, not MCP. A networked MCP client needs a bridge — and the bridge's own auth is then your only perimeter. |
 
 ---
 

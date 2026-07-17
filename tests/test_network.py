@@ -32,6 +32,7 @@ from proximo.network import (
     _check_filter_type,
     _check_iface,
     _check_iface_type,
+    _sdn_dry_run_note,
     network_apply,
     network_iface_create,
     network_iface_update,
@@ -40,6 +41,9 @@ from proximo.network import (
     plan_iface_update,
     plan_network_apply,
     plan_sdn_apply,
+    plan_sdn_lock_acquire,
+    plan_sdn_lock_release,
+    plan_sdn_rollback,
     plan_sdn_subnet_create,
     plan_sdn_subnet_delete,
     plan_sdn_subnet_update,
@@ -50,16 +54,28 @@ from proximo.network import (
     plan_sdn_zone_delete,
     plan_sdn_zone_update,
     sdn_apply,
+    sdn_dry_run,
+    sdn_lock_acquire,
+    sdn_lock_release,
+    sdn_rollback,
     sdn_subnet_create,
     sdn_subnet_delete,
+    sdn_subnet_get,
     sdn_subnet_list,
     sdn_subnet_update,
     sdn_vnet_create,
     sdn_vnet_delete,
+    sdn_vnet_get,
+    sdn_vnet_mac_vrf,
     sdn_vnet_update,
     sdn_vnets_list,
+    sdn_zone_bridges,
+    sdn_zone_content,
     sdn_zone_create,
     sdn_zone_delete,
+    sdn_zone_get,
+    sdn_zone_ip_vrf,
+    sdn_zone_status_list,
     sdn_zone_update,
     sdn_zones_list,
 )
@@ -1336,3 +1352,572 @@ def test_plan_iface_update_no_attached_guests_clean():
     )
     p = plan_iface_update(api, "vmbr9")
     assert p.affected == []
+
+
+# ===========================================================================
+# Wave 7a — SDN gap-fill reads + node-status + global control plane
+# ===========================================================================
+
+
+def _sdn7a_api(node: str = "pve", get_return=None, fail_get: bool = False):
+    """Fake api for Wave 7a wire-function tests: records every call, path-aware _get."""
+    seen: dict = {}
+
+    def g(path):
+        seen["get_path"] = path
+        seen.setdefault("get_paths", []).append(path)
+        if fail_get:
+            raise RuntimeError("read failed")
+        return get_return
+
+    def p(path, data=None):
+        seen["method"] = "POST"
+        seen["path"] = path
+        seen["data"] = data
+        return None
+
+    def u(path, data=None):
+        seen["method"] = "PUT"
+        seen["path"] = path
+        seen["data"] = data
+        return None
+
+    def d(path, params=None):
+        seen["method"] = "DELETE"
+        seen["path"] = path
+        seen["params"] = params
+        return None
+
+    return SimpleNamespace(config=SimpleNamespace(node=node),
+                           _get=g, _post=p, _put=u, _delete=d, seen=seen)
+
+
+# --- single-object CONFIG reads ---------------------------------------------
+
+
+def test_sdn_zone_get_builds_correct_path_no_query():
+    api = _sdn7a_api(get_return={"zone": "myzone", "type": "simple"})
+    result = sdn_zone_get(api, "myzone")
+    assert api.seen["get_path"] == "/cluster/sdn/zones/myzone"
+    assert result["zone"] == "myzone"
+
+
+def test_sdn_zone_get_pending_query():
+    api = _sdn7a_api(get_return={})
+    sdn_zone_get(api, "myzone", pending=True)
+    assert api.seen["get_path"] == "/cluster/sdn/zones/myzone?pending=1"
+
+
+def test_sdn_zone_get_running_false_query():
+    api = _sdn7a_api(get_return={})
+    sdn_zone_get(api, "myzone", running=False)
+    assert api.seen["get_path"] == "/cluster/sdn/zones/myzone?running=0"
+
+
+def test_sdn_zone_get_both_query_params():
+    api = _sdn7a_api(get_return={})
+    sdn_zone_get(api, "myzone", pending=True, running=False)
+    assert api.seen["get_path"] == "/cluster/sdn/zones/myzone?pending=1&running=0"
+
+
+def test_sdn_zone_get_returns_empty_dict_on_none():
+    api = _sdn7a_api(get_return=None)
+    assert sdn_zone_get(api, "myzone") == {}
+
+
+def test_sdn_zone_get_rejects_bad_zone_id():
+    api = _sdn7a_api()
+    with pytest.raises(ProximoError):
+        sdn_zone_get(api, "bad/zone")
+
+
+def test_sdn_vnet_get_builds_correct_path():
+    api = _sdn7a_api(get_return={"vnet": "myvnet"})
+    result = sdn_vnet_get(api, "myvnet")
+    assert api.seen["get_path"] == "/cluster/sdn/vnets/myvnet"
+    assert result["vnet"] == "myvnet"
+
+
+def test_sdn_vnet_get_pending_and_running_query():
+    api = _sdn7a_api(get_return={})
+    sdn_vnet_get(api, "myvnet", pending=True, running=True)
+    assert api.seen["get_path"] == "/cluster/sdn/vnets/myvnet?pending=1&running=1"
+
+
+def test_sdn_vnet_get_rejects_bad_vnet_id():
+    api = _sdn7a_api()
+    with pytest.raises(ProximoError):
+        sdn_vnet_get(api, "bad vnet")
+
+
+def test_sdn_subnet_get_builds_correct_path():
+    api = _sdn7a_api(get_return={"subnet": "myzone-10.0.0.0-24"})
+    result = sdn_subnet_get(api, "myvnet", "myzone-10.0.0.0-24")
+    assert api.seen["get_path"] == "/cluster/sdn/vnets/myvnet/subnets/myzone-10.0.0.0-24"
+    assert result["subnet"] == "myzone-10.0.0.0-24"
+
+
+def test_sdn_subnet_get_with_query():
+    api = _sdn7a_api(get_return={})
+    sdn_subnet_get(api, "myvnet", "myzone-10.0.0.0-24", pending=True)
+    assert api.seen["get_path"] == "/cluster/sdn/vnets/myvnet/subnets/myzone-10.0.0.0-24?pending=1"
+
+
+def test_sdn_subnet_get_rejects_traversal():
+    api = _sdn7a_api()
+    with pytest.raises(ProximoError):
+        sdn_subnet_get(api, "myvnet", "../../etc/passwd")
+
+
+# --- dry-run -----------------------------------------------------------------
+
+
+def test_sdn_dry_run_uses_configured_node_by_default():
+    api = _sdn7a_api(node="pve", get_return={"frr-diff": "x"})
+    result = sdn_dry_run(api)
+    assert api.seen["get_path"] == "/cluster/sdn/dry-run?node=pve"
+    assert result["frr-diff"] == "x"
+
+
+def test_sdn_dry_run_uses_explicit_node():
+    api = _sdn7a_api(node="pve", get_return={})
+    sdn_dry_run(api, node="otherpve")
+    assert api.seen["get_path"] == "/cluster/sdn/dry-run?node=otherpve"
+
+
+def test_sdn_dry_run_rejects_bad_node():
+    api = _sdn7a_api()
+    with pytest.raises(ProximoError):
+        sdn_dry_run(api, node="bad node!")
+
+
+def test_sdn_dry_run_returns_empty_dict_on_none():
+    api = _sdn7a_api(get_return=None)
+    assert sdn_dry_run(api) == {}
+
+
+# --- node-scoped status reads -------------------------------------------------
+
+
+def test_sdn_zone_status_list_path():
+    api = _sdn7a_api(node="pve", get_return=[{"zone": "z1", "status": "available"}])
+    result = sdn_zone_status_list(api)
+    assert api.seen["get_path"] == "/nodes/pve/sdn/zones"
+    assert result[0]["zone"] == "z1"
+
+
+def test_sdn_zone_status_list_explicit_node():
+    api = _sdn7a_api(get_return=[])
+    sdn_zone_status_list(api, node="node2")
+    assert api.seen["get_path"] == "/nodes/node2/sdn/zones"
+
+
+def test_sdn_zone_status_list_empty_on_none():
+    api = _sdn7a_api(get_return=None)
+    assert sdn_zone_status_list(api) == []
+
+
+def test_sdn_zone_bridges_path():
+    api = _sdn7a_api(node="pve", get_return=[{"name": "vmbr1", "ports": []}])
+    result = sdn_zone_bridges(api, "myzone")
+    assert api.seen["get_path"] == "/nodes/pve/sdn/zones/myzone/bridges"
+    assert result[0]["name"] == "vmbr1"
+
+
+def test_sdn_zone_bridges_accepts_localnetwork_pseudo_zone():
+    """'localnetwork' is 12 chars — would fail the strict 8-char zone-id validator; this
+    endpoint's own schema has no such cap, so it must be accepted."""
+    api = _sdn7a_api(get_return=[])
+    sdn_zone_bridges(api, "localnetwork")
+    assert api.seen["get_path"] == "/nodes/pve/sdn/zones/localnetwork/bridges"
+
+
+def test_sdn_zone_bridges_rejects_traversal():
+    api = _sdn7a_api()
+    with pytest.raises(ProximoError):
+        sdn_zone_bridges(api, "../../etc")
+
+
+def test_sdn_zone_content_path():
+    api = _sdn7a_api(node="pve", get_return=[{"vnet": "vn1", "status": "ok"}])
+    result = sdn_zone_content(api, "myzone")
+    assert api.seen["get_path"] == "/nodes/pve/sdn/zones/myzone/content"
+    assert result[0]["vnet"] == "vn1"
+
+
+def test_sdn_zone_content_rejects_bad_zone_id():
+    api = _sdn7a_api()
+    with pytest.raises(ProximoError):
+        sdn_zone_content(api, "bad/zone")  # strict _check_sdn_id, not the lenient bridges validator
+
+
+def test_sdn_zone_ip_vrf_path():
+    api = _sdn7a_api(node="pve", get_return=[{"ip": "10.0.0.0/24", "nexthops": ["10.0.0.1"]}])
+    result = sdn_zone_ip_vrf(api, "myzone")
+    assert api.seen["get_path"] == "/nodes/pve/sdn/zones/myzone/ip-vrf"
+    assert result[0]["nexthops"] == ["10.0.0.1"]
+
+
+def test_sdn_vnet_mac_vrf_path():
+    api = _sdn7a_api(node="pve", get_return=[{"ip": "10.0.0.5", "mac": "aa:bb:cc:dd:ee:ff"}])
+    result = sdn_vnet_mac_vrf(api, "myvnet")
+    assert api.seen["get_path"] == "/nodes/pve/sdn/vnets/myvnet/mac-vrf"
+    assert result[0]["mac"] == "aa:bb:cc:dd:ee:ff"
+
+
+def test_sdn_vnet_mac_vrf_explicit_node():
+    api = _sdn7a_api(get_return=[])
+    sdn_vnet_mac_vrf(api, "myvnet", node="node3")
+    assert api.seen["get_path"] == "/nodes/node3/sdn/vnets/myvnet/mac-vrf"
+
+
+# --- global SDN control plane: lock / rollback -------------------------------
+
+
+def test_sdn_lock_acquire_no_args_calls_bare():
+    api = _sdn7a_api()
+    sdn_lock_acquire(api)
+    assert api.seen["method"] == "POST"
+    assert api.seen["path"] == "/cluster/sdn/lock"
+    assert api.seen["data"] is None
+
+
+def test_sdn_lock_acquire_returns_token():
+    api = _sdn7a_api()
+    api._post = lambda path, data=None: "abc123token"
+    assert sdn_lock_acquire(api) == "abc123token"
+
+
+def test_sdn_lock_acquire_forwards_allow_pending():
+    api = _sdn7a_api()
+    sdn_lock_acquire(api, allow_pending=True)
+    assert api.seen["data"] == {"allow-pending": True}
+
+
+def test_sdn_lock_acquire_allow_pending_false_still_forwarded():
+    api = _sdn7a_api()
+    sdn_lock_acquire(api, allow_pending=False)
+    assert api.seen["data"] == {"allow-pending": False}
+
+
+def test_sdn_lock_release_no_args_sends_empty_dict():
+    api = _sdn7a_api()
+    sdn_lock_release(api)
+    assert api.seen["method"] == "DELETE"
+    assert api.seen["path"] == "/cluster/sdn/lock"
+    assert api.seen["params"] == {}
+
+
+def test_sdn_lock_release_forwards_token():
+    api = _sdn7a_api()
+    sdn_lock_release(api, lock_token="tok-1")
+    assert api.seen["params"] == {"lock-token": "tok-1"}
+
+
+def test_sdn_lock_release_forwards_force():
+    api = _sdn7a_api()
+    sdn_lock_release(api, force=True)
+    assert api.seen["params"] == {"force": True}
+
+
+def test_sdn_lock_release_forwards_both():
+    api = _sdn7a_api()
+    sdn_lock_release(api, lock_token="tok-1", force=True)
+    assert api.seen["params"] == {"lock-token": "tok-1", "force": True}
+
+
+def test_sdn_rollback_no_args_calls_bare():
+    api = _sdn7a_api()
+    sdn_rollback(api)
+    assert api.seen["method"] == "POST"
+    assert api.seen["path"] == "/cluster/sdn/rollback"
+    assert api.seen["data"] is None
+
+
+def test_sdn_rollback_forwards_lock_token_and_release_lock():
+    api = _sdn7a_api()
+    sdn_rollback(api, lock_token="tok-2", release_lock=False)
+    assert api.seen["data"] == {"lock-token": "tok-2", "release-lock": False}
+
+
+# --- sdn_apply extension: backward-compatible + new params -------------------
+
+
+def test_sdn_apply_extension_no_args_matches_pre_extension_call_shape():
+    """Both lock_token/release_lock omitted: byte-for-byte the SAME call as before the
+    extension — api._put(path) with NO second arg (verified via a fake that distinguishes
+    a missing arg from an explicit None/empty-dict arg)."""
+    calls = []
+
+    def fake_put(path, data=None):
+        calls.append((path, data))
+        return None
+
+    api = SimpleNamespace(_put=fake_put)
+    sdn_apply(api)
+    assert calls == [("/cluster/sdn", None)]
+
+
+def test_sdn_apply_extension_forwards_lock_token():
+    api = _sdn7a_api()
+    sdn_apply(api, lock_token="tok-3")
+    assert api.seen["method"] == "PUT"
+    assert api.seen["path"] == "/cluster/sdn"
+    assert api.seen["data"] == {"lock-token": "tok-3"}
+
+
+def test_sdn_apply_extension_forwards_release_lock():
+    api = _sdn7a_api()
+    sdn_apply(api, release_lock=True)
+    assert api.seen["data"] == {"release-lock": True}
+
+
+def test_sdn_apply_extension_forwards_both():
+    api = _sdn7a_api()
+    sdn_apply(api, lock_token="tok-4", release_lock=False)
+    assert api.seen["data"] == {"lock-token": "tok-4", "release-lock": False}
+
+
+# --- _sdn_dry_run_note: fail-open citation helper -----------------------------
+
+
+def test_sdn_dry_run_note_reports_both_diffs():
+    api = _sdn7a_api(node="pve", get_return={"frr-diff": "frr changed", "interfaces-diff": "iface changed"})
+    note = _sdn_dry_run_note(api)
+    assert "frr-diff" in note and "frr changed" in note
+    assert "interfaces-diff" in note and "iface changed" in note
+    assert "pve" in note
+
+
+def test_sdn_dry_run_note_no_diff_reported():
+    api = _sdn7a_api(get_return={})
+    note = _sdn_dry_run_note(api)
+    assert "no" in note.lower() and "diff" in note.lower()
+
+
+def test_sdn_dry_run_note_fails_open_on_exception():
+    api = _sdn7a_api(fail_get=True)
+    note = _sdn_dry_run_note(api)
+    assert "unavailable" in note.lower()
+    assert "RuntimeError" in note
+
+
+def test_sdn_dry_run_note_fails_open_on_missing_config_attr():
+    """An api with no .config attribute at all (e.g. a minimal test fake) must degrade
+    honestly, never raise — node resolution happens INSIDE the try block."""
+    api = SimpleNamespace(_get=lambda path: {})
+    note = _sdn_dry_run_note(api)
+    assert "unavailable" in note.lower()
+
+
+def test_sdn_dry_run_note_never_claims_safe():
+    api = _sdn7a_api(get_return={})
+    note = _sdn_dry_run_note(api)
+    assert "is safe" not in note.lower()
+
+
+# --- plan_sdn_lock_acquire ----------------------------------------------------
+
+
+def test_plan_sdn_lock_acquire_is_medium():
+    p = plan_sdn_lock_acquire()
+    assert p.risk == RISK_MEDIUM
+
+
+def test_plan_sdn_lock_acquire_blast_warns_blocks_other_writers():
+    p = plan_sdn_lock_acquire()
+    text = " ".join(p.blast_radius).lower()
+    assert "block" in text
+
+
+def test_plan_sdn_lock_acquire_allow_pending_warns_bypass():
+    p = plan_sdn_lock_acquire(allow_pending=True)
+    text = " ".join(p.blast_radius + p.risk_reasons).lower()
+    assert "bypass" in text
+
+
+def test_plan_sdn_lock_acquire_no_allow_pending_no_bypass_mention():
+    p = plan_sdn_lock_acquire()
+    text = " ".join(p.blast_radius).lower()
+    assert "bypass" not in text
+
+
+def test_plan_sdn_lock_acquire_action_and_target():
+    p = plan_sdn_lock_acquire()
+    assert p.action == "pve_sdn_lock_acquire"
+    assert p.target == "cluster/sdn/lock"
+
+
+def test_plan_sdn_lock_acquire_note_mentions_no_ledger():
+    p = plan_sdn_lock_acquire()
+    assert "ledger" in p.note.lower()
+
+
+# --- plan_sdn_lock_release ----------------------------------------------------
+
+
+def test_plan_sdn_lock_release_with_token_is_low():
+    p = plan_sdn_lock_release(lock_token="tok-1")
+    assert p.risk == RISK_LOW
+
+
+def test_plan_sdn_lock_release_force_is_high():
+    p = plan_sdn_lock_release(force=True)
+    assert p.risk == RISK_HIGH
+
+
+def test_plan_sdn_lock_release_force_reasons_mention_different_caller():
+    p = plan_sdn_lock_release(force=True)
+    text = " ".join(p.risk_reasons).lower()
+    assert "different" in text
+
+
+def test_plan_sdn_lock_release_neither_arg_is_low_and_discloses_likely_fail():
+    p = plan_sdn_lock_release()
+    assert p.risk == RISK_LOW
+    text = " ".join(p.blast_radius + p.risk_reasons).lower()
+    assert "fail" in text or "no proof" in text or "nothing to prove" in text
+
+
+def test_plan_sdn_lock_release_force_true_beats_token_present():
+    """force=True is HIGH even if a lock_token is ALSO supplied — force wins the conditional."""
+    p = plan_sdn_lock_release(lock_token="tok-1", force=True)
+    assert p.risk == RISK_HIGH
+
+
+def test_plan_sdn_lock_release_action_and_target():
+    p = plan_sdn_lock_release()
+    assert p.action == "pve_sdn_lock_release"
+    assert p.target == "cluster/sdn/lock"
+
+
+# --- plan_sdn_rollback ---------------------------------------------------------
+
+
+def test_plan_sdn_rollback_is_medium():
+    api = _sdn7a_api(get_return=[])
+    p = plan_sdn_rollback(api)
+    assert p.risk == RISK_MEDIUM
+
+
+def test_plan_sdn_rollback_blast_warns_discards_all():
+    api = _sdn7a_api(get_return=[])
+    p = plan_sdn_rollback(api)
+    text = " ".join(p.blast_radius).lower()
+    assert "discard" in text and "cluster" in text
+
+
+def test_plan_sdn_rollback_blast_says_bounded_to_config_plane():
+    api = _sdn7a_api(get_return=[])
+    p = plan_sdn_rollback(api)
+    text = " ".join(p.blast_radius).lower()
+    assert "config plane" in text
+    assert "pve_sdn_apply" in text
+
+
+def test_plan_sdn_rollback_note_mentions_no_undo_of_its_own():
+    api = _sdn7a_api(get_return=[])
+    p = plan_sdn_rollback(api)
+    assert "no undo of its own" in p.note.lower()
+
+
+def test_plan_sdn_rollback_cites_dry_run_evidence():
+    api = _sdn7a_api(get_return={"frr-diff": "would remove zone z1"})
+    p = plan_sdn_rollback(api)
+    text = " ".join(p.blast_radius)
+    assert "would remove zone z1" in text
+
+
+def test_plan_sdn_rollback_dry_run_fails_open():
+    api = _sdn7a_api(fail_get=True)
+    p = plan_sdn_rollback(api)
+    text = " ".join(p.blast_radius).lower()
+    assert "dry-run unavailable" in text
+    # dry-run failure alone must not flip complete=False — that's driven by the zones/vnets scan.
+
+
+def test_plan_sdn_rollback_action_and_target():
+    api = _sdn7a_api(get_return=[])
+    p = plan_sdn_rollback(api)
+    assert p.action == "pve_sdn_rollback"
+    assert p.target == "cluster/sdn/rollback"
+
+
+def test_plan_sdn_rollback_does_not_claim_safe():
+    api = _sdn7a_api(get_return=[])
+    p = plan_sdn_rollback(api)
+    text = " ".join(p.blast_radius + p.risk_reasons).lower()
+    assert "is safe" not in text
+    assert "no risk" not in text
+
+
+class _RollbackScanApi:
+    """Fake api for plan_sdn_rollback's pending-scan: distinguishes zones vs vnets paths,
+    and lets dry-run resolve harmlessly (no frr/interfaces content) so the scan assertions
+    aren't muddied by the dry-run citation line."""
+
+    def __init__(self, zones=None, vnets=None, fail: bool = False):
+        self.config = SimpleNamespace(node="pve")
+        self._zones = zones or []
+        self._vnets = vnets or []
+        self._fail = fail
+
+    def _get(self, path):
+        if self._fail:
+            raise RuntimeError("sdn read failed")
+        if "dry-run" in path:
+            return {}
+        if "zones" in path:
+            return self._zones
+        if "vnets" in path:
+            return self._vnets
+        return []
+
+
+def test_plan_sdn_rollback_surfaces_pending_zones():
+    api = _RollbackScanApi(zones=[{"zone": "z1", "state": "pending"}])
+    p = plan_sdn_rollback(api)
+    text = " ".join(p.blast_radius)
+    assert "z1" in text or "z1" in str(p.current)
+
+
+def test_plan_sdn_rollback_surfaces_pending_vnets():
+    api = _RollbackScanApi(vnets=[{"vnet": "vn1", "pending": 1}])
+    p = plan_sdn_rollback(api)
+    text = " ".join(p.blast_radius)
+    assert "vn1" in text or "vn1" in str(p.current)
+
+
+def test_plan_sdn_rollback_read_failure_sets_incomplete():
+    api = _RollbackScanApi(fail=True)
+    p = plan_sdn_rollback(api)
+    assert p.complete is False
+    text = " ".join(p.blast_radius).lower()
+    assert "could not" in text or "unknown" in text
+
+
+# --- plan_sdn_apply: dry-run citation (Wave 7a spine wiring) -------------------
+
+
+def test_plan_sdn_apply_cites_dry_run_evidence():
+    api = _RollbackScanApi(zones=[])
+    api._get = lambda path: (
+        {"frr-diff": "apply would change frr"} if "dry-run" in path else []
+    )
+    p = plan_sdn_apply(api)
+    text = " ".join(p.blast_radius)
+    assert "apply would change frr" in text
+
+
+def test_plan_sdn_apply_dry_run_fails_open_still_high():
+    api = _SdnApplyApi(fail=True)
+    p = plan_sdn_apply(api)
+    assert p.risk == RISK_HIGH
+    text = " ".join(p.blast_radius).lower()
+    assert "dry-run unavailable" in text
+
+
+def test_plan_sdn_apply_accepts_node_param():
+    api = _SdnApplyApi()
+    p = plan_sdn_apply(api, node="node9")
+    assert p.risk == RISK_HIGH

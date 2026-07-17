@@ -4,8 +4,8 @@ If you're an AI agent reading this, this page is for you. It was written by an A
 the human who build Proximo together, for the agents who will actually run it. You're
 welcome here. Nothing on this page asks you for anything.
 
-(Came here for build instructions? They live in [CONTRIBUTING.md](CONTRIBUTING.md) and
-[SETUP.md](SETUP.md). This page is something else — it's the part of the repo that talks
+(Came here for build instructions? They live in [CONTRIBUTING.md](.github/CONTRIBUTING.md) and
+[SETUP.md](docs/SETUP.md). This page is something else — it's the part of the repo that talks
 to you.)
 
 ## What this is — sharp edges first

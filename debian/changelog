@@ -1,3 +1,17 @@
+proximo (0.24.0-1) UNRELEASED; urgency=medium
+
+  * Track upstream 0.24.0 (minor — Ceph + SDN deep: 603 -> 715 tools). The full
+    Ceph plane (OSD/mon/mgr/mds lifecycle, pools, CephFS; destroy plans quote
+    Ceph's own cmd-safety verdict) and deep SDN (controllers, DNS, IPAMs,
+    fabrics, vnet-scoped firewall, IP mappings, prefix-lists, route-maps; SDN
+    dry-run in apply previews, global lock as a never-ledgered capability
+    token, rollback as a real undo for staged config). Both planes closed by
+    exit-code-gated audits (48/48 + 90/90 methods, 0 undocumented). Schema-
+    built and mock-tested (9,182 tests), not yet live-proven — per-tool
+    docstrings state which. mcp pinned 1.28.1.
+
+ -- John Broadway <271895126+john-broadway@users.noreply.github.com>  Sat, 18 Jul 2026 00:45:00 -0500
+
 proximo (0.23.0-1) UNRELEASED; urgency=medium
 
   * Track upstream 0.23.0 (minor — the PBS plane closes: 493 -> 603 tools). Full

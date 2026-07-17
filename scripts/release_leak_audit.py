@@ -39,13 +39,18 @@ from pathlib import Path
 # low (the user-facing surface is README/CHANGELOG/TOOLS/LICENSE/demo). Kept internal by John's call
 # 2026-07-13 — the same principle already applied to POSITIONING/LANDSCAPE/ROADMAP/CEILING below.
 # (`docs/plans/internal/` — the lab build-records — is subsumed by the `docs/plans/` prefix.)
-DENY_PREFIXES: tuple[str, ...] = (".gitea/", "docs/plans/", "docs/specs/")
+# `docs/internal/` = the internal-strategy docs (LAB/CEILING/LANDSCAPE/POSITIONING/ROADMAP, relocated
+# from root 2026-07-16) plus any future addition to that directory — prefix-denied so the whole
+# directory is stripped, not just today's five basenames.
+DENY_PREFIXES: tuple[str, ...] = (".gitea/", "docs/plans/", "docs/specs/", "docs/internal/")
 # Denied by BASENAME (matches anywhere in the tree, not just root) = internal-only docs the public
-# mirror must NOT carry. `CLAUDE.md` = dev-memory. POSITIONING/LANDSCAPE/ROADMAP/CEILING = internal
+# mirror must NOT carry. `CLAUDE.md` = dev-memory. POSITIONING/LANDSCAPE/ROADMAP/CEILING/LAB = internal
 # strategy: competitive playbook, field survey, frozen design-thesis roadmap, and the addressable-surface
 # ceiling — never the public surface (they expose the moat analysis + self-identified soft spots + the
 # build-out map, and rot in public). The public set is user-facing (README/CHANGELOG/LICENSE/demo);
-# strategy + build-record stay on the internal mirror.
+# strategy + build-record stay on the internal mirror. These five now live under `docs/internal/`
+# (covered by the prefix above); kept here too as belt-and-suspenders basename matching in case a
+# copy ever lands outside that directory.
 DENY_BASENAMES: tuple[str, ...] = ("CLAUDE.md", "POSITIONING.md", "LANDSCAPE.md", "ROADMAP.md", "CEILING.md", "LAB.md")
 
 # Site-specific internal identifiers (bare node/host names with no generic leak-shape) that must

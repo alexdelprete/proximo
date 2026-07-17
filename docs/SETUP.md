@@ -227,7 +227,7 @@ container's environment to the Proximo child it spawns.
 **`Dockerfile`** — Proximo plus the bridge, one image:
 
 ```dockerfile
-FROM ghcr.io/john-broadway/proximo:0.22.0
+FROM ghcr.io/john-broadway/proximo:0.23.0
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
  && npm install -g mcp-proxy@6.5.2 \
  && apt-get purge -y npm && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*

@@ -81,6 +81,67 @@ _EXPECTED_ADVERSARIAL = frozenset({
     # precedent — see taint.py's own entry comment + pbs_datastore_admin.py's Taint section).
     "pbs_groups_list", "pbs_group_notes_get",
     "pbs_remote_scan", "pbs_remote_scan_groups", "pbs_remote_scan_namespaces",
+    # PVE Ceph core observability + flags (Wave 6a, 2026-07-16 full-surface campaign):
+    # pve_ceph_log returns free-text log lines ({n, t} per schema), Sys.Syslog-channel content —
+    # same rationale as pve_node_syslog/pve_node_journal/pve_task_log above.
+    "pve_ceph_log",
+    # Wave 6a review Finding 2 (2026-07-16): pve_ceph_metadata's schema types every per-instance
+    # mon/mgr/mds entry "additionalProperties": 1 (an open shape) with self-reported hostname/
+    # addr/name fields — the same daemon-self-report content-channel shape as pbs_remote_scan
+    # above (whoever controls the daemon controls these bytes). See taint.py's own entry comment
+    # + proximo/ceph.py's module docstring Taint section for the full argument.
+    "pve_ceph_metadata",
+    # Wave 6b (2026-07-16): pve_ceph_mon_list/pve_ceph_mgr_list/pve_ceph_mds_list return the SAME
+    # daemon-self-reported name/host/addr/ceph_version strings as pve_ceph_metadata above, just
+    # sliced per service type instead of aggregated — same channel, argued (not just asserted)
+    # against the closed-shape counter-argument in taint.py's own entry comment + proximo/ceph.py's
+    # module docstring Taint section.
+    "pve_ceph_mon_list", "pve_ceph_mgr_list", "pve_ceph_mds_list",
+    # Wave 6c (2026-07-16): pve_ceph_osd_tree's schema types the ENTIRE nested CRUSH-bucket
+    # response additionalProperties:1 (open, untyped) — an even more extreme shape than
+    # pve_ceph_metadata's own per-instance open map — with daemon-self-reported per-node
+    # telemetry. pve_ceph_osd_metadata's osd{} sub-object carries hostname/back_addr/front_addr/
+    # hb_back_addr/hb_front_addr — the SAME field set that made the aggregated pve_ceph_metadata
+    # ADVERSARIAL in Wave 6a; this is that channel's single-OSD drill-down. NOT here:
+    # pve_ceph_osd_lv_info — argued REVIEWED_TRUSTED instead (closed shape, LOCAL `lvs`
+    # shell-out on the SAME host, not a cross-daemon network self-report) — see taint.py's own
+    # entry comment + proximo/ceph.py's module docstring Taint section for the full argument.
+    "pve_ceph_osd_tree", "pve_ceph_osd_metadata",
+    # Wave 6d (2026-07-16) shipped pool/fs list/status REVIEWED_TRUSTED; the Wave 6d adversarial
+    # review (2026-07-17, Finding 1) REVERSED that ruling to ADVERSARIAL: pool_name/fs name are
+    # unconstrained free-text (pattern-only, no length cap) creatable by any cephx-capable client
+    # or by Ceph itself outside any operator action — the same channel that already landed
+    # pve_list_guests/pve_snapshot_list above; application_metadata is a third channel, settable
+    # via raw `ceph osd pool application set` outside this API entirely. See taint.py's own entry
+    # comment + proximo/ceph.py's module docstring Taint section for the full argument.
+    "pve_ceph_pool_list", "pve_ceph_pool_status", "pve_ceph_fs_list",
+    # Wave 7a (2026-07-17): PVE SDN gap-fill + global control plane. pve_sdn_zone_ip_vrf's
+    # nexthops are peer-announced over the running BGP/EVPN routing protocol (same wire-learned
+    # channel as pve_ceph_metadata/pve_ceph_osd_metadata); pve_sdn_vnet_mac_vrf's schema is
+    # explicit that its routes are "self-originates OR has learned via BGP" — a genuinely mixed
+    # channel, classified conservatively. See taint.py's own entry comment + network.py's module
+    # docstring Taint section for the full argument.
+    "pve_sdn_zone_ip_vrf", "pve_sdn_vnet_mac_vrf",
+    # Wave 7c (2026-07-17): PVE SDN controllers + DNS + IPAMs. pve_sdn_ipam_status's schema
+    # gives ZERO item-shape documentation (bare array, no `items` key at all) and the
+    # domain-known content is guest IP/MAC/hostname address entries — genuinely
+    # guest-influenced, the same wire-learned/guest-controlled-content rationale as
+    # pve_sdn_zone_ip_vrf/pve_sdn_vnet_mac_vrf above. See taint.py's own entry comment +
+    # sdn_objects.py's module docstring Taint section for the full argument.
+    "pve_sdn_ipam_status",
+    # Wave 7d (2026-07-17): PVE SDN fabrics. pve_sdn_fabric_status_neighbors' neighbor field
+    # is the remote peer's own self-announced identity, and status/uptime are explicitly
+    # "as returned by FRR"; pve_sdn_fabric_status_routes' via (nexthop list) is peer-injected
+    # over the running routing protocol — same wire-learned channel as
+    # pve_sdn_zone_ip_vrf/pve_ceph_metadata above. NOT here: pve_sdn_fabric_status_interfaces
+    # — REVIEWED_TRUSTED instead (its {name, state, type} shape is the fabric's own
+    # locally-rendered interface, no peer-announced field). Basis, on the record
+    # (STRIKE-AND-CORRECT: an earlier version of this comment cited a "campaign doc Wave 7d
+    # chunk listing" that does not exist): the schema's local-only field shape PLUS the
+    # 2026-07-17 COORDINATOR RE-RULING (`.scratch/2026-07-15-full-surface-campaign.md` lines
+    # 853-864, binding) — see taint.py's own entry comment + sdn_fabrics.py's module
+    # docstring fact #3 for the full argument.
+    "pve_sdn_fabric_status_neighbors", "pve_sdn_fabric_status_routes",
 })
 
 
@@ -385,3 +446,153 @@ def test_taint_forbid_set_empty_string_env(monkeypatch):
 def test_taint_forbid_set_empty_entries_dropped(monkeypatch):
     monkeypatch.setenv(taint.FORBID_ENV, " ,,")
     assert taint.taint_forbid_set() == (frozenset(), False)
+
+
+# === capture_adversarial_current — Wave 6c `finder=` extension =====================================
+# Direct, isolated unit tests of the helper itself (the pre-existing flat-list default path is
+# already exercised end-to-end via tests/test_ceph.py::TestWave6bCaptureTaint's mon/mgr/mds create
+# tools; these tests focus on the NEW `finder=` kwarg proximo/ceph.py's OSD destroy/in/out plan
+# factories need for the nested CRUSH-tree shape, plus a direct proof that the pre-existing
+# default path is byte-for-byte unaffected by the extension).
+
+
+def _tree(*osds):
+    """A minimal nested CRUSH-tree fixture: root -> one host bucket -> osd leaves."""
+    return {"root": {"id": -1, "name": "default", "type": "root", "children": [
+        {"id": -2, "name": "pve", "type": "host", "children": list(osds)},
+    ]}}
+
+
+def _find_by_id(result, match_id):
+    """A tiny nested-shape finder mirroring proximo.ceph._find_osd_in_tree's own walk, kept local
+    so this file doesn't need to import ceph.py's OSD-specific helper to prove the GENERIC
+    mechanism works for any nested shape, not just Ceph's specifically."""
+    if not isinstance(result, dict):
+        return {}
+    root = result.get("root")
+    if not isinstance(root, dict):
+        return {}
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.get("id") == match_id:
+            return node
+        stack.extend(node.get("children") or [])
+    return {}
+
+
+class TestCaptureAdversarialCurrentFinder:
+    def test_default_flat_list_path_unchanged(self, tmp_path):
+        """No finder= passed -> the original flat-list key-equality lookup, byte-for-byte as
+        before the Wave 6c extension (every Wave 6b caller relies on this)."""
+        current, ok = taint.capture_adversarial_current(
+            str(tmp_path), "pve_ceph_mon_list",
+            lambda: [{"name": "pve", "host": "pve"}], "pve",
+        )
+        assert ok is True
+        assert current["name"] == "pve"
+
+    def test_finder_locates_entry_in_nested_shape(self, tmp_path):
+        tree = _tree({"id": 0, "name": "osd.0"}, {"id": 1, "name": "osd.1"})
+        current, ok = taint.capture_adversarial_current(
+            str(tmp_path), "pve_ceph_osd_tree", lambda: tree, 1, finder=_find_by_id,
+        )
+        assert ok is True
+        assert current["name"] == "osd.1"
+
+    def test_finder_osdid_zero_is_found_not_treated_as_missing(self, tmp_path):
+        """The falsy-id lesson (Wave 6b Finding 2) applied to a numeric id: osdid=0 must be
+        found, never mistaken for 'no match' just because 0 is falsy in Python."""
+        tree = _tree({"id": 0, "name": "osd.0"})
+        current, ok = taint.capture_adversarial_current(
+            str(tmp_path), "pve_ceph_osd_tree", lambda: tree, 0, finder=_find_by_id,
+        )
+        assert ok is True
+        assert current == {"id": 0, "name": "osd.0"}
+
+    def test_finder_no_match_degrades_to_empty_not_failure(self, tmp_path):
+        tree = _tree({"id": 0, "name": "osd.0"})
+        current, ok = taint.capture_adversarial_current(
+            str(tmp_path), "pve_ceph_osd_tree", lambda: tree, 99, finder=_find_by_id,
+        )
+        assert ok is True
+        assert current == {}
+
+    def test_finder_read_raises_still_degrades_to_false(self, tmp_path):
+        def _raise():
+            raise RuntimeError("unreachable")
+
+        current, ok = taint.capture_adversarial_current(
+            str(tmp_path), "pve_ceph_osd_tree", _raise, 0, finder=_find_by_id,
+        )
+        assert ok is False
+        assert current == {}
+
+    def test_finder_itself_raises_still_degrades_to_false(self, tmp_path):
+        """Wave 6c review Finding 2 (MINOR): a raising `finder` must degrade exactly like a
+        raising `read()` — the finder call must be inside the SAME try/except contract, not left
+        to propagate uncaught (a materially different, non-fail-open failure mode)."""
+        def _raising_finder(result, match_id):
+            raise RuntimeError("finder blew up")
+
+        current, ok = taint.capture_adversarial_current(
+            str(tmp_path), "pve_ceph_osd_tree", lambda: _tree({"id": 0, "name": "osd.0"}), 0,
+            finder=_raising_finder,
+        )
+        assert ok is False
+        assert current == {}
+
+    def test_finder_marks_taint_and_stamps_when_tracking_on(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(taint.TAINT_TRACK_ENV, "1")
+        audit_dir = str(tmp_path)
+        tree = _tree({"id": 0, "name": "osd.0"})
+
+        current, ok = taint.capture_adversarial_current(
+            audit_dir, "pve_ceph_osd_tree", lambda: tree, 0, finder=_find_by_id,
+        )
+
+        assert ok is True
+        assert taint.is_tainted(audit_dir) is True
+        assert "pve_ceph_osd_tree" in taint.taint_sources(audit_dir)
+        assert current["untrusted"] is True
+        assert current["content_trust"] == "adversarial"
+
+    def test_finder_inert_when_tracking_off(self, tmp_path):
+        tree = _tree({"id": 0, "name": "osd.0"})
+        current, ok = taint.capture_adversarial_current(
+            str(tmp_path), "pve_ceph_osd_tree", lambda: tree, 0, finder=_find_by_id,
+        )
+        assert ok is True
+        assert taint.is_tainted(str(tmp_path)) is False
+        assert "untrusted" not in current
+        assert "content_trust" not in current
+
+    def test_identity_finder_returns_single_object_source_unchanged(self, tmp_path, monkeypatch):
+        """Wave 6d review Finding 1 fix: a CAPTURE source whose read() already returns the single
+        target object (not a list to search — proximo.ceph.plan_ceph_pool_set's
+        ceph_pool_status(name) read is the first real caller) plugs in a `finder` that returns the
+        dict unchanged, ignoring match_id entirely -- mirrors proximo.ceph._identity_finder."""
+        monkeypatch.setenv(taint.TAINT_TRACK_ENV, "1")
+        audit_dir = str(tmp_path)
+        obj = {"id": 1, "name": "rbd", "crush_rule": "replicated_rule"}
+
+        current, ok = taint.capture_adversarial_current(
+            audit_dir, "pve_ceph_pool_status", lambda: obj, "rbd",
+            finder=lambda result, _match_id: dict(result) if isinstance(result, dict) else None,
+        )
+
+        assert ok is True
+        assert current["id"] == 1
+        assert current["name"] == "rbd"
+        assert taint.is_tainted(audit_dir) is True
+        assert current["untrusted"] is True
+        assert current["content_trust"] == "adversarial"
+
+    def test_finder_falsy_return_treated_as_no_match(self, tmp_path):
+        """A finder returning None (rather than {}) for 'no match' must degrade the same way —
+        `finder(result, match_id) or {}` normalizes any falsy return."""
+        current, ok = taint.capture_adversarial_current(
+            str(tmp_path), "pve_ceph_osd_tree", lambda: {}, 0, finder=lambda *_: None,
+        )
+        assert ok is True
+        assert current == {}

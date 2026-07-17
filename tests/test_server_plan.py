@@ -919,6 +919,55 @@ _READ_ONLY_TOOLS = frozenset({
     "pdm_pve_qemu_list", "pdm_pve_qemu_config", "pdm_pve_lxc_list", "pdm_pve_lxc_config",
     "pdm_pbs_remote_status", "pdm_pbs_datastores_list", "pdm_pbs_snapshots_list",
     "pdm_tasks_list", "pdm_acl_list", "pdm_roles_list", "pdm_users_list",
+    # PVE Ceph core observability + flags (Wave 6a, full-surface campaign) — read-only tools
+    # (no confirm param). NOT here: pve_ceph_flags_set/pve_ceph_flag_set — both confirm-gated
+    # mutations.
+    "pve_ceph_status", "pve_ceph_metadata", "pve_ceph_flags_list", "pve_ceph_flag_get",
+    "pve_ceph_cfg_db", "pve_ceph_cfg_raw", "pve_ceph_cfg_value", "pve_ceph_crush",
+    "pve_ceph_log", "pve_ceph_rules", "pve_ceph_cmd_safety",
+    # PVE Ceph services lifecycle (Wave 6b, full-surface campaign) — read-only tools (no confirm
+    # param). NOT here: the 10 mon/mgr/mds/init/service_* mutations — all confirm-gated.
+    "pve_ceph_mon_list", "pve_ceph_mgr_list", "pve_ceph_mds_list",
+    # PVE Ceph OSD (Wave 6c, full-surface campaign) — read-only tools (no confirm param). NOT
+    # here: the 5 osd_create/destroy/in/out/scrub mutations — all confirm-gated.
+    "pve_ceph_osd_tree", "pve_ceph_osd_lv_info", "pve_ceph_osd_metadata",
+    # PVE Ceph pools + CephFS (Wave 6d, full-surface campaign, CLOSES Wave 6) — read-only tools
+    # (no confirm param). NOT here: the 5 pool_create/pool_set/pool_destroy/fs_create/fs_destroy
+    # mutations — all confirm-gated.
+    "pve_ceph_pool_list", "pve_ceph_pool_status", "pve_ceph_fs_list",
+    # PVE SDN gap-fill + node-status reads (Wave 7a, full-surface campaign) — read-only tools
+    # (no confirm param). NOT here: pve_sdn_lock_acquire/pve_sdn_lock_release/pve_sdn_rollback —
+    # all confirm-gated mutations.
+    "pve_sdn_zone_get", "pve_sdn_vnet_get", "pve_sdn_subnet_get", "pve_sdn_dry_run",
+    "pve_sdn_zone_status_list", "pve_sdn_zone_bridges", "pve_sdn_zone_content",
+    "pve_sdn_zone_ip_vrf", "pve_sdn_vnet_mac_vrf",
+    # PVE SDN vnet-scoped firewall reads (Wave 7b, full-surface campaign) — read-only tools
+    # (no confirm param). NOT here: pve_sdn_vnet_firewall_options_set/rule_add/rule_update/
+    # rule_remove/pve_sdn_vnet_ip_create/update/delete — all confirm-gated mutations.
+    "pve_sdn_vnet_firewall_options_get", "pve_sdn_vnet_firewall_rules_list",
+    "pve_sdn_vnet_firewall_rule_get",
+    # PVE SDN controllers + DNS + IPAMs reads (Wave 7c, full-surface campaign) — read-only
+    # tools (no confirm param). NOT here: pve_sdn_controller_create/update/delete,
+    # pve_sdn_dns_create/update/delete, pve_sdn_ipam_create/update/delete — all
+    # confirm-gated mutations.
+    "pve_sdn_controllers_list", "pve_sdn_controller_get",
+    "pve_sdn_dns_list", "pve_sdn_dns_get",
+    "pve_sdn_ipams_list", "pve_sdn_ipam_get", "pve_sdn_ipam_status",
+    # PVE SDN prefix-lists + route-maps reads (Wave 7e, full-surface campaign) — read-only
+    # tools (no confirm param). NOT here: pve_sdn_prefix_list_create/update/delete,
+    # pve_sdn_prefix_list_entry_create/update/delete, pve_sdn_route_map_entry_create/
+    # update/delete — all confirm-gated mutations.
+    "pve_sdn_prefix_lists_list", "pve_sdn_prefix_list_get",
+    "pve_sdn_prefix_list_entries_list", "pve_sdn_prefix_list_entry_get",
+    "pve_sdn_route_maps_list", "pve_sdn_route_map_entries_list_all",
+    "pve_sdn_route_map_entries_list", "pve_sdn_route_map_entry_get",
+    # PVE SDN fabrics reads (Wave 7d, the FINAL Wave 7 chunk) — read-only tools (no confirm
+    # param). NOT here: pve_sdn_fabric_create/update/delete,
+    # pve_sdn_fabric_node_create/update/delete — all confirm-gated mutations.
+    "pve_sdn_fabrics_all", "pve_sdn_fabrics_list", "pve_sdn_fabric_get",
+    "pve_sdn_fabric_nodes_list_all", "pve_sdn_fabric_nodes_list", "pve_sdn_fabric_node_get",
+    "pve_sdn_fabric_status_interfaces", "pve_sdn_fabric_status_neighbors",
+    "pve_sdn_fabric_status_routes",
 })
 
 

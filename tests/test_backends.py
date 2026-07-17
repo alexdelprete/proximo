@@ -463,3 +463,194 @@ def test_agent_file_write_accepts_valid_path(monkeypatch):
     api = ApiBackend(_agent_cfg())
     monkeypatch.setattr(api, "_post", lambda path, data=None: None)
     api.agent_file_write("101", None, "/var/log/probe.txt", "content")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Wave 6a review Finding 3: ceph_log() limit/start bound wiring.
+# Proves _check_ceph_log_bound is actually WIRED into ApiBackend.ceph_log — not just present
+# as a standalone validator (see tests/test_ceph.py::TestCheckCephLogBound for the unit tests
+# on the validator itself). Validation raises before any network call is attempted, so no
+# monkeypatch of _get is needed — mirrors test_snapshot_create_rejects_bad_snapname's idiom.
+# ---------------------------------------------------------------------------
+
+def test_ceph_log_rejects_negative_limit():
+    with pytest.raises(ProximoError, match="invalid ceph log limit"):
+        ApiBackend(_cfg()).ceph_log("pve", limit=-1)
+
+
+def test_ceph_log_rejects_negative_start():
+    with pytest.raises(ProximoError, match="invalid ceph log start"):
+        ApiBackend(_cfg()).ceph_log("pve", start=-1)
+
+
+def test_ceph_log_accepts_valid_bounds(monkeypatch):
+    """A valid non-negative limit/start clears backend validation and reaches the HTTP layer."""
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_get", lambda path: seen.update(path=path) or [])
+    api.ceph_log("pve", limit=50, start=0)
+    assert "limit=50" in seen["path"]
+    assert "start=0" in seen["path"]
+
+
+# ---------------------------------------------------------------------------
+# Wave 6c: PVE Ceph OSD. Proves the wire-level validators/constraints are actually WIRED into
+# ApiBackend.ceph_osd_* — not just present as standalone validators (see
+# tests/test_ceph.py::TestCheckCephOsdid/TestCheckCephOsdLvType/TestCheckCephOsdMin for the unit
+# tests on the validators themselves, and TestOsdCreatePlan/TestFindOsdInTree for the plan-factory
+# side of the same "requires"/mutual-exclusivity duplication). Validation raises before any
+# network call is attempted for the negative cases, so no monkeypatch of _post/_delete is needed.
+# ---------------------------------------------------------------------------
+
+
+def test_ceph_osd_create_rejects_invalid_dev():
+    with pytest.raises(ProximoError, match="invalid ceph osd device path"):
+        ApiBackend(_cfg()).ceph_osd_create("not-a-device")
+
+
+def test_ceph_osd_create_accepts_nvme_eui_by_id_dev(monkeypatch):
+    """Wave 6c review Finding 1 (MAJOR): a by-id stable device path (dot in the name) must be
+    accepted at the wire method, not just by the standalone validator."""
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_post", lambda path, data=None: seen.update(path=path, data=data))
+    dev = "/dev/disk/by-id/nvme-eui.0025388a91b12345"
+    api.ceph_osd_create(dev)
+    assert seen["data"]["dev"] == dev
+
+
+def test_ceph_osd_create_accepts_by_id_db_dev_and_wal_dev(monkeypatch):
+    """db_dev/wal_dev share the identical by-id/by-path exposure the review flagged (dedicated
+    NVMe for block.db/block.wal — the exact 'fast NVMe device' scenario the schema calls out)."""
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_post", lambda path, data=None: seen.update(path=path, data=data))
+    db_dev = "/dev/disk/by-id/ata-FOO_BAR=serial"
+    wal_dev = "/dev/disk/by-path/pci-0000:00:1f.2-ata-1"
+    api.ceph_osd_create("/dev/sdb", db_dev=db_dev, wal_dev=wal_dev)
+    assert seen["data"]["db_dev"] == db_dev
+    assert seen["data"]["wal_dev"] == wal_dev
+
+
+def test_ceph_osd_create_db_dev_size_requires_db_dev():
+    with pytest.raises(ProximoError, match="db_dev_size requires db_dev"):
+        ApiBackend(_cfg()).ceph_osd_create("/dev/sdb", db_dev_size=2)
+
+
+def test_ceph_osd_create_wal_dev_size_requires_wal_dev():
+    with pytest.raises(ProximoError, match="wal_dev_size requires wal_dev"):
+        ApiBackend(_cfg()).ceph_osd_create("/dev/sdb", wal_dev_size=1)
+
+
+def test_ceph_osd_create_osds_per_device_mutually_exclusive_with_db_dev():
+    with pytest.raises(ProximoError, match="mutually exclusive"):
+        ApiBackend(_cfg()).ceph_osd_create(
+            "/dev/sdb", db_dev="/dev/sdc", osds_per_device=2
+        )
+
+
+def test_ceph_osd_create_osds_per_device_mutually_exclusive_with_wal_dev():
+    with pytest.raises(ProximoError, match="mutually exclusive"):
+        ApiBackend(_cfg()).ceph_osd_create(
+            "/dev/sdb", wal_dev="/dev/sdd", osds_per_device=2
+        )
+
+
+def test_ceph_osd_create_rejects_invalid_db_dev():
+    with pytest.raises(ProximoError, match="invalid ceph osd device path"):
+        ApiBackend(_cfg()).ceph_osd_create("/dev/sdb", db_dev="not-a-device", db_dev_size=2)
+
+
+def test_ceph_osd_create_db_dev_size_below_minimum_rejected():
+    with pytest.raises(ProximoError, match="invalid ceph osd db_dev_size"):
+        ApiBackend(_cfg()).ceph_osd_create("/dev/sdb", db_dev="/dev/sdc", db_dev_size=0.5)
+
+
+def test_ceph_osd_create_forwards_exact_wire_body(monkeypatch):
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_post", lambda path, data=None: seen.update(path=path, data=data))
+    api.ceph_osd_create(
+        "/dev/sdb", crush_device_class="ssd", db_dev="/dev/sdc", db_dev_size=10, encrypted=True,
+    )
+    assert seen["path"] == "/nodes/pve/ceph/osd"
+    assert seen["data"] == {
+        "dev": "/dev/sdb", "crush-device-class": "ssd", "db_dev": "/dev/sdc",
+        "db_dev_size": 10, "encrypted": True,
+    }
+
+
+def test_ceph_osd_destroy_accepts_osdid_zero(monkeypatch):
+    """The falsy-id lesson (numeric form): osdid=0 must reach the DELETE path, never dropped."""
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(
+        api, "_delete", lambda path, params=None: seen.update(path=path, params=params)
+    )
+    api.ceph_osd_destroy(0, cleanup=True)
+    assert seen["path"] == "/nodes/pve/ceph/osd/0"
+    assert seen["params"] == {"cleanup": True}
+
+
+def test_ceph_osd_destroy_rejects_negative_osdid():
+    with pytest.raises(ProximoError, match="invalid ceph osdid"):
+        ApiBackend(_cfg()).ceph_osd_destroy(-1)
+
+
+def test_ceph_osd_in_accepts_osdid_zero(monkeypatch):
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_post", lambda path, data=None: seen.update(path=path))
+    api.ceph_osd_in(0)
+    assert seen["path"] == "/nodes/pve/ceph/osd/0/in"
+
+
+def test_ceph_osd_out_accepts_osdid_zero(monkeypatch):
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_post", lambda path, data=None: seen.update(path=path))
+    api.ceph_osd_out(0)
+    assert seen["path"] == "/nodes/pve/ceph/osd/0/out"
+
+
+def test_ceph_osd_scrub_accepts_osdid_zero_with_deep(monkeypatch):
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_post", lambda path, data=None: seen.update(path=path, data=data))
+    api.ceph_osd_scrub(0, deep=True)
+    assert seen["path"] == "/nodes/pve/ceph/osd/0/scrub"
+    assert seen["data"] == {"deep": True}
+
+
+def test_ceph_osd_lv_info_rejects_invalid_lv_type():
+    with pytest.raises(ProximoError, match="unsupported ceph osd lv-info type"):
+        ApiBackend(_cfg()).ceph_osd_lv_info(0, lv_type="bogus")
+
+
+def test_ceph_osd_lv_info_accepts_osdid_zero(monkeypatch):
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_get", lambda path: seen.update(path=path) or {})
+    api.ceph_osd_lv_info(0, lv_type="db")
+    assert seen["path"] == "/nodes/pve/ceph/osd/0/lv-info?type=db"
+
+
+def test_ceph_osd_metadata_rejects_negative_osdid():
+    with pytest.raises(ProximoError, match="invalid ceph osdid"):
+        ApiBackend(_cfg()).ceph_osd_metadata(-1)
+
+
+def test_ceph_osd_metadata_accepts_osdid_zero(monkeypatch):
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_get", lambda path: seen.update(path=path) or {})
+    api.ceph_osd_metadata(0)
+    assert seen["path"] == "/nodes/pve/ceph/osd/0/metadata"
+
+
+def test_ceph_osd_tree_forwards_node(monkeypatch):
+    api = ApiBackend(_cfg())
+    seen: dict = {}
+    monkeypatch.setattr(api, "_get", lambda path: seen.update(path=path) or {})
+    api.ceph_osd_tree("pve2")
+    assert seen["path"] == "/nodes/pve2/ceph/osd"

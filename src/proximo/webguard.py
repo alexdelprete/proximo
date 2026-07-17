@@ -16,10 +16,14 @@ from __future__ import annotations
 
 import hmac
 import os
+import sys
+import warnings
 from collections.abc import Callable
 from urllib.parse import urlparse
 
+from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 
 from ._secretfile import refuse_exposed_secret
@@ -104,6 +108,81 @@ def require_auth_for_public(host: str | None, token: str | None, *, where: str,
             f"(non-localhost) with no auth token. This face drives Proxmox — set {token_env} "
             "to a file containing a bearer token, or bind localhost only."
         )
+
+
+def read_face_env(prefix: str, *, default_port: int,
+                  default_host: str = "127.0.0.1") -> tuple[str, int, str | None, list[str] | None]:
+    """Read a network face's bind/auth configuration from its ``PROXIMO_<prefix>_*`` env vars.
+
+    Returns ``(host, port, token, allowed_hosts)`` from ``_HOST`` / ``_PORT`` / ``_TOKEN_FILE``
+    (run-but-not-read, via :func:`load_token_file`) / ``_ALLOWED_HOSTS`` (comma-separated; empty →
+    None → the face defaults to :func:`default_allowed_hosts`). One reader for every face so a new
+    transport can't invent its own parsing quirks.
+    """
+    host = os.environ.get(f"PROXIMO_{prefix}_HOST", default_host)
+    port = int(os.environ.get(f"PROXIMO_{prefix}_PORT", str(default_port)))
+    token = load_token_file(f"PROXIMO_{prefix}_TOKEN_FILE")
+    allowed = os.environ.get(f"PROXIMO_{prefix}_ALLOWED_HOSTS", "")
+    allowed_hosts = [h.strip() for h in allowed.split(",") if h.strip()] or None
+    return host, port, token, allowed_hosts
+
+
+def url_authority(host: str) -> str:
+    """RFC-3986 authority form of *host* — brackets a bare IPv6 address.
+
+    Without brackets, ``urlparse("http://::1:41241/").hostname`` returns None, which the factories'
+    public-bind guard misreads as bind-all (public) and refuses startup even for loopback ``::1``
+    with no token. Skips double-bracketing when the caller already passed a bracketed host.
+    """
+    return f"[{host}]" if (":" in host and not host.startswith("[")) else host
+
+
+def apply_surfaces_or_exit(face_cmd: str) -> None:
+    """Scope the live tool registry to ``PROXIMO_SURFACES`` before a face serves — or refuse startup.
+
+    Every network face reads the same global MCP registry the stdio server does; a face that skips
+    this silently ignores the operator's surface config. A bad surface name exits 1 with a
+    face-prefixed one-liner (refuse startup, never serve the wrong set — same contract as stdio).
+    """
+    from . import server  # noqa: PLC0415 -- late import; webguard stays server-independent
+
+    try:
+        server._apply_surfaces()
+    except ValueError as e:
+        print(f"{face_cmd}: {e}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+def guard_middleware(url: str, *, face: str, token: str | None, protect: Callable[[str], bool],
+                     unauthorized_body: dict, allowed_hosts: list[str] | None = None) -> list[Middleware]:
+    """The ONE perimeter stack every network face mounts — the order is the contract.
+
+    Outermost → innermost: ``TrustedHostMiddleware`` (DNS-rebind guard, ALWAYS on — a bad Host is
+    refused before anything else runs) → :class:`CrossOriginGuardMiddleware` (loopback-CSRF defense,
+    ALWAYS on) → :class:`BearerAuthMiddleware` (only when *token* is set; discovery paths stay open
+    via *protect*). A face chooses only *protect* (which paths are its control endpoints) and the
+    per-protocol 401 body — everything else is shared so the faces cannot drift.
+
+    ``allowed_hosts=["*"]`` disables the Host guard and warns LOUDLY — legitimate only behind a
+    trusted reverse-proxy that validates Host.
+    """
+    hosts = allowed_hosts or default_allowed_hosts(url)
+    if "*" in hosts:
+        warnings.warn(
+            f"PROXIMO {face} host allowlist contains '*' — DNS-rebind/Host protection is DISABLED; "
+            "any Host header is accepted. Only safe behind a trusted reverse-proxy that validates "
+            "Host.", stacklevel=2,
+        )
+    middleware = [
+        Middleware(TrustedHostMiddleware, allowed_hosts=hosts),
+        Middleware(CrossOriginGuardMiddleware, protect=protect),
+    ]
+    if token:
+        middleware.append(Middleware(
+            BearerAuthMiddleware, token=token, protect=protect,
+            unauthorized_body=unauthorized_body,
+        ))
+    return middleware
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):

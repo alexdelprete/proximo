@@ -7,7 +7,24 @@ consulted by `envelope.py`'s `enforce_envelope_forbid` (taint -> forbid coupling
 `consent.py`'s `enforce_consent` (taint -> consent coupling); the advisory fence wrapper
 `fence_output` labels adversarial returns as data-not-instructions (a courtesy to the model,
 not a control). Server integration is active — the taint marker is set, read, and enforced as
-configured.
+configured. **`capture_adversarial_current`** (Component 4, added for the Wave 6b adversarial
+review's Finding 1, 2026-07-16) is the second wiring point: a plan factory's own embedded
+CAPTURE read of an ADVERSARIAL-classified list tool (called directly against the backend,
+bypassing `_audited()` entirely) marks taint and stamps `Plan.current` the same way a live call
+to the wrapped read tool would — `proximo/ceph.py`'s 6 mon/mgr/mds create/destroy plan factories
+are its first callers. Wave 6c (2026-07-16) extended the helper with an optional `finder=`
+callable so a CAPTURE source whose read returns a NESTED shape (not a flat list) — the OSD CRUSH
+tree — can plug in its own lookup without changing the flat-list default for every existing
+caller; `proximo/ceph.py`'s OSD destroy/in/out plan factories are its first `finder` callers.
+Wave 6d (2026-07-16) shipped `pve_ceph_pool_list`/`pve_ceph_pool_status`/`pve_ceph_fs_list` as
+REVIEWED_TRUSTED, using plain try/except CAPTURE; the Wave 6d adversarial review (2026-07-17,
+Finding 1) REVERSED that ruling to ADVERSARIAL (see `ADVERSARIAL_TOOLS`'s own entry comment below
+for the corrected argument), so `proximo/ceph.py`'s 5 pool/fs create/set/destroy plan factories
+were rewired onto this same helper too. `plan_ceph_pool_set`'s CAPTURE source
+(`ceph_pool_status`) is this function's first caller whose `read()` returns a bare dict rather
+than a list -- its `finder` returns that dict unchanged (ignoring `match_id` entirely) instead of
+searching a collection, the same "identity finder" shape any future single-object CAPTURE source
+can reuse.
 
 **Classification is by CHANNEL, not read-vs-mutation.** `ADVERSARIAL_TOOLS` is a curated set of
 tool names whose RETURN carries guest- or externally-authored bytes an attacker can shape: guest
@@ -79,6 +96,8 @@ import json
 import os
 import tempfile
 import time
+from collections.abc import Callable
+from typing import Any
 
 from .envelope import _parse_forbid
 
@@ -178,6 +197,135 @@ ADVERSARIAL_TOOLS: frozenset[str] = frozenset({
     # see pbs_datastore_admin.py module docstring's Taint section for each argument.
     "pbs_groups_list", "pbs_group_notes_get",
     "pbs_remote_scan", "pbs_remote_scan_groups", "pbs_remote_scan_namespaces",
+    # Wave 6a (2026-07-16): PVE Ceph core observability + flags. `pve_ceph_log` returns
+    # free-text log lines ({n, t} per schema truth), Sys.Syslog permission channel — same
+    # rationale as pve_node_syslog/pve_node_journal/pve_task_log above.
+    "pve_ceph_log",
+    # Wave 6a review Finding 2 (2026-07-16, adversarial review reclassification): `pve_ceph_
+    # metadata`'s schema types every per-instance mon/mgr/mds entry `"additionalProperties": 1`
+    # — an explicitly OPEN shape, not a closed structured record — and the documented fields
+    # include `hostname`, `addr`/`addrs`, and `name`, all SELF-REPORTED by each daemon at
+    # registration, not typed in by the operator. A daemon that joins the cluster with a
+    # leaked/rogue cephx key (or a compromised existing OSD/MON/MDS host) controls those
+    # strings the same way `pbs_remote_scan`'s remote PBS controls the store names/comments
+    # that landed IT in ADVERSARIAL_TOOLS above ("whoever controls it controls these bytes") —
+    # aggregated across every node in the cluster, into the calling agent's context unfiltered.
+    # flags-list/flag-get/cfg_db/cfg_raw/cfg_value/crush/rules/cmd_safety stay REVIEWED_TRUSTED
+    # (closed-shape, structured, no open daemon-self-report field) — see proximo/ceph.py module
+    # docstring's Taint section for the full per-tool argument, including why `pve_ceph_status`
+    # is REVIEWED_TRUSTED despite its own vague `{"type": "object"}` schema shape.
+    "pve_ceph_metadata",
+    # Wave 6b (2026-07-16): PVE Ceph services lifecycle. `pve_ceph_mon_list`/`pve_ceph_mgr_list`/
+    # `pve_ceph_mds_list` return per-instance `name`/`host`/`addr`/`ceph_version` fields — the
+    # SAME daemon-self-reported identity strings that made `pve_ceph_metadata` ADVERSARIAL above,
+    # just sliced by service type instead of aggregated across mon/mgr/mds/osd/node. The
+    # counter-argument (these three schemas are CLOSED-shape — every field explicitly named, no
+    # `additionalProperties: 1` the way metadata's per-instance entries declare) is real and was
+    # weighed, but the controlling rule stays "channel, not by who chose (or already controls)
+    # the target": a rogue/compromised mon/mgr/mds daemon controls addr/host/name in the
+    # per-type list the identical way it controls those same fields inside the aggregated
+    # metadata view — the JSON container shape changes how PVE happens to present the bytes, not
+    # who authored them. Classifying the list view REVIEWED_TRUSTED while the aggregate view
+    # (built one wave earlier, same daemons, same fields) stays ADVERSARIAL would be an
+    # inconsistent channel call for functionally identical content. See proximo/ceph.py module
+    # docstring's Taint section for the full argument.
+    "pve_ceph_mon_list", "pve_ceph_mgr_list", "pve_ceph_mds_list",
+    # Wave 6c (2026-07-16): PVE Ceph OSD. `pve_ceph_osd_tree`'s schema types the ENTIRE nested
+    # CRUSH-bucket response additionalProperties:1 (open, untyped) — an even more extreme "we
+    # cannot statically say what's in here" shape than pve_ceph_metadata's own per-instance open
+    # map, and its documented per-node properties (status/weight/in/usage/latencies/...) are
+    # daemon-self-reported telemetry flowing back through the same monitor-cluster channel.
+    # `pve_ceph_osd_metadata`'s osd{} sub-object carries hostname/back_addr/front_addr/
+    # hb_back_addr/hb_front_addr — literally the SAME daemon-self-reported identity/address field
+    # set that made the aggregated pve_ceph_metadata ADVERSARIAL in Wave 6a; this is that exact
+    # channel's single-OSD drill-down (same relationship pve_ceph_mon_list/etc. bore to the
+    # aggregate view in Wave 6b), not a new judgment call. NOT here: `pve_ceph_osd_lv_info` — a
+    # DELIBERATE divergence, argued (not defaulted) in proximo/ceph.py's module docstring Taint
+    # section: closed schema shape (no additionalProperties:1) and content sourced from a LOCAL
+    # `lvs` shell-out on the SAME host administering the OSD, not a cross-daemon network
+    # self-report at cluster registration — the same local-config-read class as cfg_raw/cfg_db
+    # (REVIEWED_TRUSTED below), not the mon/mgr/mds/metadata registration-handshake class above.
+    # Strengthened (Wave 6c review, 2026-07-16): "forging requires root" alone doesn't rule out a
+    # non-root daemon compromise writing malicious data through some OTHER channel, so the
+    # sharper, more load-bearing ground is that lv_name/vg_name are not operator-typed or
+    # daemon-rewritable strings in the first place — ceph-volume lvm create/prepare
+    # auto-generates them as UUID-derived identifiers at OSD-creation time, and the running
+    # ceph-osd daemon doesn't rewrite them during normal operation, so a routinely-compromised
+    # (non-root) OSD daemon process has no channel to steer arbitrary bytes into these fields;
+    # only a fresh root/host-level escalation reaches them at all. See proximo/ceph.py's module
+    # docstring Taint section for the full two-ground argument.
+    "pve_ceph_osd_tree", "pve_ceph_osd_metadata",
+    # Wave 6d (2026-07-16) shipped pve_ceph_pool_list/pve_ceph_pool_status/pve_ceph_fs_list as
+    # REVIEWED_TRUSTED; the Wave 6d adversarial review (2026-07-17, Finding 1) REVERSED that
+    # ruling. The original argument rested on two schema citations that don't hold up and never
+    # engaged the closest, most damaging precedent already sitting in THIS set. Corrected
+    # argument: pool_name (POST .../pool) and CephFS name (POST .../fs/{name}) both validate
+    # against the pattern `^[^:/\s]+$` ONLY -- no length cap at all (unlike Wave 6b's mds name,
+    # which carries maxLength: 200) -- and are creatable by ANY cephx-capable client holding mon
+    # caps, not only through Proximo's own pool_create/fs_create; Ceph itself also auto-creates
+    # pools with no operator action at all (device_health_metrics, .mgr). That is structurally
+    # identical to "operator-set, but free-text fields a guest/attacker can shape" -- the exact
+    # rule that already landed pve_list_guests/pve_cluster_resources/pve_snapshot_list in this
+    # set for VM/CT/snapshot NAMES, a precedent the original Wave 6d argument never mentioned.
+    # pool_status's `application_metadata` is a THIRD channel the original argument's own
+    # operator-chosen/cluster-computed dichotomy didn't cover: it's populated by
+    # `ceph osd pool application set <pool> <app> <key> <value>`, a raw Ceph admin command
+    # entirely OUTSIDE pve_ceph_pool_create/pve_ceph_pool_set (neither exposes an
+    # application-metadata key/value parameter) -- Proximo mediates neither the write nor any
+    # cluster-computed derivation of it. CORRECTION to the original argument's schema citations
+    # (do not repeat them): pool_list's application_metadata/autoscale_status and pool_status's
+    # own return carry NO "additionalProperties": 1 anywhere -- that marker sits ONLY on
+    # fs_list's own per-entry object (schema line 904, `GET /nodes/{node}/ceph/fs`
+    # returns.items), not on the pool side at all; the original ceph.py docstring/tests had this
+    # exactly backwards. Bias conservative per this module's own stated policy: classify as
+    # adversarial when unsure. See proximo/ceph.py module docstring's Wave 6d Taint section for
+    # the full argument.
+    "pve_ceph_pool_list", "pve_ceph_pool_status", "pve_ceph_fs_list",
+    # Wave 7a (2026-07-17): PVE SDN gap-fill + global control plane. `pve_sdn_zone_ip_vrf`'s
+    # entries carry `nexthops` explicitly documented as "the interface name or ip address of the
+    # next hop" — peer-announced over the running BGP/EVPN routing protocol, the same
+    # wire-learned-content channel that made pve_ceph_metadata/pve_ceph_osd_metadata
+    # ADVERSARIAL (a compromised peer controls these bytes). `pve_sdn_vnet_mac_vrf`'s schema
+    # description is explicit that its routes are content this node "self-originates OR has
+    # learned via BGP" — a genuinely mixed local/wire-learned channel, classified conservatively
+    # per this module's own "classify as adversarial when unsure" policy. NOT here:
+    # pve_sdn_zone_get/vnet_get/subnet_get/dry_run/zone_status_list/zone_bridges/zone_content —
+    # all REVIEWED_TRUSTED (operator-authored config, PVE's own apply-state machine, or a
+    # structural guest-NIC index reference, argued not defaulted) — see network.py's module
+    # docstring Taint section for the full per-tool argument.
+    "pve_sdn_zone_ip_vrf", "pve_sdn_vnet_mac_vrf",
+    # Wave 7c (2026-07-17): PVE SDN controllers + DNS + IPAMs. `pve_sdn_ipam_status`'s schema
+    # gives ZERO item-shape documentation (`returns: {"type": "array"}`, no `items` key at
+    # all — the most undocumented read on the whole SDN plane) and the domain-known content
+    # is guest IP/MAC/hostname address entries — genuinely guest-influenced (whatever guest
+    # holds that address chose to be there), the same wire-learned/guest-controlled-content
+    # rationale that already landed pve_sdn_zone_ip_vrf/pve_sdn_vnet_mac_vrf here. NOT here:
+    # pve_sdn_controllers_list/controller_get/dns_list/dns_get/ipams_list/ipam_get — all
+    # REVIEWED_TRUSTED (operator-authored SDN integration config; dns_get/ipam_get's
+    # schema-undocumented single-object GET shape is a SECRET-HANDLING concern — see
+    # sdn_objects.py's module docstring RULING — not a content-trust/taint concern).
+    "pve_sdn_ipam_status",
+    # Wave 7d (2026-07-17): PVE SDN fabrics (config CRUD + node-scoped status) — the FINAL
+    # chunk of Wave 7. `pve_sdn_fabric_status_neighbors`'s `neighbor` field is the remote
+    # peer's own self-announced IP/hostname, and its `status`/`uptime` are explicitly
+    # documented "as returned by FRR" — the same wire-learned-content channel that made
+    # pve_sdn_zone_ip_vrf/pve_ceph_metadata ADVERSARIAL. `pve_sdn_fabric_status_routes`'s
+    # `via` (nexthop list) is injected by whatever peer announces it over the running
+    # routing protocol — the identical channel. NOT here: `pve_sdn_fabric_status_interfaces`
+    # — its `{name, state, type}` shape describes the fabric's OWN locally-rendered network
+    # interface, with no field documented as peer-announced or FRR-reported (checked
+    # field-by-field against the raw schema); REVIEWED_TRUSTED instead.
+    # STRIKE-AND-CORRECT (post-review, 2026-07-17): this comment previously cited "the
+    # campaign doc's own Wave 7d chunk listing" as corroborating this classification — that
+    # citation was FABRICATED (no such section exists in the campaign doc; the quoted text is
+    # the pinned draft decomposition, already cited separately, and the campaign doc's own
+    # ruling block said the OPPOSITE at the time). The classification stands anyway, but on
+    # its real basis: the schema's local-only field shape above, PLUS the 2026-07-17
+    # COORDINATOR RE-RULING (`.scratch/2026-07-15-full-surface-campaign.md` lines 853-864,
+    # binding — corrects the ruling block's original coarse "neighbors/interfaces/routes"
+    # grouping per the draft's own Fact #17). See sdn_fabrics.py's module docstring fact #3
+    # for the full argument and the strike-and-correct note.
+    "pve_sdn_fabric_status_neighbors", "pve_sdn_fabric_status_routes",
 })
 
 
@@ -397,3 +545,90 @@ def taint_forbid_set() -> tuple[frozenset[str], bool]:
     (frozenset(), True) so a later caller (the taint->forbid coupling) can fold that into
     forbid-all, fail-closed, matching envelope.py's own garble handling."""
     return _parse_forbid(os.environ.get(FORBID_ENV))
+
+
+# === Component 4 — adversarial-channel CAPTURE (plan factories) ===================================
+
+
+def capture_adversarial_current(
+    audit_dir: str,
+    source: str,
+    read: Callable[[], Any],
+    match_id: Any,
+    *,
+    key: str = "name",
+    finder: Callable[[Any, Any], dict | None] | None = None,
+) -> tuple[dict, bool]:
+    """CAPTURE-or-declare for a plan factory whose backing read is classified ADVERSARIAL
+    (`ADVERSARIAL_TOOLS`) but is called directly against the backend inside the plan factory —
+    bypassing the wrapped read tool, and therefore `_audited()`'s own taint-marking / ledger-
+    stamping / fence wiring, entirely (a plan factory calls `api.<method>()` directly, never the
+    tool). Wave 6b adversarial review Finding 1 (2026-07-16): the 6 Ceph mon/mgr/mds
+    create/destroy plan factories fetch the SAME daemon-self-reported content that made
+    `pve_ceph_{mon,mgr,mds}_list` ADVERSARIAL, and the captured entry landed straight in
+    `Plan.current` (and the ledger's "planned" entry) with no taint marker set and no provenance
+    stamp at all — this is the single shared home for that shape (a plan factory that
+    best-effort-reads something and looks up one entry by id). NOT wired into `config_edit.py`'s
+    `plan_config_set` (a single-GET CAPTURE, a different shape — logged as separate campaign
+    debt by the review, out of scope for this fix).
+
+    Mirrors `_audited()`'s taint handling for a full tool call, so a plan factory's embedded
+    CAPTURE produces the SAME marker/ledger state a direct call to the wrapped read tool would
+    have produced:
+
+    - Marks the sticky marker (`mark_tainted(audit_dir, source)`) BEFORE `read()` runs, gated on
+      the identical `is_adversarial(source) and taint_tracking_on()` condition and the identical
+      ordering `_audited()` uses — so a read that raises still taints (an error body can carry
+      attacker-shaped content too). A `mark_tainted()` failure is left to propagate: the plan
+      factory runs inside `server._plan()`, whose own exception handling already records the
+      failed build to the ledger and re-raises — the same fail-closed backstop `_audited()`
+      provides for a live tool call, no separate handling needed here.
+    - Reads the source (best-effort) and finds the one matching entry. By DEFAULT (`finder=None`)
+      this is the original flat-list lookup: the entry whose `key` field equals `match_id` inside
+      a `list[dict]` — UNCHANGED behavior for every pre-existing caller (the 6 Wave 6b mon/mgr/
+      mds create/destroy factories), which pass neither `finder` nor a non-default `key` shape.
+      When `finder` IS given, it REPLACES that lookup entirely: `finder(result, match_id)` must
+      return the matching entry dict (or a falsy value for "no match", treated identically to the
+      flat-list default's own "no match" case — NOT a failure). Wave 6c's OSD destroy/in/out
+      CAPTURE (`proximo/ceph.py`) is the first `finder` caller: `pve_ceph_osd_tree` is
+      ADVERSARIAL (same daemon-self-report channel as mon/mgr/mds list) but its
+      GET /nodes/{node}/ceph/osd response is a single NESTED object (root CRUSH bucket ->
+      children -> ... -> OSD leaves), not a flat list — the default `key`-equality lookup over
+      `list[dict]` cannot walk that shape. `proximo/ceph.py`'s `_find_osd_in_tree` is passed as
+      `finder` instead of changing this function's default behavior for every other caller.
+      A successful read with no match (default OR `finder` path) degrades to `current={}`
+      (expected — e.g. a create's target doesn't exist yet), NOT a failure — only a raised
+      exception returns `ok=False` (the caller degrades to `complete=False`, the pre-existing
+      CAPTURE-or-declare contract, UNCHANGED by this helper or its extension). `read()` and the
+      `finder(result, match_id)` call live in the SAME `try/except Exception` block (Wave 6c
+      review Finding 2, MINOR, 2026-07-16 fix): a raising `finder` degrades exactly like a
+      raising `read()` — it does NOT propagate uncaught. `_find_osd_in_tree` cannot itself raise
+      for any input shape (isinstance-checked at every level, `return {}` on anything malformed),
+      so this was not exploitable through Wave 6c's own caller, but the generic mechanism this
+      function advertises ("a `finder` returning a falsy non-dict is normalized the same as
+      `{}`") did not extend to "a raising `finder`" before this fix — any FUTURE `finder=` caller
+      now inherits the same fail-open guarantee `read()` always had.
+    - On a successful read (`ok=True`), the returned `current` dict is stamped with the SAME
+      untrusted-content annotation `_audited()`/`_untrusted_detail` apply to ledger `detail`
+      (`{"untrusted": True, "content_trust": "adversarial"}`), under the identical
+      is_adversarial+taint_tracking_on gate — inert (byte-for-byte unchanged dict) otherwise,
+      matching `_untrusted_detail`'s own fail-open-to-unchanged default. Because
+      `server._record_plan()` writes `Plan.current` verbatim into the ledger's "planned" detail
+      dict, stamping here is sufficient for the stamp to reach BOTH the dry-run response the
+      calling agent sees AND the tamper-evident ledger — no separate ledger-side call needed. On
+      a failed read (`ok=False`) the returned `{}` is NOT stamped — nothing was actually
+      captured, matching the pre-existing "no capture" shape exactly.
+    """
+    if is_adversarial(source) and taint_tracking_on():
+        mark_tainted(audit_dir, source)
+    try:
+        result = read()
+        if finder is not None:
+            current = finder(result, match_id) or {}
+        else:
+            current = next((entry for entry in (result or []) if entry.get(key) == match_id), {})
+    except Exception:
+        return {}, False
+    if is_adversarial(source) and taint_tracking_on():
+        current = {**current, "untrusted": True, "content_trust": "adversarial"}
+    return current, True

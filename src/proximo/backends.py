@@ -17,7 +17,7 @@ import re
 import shlex
 import subprocess
 from dataclasses import dataclass
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -236,6 +236,459 @@ def _check_apt_digest(digest: str | None) -> str | None:
     s = str(digest)
     if not _APT_DIGEST_RE.match(s):
         raise ProximoError(f"invalid digest: {digest!r} (expected hex string, max 80 chars)")
+    return s
+
+
+# --- Wave 6a: PVE Ceph-plane validators (core observability + flags) ---
+# Schema truth: .scratch/api-schemas-2026-07-15/wave6-pve-ceph-schema.json.
+
+# The 11 Ceph flags — closed enum per schema (GET/PUT /cluster/ceph/flags[/{flag}]).
+_CEPH_FLAGS = frozenset({
+    "nobackfill", "nodeep-scrub", "nodown", "noin", "noout", "norebalance",
+    "norecover", "noscrub", "notieragent", "noup", "pause",
+})
+
+
+def _check_ceph_flag(flag: str) -> str:
+    """Validate a Ceph cluster flag name against the closed schema enum (11 flags)."""
+    s = str(flag)
+    if s not in _CEPH_FLAGS:
+        raise ProximoError(f"unsupported ceph flag: {flag!r} (valid: {sorted(_CEPH_FLAGS)!r})")
+    return s
+
+
+_CEPH_METADATA_SCOPES = frozenset({"all", "versions"})
+
+
+def _check_ceph_metadata_scope(scope: str) -> str:
+    """Validate the optional `scope` param of GET /cluster/ceph/metadata."""
+    if scope not in _CEPH_METADATA_SCOPES:
+        raise ProximoError(
+            f"unsupported ceph metadata scope: {scope!r} (valid: {sorted(_CEPH_METADATA_SCOPES)!r})"
+        )
+    return scope
+
+
+_CEPH_CMD_SAFETY_ACTIONS = frozenset({"stop", "destroy"})
+_CEPH_CMD_SAFETY_SERVICES = frozenset({"osd", "mon", "mds"})
+
+
+def _check_ceph_cmd_safety_action(action: str) -> str:
+    """Validate the `action` param of GET /nodes/{node}/ceph/cmd-safety (closed enum)."""
+    if action not in _CEPH_CMD_SAFETY_ACTIONS:
+        raise ProximoError(
+            f"unsupported ceph cmd-safety action: {action!r} "
+            f"(valid: {sorted(_CEPH_CMD_SAFETY_ACTIONS)!r})"
+        )
+    return action
+
+
+def _check_ceph_cmd_safety_service(service: str) -> str:
+    """Validate the `service` param of GET /nodes/{node}/ceph/cmd-safety (closed enum)."""
+    if service not in _CEPH_CMD_SAFETY_SERVICES:
+        raise ProximoError(
+            f"unsupported ceph cmd-safety service: {service!r} "
+            f"(valid: {sorted(_CEPH_CMD_SAFETY_SERVICES)!r})"
+        )
+    return service
+
+
+# Ceph service-instance id (an OSD number, or a mon/mds name): shape-only — no fixed enum
+# upstream (id-shape varies by service type). Non-empty, no control characters, capped length
+# (defense-in-depth, mirrors _check_username). \Z anchor rejects trailing-newline slip-through.
+_CEPH_SERVICE_ID_RE = re.compile(r"^[^\x00-\x1f\x7f]{1,200}\Z")
+
+
+def _check_ceph_service_id(service_id: str) -> str:
+    """Validate the `id` param of GET /nodes/{node}/ceph/cmd-safety (service instance id)."""
+    s = str(service_id)
+    if not _CEPH_SERVICE_ID_RE.match(s):
+        raise ProximoError(
+            f"invalid ceph service id: {service_id!r} (1-200 chars, no control characters)"
+        )
+    return s
+
+
+# config-keys: one or more "<section>:<config key>" items separated by ';', ',' or ' ' — mirrors
+# the live schema pattern (PVE::API2::Ceph cfg/value 'config-keys' param), max 4096 chars per
+# schema. Client-side tightening: PVE's own pattern uses Perl case-insensitive inline groups
+# ((?^i:...)); this is the equivalent case-both-ways character class.
+_CEPH_CONFIG_KEY_ITEM = r"[0-9A-Za-z._-]+:[0-9A-Za-z_-]+"
+_CEPH_CONFIG_KEYS_RE = re.compile(rf"^{_CEPH_CONFIG_KEY_ITEM}(?:[;, ]{_CEPH_CONFIG_KEY_ITEM})*\Z")
+
+
+def _check_ceph_config_keys(config_keys: str) -> str:
+    """Validate GET /nodes/{node}/ceph/cfg/value's `config-keys` param against the schema's
+    '<section>:<key>[;|,| <section>:<key>]*' format, max 4096 chars."""
+    s = str(config_keys)
+    if len(s) > 4096:
+        raise ProximoError("invalid ceph config-keys: too long (max 4096 chars)")
+    if not _CEPH_CONFIG_KEYS_RE.match(s):
+        raise ProximoError(
+            f"invalid ceph config-keys: {config_keys!r} "
+            "(expected '<section>:<key>[;|,| <section>:<key>]*')"
+        )
+    return s
+
+
+def _check_ceph_log_bound(value: int | None, field: str) -> int | None:
+    """Validate the optional `limit`/`start` params of GET /nodes/{node}/ceph/log (schema:
+    `minimum: 0` for both, no declared maximum). None means "omit" and passes through
+    unvalidated — this is a bound check, not a required-field check.
+
+    Wave 6a review Finding 3: mirrors observability.py's _check_count/_check_lastentries idiom
+    used by pve_node_journal/pve_node_syslog (a caller-supplied negative int must fail fast with
+    a friendly local error, not sail through to a raw PVE 400). Duplicated here rather than
+    imported: observability.py imports FROM backends.py, so the reverse import would be
+    circular — same precedent as _check_file_path's own duplication note above.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ProximoError(f"invalid ceph log {field}: {value!r} (must be a non-negative integer)")
+    return value
+
+
+# --- Wave 6b: PVE Ceph-plane validators (services lifecycle) ---
+# Schema truth: .scratch/api-schemas-2026-07-15/wave6-pve-ceph-schema.json.
+
+# Mon/mgr/mds daemon id (monid / mgr {id} / mds {name}) — one shared shape across all three per
+# the live schema (identical pattern verbatim on every one of mon POST/DELETE, mgr POST/DELETE,
+# mds POST/DELETE): single alnum, optionally followed by alnum/hyphen ending in alnum (no
+# leading/trailing hyphen, non-empty). maxLength 200 is schema-declared on the CREATE (POST) side
+# only; DESTROY (DELETE) declares no maxLength at all — capped here anyway for all call sites,
+# client-side defense-in-depth, mirroring _check_ceph_service_id's own undeclared-but-capped
+# precedent from Wave 6a.
+_CEPH_DAEMON_ID_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\Z")
+
+
+def _check_ceph_daemon_id(value: str, label: str) -> str:
+    """Validate a Ceph mon/mgr/mds daemon id (monid / mgr id / mds name) against the shared
+    schema pattern. `label` names the field in the error message (e.g. 'monid', 'mgr id',
+    'mds name') since one regex serves all three."""
+    s = str(value)
+    if len(s) > 200:
+        raise ProximoError(f"invalid ceph {label}: too long (max 200 chars)")
+    if not _CEPH_DAEMON_ID_RE.match(s):
+        raise ProximoError(
+            f"invalid ceph {label}: {value!r} "
+            "(alnum, optionally hyphenated, no leading/trailing hyphen, non-empty)"
+        )
+    return s
+
+
+# Ceph service target for start/stop/restart: (ceph|mon|mds|osd|mgr)(.<id>)?, default
+# 'ceph.target' — the <id> suffix reuses the exact same alnum/hyphen shape as the daemon-id
+# pattern above (schema: PVE::API2::Ceph{Start,Stop,Restart}Ceph.pm, identical pattern on all 3).
+_CEPH_SERVICE_RE = re.compile(
+    r"^(ceph|mon|mds|osd|mgr)(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)?\Z"
+)
+
+
+def _check_ceph_service(service: str) -> str:
+    """Validate the `service` param of POST /nodes/{node}/ceph/{start,stop,restart}."""
+    s = str(service)
+    if not _CEPH_SERVICE_RE.match(s):
+        raise ProximoError(
+            f"invalid ceph service: {service!r} "
+            "(expected '(ceph|mon|mds|osd|mgr)[.<id>]', e.g. 'ceph.target', 'mon.pve1')"
+        )
+    return s
+
+
+def _check_ceph_init_bound(value: int | None, field: str, lo: int, hi: int) -> int | None:
+    """Validate an optional bounded integer param of POST /nodes/{node}/ceph/init (min_size:
+    1-7, size: 1-7, pg_bits: 6-14 per schema). None means "omit" and passes through unvalidated.
+    Mirrors _check_ceph_log_bound's shape (Wave 6a review Finding 3 precedent) — a caller-supplied
+    out-of-range int must fail fast locally, not sail through to a raw PVE 400."""
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or not (lo <= value <= hi):
+        raise ProximoError(f"invalid ceph init {field}: {value!r} (must be an integer {lo}-{hi})")
+    return value
+
+
+def _check_ceph_init_network(value: str | None, field: str) -> str | None:
+    """Validate an optional network/cluster-network param of POST /nodes/{node}/ceph/init
+    (format: CIDR, maxLength 128 per schema). Length-only: the schema gives no explicit regex
+    pattern for its own 'CIDR' format (unlike e.g. the daemon-id/service patterns above), and
+    Ceph's public/cluster network config legitimately accepts comma-separated multi-CIDR values —
+    inventing a single-CIDR regex here risks being WRONG (rejecting valid multi-network strings)
+    rather than merely permissive. None means "omit" and passes through unvalidated."""
+    if value is None:
+        return None
+    s = str(value)
+    if len(s) > 128:
+        raise ProximoError(f"invalid ceph init {field}: too long (max 128 chars)")
+    return s
+
+
+# --- Wave 6c: PVE Ceph-plane validators (OSD) ---
+# Schema truth: .scratch/api-schemas-2026-07-15/wave6-pve-ceph-schema.json.
+
+
+def _check_ceph_osdid(osdid: int) -> int:
+    """Validate a Ceph OSD id (schema: type integer, required on every OSD-scoped endpoint).
+    0 is a VALID osdid (the first OSD ever created) — this is an isinstance+equality check,
+    NEVER a truthiness check, so osdid=0 is never mistaken for "missing" (the Wave 6b falsy-id
+    lesson — Finding 2, `monid=""` — applied here to a numeric id instead of a string one)."""
+    if not isinstance(osdid, int) or isinstance(osdid, bool) or osdid < 0:
+        raise ProximoError(f"invalid ceph osdid: {osdid!r} (must be a non-negative integer)")
+    return osdid
+
+
+# OSD device type for GET .../osd/{osdid}/lv-info — closed 3-value enum, schema default 'block'
+# (the default is applied by the caller, not here — None means "omit", forwarded unset).
+_CEPH_OSD_LV_TYPES = frozenset({"block", "db", "wal"})
+
+
+def _check_ceph_osd_lv_type(value: str) -> str:
+    """Validate the optional `type` query param of GET .../osd/{osdid}/lv-info (closed enum)."""
+    if value not in _CEPH_OSD_LV_TYPES:
+        raise ProximoError(
+            f"unsupported ceph osd lv-info type: {value!r} "
+            f"(valid: {sorted(_CEPH_OSD_LV_TYPES)!r})"
+        )
+    return value
+
+
+def _check_ceph_osd_min(value: float | None, field: str, minimum: float) -> float | None:
+    """Validate an optional LOWER-BOUNDED-ONLY numeric param of POST /nodes/{node}/ceph/osd
+    (schema declares only a `minimum`, no `maximum`: db_dev_size >= 1, wal_dev_size >= 0.5).
+    None means "omit" and passes through unvalidated. Mirrors _check_ceph_init_bound's shape but
+    one-sided (no upper bound exists upstream for either of these, unlike min_size/size/pg_bits)."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ProximoError(f"invalid ceph osd {field}: {value!r} (must be a number >= {minimum})")
+    if value < minimum:
+        raise ProximoError(f"invalid ceph osd {field}: {value!r} (must be >= {minimum})")
+    return value
+
+
+def _check_ceph_osd_int_min(value: int | None, field: str, minimum: int) -> int | None:
+    """Validate an optional LOWER-BOUNDED-ONLY integer param of POST /nodes/{node}/ceph/osd
+    (schema: osds-per-device >= 1, integer). A separate function from _check_ceph_osd_min
+    (rather than a shared `integer=` flag) so the return type stays a clean `int | None` for
+    pyright — a union return would force every caller to narrow it back down. None means "omit"
+    and passes through unvalidated."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ProximoError(f"invalid ceph osd {field}: {value!r} (must be an integer >= {minimum})")
+    if value < minimum:
+        raise ProximoError(f"invalid ceph osd {field}: {value!r} (must be >= {minimum})")
+    return value
+
+
+# Ceph OSD device path (dev/db_dev/wal_dev on POST /nodes/{node}/ceph/osd): a Ceph-SCOPED
+# widening of _check_disk's charset, NOT a loosening of the shared validator itself — other
+# planes (node_disk_wipe/node_disk_initgpt) still rely on _check_disk's stricter shape. Wave 6c
+# review Finding 1 (MAJOR, 2026-07-16): _check_disk's [a-zA-Z0-9/_-] class rejects real-world,
+# PVE-documented, commonly-recommended stable device paths precisely relevant to this mutation
+# (osds-per-device's own description: "Only useful for fast NVMe devices") — e.g.
+# /dev/disk/by-id/nvme-eui.<hex> (dot) and /dev/disk/by-path/pci-0000:00:1f.2-ata-1 (colon).
+# This class adds '.', ':', '+', '=' (also covers by-id names like ata-FOO_BAR=serial) — still a
+# conservative WHITELIST (not a blacklist): whitespace, backslashes, and shell metacharacters
+# are excluded simply by not being in the allowed set, same discipline as _check_disk itself.
+_CEPH_OSD_DEV_RE = re.compile(r"^/dev/[a-zA-Z0-9/_.:+=-]+\Z")
+
+
+def _check_ceph_osd_dev(disk: str) -> str:
+    """Validate a Ceph OSD device path (dev/db_dev/wal_dev). Like _check_disk (must start with
+    /dev/, no '..' traversal) but with a wider, still-conservative charset that admits '.', ':',
+    '+', '=' for the by-id/by-path stable device names operators are specifically steered toward
+    for Ceph OSD dev/db_dev/wal_dev (to avoid /dev/sdX renumbering across a reboot) — see Wave 6c
+    review Finding 1. Scoped to Ceph OSD create only: does NOT loosen the shared _check_disk,
+    which node_disk_wipe/node_disk_initgpt keep relying on for their own (raw /dev/sdX-only)
+    convention."""
+    s = str(disk)
+    if not _CEPH_OSD_DEV_RE.match(s):
+        raise ProximoError(
+            f"invalid ceph osd device path: {disk!r} "
+            "(must start with /dev/ then letters/digits/underscore/hyphen/slash/dot/colon/plus/equals)"
+        )
+    # Component-level traversal check: no '..' segment after splitting on '/' (mirrors
+    # _check_disk's own check — the wider charset above doesn't touch this).
+    if ".." in s.split("/"):
+        raise ProximoError(f"path traversal not allowed in disk path: {disk!r}")
+    return s
+
+
+# --- Wave 6d: PVE Ceph-plane validators (pools + CephFS) ---
+# Schema truth: .scratch/api-schemas-2026-07-15/wave6-pve-ceph-schema.json.
+
+# Ceph pool name (POST/PUT/DELETE .../pool[/{name}]) and CephFS name (POST/DELETE .../fs/{name})
+# share the IDENTICAL schema pattern verbatim: '^[^:/\s]+$' (no colon, slash, or whitespace).
+# DELETE .../pool/{name} and GET .../pool/{name}/status declare NO pattern for their own `name`
+# param (just `type: string`) — applied here anyway, defense-in-depth: a legitimately-CREATED
+# pool/fs can never have a name violating the create-side pattern in the first place (mirrors the
+# Wave 6b _check_ceph_daemon_id precedent: DELETE declares no maxLength either, capped anyway).
+_CEPH_NAME_RE = re.compile(r"^[^:/\s]+\Z")
+
+
+def _check_ceph_pool_or_fs_name(value: str, label: str) -> str:
+    """Validate a Ceph pool name or CephFS name against the shared schema pattern (no colon,
+    slash, or whitespace). `label` names the field in the error message (e.g. 'pool name',
+    'fs name') since one regex serves both — mirrors _check_ceph_daemon_id's label-parameterized
+    shape."""
+    s = str(value)
+    if not _CEPH_NAME_RE.match(s):
+        raise ProximoError(
+            f"invalid ceph {label}: {value!r} (must not contain ':', '/', or whitespace)"
+        )
+    return s
+
+
+_CEPH_FS_DEFAULT_NAME = "cephfs"
+
+
+def _check_ceph_fs_name_or_default(name: str | None) -> str:
+    """Resolve POST /nodes/{node}/ceph/fs/{name}'s own schema default ('cephfs') client-side:
+    `name` is ALSO the URL path segment for that request and cannot itself be "omitted" from an
+    HTTP request, so a caller-omitted name must resolve to the literal default BEFORE the URL is
+    built. Mirrors the Wave 6b mon/mgr/mds `_ceph_daemon_target` "default: nodename" Build nuance
+    — but here the schema default is a FIXED LITERAL string ('cephfs'), not the caller's node
+    name, so this is a plain function (no `node`/`self` needed), not an ApiBackend method."""
+    return _check_ceph_pool_or_fs_name(name, "fs name") if name is not None else _CEPH_FS_DEFAULT_NAME
+
+
+_CEPH_POOL_APPLICATIONS = frozenset({"rbd", "cephfs", "rgw"})
+
+
+def _check_ceph_pool_application(value: str) -> str:
+    """Validate the `application` param of POST/PUT .../pool[/{name}] (closed 3-value enum)."""
+    if value not in _CEPH_POOL_APPLICATIONS:
+        raise ProximoError(
+            f"unsupported ceph pool application: {value!r} "
+            f"(valid: {sorted(_CEPH_POOL_APPLICATIONS)!r})"
+        )
+    return value
+
+
+_CEPH_POOL_AUTOSCALE_MODES = frozenset({"on", "off", "warn"})
+
+
+def _check_ceph_pool_autoscale_mode(value: str) -> str:
+    """Validate the `pg_autoscale_mode` param of POST/PUT .../pool[/{name}] (closed 3-value
+    enum)."""
+    if value not in _CEPH_POOL_AUTOSCALE_MODES:
+        raise ProximoError(
+            f"unsupported ceph pool pg_autoscale_mode: {value!r} "
+            f"(valid: {sorted(_CEPH_POOL_AUTOSCALE_MODES)!r})"
+        )
+    return value
+
+
+def _check_ceph_bounded_int(value: int | None, label: str, lo: int, hi: int) -> int | None:
+    """Validate an optional BOTH-SIDES-BOUNDED integer param shared by pool/fs create+set
+    (schema: pool min_size/size both 1-7, pool pg_num 1-32768; fs pg_num 8-32768). None means
+    "omit" and passes through unvalidated. `label` names the FULL field (e.g. 'pool min_size',
+    'fs pg_num') so the error message reads correctly for whichever plane calls it — mirrors
+    _check_ceph_daemon_id's/_check_ceph_pool_or_fs_name's label-parameterized shape, rather than
+    reusing _check_ceph_init_bound's own hardcoded 'ceph init' wording (which would misleadingly
+    say 'ceph init pg_num' for a pool/fs mutation that has nothing to do with cluster init)."""
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or not (lo <= value <= hi):
+        raise ProximoError(f"invalid ceph {label}: {value!r} (must be an integer {lo}-{hi})")
+    return value
+
+
+def _check_ceph_pool_upper_bound(value: int | None, field: str, maximum: int) -> int | None:
+    """Validate an optional UPPER-BOUNDED-ONLY integer param of POST/PUT .../pool[/{name}]
+    (schema: pg_num_min declares only a `maximum` of 32768, no `minimum` key at all — the live
+    typetext is literally '<integer> (-N - 32768)'). None means "omit" and passes through
+    unvalidated. A separate one-sided validator from _check_ceph_init_bound (which requires both
+    a lo AND a hi) — mirrors _check_ceph_osd_min's one-sided shape, but bounded from the OTHER
+    side (upper, not lower)."""
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value > maximum:
+        raise ProximoError(f"invalid ceph pool {field}: {value!r} (must be an integer <= {maximum})")
+    return value
+
+
+_CEPH_POOL_TARGET_SIZE_RE = re.compile(r"^(\d+(\.\d+)?)([KMGT])?\Z")
+
+
+def _check_ceph_pool_target_size(value: str) -> str:
+    """Validate the `target_size` param of POST/PUT .../pool[/{name}] against the schema's own
+    pattern: a plain number optionally suffixed with one of K/M/G/T (e.g. '10G', '500M')."""
+    s = str(value)
+    if not _CEPH_POOL_TARGET_SIZE_RE.match(s):
+        raise ProximoError(
+            f"invalid ceph pool target_size: {value!r} "
+            "(expected a number optionally suffixed with K/M/G/T, e.g. '10G')"
+        )
+    return s
+
+
+def _check_ceph_pool_ratio(value: float | None) -> float | None:
+    """Validate the optional `target_size_ratio` param of POST/PUT .../pool[/{name}] (schema:
+    bare `number`, no declared minimum/maximum). None means "omit" and passes through
+    unvalidated — this is a type-only check (a caller-supplied bool or non-numeric value must
+    fail fast locally, matching every other numeric-typed optional on this plane)."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ProximoError(f"invalid ceph pool target_size_ratio: {value!r} (must be a number)")
+    return value
+
+
+# erasure-coding is PVE's own propertyString wire format (schema `format` block: required
+# k>=2/m>=1; optional device-class/failure-domain/profile strings) — validated by PARSING
+# (comma-separated key=value pairs against this closed field set), not by inventing a
+# nested-object param shape for one field on one endpoint. See _check_ceph_pool_erasure_coding.
+_CEPH_EC_REQUIRED_FIELDS = frozenset({"k", "m"})
+_CEPH_EC_ALLOWED_FIELDS = frozenset({"k", "m", "device-class", "failure-domain", "profile"})
+
+
+def _check_ceph_pool_erasure_coding(value: str) -> str:
+    """Validate the `erasure-coding` propertyString param of POST .../pool. The ORIGINAL string
+    is returned unchanged on success (this is what the ceph.py module docstring's "pass through
+    as a validated string" line means) — PVE's own propertyString wire format is reused verbatim
+    rather than Proximo inventing a different param shape for this one field."""
+    s = str(value)
+    if not s:
+        raise ProximoError("invalid ceph pool erasure-coding: empty string")
+    seen: dict[str, str] = {}
+    for part in s.split(","):
+        if "=" not in part:
+            raise ProximoError(
+                f"invalid ceph pool erasure-coding: malformed field {part!r} (expected key=value)"
+            )
+        k, _, v = part.partition("=")
+        k = k.strip()
+        if k not in _CEPH_EC_ALLOWED_FIELDS:
+            raise ProximoError(
+                f"invalid ceph pool erasure-coding: unsupported field {k!r} "
+                f"(valid: {sorted(_CEPH_EC_ALLOWED_FIELDS)!r})"
+            )
+        if k in seen:
+            raise ProximoError(f"invalid ceph pool erasure-coding: duplicate field {k!r}")
+        seen[k] = v.strip()
+    missing = _CEPH_EC_REQUIRED_FIELDS - seen.keys()
+    if missing:
+        raise ProximoError(
+            f"invalid ceph pool erasure-coding: missing required field(s) {sorted(missing)!r}"
+        )
+    try:
+        k_val = int(seen["k"])
+    except ValueError as e:
+        raise ProximoError(
+            f"invalid ceph pool erasure-coding: k must be an integer, got {seen['k']!r}"
+        ) from e
+    if k_val < 2:
+        raise ProximoError(f"invalid ceph pool erasure-coding: k must be >= 2, got {k_val}")
+    try:
+        m_val = int(seen["m"])
+    except ValueError as e:
+        raise ProximoError(
+            f"invalid ceph pool erasure-coding: m must be an integer, got {seen['m']!r}"
+        ) from e
+    if m_val < 1:
+        raise ProximoError(f"invalid ceph pool erasure-coding: m must be >= 1, got {m_val}")
     return s
 
 
@@ -798,6 +1251,766 @@ class ApiBackend:
         """
         n = self._resolve_node(node)
         return self._get(f"/nodes/{n}/apt/versions") or []
+
+    # --- Wave 6a: Ceph plane (core observability + flags) ---
+    # Schema truth: .scratch/api-schemas-2026-07-15/wave6-pve-ceph-schema.json (37 paths, 48
+    # methods, extracted from the live PVE apidoc pulled 2026-07-15). NONE of these are
+    # live-verified yet — no Ceph cluster exists in the sealed vmbr1 lab today; every method
+    # below carries its own Smoke-confirm comment. UNDO HONESTY: nothing on this plane is
+    # PVE-snapshottable — no rollback primitive exists (same class as firewall/SDN/ACL).
+
+    def ceph_status(self) -> dict:
+        """GET /cluster/ceph/status — cluster-wide Ceph health/status.
+
+        Smoke-confirm: GET /cluster/ceph/status — shape not live-verified. /nodes/{node}/ceph/
+        status is a documented IDENTICAL alias per schema truth; not built as a separate tool.
+        """
+        return self._get("/cluster/ceph/status") or {}
+
+    def ceph_metadata(self, scope: str | None = None) -> dict:
+        """GET /cluster/ceph/metadata[?scope=] — per-daemon Ceph metadata (mon/mgr/mds/osd/node).
+
+        Smoke-confirm: GET /cluster/ceph/metadata[?scope=] — shape not live-verified. `scope`
+        in {all, versions} per schema (server-side default "all" when omitted).
+        """
+        q = ""
+        if scope is not None:
+            _check_ceph_metadata_scope(scope)
+            q = f"?scope={scope}"
+        return self._get(f"/cluster/ceph/metadata{q}") or {}
+
+    def ceph_flags_list(self) -> list[dict]:
+        """GET /cluster/ceph/flags — status of all 11 Ceph cluster flags.
+
+        Smoke-confirm: GET /cluster/ceph/flags — shape not live-verified. Expected
+        [{name, value, description}, ...] per schema truth.
+        """
+        return self._get("/cluster/ceph/flags") or []
+
+    def ceph_flag_get(self, flag: str) -> bool:
+        """GET /cluster/ceph/flags/{flag} — current value of one Ceph cluster flag.
+
+        Smoke-confirm: GET /cluster/ceph/flags/{flag} — shape not live-verified. Returns a bare
+        boolean per schema truth.
+        """
+        _check_ceph_flag(flag)
+        return self._get(f"/cluster/ceph/flags/{flag}")
+
+    def ceph_flags_set(self, flags: dict) -> str | None:
+        """PUT /cluster/ceph/flags — bulk set/unset multiple Ceph flags at once. `flags` keys
+        are WIRE flag names (already validated + hyphenated by the caller, tools/pve_ceph.py's
+        `_ceph_flags_changes`); each True sets the flag, False unsets it, and any flag simply
+        absent from the dict is left untouched. Runs as a worker task; returns a UPID to follow,
+        per schema truth ("Runs as a worker task").
+
+        Smoke-confirm: PUT /cluster/ceph/flags with a body of tri-state optional booleans —
+        shape not live-verified.
+        """
+        for k in flags:
+            _check_ceph_flag(k)
+        return self._put("/cluster/ceph/flags", dict(flags))  # Smoke-confirm: PUT
+
+    def ceph_flag_set(self, flag: str, value: bool) -> None:
+        """PUT /cluster/ceph/flags/{flag} — set or clear (unset) a single Ceph flag. Runs
+        SYNCHRONOUSLY (unlike the bulk PUT above, which forks a worker task) per schema truth;
+        PVE returns null.
+
+        Smoke-confirm: PUT /cluster/ceph/flags/{flag} with body {value} — shape not live-verified.
+        """
+        _check_ceph_flag(flag)
+        self._put(f"/cluster/ceph/flags/{flag}", {"value": value})  # Smoke-confirm: PUT
+
+    def ceph_cfg_db(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/ceph/cfg/db — the Ceph configuration database (mon config-db entries).
+
+        Smoke-confirm: GET /ceph/cfg/db — shape not live-verified. Expected per-entry dicts
+        (name/section/value/level/mask/can_update_at_runtime) per schema truth.
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/cfg/db") or []
+
+    def ceph_cfg_raw(self, node: str | None = None) -> str:
+        """GET /nodes/{node}/ceph/cfg/raw — the raw ceph.conf file content.
+
+        Smoke-confirm: GET /ceph/cfg/raw — shape not live-verified. Expected plain INI-style text.
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/cfg/raw") or ""
+
+    def ceph_cfg_value(self, config_keys: str, node: str | None = None) -> dict:
+        """GET /nodes/{node}/ceph/cfg/value?config-keys=… — configured values for specific
+        ceph.conf / mon-config-db keys. `config_keys` is validated client-side against the
+        schema's '<section>:<key>[;|,| ...]' format (max 4096 chars).
+
+        Smoke-confirm: GET /ceph/cfg/value — shape not live-verified. Expected a two-level
+        {section: {key: value}} map per schema truth (underscores normalised to hyphens in the
+        response, regardless of how they're written in `config_keys`).
+        """
+        _check_ceph_config_keys(config_keys)
+        n = self._resolve_node(node)
+        q = quote(config_keys, safe="")
+        return self._get(f"/nodes/{n}/ceph/cfg/value?config-keys={q}") or {}
+
+    def ceph_crush(self, node: str | None = None) -> str:
+        """GET /nodes/{node}/ceph/crush — the OSD CRUSH map, decompiled to text.
+
+        Smoke-confirm: GET /ceph/crush — shape not live-verified. Expected plaintext
+        `crushtool -d`-style output.
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/crush") or ""
+
+    def ceph_log(
+        self, node: str | None = None, limit: int | None = None, start: int | None = None
+    ) -> list[dict]:
+        """GET /nodes/{node}/ceph/log[?limit=][&start=] — Ceph log lines. ADVERSARIAL:
+        free-text log lines (taint.ADVERSARIAL_TOOLS), same rationale as pve_node_journal/
+        pve_node_syslog.
+
+        Smoke-confirm: GET /ceph/log — shape not live-verified. Expected [{n, t}, ...]
+        (line number + text) per schema truth.
+        """
+        limit = _check_ceph_log_bound(limit, "limit")
+        start = _check_ceph_log_bound(start, "start")
+        n = self._resolve_node(node)
+        # urlencode (not manual string-building): a caller-supplied limit/start is int-typed by
+        # the wrapper's Field annotation, but this stays defensive against a direct backend call.
+        query = {k: v for k, v in {"limit": limit, "start": start}.items() if v is not None}
+        q = f"?{urlencode(query)}" if query else ""
+        return self._get(f"/nodes/{n}/ceph/log{q}") or []
+
+    def ceph_rules(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/ceph/rules — list configured Ceph CRUSH rule names.
+
+        Smoke-confirm: GET /ceph/rules — shape not live-verified. Expected [{name}, ...] per
+        schema truth.
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/rules") or []
+
+    def ceph_cmd_safety(
+        self, action: str, service: str, service_id: str, node: str | None = None
+    ) -> dict:
+        """GET /nodes/{node}/ceph/cmd-safety?action=&service=&id= — Ceph's own heuristic
+        advisory on whether it is currently safe to stop/destroy a mon/mds/osd instance.
+        ADVISORY ONLY — callers must never treat this as a gate (see the pve_ceph_cmd_safety
+        wrapper docstring: an unreachable check becomes an honest note, never a fabricated
+        safe=true).
+
+        Smoke-confirm: GET /ceph/cmd-safety — shape not live-verified. Expected
+        {safe: bool, status?: str} per schema truth (status = human-readable reason when not
+        safe; absent when Ceph returned no message).
+        """
+        _check_ceph_cmd_safety_action(action)
+        _check_ceph_cmd_safety_service(service)
+        _check_ceph_service_id(service_id)
+        n = self._resolve_node(node)
+        q = urlencode({"action": action, "service": service, "id": service_id})
+        return self._get(f"/nodes/{n}/ceph/cmd-safety?{q}") or {}
+
+    # --- Wave 6b: Ceph plane (services lifecycle) ---
+    # Schema truth: .scratch/api-schemas-2026-07-15/wave6-pve-ceph-schema.json. Same
+    # Smoke-confirm / UNDO-honesty posture as the 6a block above — no rollback primitive on this
+    # plane (same class as firewall/SDN/ACL).
+
+    def _ceph_daemon_target(
+        self, node: str | None, explicit_id: str | None, label: str
+    ) -> tuple[str, str]:
+        """Resolve (node, id) for a mon/mgr/mds CREATE whose id param (monid / id / name) is,
+        mechanically, a REQUIRED URL path segment — even though the live schema lists it as
+        'optional, default: nodename'. That default can only make sense if the CALLER resolves it
+        before the request is built (a raw HTTP path segment cannot itself be "omitted"): the flat
+        api-viewer schema documents `node` and the id param side-by-side in the same 'parameters'
+        block regardless of which one is a true independent input vs. a path segment with a
+        client-resolved default. Wave 6b build nuance — see wave-6b-report.md."""
+        n = self._resolve_node(node)
+        ident = _check_ceph_daemon_id(explicit_id, label) if explicit_id is not None else n
+        return n, ident
+
+    def ceph_mon_list(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/ceph/mon — Ceph monitors known to this node's view of the monmap.
+
+        Smoke-confirm: GET /ceph/mon — shape not live-verified. Expected [{name, host, addr,
+        ceph_version, ceph_version_short, direxists, quorum, rank, service, state}, ...] per
+        schema truth.
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/mon") or []
+
+    def ceph_mon_create(
+        self, node: str | None = None, monid: str | None = None, mon_address: str | None = None
+    ) -> str:
+        """POST /nodes/{node}/ceph/mon/{monid} — create a Ceph Monitor. Auto-creates a Manager
+        too if this is the FIRST monitor (schema truth). `monid` defaults to the nodename when
+        omitted (see _ceph_daemon_target). `mon_address` overrides the autodetected monitor IP(s)
+        — must be in Ceph's public network(s) (schema: format ip-list; no fixed regex given
+        upstream, forwarded as-is).
+
+        Smoke-confirm: POST /ceph/mon/{monid} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        n, mid = self._ceph_daemon_target(node, monid, "monid")
+        body: dict = {}
+        if mon_address is not None:
+            body["mon-address"] = mon_address
+        return self._post(f"/nodes/{n}/ceph/mon/{mid}", body)  # Smoke-confirm: POST
+
+    def ceph_mon_destroy(self, monid: str, node: str | None = None) -> str:
+        """DELETE /nodes/{node}/ceph/mon/{monid} — destroy a Ceph Monitor. Refuses to remove the
+        LAST monitor of the cluster (schema truth); does not destroy any Manager on the same node.
+
+        Smoke-confirm: DELETE /ceph/mon/{monid} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        mid = _check_ceph_daemon_id(monid, "monid")
+        n = self._resolve_node(node)
+        return self._delete(f"/nodes/{n}/ceph/mon/{mid}")  # Smoke-confirm: DELETE
+
+    def ceph_mgr_list(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/ceph/mgr — Ceph managers known to this node's view of the mgrmap.
+
+        Smoke-confirm: GET /ceph/mgr — shape not live-verified. Expected [{name, host, addr,
+        ceph_version, ceph_version_short, direxists, service, state}, ...] per schema truth.
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/mgr") or []
+
+    def ceph_mgr_create(self, node: str | None = None, mgr_id: str | None = None) -> str:
+        """POST /nodes/{node}/ceph/mgr/{id} — create a Ceph Manager. `mgr_id` defaults to the
+        nodename when omitted (see _ceph_daemon_target). Named `mgr_id` here (not `id`) to avoid
+        shadowing the `id` builtin — mirrors the pve_ceph_cmd_safety `id`->`service_id` rename
+        precedent from Wave 6a; the wire body/path still uses the literal `id` the schema names.
+
+        Smoke-confirm: POST /ceph/mgr/{id} — shape not live-verified. Returns a worker task UPID
+        (async) per schema truth (returns: string).
+        """
+        n, mid = self._ceph_daemon_target(node, mgr_id, "mgr id")
+        return self._post(f"/nodes/{n}/ceph/mgr/{mid}")  # Smoke-confirm: POST
+
+    def ceph_mgr_destroy(self, mgr_id: str, node: str | None = None) -> str:
+        """DELETE /nodes/{node}/ceph/mgr/{id} — destroy a Ceph Manager. cmd-safety's service enum
+        is {osd, mon, mds} — NO mgr — so no upstream heuristic safety check exists for this
+        destroy (the plan factory states this plainly rather than inventing one).
+
+        Smoke-confirm: DELETE /ceph/mgr/{id} — shape not live-verified. Returns a worker task UPID
+        (async) per schema truth (returns: string).
+        """
+        mid = _check_ceph_daemon_id(mgr_id, "mgr id")
+        n = self._resolve_node(node)
+        return self._delete(f"/nodes/{n}/ceph/mgr/{mid}")  # Smoke-confirm: DELETE
+
+    def ceph_mds_list(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/ceph/mds — Ceph metadata servers known to this node's view of the
+        MDS map.
+
+        Smoke-confirm: GET /ceph/mds — shape not live-verified. Expected [{name, host, addr,
+        ceph_version, ceph_version_short, direxists, fs_name, rank, service, standby_replay,
+        state}, ...] per schema truth.
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/mds") or []
+
+    def ceph_mds_create(
+        self, node: str | None = None, name: str | None = None, hotstandby: bool | None = None
+    ) -> str:
+        """POST /nodes/{node}/ceph/mds/{name} — create a Ceph Metadata Server (MDS). `name`
+        defaults to the nodename when omitted (see _ceph_daemon_target). `hotstandby` (default
+        False per schema): the daemon polls and replays an active MDS's log for faster failover,
+        at the cost of more idle resources.
+
+        Smoke-confirm: POST /ceph/mds/{name} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        n, nm = self._ceph_daemon_target(node, name, "mds name")
+        body: dict = {}
+        if hotstandby is not None:
+            body["hotstandby"] = hotstandby
+        return self._post(f"/nodes/{n}/ceph/mds/{nm}", body)  # Smoke-confirm: POST
+
+    def ceph_mds_destroy(self, name: str, node: str | None = None) -> str:
+        """DELETE /nodes/{node}/ceph/mds/{name} — destroy a Ceph Metadata Server.
+
+        Smoke-confirm: DELETE /ceph/mds/{name} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        nm = _check_ceph_daemon_id(name, "mds name")
+        n = self._resolve_node(node)
+        return self._delete(f"/nodes/{n}/ceph/mds/{nm}")  # Smoke-confirm: DELETE
+
+    def ceph_init(
+        self,
+        node: str | None = None,
+        cluster_network: str | None = None,
+        disable_cephx: bool | None = None,
+        min_size: int | None = None,
+        network: str | None = None,
+        pg_bits: int | None = None,
+        size: int | None = None,
+    ) -> None:
+        """POST /nodes/{node}/ceph/init — create the initial Ceph default configuration and set
+        up symlinks. IDEMPOTENT on re-call per schema truth: if a [global] section already exists
+        in ceph.conf, the existing fsid/auth/pool defaults are preserved and most parameters are
+        silently ignored. `cluster_network` REQUIRES `network` also be set (schema: "requires":
+        "network") — enforced here, before the request is built. `min_size`/`size` bounded 1-7,
+        `pg_bits` bounded 6-14 (schema minimum/maximum) — validated client-side.
+
+        Smoke-confirm: POST /ceph/init — shape not live-verified in practice, but the schema is
+        unambiguous here (returns: null) — this is a genuine synchronous null-returner, not a
+        defensively-typed guess.
+        """
+        n = self._resolve_node(node)
+        if cluster_network is not None and network is None:
+            raise ProximoError(
+                "ceph_init: cluster_network requires network to also be set (schema: "
+                "'requires': 'network')"
+            )
+        min_size = _check_ceph_init_bound(min_size, "min_size", 1, 7)
+        size = _check_ceph_init_bound(size, "size", 1, 7)
+        pg_bits = _check_ceph_init_bound(pg_bits, "pg_bits", 6, 14)
+        cluster_network = _check_ceph_init_network(cluster_network, "cluster-network")
+        network = _check_ceph_init_network(network, "network")
+        body = {
+            k: v for k, v in {
+                "cluster-network": cluster_network,
+                "disable_cephx": disable_cephx,
+                "min_size": min_size,
+                "network": network,
+                "pg_bits": pg_bits,
+                "size": size,
+            }.items() if v is not None
+        }
+        return self._post(f"/nodes/{n}/ceph/init", body)  # Smoke-confirm: POST
+
+    def ceph_service_start(self, node: str | None = None, service: str | None = None) -> str:
+        """POST /nodes/{node}/ceph/start — start Ceph service(s). `service` matches
+        `(ceph|mon|mds|osd|mgr)(.<id>)?`, defaulting to 'ceph.target' when omitted (schema).
+
+        Smoke-confirm: POST /ceph/start — shape not live-verified. Returns a worker task UPID
+        (async) per schema truth (returns: string).
+        """
+        n = self._resolve_node(node)
+        body: dict = {}
+        if service is not None:
+            body["service"] = _check_ceph_service(service)
+        return self._post(f"/nodes/{n}/ceph/start", body)  # Smoke-confirm: POST
+
+    def ceph_service_stop(self, node: str | None = None, service: str | None = None) -> str:
+        """POST /nodes/{node}/ceph/stop — stop Ceph service(s). `service` matches
+        `(ceph|mon|mds|osd|mgr)(.<id>)?`, defaulting to 'ceph.target' when omitted (schema).
+        HALTS I/O for the targeted storage daemon(s) — see pve_ceph_service_stop's RISK_HIGH
+        docstring.
+
+        Smoke-confirm: POST /ceph/stop — shape not live-verified. Returns a worker task UPID
+        (async) per schema truth (returns: string).
+        """
+        n = self._resolve_node(node)
+        body: dict = {}
+        if service is not None:
+            body["service"] = _check_ceph_service(service)
+        return self._post(f"/nodes/{n}/ceph/stop", body)  # Smoke-confirm: POST
+
+    def ceph_service_restart(self, node: str | None = None, service: str | None = None) -> str:
+        """POST /nodes/{node}/ceph/restart — restart Ceph service(s). `service` matches
+        `(ceph|mon|mds|osd|mgr)(.<id>)?`, defaulting to 'ceph.target' when omitted (schema).
+
+        Smoke-confirm: POST /ceph/restart — shape not live-verified. Returns a worker task UPID
+        (async) per schema truth (returns: string).
+        """
+        n = self._resolve_node(node)
+        body: dict = {}
+        if service is not None:
+            body["service"] = _check_ceph_service(service)
+        return self._post(f"/nodes/{n}/ceph/restart", body)  # Smoke-confirm: POST
+
+    # --- Wave 6c: Ceph plane (OSD) ---
+    # Schema truth: .scratch/api-schemas-2026-07-15/wave6-pve-ceph-schema.json. Same
+    # Smoke-confirm / UNDO-honesty posture as the 6a/6b blocks above.
+
+    def ceph_osd_tree(self, node: str | None = None) -> dict:
+        """GET /nodes/{node}/ceph/osd — Ceph OSD list/tree: a nested CRUSH bucket structure
+        (root -> children -> ... -> OSD leaves). ADVERSARIAL: per-node properties (status/
+        weight/in/usage/latencies/...) are daemon-self-reported and the schema types the whole
+        structure additionalProperties:1 (open, untyped) — see ceph.py's Taint section.
+
+        Smoke-confirm: GET /ceph/osd — shape not live-verified. Expected {flags?, root: {id,
+        name, type, children: [...]}} per schema truth (leaves carry an OSD's numeric `id`).
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/osd") or {}
+
+    def ceph_osd_lv_info(
+        self, osdid: int, node: str | None = None, lv_type: str | None = None
+    ) -> dict:
+        """GET /nodes/{node}/ceph/osd/{osdid}/lv-info[?type=] — an OSD's logical-volume details
+        (LVM-reported via `lvs`, on the SAME host administering this OSD). `lv_type` in
+        {block, db, wal} (named to avoid shadowing the `type` builtin — the wire query param is
+        still the schema's literal `type`), schema default 'block'.
+
+        Smoke-confirm: GET /ceph/osd/{osdid}/lv-info — shape not live-verified. Expected
+        {creation_time, lv_name, lv_path, lv_size, lv_uuid, vg_name} per schema truth.
+        """
+        osdid = _check_ceph_osdid(osdid)
+        n = self._resolve_node(node)
+        q = ""
+        if lv_type is not None:
+            _check_ceph_osd_lv_type(lv_type)
+            q = f"?type={lv_type}"
+        return self._get(f"/nodes/{n}/ceph/osd/{osdid}/lv-info{q}") or {}
+
+    def ceph_osd_metadata(self, osdid: int, node: str | None = None) -> dict:
+        """GET /nodes/{node}/ceph/osd/{osdid}/metadata — per-OSD details (devices[] + an osd{}
+        identity/address block). ADVERSARIAL: the osd{} sub-object carries hostname/back_addr/
+        front_addr/hb_back_addr/hb_front_addr — the SAME daemon-self-reported identity/address
+        fields that made pve_ceph_metadata's aggregated view ADVERSARIAL in Wave 6a; this is that
+        exact channel's single-OSD drill-down, not a different one.
+
+        Smoke-confirm: GET /ceph/osd/{osdid}/metadata — shape not live-verified. Expected
+        {devices: [...], osd: {...}} per schema truth.
+        """
+        osdid = _check_ceph_osdid(osdid)
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/osd/{osdid}/metadata") or {}
+
+    def ceph_osd_create(
+        self,
+        dev: str,
+        node: str | None = None,
+        crush_device_class: str | None = None,
+        db_dev: str | None = None,
+        db_dev_size: float | None = None,
+        wal_dev: str | None = None,
+        wal_dev_size: float | None = None,
+        encrypted: bool | None = None,
+        osds_per_device: int | None = None,
+    ) -> str:
+        """POST /nodes/{node}/ceph/osd — create a new OSD, consuming+formatting `dev`. RISK_HIGH
+        (see pve_ceph_osd_create's docstring). `dev`/`db_dev`/`wal_dev` are validated with the
+        Ceph-scoped `_check_ceph_osd_dev` block-device-path validator — the schema itself
+        declares no format/pattern for these three params, but a deliberate, stricter-than-schema
+        tightening for the single highest-risk mutation on this whole plane (a wrong/malformed
+        device string here formats real hardware) is still worth doing; `_check_ceph_osd_dev` is
+        a Ceph-scoped WIDENING of the shared `_check_disk` charset (adds '.', ':', '+', '=') so
+        by-id/by-path stable device names (e.g. `/dev/disk/by-id/nvme-eui.<hex>`,
+        `/dev/disk/by-path/pci-<bus>:<dev>.<fn>-...`) — the exact reference an operator reaches
+        for on THIS plane to avoid `/dev/sdX` renumbering — are accepted rather than locally
+        rejected (Wave 6c review Finding 1, MAJOR: the plain `_check_disk` reuse this shipped
+        with first was too strict for its own highest-risk mutation). `_check_disk` itself is
+        UNCHANGED — `node_disk_wipe`/`node_disk_initgpt` keep relying on its stricter shape.
+        `crush_device_class` is forwarded unvalidated (no schema pattern; free-form label like
+        'ssd'/'hdd'/'nvme' or a custom class) — mirrors mon_create's own `mon_address` "no regex
+        given, don't invent one" posture. Schema-declared constraints enforced client-side:
+        db_dev_size REQUIRES db_dev; wal_dev_size REQUIRES wal_dev (both schema "requires").
+        `osds-per-device` is documented "Mutually exclusive with 'db_dev' and 'wal_dev'" in the
+        schema's own param description (prose, not a formal requires/conflicts field) — enforced
+        here anyway to fail fast locally rather than a guaranteed upstream rejection.
+
+        Smoke-confirm: POST /ceph/osd — shape not live-verified. Returns a worker task UPID
+        (async) per schema truth (returns: string). The new OSD's id is NOT in this response —
+        only knowable after the task completes, by reading pve_ceph_osd_tree.
+        """
+        dev = _check_ceph_osd_dev(dev)
+        n = self._resolve_node(node)
+        if db_dev_size is not None and db_dev is None:
+            raise ProximoError(
+                "ceph_osd_create: db_dev_size requires db_dev to also be set (schema: "
+                "'requires': 'db_dev')"
+            )
+        if wal_dev_size is not None and wal_dev is None:
+            raise ProximoError(
+                "ceph_osd_create: wal_dev_size requires wal_dev to also be set (schema: "
+                "'requires': 'wal_dev')"
+            )
+        if osds_per_device is not None and (db_dev is not None or wal_dev is not None):
+            raise ProximoError(
+                "ceph_osd_create: osds_per_device is mutually exclusive with db_dev/wal_dev "
+                "(schema param description, not a formal requires/conflicts field)"
+            )
+        if db_dev is not None:
+            db_dev = _check_ceph_osd_dev(db_dev)
+        if wal_dev is not None:
+            wal_dev = _check_ceph_osd_dev(wal_dev)
+        db_dev_size = _check_ceph_osd_min(db_dev_size, "db_dev_size", 1)
+        wal_dev_size = _check_ceph_osd_min(wal_dev_size, "wal_dev_size", 0.5)
+        osds_per_device = _check_ceph_osd_int_min(osds_per_device, "osds-per-device", 1)
+        body = {
+            k: v for k, v in {
+                "dev": dev, "crush-device-class": crush_device_class, "db_dev": db_dev,
+                "db_dev_size": db_dev_size, "wal_dev": wal_dev, "wal_dev_size": wal_dev_size,
+                "encrypted": encrypted, "osds-per-device": osds_per_device,
+            }.items() if v is not None
+        }
+        return self._post(f"/nodes/{n}/ceph/osd", body)  # Smoke-confirm: POST
+
+    def ceph_osd_destroy(
+        self, osdid: int, node: str | None = None, cleanup: bool | None = None
+    ) -> str:
+        """DELETE /nodes/{node}/ceph/osd/{osdid}[?cleanup=] — destroy an OSD. `cleanup=True`
+        also destroys the underlying logical volumes (ceph-volume lvm zap --destroy + pvremove),
+        removes the volume group's physical volume, and wipes any leftover journal/block.db/
+        block.wal partitions from filestore OSDs (schema); without it, LVs/partitions are left
+        intact for inspection.
+
+        Smoke-confirm: DELETE /ceph/osd/{osdid} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        osdid = _check_ceph_osdid(osdid)
+        n = self._resolve_node(node)
+        params = {"cleanup": cleanup} if cleanup is not None else None
+        return self._delete(f"/nodes/{n}/ceph/osd/{osdid}", params=params)  # Smoke-confirm: DELETE
+
+    def ceph_osd_in(self, osdid: int, node: str | None = None) -> None:
+        """POST /nodes/{node}/ceph/osd/{osdid}/in — mark an OSD 'in' (rejoins the CRUSH acting
+        set; data rebalances BACK onto it). Runs SYNCHRONOUSLY per schema truth (returns: null).
+
+        Smoke-confirm: POST /ceph/osd/{osdid}/in — shape not live-verified.
+        """
+        osdid = _check_ceph_osdid(osdid)
+        n = self._resolve_node(node)
+        return self._post(f"/nodes/{n}/ceph/osd/{osdid}/in")  # Smoke-confirm: POST
+
+    def ceph_osd_out(self, osdid: int, node: str | None = None) -> None:
+        """POST /nodes/{node}/ceph/osd/{osdid}/out — mark an OSD 'out' (excluded from the CRUSH
+        acting set; triggers data rebalance/recovery AWAY from it). Runs SYNCHRONOUSLY per
+        schema truth (returns: null).
+
+        Smoke-confirm: POST /ceph/osd/{osdid}/out — shape not live-verified.
+        """
+        osdid = _check_ceph_osdid(osdid)
+        n = self._resolve_node(node)
+        return self._post(f"/nodes/{n}/ceph/osd/{osdid}/out")  # Smoke-confirm: POST
+
+    def ceph_osd_scrub(
+        self, osdid: int, node: str | None = None, deep: bool | None = None
+    ) -> None:
+        """POST /nodes/{node}/ceph/osd/{osdid}/scrub[?deep=] — instruct an OSD to scrub (light,
+        or deep when deep=True). Runs SYNCHRONOUSLY per schema truth (returns: null). No logical
+        state change; a deep scrub is I/O-heavy while it runs.
+
+        Smoke-confirm: POST /ceph/osd/{osdid}/scrub — shape not live-verified.
+        """
+        osdid = _check_ceph_osdid(osdid)
+        n = self._resolve_node(node)
+        body: dict = {}
+        if deep is not None:
+            body["deep"] = deep
+        return self._post(f"/nodes/{n}/ceph/osd/{osdid}/scrub", body)  # Smoke-confirm: POST
+
+    # --- Wave 6d: Ceph plane (pools + CephFS) — CLOSES Wave 6 ---
+    # Schema truth: .scratch/api-schemas-2026-07-15/wave6-pve-ceph-schema.json. Same
+    # node-resolution/proxyto="node" pattern as every other Ceph method above.
+
+    def ceph_pool_list(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/ceph/pool — all pools + their current settings.
+
+        Smoke-confirm: GET /ceph/pool — shape not live-verified. Expected [{pool, pool_name,
+        type, size, min_size, pg_num, pg_num_min, pg_num_final, pg_autoscale_mode, crush_rule,
+        crush_rule_name, bytes_used, percent_used, target_size, target_size_ratio,
+        application_metadata, autoscale_status}, ...] per schema truth.
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/pool") or []
+
+    def ceph_pool_status(
+        self, name: str, node: str | None = None, verbose: bool | None = None
+    ) -> dict:
+        """GET /nodes/{node}/ceph/pool/{name}/status[?verbose=] — one pool's current settings
+        (+ usage/IO statistics when verbose=True).
+
+        Smoke-confirm: GET /ceph/pool/{name}/status — shape not live-verified. Expected {id,
+        name, application, application_list, crush_rule, min_size, size, pg_num, pg_num_min,
+        pgp_num, pg_autoscale_mode, target_size, target_size_ratio, autoscale_status, fast_read,
+        hashpspool, nodelete, nopgchange, nosizechange, noscrub, nodeep-scrub, use_gmt_hitset,
+        write_fadvise_dontneed, statistics?} per schema truth — `statistics` is only present
+        when verbose=True.
+        """
+        name = _check_ceph_pool_or_fs_name(name, "pool name")
+        n = self._resolve_node(node)
+        q = f"?{urlencode({'verbose': 1 if verbose else 0})}" if verbose is not None else ""
+        return self._get(f"/nodes/{n}/ceph/pool/{name}/status{q}") or {}
+
+    def ceph_pool_create(
+        self,
+        name: str,
+        node: str | None = None,
+        add_storages: bool | None = None,
+        application: str | None = None,
+        crush_rule: str | None = None,
+        erasure_coding: str | None = None,
+        min_size: int | None = None,
+        pg_autoscale_mode: str | None = None,
+        pg_num: int | None = None,
+        pg_num_min: int | None = None,
+        size: int | None = None,
+        target_size: str | None = None,
+        target_size_ratio: float | None = None,
+    ) -> str:
+        """POST /nodes/{node}/ceph/pool — create a Ceph pool. RISK_MEDIUM (see
+        pve_ceph_pool_create's docstring). `add_storages` schema-defaults False for replicated
+        pools and True for erasure-coded pools — left None (server-applies-default) unless the
+        caller sets it explicitly. `crush_rule` here is the RULE NAME (string) — a DIFFERENT
+        type than the numeric `crush_rule` id returned by ceph_pool_list/ceph_pool_status (see
+        ceph.py module docstring's Wave 6d "Schema divergences" section). `erasure_coding` is
+        PVE's own propertyString wire format, validated by parsing
+        (_check_ceph_pool_erasure_coding) then passed through unchanged.
+
+        Smoke-confirm: POST /ceph/pool — shape not live-verified. Returns a worker task UPID
+        (async) per schema truth (returns: string).
+        """
+        name = _check_ceph_pool_or_fs_name(name, "pool name")
+        n = self._resolve_node(node)
+        if application is not None:
+            application = _check_ceph_pool_application(application)
+        if erasure_coding is not None:
+            erasure_coding = _check_ceph_pool_erasure_coding(erasure_coding)
+        min_size = _check_ceph_bounded_int(min_size, "pool min_size", 1, 7)
+        size = _check_ceph_bounded_int(size, "pool size", 1, 7)
+        pg_num = _check_ceph_bounded_int(pg_num, "pool pg_num", 1, 32768)
+        pg_num_min = _check_ceph_pool_upper_bound(pg_num_min, "pg_num_min", 32768)
+        if pg_autoscale_mode is not None:
+            pg_autoscale_mode = _check_ceph_pool_autoscale_mode(pg_autoscale_mode)
+        if target_size is not None:
+            target_size = _check_ceph_pool_target_size(target_size)
+        target_size_ratio = _check_ceph_pool_ratio(target_size_ratio)
+        body = {
+            k: v for k, v in {
+                "name": name, "add_storages": add_storages, "application": application,
+                "crush_rule": crush_rule, "erasure-coding": erasure_coding, "min_size": min_size,
+                "pg_autoscale_mode": pg_autoscale_mode, "pg_num": pg_num,
+                "pg_num_min": pg_num_min, "size": size, "target_size": target_size,
+                "target_size_ratio": target_size_ratio,
+            }.items() if v is not None
+        }
+        return self._post(f"/nodes/{n}/ceph/pool", body)  # Smoke-confirm: POST
+
+    def ceph_pool_set(
+        self,
+        name: str,
+        node: str | None = None,
+        application: str | None = None,
+        crush_rule: str | None = None,
+        min_size: int | None = None,
+        pg_autoscale_mode: str | None = None,
+        pg_num: int | None = None,
+        pg_num_min: int | None = None,
+        size: int | None = None,
+        target_size: str | None = None,
+        target_size_ratio: float | None = None,
+    ) -> str:
+        """PUT /nodes/{node}/ceph/pool/{name} — change an existing pool's settings. RISK_MEDIUM:
+        a pg_num change triggers cluster rebalance (see pve_ceph_pool_set's docstring). No
+        add_storages/erasure-coding here — PUT does not accept either (create-only per schema).
+
+        Smoke-confirm: PUT /ceph/pool/{name} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        name = _check_ceph_pool_or_fs_name(name, "pool name")
+        n = self._resolve_node(node)
+        if application is not None:
+            application = _check_ceph_pool_application(application)
+        min_size = _check_ceph_bounded_int(min_size, "pool min_size", 1, 7)
+        size = _check_ceph_bounded_int(size, "pool size", 1, 7)
+        pg_num = _check_ceph_bounded_int(pg_num, "pool pg_num", 1, 32768)
+        pg_num_min = _check_ceph_pool_upper_bound(pg_num_min, "pg_num_min", 32768)
+        if pg_autoscale_mode is not None:
+            pg_autoscale_mode = _check_ceph_pool_autoscale_mode(pg_autoscale_mode)
+        if target_size is not None:
+            target_size = _check_ceph_pool_target_size(target_size)
+        target_size_ratio = _check_ceph_pool_ratio(target_size_ratio)
+        body = {
+            k: v for k, v in {
+                "application": application, "crush_rule": crush_rule, "min_size": min_size,
+                "pg_autoscale_mode": pg_autoscale_mode, "pg_num": pg_num,
+                "pg_num_min": pg_num_min, "size": size, "target_size": target_size,
+                "target_size_ratio": target_size_ratio,
+            }.items() if v is not None
+        }
+        return self._put(f"/nodes/{n}/ceph/pool/{name}", body)  # Smoke-confirm: PUT
+
+    def ceph_pool_destroy(
+        self,
+        name: str,
+        node: str | None = None,
+        force: bool | None = None,
+        remove_ecprofile: bool | None = None,
+        remove_storages: bool | None = None,
+    ) -> str:
+        """DELETE /nodes/{node}/ceph/pool/{name} — destroy a pool. RISK_HIGH, UNRECOVERABLE via
+        the API (see pve_ceph_pool_destroy's docstring). `force` is NEVER defaulted on here —
+        forwarded only when the caller explicitly sets it (schema: "destroys pool even if in
+        use"). `remove_ecprofile` schema-defaults True; `remove_storages` schema-defaults False —
+        both left None (server-applies-default) unless the caller sets them.
+
+        Smoke-confirm: DELETE /ceph/pool/{name} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        name = _check_ceph_pool_or_fs_name(name, "pool name")
+        n = self._resolve_node(node)
+        params = {
+            k: v for k, v in {
+                "force": force, "remove_ecprofile": remove_ecprofile,
+                "remove_storages": remove_storages,
+            }.items() if v is not None
+        }
+        return self._delete(f"/nodes/{n}/ceph/pool/{name}", params=params)  # Smoke-confirm: DELETE
+
+    def ceph_fs_list(self, node: str | None = None) -> list[dict]:
+        """GET /nodes/{node}/ceph/fs — configured CephFS filesystems.
+
+        Smoke-confirm: GET /ceph/fs — shape not live-verified. Expected [{name, metadata_pool,
+        metadata_pool_id, data_pool, data_pool_ids, data_pools}, ...] per schema truth
+        (data_pool/metadata_pool are kept for backwards compat; data_pools/data_pool_ids carry
+        the FULL set for a multi-data-pool filesystem).
+        """
+        n = self._resolve_node(node)
+        return self._get(f"/nodes/{n}/ceph/fs") or []
+
+    def ceph_fs_create(
+        self,
+        node: str | None = None,
+        name: str | None = None,
+        add_storage: bool | None = None,
+        pg_num: int | None = None,
+    ) -> str:
+        """POST /nodes/{node}/ceph/fs/{name} — create a Ceph filesystem. `name` schema-defaults
+        to the FIXED LITERAL 'cephfs' when omitted — resolved client-side via
+        `_check_ceph_fs_name_or_default` since `name` is ALSO the URL path segment (see that
+        function's docstring). RISK_MEDIUM (see pve_ceph_fs_create's docstring).
+
+        Smoke-confirm: POST /ceph/fs/{name} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        nm = _check_ceph_fs_name_or_default(name)
+        n = self._resolve_node(node)
+        pg_num = _check_ceph_bounded_int(pg_num, "fs pg_num", 8, 32768)
+        body = {
+            k: v for k, v in {"add-storage": add_storage, "pg_num": pg_num}.items()
+            if v is not None
+        }
+        return self._post(f"/nodes/{n}/ceph/fs/{nm}", body)  # Smoke-confirm: POST
+
+    def ceph_fs_destroy(
+        self,
+        name: str,
+        node: str | None = None,
+        remove_pools: bool | None = None,
+        remove_storages: bool | None = None,
+    ) -> str:
+        """DELETE /nodes/{node}/ceph/fs/{name} — destroy a Ceph filesystem. Refuses upstream
+        while a 'cephfs' PVE storage entry still references it and is not disabled, UNLESS
+        remove-storages is set (schema truth). RISK_HIGH, UNRECOVERABLE via the API (see
+        pve_ceph_fs_destroy's docstring).
+
+        Smoke-confirm: DELETE /ceph/fs/{name} — shape not live-verified. Returns a worker task
+        UPID (async) per schema truth (returns: string).
+        """
+        name = _check_ceph_pool_or_fs_name(name, "fs name")
+        n = self._resolve_node(node)
+        params = {
+            k: v for k, v in {
+                "remove-pools": remove_pools, "remove-storages": remove_storages,
+            }.items() if v is not None
+        }
+        return self._delete(f"/nodes/{n}/ceph/fs/{name}", params=params)  # Smoke-confirm: DELETE
 
     def node_cert_upload(
         self,

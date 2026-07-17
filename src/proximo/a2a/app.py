@@ -17,7 +17,6 @@ Security model (fail-closed, like the rest of Proximo):
 from __future__ import annotations
 
 import os
-import warnings
 from urllib.parse import urlparse
 
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -25,21 +24,11 @@ from a2a.server.routes.agent_card_routes import create_agent_card_routes
 from a2a.server.routes.jsonrpc_routes import create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from .._secretfile import refuse_exposed_secret
-from ..webguard import (
-    BearerAuthMiddleware,
-    CrossOriginGuardMiddleware,
-    load_token_file,
-    require_auth_for_public,
-)
-from ..webguard import (
-    default_allowed_hosts as _default_allowed_hosts,  # noqa: PLC0414 -- keep the pinned local name
-)
+from ..webguard import guard_middleware, require_auth_for_public
 from .card import build_agent_card
 from .executor import ProximoAgentExecutor
 from .signing import OperatorKey, jwks, load_operator_key
@@ -53,11 +42,6 @@ _JWKS_PATH = "/.well-known/jwks.json"
 # The perimeter primitives (is_public / default_allowed_hosts / token loading / the bearer
 # middleware / the public-bind refusal) live in ``proximo.webguard`` — shared with the HTTP
 # face so the fail-closed contract cannot drift between transports.
-
-
-def _load_a2a_token() -> str | None:
-    """Load the inbound bearer token from ``PROXIMO_A2A_TOKEN_FILE`` (run-but-not-read by path)."""
-    return load_token_file(_TOKEN_FILE_ENV)
 
 
 def _load_signing_key() -> OperatorKey | None:
@@ -137,77 +121,35 @@ def build_app(rpc_url: str | None = None, *, token: str | None = None,
 
         routes = [*routes, Route(_JWKS_PATH, _serve_jwks, methods=["GET"])]
 
-    # ALWAYS install the Host-header guard (DNS-rebind defense), OUTERMOST so a bad host is refused
-    # before anything else.  In no-token dev mode the bind-host guard already restricts us to loopback
-    # (a non-loopback bind without a token is a hard error); the Host guard adds a network-layer
-    # defence-in-depth so that a same-machine DNS-rebind cannot reach a mutation endpoint unguarded.
-    # When a token is configured, the bearer middleware is also added (inner, checked after Host).
-    hosts = allowed_hosts or _default_allowed_hosts(rpc_url)
-    if "*" in hosts:
-        # Starlette treats "*" as allow-any → the DNS-rebind guard is OFF. Legitimate only behind
-        # a trusted reverse-proxy that validates Host. Never let that be silent (cf. the MCP-side
-        # CT_ALLOWLIST='*' warning) — surface it loudly.
-        warnings.warn(
-            "PROXIMO A2A host allowlist contains '*' — DNS-rebind/Host protection is DISABLED; "
-            "any Host header is accepted. Only safe behind a trusted reverse-proxy that validates Host.",
-            stacklevel=2,
-        )
+    # The shared perimeter stack (TrustedHost → CrossOriginGuard → Bearer-with-token) — one
+    # contract for every face. This face protects the exact RPC path only; the agent-card /
+    # well-known / jwks discovery routes stay open so A2A clients can read the card (and its
+    # declared auth) before authenticating.
     rpc = rpc_path.rstrip("/")
-    # Protect the exact RPC path only; the agent-card / well-known / jwks discovery routes stay
-    # open so A2A clients can read the card (and its declared auth) before authenticating.
-    _protect_rpc = lambda path: path.rstrip("/") == rpc  # noqa: E731
-    middleware: list[Middleware] = [
-        Middleware(TrustedHostMiddleware, allowed_hosts=hosts),
-        # Same loopback-CSRF defense as the HTTP face: a2a-sdk reads the RPC body without enforcing
-        # Content-Type, so a cross-origin page could drive the executor in no-token mode. Shared
-        # guard, shared perimeter — the faces can't drift (redteam finding, 2026-07-13).
-        Middleware(CrossOriginGuardMiddleware, protect=_protect_rpc),
-    ]
-    if token:
-        middleware.append(Middleware(
-            BearerAuthMiddleware, token=token,
-            protect=_protect_rpc,
-            unauthorized_body={"jsonrpc": "2.0", "id": None,
-                               "error": {"code": -32001, "message": "unauthorized"}},
-        ))
+    middleware = guard_middleware(
+        rpc_url, face="A2A", token=token,
+        protect=lambda path: path.rstrip("/") == rpc,
+        unauthorized_body={"jsonrpc": "2.0", "id": None,
+                           "error": {"code": -32001, "message": "unauthorized"}},
+        allowed_hosts=allowed_hosts,
+    )
     return Starlette(routes=routes, middleware=middleware)
 
 
 def main() -> None:
     """``proximo-a2a`` entry point — run the A2A server with uvicorn (fail-closed)."""
-    import sys  # noqa: PLC0415
-
     import uvicorn  # noqa: PLC0415 -- only needed when actually serving
 
-    from .. import server  # noqa: PLC0415
+    from ..webguard import apply_surfaces_or_exit, read_face_env, url_authority  # noqa: PLC0415
 
-    # Scope the live tool registry to PROXIMO_SURFACES / configured planes BEFORE serving — the
-    # A2A face reads the same global registry, so without this the operator's surface config is
-    # silently ignored on this face (applied here exactly as the stdio server does it).
-    try:
-        server._apply_surfaces()
-    except ValueError as e:
-        print(f"proximo-a2a: {e}", file=sys.stderr)
-        raise SystemExit(1) from None
-
-    host = os.environ.get("PROXIMO_A2A_HOST", _DEFAULT_HOST)
-    port = int(os.environ.get("PROXIMO_A2A_PORT", str(_DEFAULT_PORT)))
-    token = _load_a2a_token()
+    apply_surfaces_or_exit("proximo-a2a")
+    host, port, token, allowed_hosts = read_face_env("A2A", default_port=_DEFAULT_PORT)
 
     # FAIL-CLOSED: a public bind with no token never starts.
     _require_auth_for_public(host, token, where="bind host")
 
-    allowed = os.environ.get("PROXIMO_A2A_ALLOWED_HOSTS", "")
-    allowed_hosts = [h.strip() for h in allowed.split(",") if h.strip()] or None
-
-    # RFC-3986 requires bare IPv6 addresses to be wrapped in brackets in the URL authority
-    # (e.g. http://[::1]:41241/).  Without brackets urlparse().hostname returns None, which the
-    # public-bind guard inside build_app misidentifies as "bind-all" (public) and refuses startup
-    # even for loopback ::1 when no token is configured.  Guard against a user who already passed
-    # a bracketed host by skipping double-bracketing.
-    url_host = f"[{host}]" if (":" in host and not host.startswith("[")) else host
     app = build_app(
-        f"http://{url_host}:{port}/",
+        f"http://{url_authority(host)}:{port}/",
         token=token,
         allowed_hosts=allowed_hosts,
         signing_key=_load_signing_key(),

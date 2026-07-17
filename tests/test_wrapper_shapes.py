@@ -49,7 +49,7 @@ import pytest
 
 import proximo.server as server
 from proximo.audit import AuditLedger
-from proximo.backends import ExecResult
+from proximo.backends import ExecResult, _check_ceph_daemon_id, _check_node
 from proximo.config import ProximoConfig
 
 # ---------------------------------------------------------------------------
@@ -173,6 +173,16 @@ class _FakeApi:
     def access_permissions(self) -> dict:
         self._record("access_permissions")
         return {}
+
+    def _ceph_daemon_target(self, node, explicit_id, label):
+        # Mirrors ApiBackend._ceph_daemon_target — the mon/mgr/mds CREATE plan factories call
+        # this shared resolution (Wave 6b review Nit); it must return a real (node, id) 2-tuple,
+        # not the generic __getattr__ catch-all's bare {} (which isn't unpackable to 2 values).
+        self._record("_ceph_daemon_target", node, explicit_id, label)
+        _check_node(node)
+        n = node or self.config.node
+        ident = _check_ceph_daemon_id(explicit_id, label) if explicit_id is not None else n
+        return n, ident
 
     # confirm=True-only execution calls — never reached by this sweep (dry-run only), but
     # implemented anyway so a future confirm=True sweep (or a stray real call) doesn't crash.
@@ -755,6 +765,134 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
     # reasoning as pbs_pull/pbs_push above.
     "pbs_datastore_prune": {"max_depth": 3},
     "pbs_namespace_move": {"max_depth": 3},
+    # PVE Ceph core observability + flags (Wave 6a) "flag" is a CLOSED 11-value enum
+    # (backends._check_ceph_flag, validated directly by plan_ceph_flag_set) — the generic alnum
+    # fallback ("sentinelflag") fails it, same reasoning as pbs_admin_sync_jobs_list's
+    # "sync_direction" override above.
+    "pve_ceph_flag_set": {"flag": "noout"},
+    # PVE Ceph services lifecycle (Wave 6b) "service" matches the CLOSED pattern
+    # '(ceph|mon|mds|osd|mgr)(.<id>)?' (backends._check_ceph_service) — the generic alnum
+    # fallback ("sentinelservice") isn't one of the 5 allowed kinds and fails it. "mon.pve1" also
+    # exercises the mon/mds/osd-shaped id branch of plan_ceph_service_stop's conditional
+    # cmd-safety citation (harmless on this dry-run sweep either way — the citation call is
+    # wrapped in try/except and _FakeApi's __getattr__ catch-all answers it with {}).
+    "pve_ceph_service_start": {"service": "mon.pve1"},
+    "pve_ceph_service_stop": {"service": "mon.pve1"},
+    "pve_ceph_service_restart": {"service": "mon.pve1"},
+    # pve_ceph_init's min_size/size (1-7) and pg_bits (6-14) are BOUNDED ints
+    # (backends._check_ceph_init_bound) — the generic int fallback (100) fails all three, same
+    # reasoning as pbs_pull/pbs_push's max_depth/worker_threads overrides above.
+    "pve_ceph_init": {"min_size": 2, "size": 3, "pg_bits": 8},
+    # PVE Ceph OSD (Wave 6c) "lv_type" is a CLOSED 3-value enum (backends._check_ceph_osd_lv_type)
+    # — the generic alnum fallback ("sentinellvtype") fails it, same reasoning as
+    # pbs_admin_sync_jobs_list's "sync_direction" override above.
+    "pve_ceph_osd_lv_info": {"lv_type": "block"},
+    # pve_ceph_osd_create's "dev"/"db_dev"/"wal_dev" are validated with backends.
+    # _check_ceph_osd_dev (requires a leading "/dev/" — the generic alnum fallback, e.g.
+    # "sentineldev", fails it).
+    # osds_per_device is explicitly forced to None: db_dev/wal_dev (populated here to exercise
+    # their own "requires" pairing with db_dev_size/wal_dev_size) are schema-documented mutually
+    # exclusive with osds_per_device (plan_ceph_osd_create enforces this client-side) — the
+    # blanket per-param population this sweep does would otherwise trip that guard for every
+    # single param the tool has, which is not what this override is testing.
+    "pve_ceph_osd_create": {
+        "dev": "/dev/sdb", "db_dev": "/dev/sdc", "wal_dev": "/dev/sdd", "osds_per_device": None,
+    },
+    # PVE Ceph pools (Wave 6d) "application"/"pg_autoscale_mode" are CLOSED enums
+    # (backends._check_ceph_pool_application/_check_ceph_pool_autoscale_mode) — the generic
+    # alnum fallback ("sentinelapplication"/"sentinelpgautoscalemode") fails both, same
+    # reasoning as pve_ceph_flag_set's "flag" override above. "target_size" must match
+    # backends._check_ceph_pool_target_size's pattern (number optionally suffixed K/M/G/T) — the
+    # generic alnum fallback ("sentineltargetsize") fails it. "min_size"/"size" are BOUNDED ints
+    # (1-7, backends._check_ceph_bounded_int) — the generic int fallback (100) fails both, same
+    # reasoning as pve_ceph_init's override above ("pg_num"/"pg_num_min" stay unoverridden: the
+    # generic int fallback of 100 is within both their ranges — 1-32768 and <=32768 respectively
+    # — so no override is needed for either). "erasure_coding" must parse as PVE's own
+    # propertyString (backends._check_ceph_pool_erasure_coding) — the generic alnum fallback
+    # fails it (no "=").
+    "pve_ceph_pool_create": {
+        "application": "rbd", "pg_autoscale_mode": "warn", "target_size": "10G",
+        "min_size": 2, "size": 3, "erasure_coding": "k=2,m=1",
+    },
+    "pve_ceph_pool_set": {
+        "application": "rbd", "pg_autoscale_mode": "warn", "target_size": "10G",
+        "min_size": 2, "size": 3,
+    },
+    # PVE SDN vnet-scoped firewall (Wave 7b) "action" is ACCEPT/DROP/REJECT
+    # (firewall._check_action, imported) — the global "start" default (a power-verb sentinel)
+    # fails it, same reasoning as pve_firewall_rule_add's own override above. "fw_type" is the
+    # 4-value {in,out,forward,group} enum (sdn_firewall._check_vnet_fw_type) — the generic
+    # alnum fallback ("sentinelfwtype") fails it; this param name is deliberately NOT "direction"
+    # (see sdn_firewall.py's module docstring), so it does not pick up the global "direction":
+    # "in" sentinel either.
+    "pve_sdn_vnet_firewall_rule_add": {"action": "ACCEPT", "fw_type": "in"},
+    "pve_sdn_vnet_firewall_rule_update": {"action": "ACCEPT", "fw_type": "in"},
+    # PVE SDN vnet IP mappings (Wave 7b) "ip" is a single IP address
+    # (sdn_firewall._check_vnet_ip, ipaddress.ip_address) — the generic alnum fallback
+    # ("sentinelip") is not a valid address and fails it.
+    "pve_sdn_vnet_ip_create": {"ip": "192.0.2.10"},
+    "pve_sdn_vnet_ip_update": {"ip": "192.0.2.10"},
+    "pve_sdn_vnet_ip_delete": {"ip": "192.0.2.10"},
+    # PVE SDN controllers/DNS/IPAMs (Wave 7c). "controller_type"/"dns_type"/"ipam_type" are
+    # each closed enums (sdn_objects._check_controller_type/_check_dns_type/_check_ipam_type)
+    # — the generic alnum fallback ("sentinelcontrollertype" etc.) fails all three; note
+    # "dns_type" carries a real default ("powerdns") in the wrapper signature, but this sweep
+    # synthesizes a value for EVERY param regardless of its default, so it still needs an
+    # explicit override. "fingerprint" is a STRICTER pattern than the global "fingerprint"
+    # sentinel ("AA:BB:CC:DD:EE:FF", 6 byte-pairs) satisfies elsewhere: this schema's own
+    # fingerprint is a full 32-byte-pair (SHA-256) cert fingerprint
+    # (sdn_objects._check_fingerprint, copied verbatim from the live schema) — a 32-pair
+    # override is supplied wherever this module's own "fingerprint" param appears.
+    # Controller/dns/ipam UPDATE additionally requires >=1 set/unset for controller (generic
+    # options dict, same "requires at least one option" reason as zone/vnet/subnet update
+    # above); dns/ipam update use EXPLICIT named fields instead (url/key/token/... each get a
+    # real sentinel from the global SENTINELS dict), so they never hit the empty-bag problem
+    # and need no such override.
+    "pve_sdn_controller_create": {"controller_type": "bgp"},
+    "pve_sdn_controller_update": {"options": {"asn": 65000}},
+    "pve_sdn_dns_create": {
+        "dns_type": "powerdns", "fingerprint": ":".join(["ab"] * 32),
+    },
+    "pve_sdn_dns_update": {"fingerprint": ":".join(["ab"] * 32)},
+    "pve_sdn_ipam_create": {
+        "ipam_type": "netbox", "fingerprint": ":".join(["ab"] * 32),
+    },
+    "pve_sdn_ipam_update": {"fingerprint": ":".join(["ab"] * 32)},
+    # PVE SDN controllers/DNS/IPAMs LIST reads (Wave 7c) — the optional `type` filter param
+    # is the SAME closed enum as the create-side override above; the read sweep
+    # (test_read_wrapper_request_shape) shares this same CUSTOM_KWARGS dict via _kwargs_for.
+    "pve_sdn_controllers_list": {"controller_type": "bgp"},
+    "pve_sdn_dns_list": {"dns_type": "powerdns"},
+    "pve_sdn_ipams_list": {"ipam_type": "netbox"},
+    # PVE SDN prefix-lists + route-maps (Wave 7e). "entries"/"match"/"set_clauses" are all
+    # `list[dict] | None` — the generic _fallback_value checks "dict" in ann BEFORE "list", so
+    # a `list[dict]` annotation string (which contains the substring "dict") wrongly falls into
+    # the dict branch and synthesizes `{}` instead of `[]`, tripping sdn_routing.py's own
+    # `_check_list_of_dicts` (which requires an actual list, not a dict) — this is the FIRST
+    # `list[dict]`-typed tool param in the codebase, so no earlier override caught this fallback
+    # gap. An empty list `[]` is a genuinely valid input for all three (an explicit "no
+    # entries/clauses" set), so the override is not weakening what's tested. "action" is the
+    # permit/deny 2-value enum (sdn_routing._check_action) — the global "action": "start"
+    # power-verb sentinel fails it, same reasoning as pve_sdn_vnet_firewall_rule_add's own
+    # override above. "prefix" (prefix-list entries only) must be a CIDR
+    # (sdn_routing._check_prefix_cidr, ipaddress.ip_network) — the generic alnum fallback
+    # ("sentinelprefix") is not a valid network and fails it.
+    "pve_sdn_prefix_list_create": {"entries": []},
+    "pve_sdn_prefix_list_update": {"entries": []},
+    "pve_sdn_prefix_list_entry_create": {"action": "permit", "prefix": "10.99.99.0/24"},
+    "pve_sdn_prefix_list_entry_update": {"action": "permit", "prefix": "10.99.99.0/24"},
+    "pve_sdn_route_map_entry_create": {"action": "permit", "match": [], "set_clauses": []},
+    "pve_sdn_route_map_entry_update": {"action": "permit", "match": [], "set_clauses": []},
+    # PVE SDN fabrics (Wave 7d, the FINAL Wave 7 chunk). "protocol" is the fabric routing
+    # protocol enum (openfabric/ospf/wireguard/bgp — sdn_fabrics._check_protocol) — the
+    # global "protocol": "smtp" sentinel (shaped for PMG mail-transport tools) fails it.
+    # fabric/fabric-node UPDATE additionally require >=1 option to set or delete (same
+    # "requires at least one option" reason as zone/vnet/subnet/controller update above) —
+    # the blanket empty-dict `options` default trips it, so both updates get a real option too.
+    "pve_sdn_fabric_create": {"protocol": "bgp"},
+    "pve_sdn_fabric_update": {"protocol": "bgp", "options": {"asn": 65000}},
+    "pve_sdn_fabric_node_create": {"protocol": "bgp"},
+    "pve_sdn_fabric_node_update": {"protocol": "bgp", "options": {"ip": "10.99.99.1/24"}},
 }
 
 # Parameters excluded from synthesis entirely (handled specially, or would only broaden/weaken

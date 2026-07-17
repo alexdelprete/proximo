@@ -32,7 +32,71 @@ from pathlib import Path
 
 import proximo.server as server
 
-EXPECTED_TOOL_COUNT = 603  # +17 (Wave 5d — the ACTUAL PBS plane closer, built from the Wave 5c
+EXPECTED_TOOL_COUNT = 715  # +15 (Wave 7d — SDN fabrics, the FINAL chunk of Wave 7, new
+# sdn_fabrics.py/tools/pve_sdn_fabrics.py): pve_sdn_fabrics_all, pve_sdn_fabrics_list,
+# pve_sdn_fabric_get, pve_sdn_fabric_nodes_list_all, pve_sdn_fabric_nodes_list,
+# pve_sdn_fabric_node_get, pve_sdn_fabric_status_interfaces, pve_sdn_fabric_status_neighbors,
+# pve_sdn_fabric_status_routes (9 reads) + pve_sdn_fabric_create, pve_sdn_fabric_update,
+# pve_sdn_fabric_delete, pve_sdn_fabric_node_create, pve_sdn_fabric_node_update,
+# pve_sdn_fabric_node_delete (6 mutations). 3 confirmed upstream copy-paste description bugs
+# on this family (GET fabric/{id} says "Update a fabric", DELETE fabric/{id} says "Add a
+# fabric", DELETE node says "Add a node") — trusted verb/params/returns throughout, never the
+# description string. fabric/fabric-node DELETE accept NEITHER digest NOR lock-token — the
+# only delete family on the whole SDN plane with zero optimistic-lock support (schema-
+# verified). fabric/fabric-node UPDATE require restating `protocol` in the body (unlike
+# controller/dns/ipam's own immutable-and-absent `type`). fabric_status_interfaces is
+# REVIEWED_TRUSTED (local, not peer-controlled); neighbors/routes are ADVERSARIAL
+# (wire-learned FRR-reported content) — see taint.py's own entry comment. This CLOSES Wave 7
+# (7a+7b+7c+7d+7e = 12+10+16+15+17 = 70 new tools + 1 signature extension, 645 -> 715).
+# Was 700 after Wave 7e — SDN prefix-lists + route-maps, new
+# sdn_routing.py/tools/pve_sdn_routing.py): pve_sdn_prefix_lists_list, pve_sdn_prefix_list_get,
+# pve_sdn_prefix_list_entries_list, pve_sdn_prefix_list_entry_get, pve_sdn_route_maps_list,
+# pve_sdn_route_map_entries_list_all, pve_sdn_route_map_entries_list, pve_sdn_route_map_entry_get
+# (8 reads) + pve_sdn_prefix_list_create, pve_sdn_prefix_list_update, pve_sdn_prefix_list_delete,
+# pve_sdn_prefix_list_entry_create, pve_sdn_prefix_list_entry_update,
+# pve_sdn_prefix_list_entry_delete, pve_sdn_route_map_entry_create, pve_sdn_route_map_entry_update,
+# pve_sdn_route_map_entry_delete (9 mutations). `url_seq` (prefix-list entry path segment) is an
+# OPAQUE, schema-untyped token — never validated as an integer, unlike route-map's own `order`
+# (a properly-typed required integer 0-65535 on all 3 of its methods). Route-maps have NO
+# container-level create/update/delete — only entries (the first entry_create for an id
+# implicitly creates the route map). No secret-shaped field on this plane (unlike Wave 7c's dns
+# key/ipam token) — REVIEWED_TRUSTED throughout. Was 683 after Wave 7c — SDN controllers + DNS +
+# IPAMs, new
+# sdn_objects.py/tools/pve_sdn_objects.py): pve_sdn_controllers_list, pve_sdn_controller_get,
+# pve_sdn_dns_list, pve_sdn_dns_get, pve_sdn_ipams_list, pve_sdn_ipam_get,
+# pve_sdn_ipam_status (7 reads) + pve_sdn_controller_create, pve_sdn_controller_update,
+# pve_sdn_controller_delete, pve_sdn_dns_create, pve_sdn_dns_update, pve_sdn_dns_delete,
+# pve_sdn_ipam_create, pve_sdn_ipam_update, pve_sdn_ipam_delete (9 mutations). `type` is
+# immutable after creation across all three families; dns `key`/ipam `token` are secrets
+# (redacted in plan/ledger CAPTURE, never at the read layer — see sdn_objects.py's module
+# docstring RULING). Was 667 after Wave 7b — vnet-scoped firewall + IP mappings, new
+# sdn_firewall.py/tools/pve_sdn_firewall.py): pve_sdn_vnet_firewall_options_get,
+# pve_sdn_vnet_firewall_rules_list, pve_sdn_vnet_firewall_rule_get (3 reads) +
+# pve_sdn_vnet_firewall_options_set, pve_sdn_vnet_firewall_rule_add,
+# pve_sdn_vnet_firewall_rule_update, pve_sdn_vnet_firewall_rule_remove,
+# pve_sdn_vnet_ip_create, pve_sdn_vnet_ip_update, pve_sdn_vnet_ip_delete (7 mutations).
+# LIVE/IMMEDIATE family — no pending/apply lifecycle, no sdn-rollback coverage. Was 657
+# after Wave 7a — PVE SDN gap-fill + global control plane):
+# pve_sdn_zone_get, pve_sdn_vnet_get, pve_sdn_subnet_get, pve_sdn_dry_run,
+# pve_sdn_zone_status_list, pve_sdn_zone_bridges, pve_sdn_zone_content, pve_sdn_zone_ip_vrf,
+# pve_sdn_vnet_mac_vrf (9 reads) + pve_sdn_lock_acquire, pve_sdn_lock_release, pve_sdn_rollback
+# (3 mutations). pve_sdn_apply also gained optional lock_token/release_lock params — a
+# signature extension on an EXISTING tool, not counted as a new one. Was 645 after Wave 6d —
+# PVE Ceph pools + CephFS, CLOSES Wave 6):
+# pve_ceph_pool_list, pve_ceph_pool_status, pve_ceph_fs_list (3 reads) + pve_ceph_pool_create,
+# pve_ceph_pool_set, pve_ceph_pool_destroy, pve_ceph_fs_create, pve_ceph_fs_destroy
+# (5 mutations). Was 637 after Wave 6c — PVE Ceph OSD): pve_ceph_osd_tree, pve_ceph_osd_lv_info,
+# pve_ceph_osd_metadata (3 reads) + pve_ceph_osd_create, pve_ceph_osd_destroy, pve_ceph_osd_in,
+# pve_ceph_osd_out, pve_ceph_osd_scrub (5 mutations). Was 629 after Wave 6b — PVE Ceph services
+# lifecycle: pve_ceph_mon_list,
+# pve_ceph_mgr_list, pve_ceph_mds_list (3 reads) + pve_ceph_mon_create, pve_ceph_mon_destroy,
+# pve_ceph_mgr_create, pve_ceph_mgr_destroy, pve_ceph_mds_create, pve_ceph_mds_destroy,
+# pve_ceph_init, pve_ceph_service_start, pve_ceph_service_stop, pve_ceph_service_restart
+# (10 mutations). Was 616 after Wave 6a (PVE Ceph core observability + flags, the first Ceph
+# chunk): pve_ceph_status, pve_ceph_metadata, pve_ceph_flags_list, pve_ceph_flag_get,
+# pve_ceph_cfg_db, pve_ceph_cfg_raw, pve_ceph_cfg_value, pve_ceph_crush, pve_ceph_log,
+# pve_ceph_rules, pve_ceph_cmd_safety (11 reads) + pve_ceph_flags_set, pve_ceph_flag_set
+# (2 mutations). Was 603 after Wave 5d — the ACTUAL PBS plane closer, built from the Wave 5c
 # adversarial review's Finding 1+2 missing-endpoint list): pbs_groups_list, pbs_group_delete,
 # pbs_group_notes_{get,set}, pbs_group_move, pbs_snapshot_protected_get, pbs_namespace_move,
 # pbs_datastore_{mount,unmount,prune,s3_refresh,rrd,active_operations}, pbs_datastores_usage,

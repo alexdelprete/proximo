@@ -51,7 +51,11 @@ class _Api:
     def _get(self, path):
         self.gets.append(path)
         if path.endswith("/rules"):
-            return [{"pos": 0, "digest": "rule-digest-fallback", "action": "ACCEPT", "type": "in"}]
+            # Schema-true fixture: NO digest field (neither cluster/node/guest rules-list
+            # nor the SDN vnet-firewall rules-list/rule-get schema ever returns one — see
+            # Wave 7b review Finding 1). A synthetic digest here would mask the exact break
+            # that finding reproduced.
+            return [{"pos": 0, "action": "ACCEPT", "type": "in"}]
         if path.endswith("/options"):
             return {"enable": 0}
         if "/cluster/resources" in path:
@@ -170,6 +174,254 @@ _SWEEP_CASES = [
         {"gateway": "10.0.0.9"},
         id="sdn_subnet_update",
     ),
+    # --- Wave 7a: global SDN control plane (lock/rollback) + the sdn_apply extension ---
+    pytest.param(
+        "pve_sdn_lock_acquire",
+        dict(allow_pending=True),
+        "ok", "posts", "/cluster/sdn/lock",
+        # sdn_lock_acquire() sends {"allow-pending": True} verbatim when given.
+        {"allow-pending": True},
+        id="sdn_lock_acquire",
+    ),
+    pytest.param(
+        "pve_sdn_lock_release",
+        dict(lock_token="tok-sweep-1"),
+        "ok", "deletes", "/cluster/sdn/lock",
+        # sdn_lock_release() ALWAYS passes a params dict (possibly {}) — DELETE-family convention.
+        {"lock-token": "tok-sweep-1"},
+        id="sdn_lock_release",
+    ),
+    pytest.param(
+        "pve_sdn_lock_release",
+        dict(force=True),
+        "ok", "deletes", "/cluster/sdn/lock",
+        {"force": True},
+        id="sdn_lock_release_force",
+    ),
+    pytest.param(
+        "pve_sdn_rollback",
+        dict(lock_token="tok-sweep-2", release_lock=False),
+        "ok", "posts", "/cluster/sdn/rollback",
+        # sdn_rollback() sends {"lock-token":.., "release-lock":..} verbatim when given.
+        {"lock-token": "tok-sweep-2", "release-lock": False},
+        id="sdn_rollback",
+    ),
+    pytest.param(
+        "pve_sdn_apply",
+        dict(lock_token="tok-sweep-3", release_lock=True),
+        "submitted", "puts", "/cluster/sdn",
+        # Wave 7a extension: sdn_apply() now forwards lock-token/release-lock when given — the
+        # NEW params pinned (the pre-extension bare-call shape is covered by the "sdn_apply" row
+        # above, unmodified: kwargs={}, data_exact=None).
+        {"lock-token": "tok-sweep-3", "release-lock": True},
+        id="sdn_apply_with_lock_params",
+    ),
+    # --- Wave 7b: vnet-scoped firewall + IP mappings (LIVE/IMMEDIATE — new sdn_firewall.py) ---
+    pytest.param(
+        "pve_sdn_vnet_firewall_options_set",
+        dict(vnet="vnet1", options={"enable": True, "policy_forward": "DROP"}),
+        "ok", "puts", "/cluster/sdn/vnets/vnet1/firewall/options",
+        # vnet_firewall_options_set() passes the options bag through verbatim (no bool->1/0
+        # coercion — matches firewall.py's own generic options-bag setter, not the dedicated
+        # single-field firewall_set_enabled()).
+        {"enable": True, "policy_forward": "DROP"},
+        id="sdn_vnet_firewall_options_set",
+    ),
+    pytest.param(
+        "pve_sdn_vnet_firewall_rule_add",
+        dict(vnet="vnet1", action="accept", fw_type="in", dport="22"),
+        "ok", "posts", "/cluster/sdn/vnets/vnet1/firewall/rules",
+        # action is uppercased by _check_action; fw_type is always sent as 'type'.
+        {"action": "ACCEPT", "type": "in", "dport": "22"},
+        id="sdn_vnet_firewall_rule_add",
+    ),
+    pytest.param(
+        "pve_sdn_vnet_firewall_rule_update",
+        dict(vnet="vnet1", pos=0, action="drop", digest="caller-digest-77"),
+        "ok", "puts", "/cluster/sdn/vnets/vnet1/firewall/rules/0",
+        # Finding 1 fix: this schema's reads never expose a digest (neither rules-list nor
+        # rule-get) — there is no op-time re-fetch anymore. digest is an OPTIONAL
+        # caller-supplied passthrough only, forwarded byte-exact when given.
+        {"action": "DROP", "digest": "caller-digest-77"},
+        id="sdn_vnet_firewall_rule_update",
+    ),
+    pytest.param(
+        "pve_sdn_vnet_firewall_rule_remove",
+        dict(vnet="vnet1", pos=0, digest="caller-digest-88"),
+        "ok", "deletes", "/cluster/sdn/vnets/vnet1/firewall/rules/0",
+        # Finding 1 fix: same as rule_update — caller-supplied passthrough only.
+        {"digest": "caller-digest-88"},
+        id="sdn_vnet_firewall_rule_remove",
+    ),
+    pytest.param(
+        "pve_sdn_vnet_ip_create",
+        dict(vnet="vnet1", zone="zone1", ip="10.0.0.5", mac="aa:bb:cc:dd:ee:ff"),
+        "ok", "posts", "/cluster/sdn/vnets/vnet1/ips",
+        {"ip": "10.0.0.5", "vnet": "vnet1", "zone": "zone1", "mac": "aa:bb:cc:dd:ee:ff"},
+        id="sdn_vnet_ip_create",
+    ),
+    pytest.param(
+        "pve_sdn_vnet_ip_update",
+        dict(vnet="vnet1", zone="zone1", ip="10.0.0.5", vmid="100"),
+        "ok", "puts", "/cluster/sdn/vnets/vnet1/ips",
+        # vmid is not accepted on create/delete — PUT-only (schema-verified).
+        {"ip": "10.0.0.5", "vnet": "vnet1", "zone": "zone1", "vmid": "100"},
+        id="sdn_vnet_ip_update",
+    ),
+    pytest.param(
+        "pve_sdn_vnet_ip_delete",
+        dict(vnet="vnet1", zone="zone1", ip="10.0.0.5"),
+        "ok", "deletes", "/cluster/sdn/vnets/vnet1/ips",
+        # no digest support at all on this endpoint (schema-verified) — never sent.
+        {"ip": "10.0.0.5", "vnet": "vnet1", "zone": "zone1"},
+        id="sdn_vnet_ip_delete",
+    ),
+    # --- Wave 7c: SDN controllers/dns/ipams (PENDING — new sdn_objects.py) ---
+    #
+    # Wave 7c's own report originally claimed 7b set a "no pre-existing sweep file to extend"
+    # precedent and skipped this file entirely — FALSE (Wave 7c review MEDIUM-2): the block
+    # above IS that precedent, and 7b extended it for its own 9 new mutations despite already
+    # having a dedicated wiring test (test_server_sdn_firewall_wiring.py) with its own
+    # confirm=True coverage. 7c's 9 new mutations get the same treatment here for consistency
+    # — the module-specific test_server_sdn_objects_wiring.py additionally covers the
+    # secret-redaction/url-userinfo-masking end-to-end proofs this generic sweep does not.
+    pytest.param(
+        "pve_sdn_controller_create",
+        dict(controller="ctrl-sweep", controller_type="bgp", options={"asn": 65000}),
+        "ok", "posts", "/cluster/sdn/controllers",
+        {"type": "bgp", "controller": "ctrl-sweep", "asn": 65000},
+        id="sdn_controller_create",
+    ),
+    pytest.param(
+        "pve_sdn_controller_update",
+        dict(controller="ctrl-sweep", options={"asn": 65001}),
+        "ok", "puts", "/cluster/sdn/controllers/ctrl-sweep",
+        {"asn": 65001},
+        id="sdn_controller_update",
+    ),
+    pytest.param(
+        "pve_sdn_controller_delete",
+        dict(controller="ctrl-sweep"),
+        "ok", "deletes", "/cluster/sdn/controllers/ctrl-sweep",
+        {},
+        id="sdn_controller_delete",
+    ),
+    pytest.param(
+        "pve_sdn_dns_create",
+        dict(dns="dns-sweep", url="https://pdns.example.com", key="sekret-key-sweep"),
+        "ok", "posts", "/cluster/sdn/dns",
+        {"type": "powerdns", "dns": "dns-sweep", "url": "https://pdns.example.com",
+         "key": "sekret-key-sweep"},
+        id="sdn_dns_create",
+    ),
+    pytest.param(
+        "pve_sdn_dns_update",
+        dict(dns="dns-sweep", dns_ttl=300),
+        "ok", "puts", "/cluster/sdn/dns/dns-sweep",
+        {"ttl": 300},
+        id="sdn_dns_update",
+    ),
+    pytest.param(
+        "pve_sdn_dns_delete",
+        dict(dns="dns-sweep"),
+        "ok", "deletes", "/cluster/sdn/dns/dns-sweep",
+        {},
+        id="sdn_dns_delete",
+    ),
+    pytest.param(
+        "pve_sdn_ipam_create",
+        dict(ipam="ipam-sweep", ipam_type="netbox", url="https://netbox.example.com",
+             token="sekret-token-sweep"),
+        "ok", "posts", "/cluster/sdn/ipams",
+        {"type": "netbox", "ipam": "ipam-sweep", "url": "https://netbox.example.com",
+         "token": "sekret-token-sweep"},
+        id="sdn_ipam_create",
+    ),
+    pytest.param(
+        "pve_sdn_ipam_update",
+        dict(ipam="ipam-sweep", section=5),
+        "ok", "puts", "/cluster/sdn/ipams/ipam-sweep",
+        {"section": 5},
+        id="sdn_ipam_update",
+    ),
+    pytest.param(
+        "pve_sdn_ipam_delete",
+        dict(ipam="ipam-sweep"),
+        "ok", "deletes", "/cluster/sdn/ipams/ipam-sweep",
+        {},
+        id="sdn_ipam_delete",
+    ),
+    # --- Wave 7e: SDN prefix-lists + route-maps (PENDING — new sdn_routing.py) ---
+    #
+    # Same consistency treatment 7c gave this sweep for its own 9 mutations (see the block
+    # above's own note) — module-specific secret/redaction proofs don't apply here (no
+    # secret-shaped field exists on this plane), so this generic sweep is the primary
+    # confirm=True coverage for these 9 tools; entry_id/order path-construction and the
+    # 3-way digest asymmetry get their own dedicated unit coverage in test_sdn_routing.py.
+    pytest.param(
+        "pve_sdn_prefix_list_create",
+        dict(prefix_list="pl-sweep"),
+        "ok", "posts", "/cluster/sdn/prefix-lists",
+        {"id": "pl-sweep"},
+        id="sdn_prefix_list_create",
+    ),
+    pytest.param(
+        "pve_sdn_prefix_list_update",
+        dict(prefix_list="pl-sweep", entries=[{"action": "permit", "prefix": "10.99.99.0/24"}]),
+        "ok", "puts", "/cluster/sdn/prefix-lists/pl-sweep",
+        {"entries": [{"action": "permit", "prefix": "10.99.99.0/24"}]},
+        id="sdn_prefix_list_update",
+    ),
+    pytest.param(
+        "pve_sdn_prefix_list_delete",
+        dict(prefix_list="pl-sweep"),
+        "ok", "deletes", "/cluster/sdn/prefix-lists/pl-sweep",
+        {},
+        id="sdn_prefix_list_delete",
+    ),
+    pytest.param(
+        "pve_sdn_prefix_list_entry_create",
+        dict(prefix_list="pl-sweep", action="permit", prefix="10.99.99.0/24"),
+        "ok", "posts", "/cluster/sdn/prefix-lists/pl-sweep/entries",
+        {"action": "permit", "prefix": "10.99.99.0/24"},
+        id="sdn_prefix_list_entry_create",
+    ),
+    pytest.param(
+        "pve_sdn_prefix_list_entry_update",
+        dict(prefix_list="pl-sweep", entry_id="1", seq=5),
+        "ok", "puts", "/cluster/sdn/prefix-lists/pl-sweep/entries/1",
+        # seq is the ONLY field touched here — no digest passed, none forwarded.
+        {"seq": 5},
+        id="sdn_prefix_list_entry_update",
+    ),
+    pytest.param(
+        "pve_sdn_prefix_list_entry_delete",
+        dict(prefix_list="pl-sweep", entry_id="1"),
+        "ok", "deletes", "/cluster/sdn/prefix-lists/pl-sweep/entries/1",
+        {},
+        id="sdn_prefix_list_entry_delete",
+    ),
+    pytest.param(
+        "pve_sdn_route_map_entry_create",
+        dict(route_map_id="rm-sweep", order=10, action="permit"),
+        "ok", "posts", "/cluster/sdn/route-maps/entries",
+        {"route-map-id": "rm-sweep", "order": 10, "action": "permit"},
+        id="sdn_route_map_entry_create",
+    ),
+    pytest.param(
+        "pve_sdn_route_map_entry_update",
+        dict(route_map_id="rm-sweep", order=10, action="deny"),
+        "ok", "puts", "/cluster/sdn/route-maps/entries/rm-sweep/entry/10",
+        {"action": "deny"},
+        id="sdn_route_map_entry_update",
+    ),
+    pytest.param(
+        "pve_sdn_route_map_entry_delete",
+        dict(route_map_id="rm-sweep", order=10),
+        "ok", "deletes", "/cluster/sdn/route-maps/entries/rm-sweep/entry/10",
+        {},
+        id="sdn_route_map_entry_delete",
+    ),
 ]
 
 
@@ -262,5 +514,44 @@ def test_firewall_rule_update_confirm_forwards_digest_and_changes_and_records_co
     assert call_data == {"action": "DROP", "comment": "updated rule", "digest": "caller-digest-99"}
 
     entry = _confirmed_entry(log, "pve_firewall_rule_update", "ok")
+    assert entry["mutation"] is True
+    assert entry["detail"]["confirmed"] is True
+
+
+# ---------------------------------------------------------------------------
+# Wave 7b Finding 1 fix — pve_sdn_vnet_firewall_rule_update/_remove: the DEFAULT
+# no-digest-supplied confirm=True path must SUCCEED, not raise. This is the exact break the
+# review reproduced against the old op-time-refetch-or-fail digest design: this schema's
+# reads (rules list / rule get) never expose a digest field at all (schema-verified), so a
+# fetch-or-fail posture failed on EVERY confirm call. digest is now an OPTIONAL
+# caller-supplied passthrough only — see the sweep rows above for the forwarded-when-given
+# proof.
+# ---------------------------------------------------------------------------
+
+
+def test_sdn_vnet_firewall_rule_remove_confirm_without_digest_succeeds(tmp_path, monkeypatch):
+    _, api, _, log = _wire(tmp_path, monkeypatch)
+
+    out = server.pve_sdn_vnet_firewall_rule_remove(vnet="vnet1", pos=0, confirm=True)
+
+    assert out["status"] == "ok"
+    assert out["status"] != "plan"
+    assert api.deletes[-1] == ("/cluster/sdn/vnets/vnet1/firewall/rules/0", {})
+
+    entry = _confirmed_entry(log, "pve_sdn_vnet_firewall_rule_remove", "ok")
+    assert entry["mutation"] is True
+    assert entry["detail"]["confirmed"] is True
+
+
+def test_sdn_vnet_firewall_rule_update_confirm_without_digest_succeeds(tmp_path, monkeypatch):
+    _, api, _, log = _wire(tmp_path, monkeypatch)
+
+    out = server.pve_sdn_vnet_firewall_rule_update(vnet="vnet1", pos=0, action="drop", confirm=True)
+
+    assert out["status"] == "ok"
+    assert out["status"] != "plan"
+    assert api.puts[-1] == ("/cluster/sdn/vnets/vnet1/firewall/rules/0", {"action": "DROP"})
+
+    entry = _confirmed_entry(log, "pve_sdn_vnet_firewall_rule_update", "ok")
     assert entry["mutation"] is True
     assert entry["detail"]["confirmed"] is True

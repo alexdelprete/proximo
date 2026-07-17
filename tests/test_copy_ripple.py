@@ -34,17 +34,23 @@ def test_new_in_block_must_not_stack_releases():
     assert any("exactly one" in p for p in problems)
 
 
-def test_status_bullets_capped_and_freshest_first():
-    bullets = "\n".join(f"- 🩸 **0.{n}.0** — thing" for n in range(9, 2, -1))  # 7 bullets
-    problems = copy_ripple_check.check_status(bullets, "0.9.0")
-    assert any("6" in p for p in problems), problems
+def test_status_carries_only_the_current_release():
+    # 2026-07-16 law: exactly ONE 🩸 bullet — history lives in CHANGELOG.md.
+    stacked = "- 🩸 **0.9.0** — thing\n- 🩸 **0.8.0** — thing"
+    problems = copy_ripple_check.check_status(stacked, "0.9.0")
+    assert any("CHANGELOG" in p for p in problems), problems
 
-    ok = "\n".join(f"- 🩸 **0.{n}.0** — thing" for n in range(9, 4, -1))  # 5 bullets
+    ok = "- 🩸 **0.9.0** — thing"
     assert copy_ripple_check.check_status(ok, "0.9.0") == []
 
-    stale_top = "- 🩸 **0.8.0** — thing\n- 🩸 **0.7.0** — thing"
+    stale_top = "- 🩸 **0.8.0** — thing"
     problems = copy_ripple_check.check_status(stale_top, "0.9.0")
     assert any("top" in p.lower() for p in problems)
+
+
+def test_readme_line_fence():
+    fence = copy_ripple_check.MAX_README_LINES
+    assert fence == 300  # raise only deliberately, with COPY-CANON updated to match
 
 
 def test_tool_count_claims_must_agree():

@@ -231,7 +231,51 @@ REVIEWED_TRUSTED: frozenset[str] = frozenset({
     'pve_apt_repositories_get', 'pve_apt_repository_add', 'pve_apt_repository_set',
     'pve_apt_update_refresh', 'pve_apt_updates_list', 'pve_apt_versions', 'pve_backup',
     'pve_backup_delete', 'pve_backup_job_create', 'pve_backup_job_delete', 'pve_backup_job_list',
-    'pve_backup_job_update', 'pve_backup_list', 'pve_clone', 'pve_cloudinit_get', 'pve_cloudinit_set',
+    'pve_backup_job_update', 'pve_backup_list',
+    # Wave 6a (2026-07-16): PVE Ceph core observability + flags. status/flags-list/flag-get/
+    # cfg_db/cfg_raw/cfg_value/crush/rules/cmd_safety are operator- or Ceph-daemon-authored
+    # CLOSED-shape structured data, no attacker-shapeable free text (cfg_raw/cfg_db carry
+    # ceph.conf content — matches the pbs_node_config_get config-read precedent). Both mutations
+    # (flags_set/flag_set) return either an opaque UPID or null — no content channel. NOT here:
+    # pve_ceph_log (free-text log lines) AND pve_ceph_metadata (Wave 6a review Finding 2,
+    # reclassified — schema-open additionalProperties:1 daemon-self-reported hostname/addr/name
+    # strings, the pbs_remote_scan precedent) — both in taint.ADVERSARIAL_TOOLS instead. See
+    # proximo/ceph.py module docstring's Taint section for the full per-tool argument.
+    'pve_ceph_status', 'pve_ceph_flags_list', 'pve_ceph_flag_get',
+    'pve_ceph_flags_set', 'pve_ceph_flag_set', 'pve_ceph_cfg_db', 'pve_ceph_cfg_raw',
+    'pve_ceph_cfg_value', 'pve_ceph_crush', 'pve_ceph_rules', 'pve_ceph_cmd_safety',
+    # Wave 6b (2026-07-16): PVE Ceph services lifecycle mutations. Each returns only an opaque
+    # UPID or null — no content channel at all (same reasoning as flags_set/flag_set above). NOT
+    # here: pve_ceph_{mon,mgr,mds}_list (they're in taint.ADVERSARIAL_TOOLS instead — see
+    # taint.py's own entry comment + proximo/ceph.py's module docstring Taint section).
+    'pve_ceph_mon_create', 'pve_ceph_mon_destroy', 'pve_ceph_mgr_create', 'pve_ceph_mgr_destroy',
+    'pve_ceph_mds_create', 'pve_ceph_mds_destroy', 'pve_ceph_init',
+    'pve_ceph_service_start', 'pve_ceph_service_stop', 'pve_ceph_service_restart',
+    # Wave 6c (2026-07-16): PVE Ceph OSD. pve_ceph_osd_lv_info is REVIEWED_TRUSTED — argued, not
+    # defaulted, against the pve_ceph_osd_tree/pve_ceph_osd_metadata precedent immediately below
+    # (both ADVERSARIAL instead): closed schema shape (no additionalProperties:1) and content
+    # sourced from a LOCAL `lvs` shell-out on the SAME host administering the OSD, not a
+    # cross-daemon network self-report at cluster registration — see proximo/ceph.py's module
+    # docstring Taint section for the full argument. The 5 osd mutations (create/destroy/in/out/
+    # scrub) each return only an opaque UPID or null — no content channel at all (same reasoning
+    # as every prior mutation on this plane). NOT here: pve_ceph_osd_tree/pve_ceph_osd_metadata
+    # (they're in taint.ADVERSARIAL_TOOLS instead).
+    'pve_ceph_osd_lv_info',
+    'pve_ceph_osd_create', 'pve_ceph_osd_destroy', 'pve_ceph_osd_in', 'pve_ceph_osd_out',
+    'pve_ceph_osd_scrub',
+    # Wave 6d (2026-07-16): PVE Ceph pools + CephFS — CLOSES Wave 6. This chunk originally shipped
+    # pool_list/pool_status/fs_list here as REVIEWED_TRUSTED; the Wave 6d adversarial review
+    # (2026-07-17, Finding 1) REVERSED that ruling to ADVERSARIAL -- they now live in
+    # taint.ADVERSARIAL_TOOLS instead (see taint.py's own entry comment + proximo/ceph.py's module
+    # docstring Taint section for the full corrected argument: pool_name/fs name are unconstrained
+    # free-text creatable outside Proximo's own create surface, and application_metadata is a
+    # third channel settable via raw `ceph osd pool application set`). The 5 mutations
+    # (pool_create/pool_set/pool_destroy/fs_create/fs_destroy) stay REVIEWED_TRUSTED here,
+    # unaffected by the reversal -- each returns only an opaque UPID, no content channel at all
+    # (same reasoning as every prior mutation on this plane).
+    'pve_ceph_pool_create', 'pve_ceph_pool_set', 'pve_ceph_pool_destroy',
+    'pve_ceph_fs_create', 'pve_ceph_fs_destroy',
+    'pve_clone', 'pve_cloudinit_get', 'pve_cloudinit_set',
     'pve_cluster_status', 'pve_create_container', 'pve_create_vm', 'pve_delete_guest', 'pve_diagnose',
     'pve_disk_move', 'pve_disk_resize', 'pve_doctor', 'pve_firewall_alias_create', 'pve_firewall_alias_delete',
     'pve_firewall_alias_list', 'pve_firewall_alias_update', 'pve_firewall_ipset_create',
@@ -262,7 +306,105 @@ REVIEWED_TRUSTED: frozenset[str] = frozenset({
     'pve_roles_list', 'pve_rollback', 'pve_sdn_apply', 'pve_sdn_subnet_create', 'pve_sdn_subnet_delete',
     'pve_sdn_subnet_list', 'pve_sdn_subnet_update', 'pve_sdn_vnet_create', 'pve_sdn_vnet_delete',
     'pve_sdn_vnet_update', 'pve_sdn_vnets_list', 'pve_sdn_zone_create', 'pve_sdn_zone_delete',
-    'pve_sdn_zone_update', 'pve_sdn_zones_list', 'pve_security_groups_list', 'pve_snapshot_create',
+    'pve_sdn_zone_update', 'pve_sdn_zones_list',
+    # Wave 7a (2026-07-17): PVE SDN gap-fill + global control plane. zone_get/vnet_get/
+    # subnet_get are single-object reads of the SAME operator-authored zone/vnet/subnet config
+    # already REVIEWED_TRUSTED via the list tools above. dry_run's frr-diff/interfaces-diff is
+    # DERIVED from that same staged config — not a new content channel. zone_status_list is
+    # PVE's own config-apply state machine (available/pending/error), not guest/peer-influenced.
+    # zone_bridges' guest-NIC `index`/`vmid` fields are PVE-assigned ordinals fixed at
+    # VM/CT-config time (not guest-writable free text at runtime) — argued on that
+    # non-runtime-writability axis (MINOR #1 fix, post-review 2026-07-17: the earlier
+    # "argued against the pve_guest_config_get precedent" citation was self-contradicting,
+    # since pve_guest_config_get is itself ADVERSARIAL, not a REVIEWED_TRUSTED precedent).
+    # zone_content's statusmsg is free-text but
+    # reflects PVE's OWN apply/reload process, not guest input. lock_acquire/lock_release/
+    # rollback all return either a PVE-generated lock token or null — a SEPARATE ledger-
+    # redaction concern (see network.py module docstring "Lock-token handling"), not a taint
+    # channel. NOT here: pve_sdn_zone_ip_vrf, pve_sdn_vnet_mac_vrf — both in
+    # taint.ADVERSARIAL_TOOLS instead (peer-announced/wire-learned routing content). See
+    # network.py's module docstring Taint section for the full per-tool argument.
+    'pve_sdn_zone_get', 'pve_sdn_vnet_get', 'pve_sdn_subnet_get', 'pve_sdn_dry_run',
+    'pve_sdn_zone_status_list', 'pve_sdn_zone_bridges', 'pve_sdn_zone_content',
+    'pve_sdn_lock_acquire', 'pve_sdn_lock_release', 'pve_sdn_rollback',
+    # Wave 7b (2026-07-17): vnet-scoped firewall + IP mappings (new sdn_firewall.py /
+    # tools/pve_sdn_firewall.py). Follows the shipped firewall.py family's OWN precedent
+    # exactly: pve_firewall_rules_list/pve_firewall_options_get/the rule and options
+    # mutations are none of them in taint.ADVERSARIAL_TOOLS either — rule `comment` is
+    # operator-typed free text, the same class already REVIEWED_TRUSTED for
+    # pve_firewall_alias_create's/pve_firewall_ipset_entry_add's own comment fields. The
+    # vnet IP-mapping mutations (ip_create/update/delete) return null and have no read
+    # endpoint at all on this schema — no adversarial content channel. See
+    # sdn_firewall.py's module docstring Taint section for the full argument.
+    'pve_sdn_vnet_firewall_options_get', 'pve_sdn_vnet_firewall_rules_list',
+    'pve_sdn_vnet_firewall_rule_get', 'pve_sdn_vnet_firewall_options_set',
+    'pve_sdn_vnet_firewall_rule_add', 'pve_sdn_vnet_firewall_rule_update',
+    'pve_sdn_vnet_firewall_rule_remove', 'pve_sdn_vnet_ip_create', 'pve_sdn_vnet_ip_update',
+    'pve_sdn_vnet_ip_delete',
+    # Wave 7c (2026-07-17): SDN controllers + DNS + IPAMs (new sdn_objects.py /
+    # tools/pve_sdn_objects.py). All list/get reads are operator-authored SDN integration
+    # config, same channel as the already-REVIEWED_TRUSTED zone/vnet/subnet family above.
+    # dns_get/ipam_get's schema-undocumented single-object GET shape (bare
+    # `{"type": "object"}`, no properties) is a SECRET-HANDLING concern (whether `key`/
+    # `token` echo back) — argued explicitly in sdn_objects.py's module docstring RULING —
+    # NOT a content-trust/taint concern: the underlying content is operator-typed DNS/IPAM
+    # integration config, not guest/peer-authored bytes. All 9 mutations return `null`
+    # (schema-verified field-by-field) — no content channel to classify either way,
+    # REVIEWED_TRUSTED regardless of the credential-bearing nature of the underlying object
+    # (matches the pbs_s3_client_create/pbs_metrics_influxdb_http_create precedent: secret-
+    # handling and content-trust are orthogonal axes in this codebase's model). NOT here:
+    # pve_sdn_ipam_status — in taint.ADVERSARIAL_TOOLS instead (guest IP/MAC/hostname
+    # address entries, zero schema item-shape documentation).
+    'pve_sdn_controllers_list', 'pve_sdn_controller_get',
+    'pve_sdn_controller_create', 'pve_sdn_controller_update', 'pve_sdn_controller_delete',
+    'pve_sdn_dns_list', 'pve_sdn_dns_get',
+    'pve_sdn_dns_create', 'pve_sdn_dns_update', 'pve_sdn_dns_delete',
+    'pve_sdn_ipams_list', 'pve_sdn_ipam_get',
+    'pve_sdn_ipam_create', 'pve_sdn_ipam_update', 'pve_sdn_ipam_delete',
+    # Wave 7e (2026-07-17): SDN prefix-lists + route-maps (new sdn_routing.py /
+    # tools/pve_sdn_routing.py). Both families are pure routing-policy primitives — ids,
+    # CIDRs, action enums, integers, and generic-passthrough match/set/exit-action composite
+    # objects — no url/key/token-shaped field exists anywhere on this plane (unlike Wave 7c's
+    # dns key / ipam token), so there is no secret-handling concern to separate from the
+    # taint axis here. All reads are operator-authored routing-policy config, same channel as
+    # the already-REVIEWED_TRUSTED zone/vnet/subnet/controller/dns/ipam family; no field on
+    # this plane carries wire-learned/peer-announced/guest-influenced content. All 9
+    # mutations return `null` (schema-verified field-by-field) — no content channel to
+    # classify either way, REVIEWED_TRUSTED regardless.
+    'pve_sdn_prefix_lists_list', 'pve_sdn_prefix_list_get',
+    'pve_sdn_prefix_list_entries_list', 'pve_sdn_prefix_list_entry_get',
+    'pve_sdn_prefix_list_create', 'pve_sdn_prefix_list_update', 'pve_sdn_prefix_list_delete',
+    'pve_sdn_prefix_list_entry_create', 'pve_sdn_prefix_list_entry_update',
+    'pve_sdn_prefix_list_entry_delete',
+    'pve_sdn_route_maps_list', 'pve_sdn_route_map_entries_list_all',
+    'pve_sdn_route_map_entries_list', 'pve_sdn_route_map_entry_get',
+    'pve_sdn_route_map_entry_create', 'pve_sdn_route_map_entry_update',
+    'pve_sdn_route_map_entry_delete',
+    # Wave 7d (2026-07-17): SDN fabrics (new sdn_fabrics.py / tools/pve_sdn_fabrics.py) — the
+    # FINAL chunk of Wave 7. fabrics_all/fabrics_list/fabric_get/fabric_nodes_list_all/
+    # fabric_nodes_list/fabric_node_get are operator-authored fabric CONFIG, same channel as
+    # the already-REVIEWED_TRUSTED zone/vnet/subnet/controller/dns/ipam/prefix-list/route-map
+    # family above (all six also STRIP `lock-token` at the read layer — the live SDN
+    # cluster-lock capability secret, MAJOR #2 post-review fix — see sdn_fabrics.py's module
+    # docstring "THE LOCK-TOKEN RULING"). fabric_status_interfaces returns {name, state,
+    # type} — the fabric's OWN locally-rendered network interface, no field documented as
+    # peer-announced or FRR-reported (checked field-by-field against the raw schema) —
+    # REVIEWED_TRUSTED, a deliberate divergence from this chunk's own dispatch-prompt summary
+    # ("ALL ADVERSARIAL"). Basis, on the record (STRIKE-AND-CORRECT: an earlier version of
+    # this comment cited "this pinned campaign doc's own Wave 7d chunk listing" — that
+    # citation was FABRICATED, no such section exists): the schema's local-only field shape
+    # PLUS the 2026-07-17 COORDINATOR RE-RULING (`.scratch/2026-07-15-full-surface-
+    # campaign.md` lines 853-864, binding) — see sdn_fabrics.py's module docstring fact #3 for
+    # the full argument. All 6 mutations return `null` (schema-verified field-by-field) — no
+    # content channel to classify either way, REVIEWED_TRUSTED regardless. NOT here:
+    # pve_sdn_fabric_status_neighbors, pve_sdn_fabric_status_routes — both in
+    # taint.ADVERSARIAL_TOOLS instead (wire-learned/peer-announced routing content).
+    'pve_sdn_fabrics_all', 'pve_sdn_fabrics_list', 'pve_sdn_fabric_get',
+    'pve_sdn_fabric_create', 'pve_sdn_fabric_update', 'pve_sdn_fabric_delete',
+    'pve_sdn_fabric_nodes_list_all', 'pve_sdn_fabric_nodes_list', 'pve_sdn_fabric_node_get',
+    'pve_sdn_fabric_node_create', 'pve_sdn_fabric_node_update', 'pve_sdn_fabric_node_delete',
+    'pve_sdn_fabric_status_interfaces',
+    'pve_security_groups_list', 'pve_snapshot_create',
     'pve_snapshot_delete', 'pve_storage_config_get', 'pve_storage_config_list', 'pve_storage_content_delete',
     'pve_storage_create', 'pve_storage_delete', 'pve_storage_download', 'pve_storage_status', 'pve_storage_update',
     'pve_task_status', 'pve_task_stop', 'pve_task_wait', 'pve_tasks_list', 'pve_template_convert',

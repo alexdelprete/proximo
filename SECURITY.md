@@ -46,7 +46,7 @@ enforcement. Use Proxmox's model directly:
    `PVEAuditor` at `/` to **both** the token and the user (a freshly-created user has no ACL
    of its own, so skipping the user grant leaves the intersection empty: a token that
    authenticates but can do nothing). The click-by-click and CLI versions are in
-   [SETUP.md](SETUP.md) (Step 2); `proximo mint` prints the same runbook for every plane —
+   [SETUP.md](docs/SETUP.md) (Step 2); `proximo mint` prints the same runbook for every plane —
    PVE, PBS, PMG, PDM — each with its read-only and scoped-write role, granted to both.
 2. **Widen deliberately, by path.** Write access is granted where you mean it and nowhere
    else: `pveum acl modify /vms/100 --tokens 'proximo@pve!readonly' --roles PVEVMAdmin`

@@ -16,8 +16,6 @@ and a cross-origin (CSRF) guard on the mutating endpoint.
 
 from __future__ import annotations
 
-import os
-import sys
 import warnings
 from typing import Any
 from urllib.parse import urlparse
@@ -117,18 +115,11 @@ def build_app(url: str | None = None, *, token: str | None = None,
 
     import anyio.to_thread  # noqa: PLC0415, F401 -- [http]-extra deps present only with the extra
     from starlette.applications import Starlette  # noqa: PLC0415
-    from starlette.middleware import Middleware  # noqa: PLC0415
-    from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: PLC0415
     from starlette.responses import JSONResponse  # noqa: PLC0415
     from starlette.routing import Route  # noqa: PLC0415
 
     from .governed import GovernedError, call_governed, list_governed  # noqa: PLC0415
-    from .webguard import (  # noqa: PLC0415
-        BearerAuthMiddleware,
-        CrossOriginGuardMiddleware,
-        default_allowed_hosts,
-        require_auth_for_public,
-    )
+    from .webguard import guard_middleware, require_auth_for_public  # noqa: PLC0415
 
     if url is None:
         url = f"http://{_DEFAULT_HOST}:{_DEFAULT_PORT}/"
@@ -172,26 +163,14 @@ def build_app(url: str | None = None, *, token: str | None = None,
         Route("/tools/{tool_name}", _tool, methods=["POST"]),
     ]
 
-    hosts = allowed_hosts or default_allowed_hosts(url)
-    if "*" in hosts:
-        warnings.warn(
-            "PROXIMO HTTP host allowlist contains '*' — DNS-rebind/Host protection is DISABLED; "
-            "any Host header is accepted. Only safe behind a trusted reverse-proxy that validates "
-            "Host.", stacklevel=2,
-        )
-    _protect_tools = lambda path: path.startswith(_TOOLS_PREFIX)  # noqa: E731
-    middleware = [
-        Middleware(TrustedHostMiddleware, allowed_hosts=hosts),
-        # CSRF/cross-origin guard on the mutating endpoint — closes the loopback-CSRF vector the
-        # bearer guard can't cover in no-token dev mode (see CrossOriginGuardMiddleware).
-        Middleware(CrossOriginGuardMiddleware, protect=_protect_tools),
-    ]
-    if token:
-        middleware.append(Middleware(
-            BearerAuthMiddleware, token=token,
-            protect=_protect_tools,
-            unauthorized_body={"error": "unauthorized"},
-        ))
+    # The shared perimeter stack (TrustedHost → CrossOriginGuard → Bearer-with-token) — one
+    # contract for every face; this face only picks its protected paths and 401 body.
+    middleware = guard_middleware(
+        url, face="HTTP", token=token,
+        protect=lambda path: path.startswith(_TOOLS_PREFIX),
+        unauthorized_body={"error": "unauthorized"},
+        allowed_hosts=allowed_hosts,
+    )
     return Starlette(routes=routes, middleware=middleware)
 
 
@@ -199,30 +178,18 @@ def main() -> None:
     """``proximo-http`` entry point — run the HTTP face with uvicorn (fail-closed)."""
     import uvicorn  # noqa: PLC0415 -- only needed when actually serving
 
-    from . import server  # noqa: PLC0415
-    from .webguard import load_token_file, require_auth_for_public  # noqa: PLC0415
+    from .webguard import (  # noqa: PLC0415
+        apply_surfaces_or_exit,
+        read_face_env,
+        require_auth_for_public,
+        url_authority,
+    )
 
-    # Scope the live tool registry to PROXIMO_SURFACES / configured planes BEFORE serving — the
-    # network faces read the same global registry, so without this the operator's surface config
-    # is silently ignored on this face (it is applied here exactly as the stdio server does it).
-    try:
-        server._apply_surfaces()
-    except ValueError as e:
-        print(f"proximo-http: {e}", file=sys.stderr)
-        raise SystemExit(1) from None
-
-    host = os.environ.get("PROXIMO_HTTP_HOST", _DEFAULT_HOST)
-    port = int(os.environ.get("PROXIMO_HTTP_PORT", str(_DEFAULT_PORT)))
-    token = load_token_file(_TOKEN_FILE_ENV)
+    apply_surfaces_or_exit("proximo-http")
+    host, port, token, allowed_hosts = read_face_env("HTTP", default_port=_DEFAULT_PORT)
 
     # FAIL-CLOSED: a public bind with no token never starts.
     require_auth_for_public(host, token, where="bind host", face="HTTP", token_env=_TOKEN_FILE_ENV)
 
-    allowed = os.environ.get("PROXIMO_HTTP_ALLOWED_HOSTS", "")
-    allowed_hosts = [h.strip() for h in allowed.split(",") if h.strip()] or None
-
-    # Bracket bare IPv6 hosts for the URL authority (same fix as the A2A entry — an unbracketed
-    # ::1 parses to hostname=None, which the factory's guard misreads as bind-all/public).
-    url_host = f"[{host}]" if (":" in host and not host.startswith("[")) else host
-    app = build_app(f"http://{url_host}:{port}/", token=token, allowed_hosts=allowed_hosts)
+    app = build_app(f"http://{url_authority(host)}:{port}/", token=token, allowed_hosts=allowed_hosts)
     uvicorn.run(app, host=host, port=port)

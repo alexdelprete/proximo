@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "proximo-proxmox"
-version = "0.23.0"
+version = "0.24.0"
 description = "The Proxmox MCP you can hand the keys — VE + Backup Server + Mail Gateway + Datacenter Manager on one clean surface: every dangerous op planned, undoable, and audited."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,6 +20,13 @@ dependencies = [
   "mcp>=1.2.0",   # official Model Context Protocol SDK (FastMCP). VERIFY exact version/API at build (docs-first).
   "httpx>=0.27",  # Proxmox REST API client
 ]
+
+[project.urls]
+Homepage = "https://github.com/john-broadway/proximo"
+Repository = "https://github.com/john-broadway/proximo"
+Documentation = "https://github.com/john-broadway/proximo#readme"
+Issues = "https://github.com/john-broadway/proximo/issues"
+Changelog = "https://github.com/john-broadway/proximo/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 # The A2A (Agent2Agent) face is OPTIONAL — the MCP core keeps zero extra deps.
@@ -53,7 +60,7 @@ packages = ["src/proximo"]
 include = [
     "/src/proximo",
     "/README.md",
-    "/SETUP.md",
+    "/docs/SETUP.md",
     "/CHANGELOG.md",
     "/LICENSE",
 ]

@@ -591,6 +591,10 @@ _PRE_EXISTING_SCALAR_SCOPE_PARAMS = frozenset({
     "pve_firewall_alias_update", "pve_firewall_alias_delete", "pve_firewall_ipset_create",
     "pve_firewall_ipset_delete", "pve_firewall_ipset_entry_add", "pve_firewall_ipset_entry_remove",
     "pve_firewall_options_set", "pbs_realm_sync",
+    # Wave 6a (2026-07-16): pve_ceph_metadata's `scope` is the schema's own real Proxmox
+    # vocabulary ("all"/"versions" — which metadata facet to return), a scalar enum string, not
+    # a provenance target-list. Same category as the pre-existing entries above.
+    "pve_ceph_metadata",
 })
 
 

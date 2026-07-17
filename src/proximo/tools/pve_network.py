@@ -19,6 +19,9 @@ from proximo.network import (
     plan_iface_update,
     plan_network_apply,
     plan_sdn_apply,
+    plan_sdn_lock_acquire,
+    plan_sdn_lock_release,
+    plan_sdn_rollback,
     plan_sdn_subnet_create,
     plan_sdn_subnet_delete,
     plan_sdn_subnet_update,
@@ -29,16 +32,28 @@ from proximo.network import (
     plan_sdn_zone_delete,
     plan_sdn_zone_update,
     sdn_apply,
+    sdn_dry_run,
+    sdn_lock_acquire,
+    sdn_lock_release,
+    sdn_rollback,
     sdn_subnet_create,
     sdn_subnet_delete,
+    sdn_subnet_get,
     sdn_subnet_list,
     sdn_subnet_update,
     sdn_vnet_create,
     sdn_vnet_delete,
+    sdn_vnet_get,
+    sdn_vnet_mac_vrf,
     sdn_vnet_update,
     sdn_vnets_list,
+    sdn_zone_bridges,
+    sdn_zone_content,
     sdn_zone_create,
     sdn_zone_delete,
+    sdn_zone_get,
+    sdn_zone_ip_vrf,
+    sdn_zone_status_list,
     sdn_zone_update,
     sdn_zones_list,
 )
@@ -81,6 +96,129 @@ def pve_sdn_vnets_list() -> list[dict]:
     to commit."""
     _, api, _, _ = _proximo_server._svc()
     return _audited("pve_sdn_vnets_list", "cluster/sdn/vnets", lambda: sdn_vnets_list(api))
+
+
+# --- Network & SDN (REST API, read) — Wave 7a gap-fill + node-status ---
+
+@tool()
+def pve_sdn_zone_get(
+    zone: Annotated[str, Field(description="Existing SDN zone id to read.")],
+    pending: Annotated[bool | None, Field(description="True nests staged-but-unapplied fields under a 'pending' key.")] = None,
+    running: Annotated[bool | None, Field(description="True returns the currently-APPLIED config instead of the default staged-merged view.")] = None,
+) -> dict:
+    """READ-ONLY: read one SDN zone's configuration (closes the pre-Wave-7a gap — only the
+    zones LIST existed before). Use pve_sdn_zones_list to enumerate zone ids first."""
+    _, api, _, _ = _proximo_server._svc()
+    return _audited("pve_sdn_zone_get", f"sdn/zones/{zone}",
+                    lambda: sdn_zone_get(api, zone, pending, running))
+
+
+@tool()
+def pve_sdn_vnet_get(
+    vnet: Annotated[str, Field(description="Existing SDN vnet name to read.")],
+    pending: Annotated[bool | None, Field(description="True nests staged-but-unapplied fields under a 'pending' key.")] = None,
+    running: Annotated[bool | None, Field(description="True returns the currently-APPLIED config instead of the default staged-merged view.")] = None,
+) -> dict:
+    """READ-ONLY: read one SDN vnet's configuration (closes the pre-Wave-7a gap — only the
+    vnets LIST existed before). Use pve_sdn_vnets_list to enumerate vnet names first."""
+    _, api, _, _ = _proximo_server._svc()
+    return _audited("pve_sdn_vnet_get", f"sdn/vnets/{vnet}",
+                    lambda: sdn_vnet_get(api, vnet, pending, running))
+
+
+@tool()
+def pve_sdn_subnet_get(
+    vnet: Annotated[str, Field(description="SDN vnet name the subnet belongs to.")],
+    subnet: Annotated[str, Field(description="Subnet id (CIDR or PVE-derived id) from pve_sdn_subnet_list to read.")],
+    pending: Annotated[bool | None, Field(description="True nests staged-but-unapplied fields under a 'pending' key.")] = None,
+    running: Annotated[bool | None, Field(description="True returns the currently-APPLIED config instead of the default staged-merged view.")] = None,
+) -> dict:
+    """READ-ONLY: read one SDN subnet's configuration (closes the pre-Wave-7a gap — only the
+    subnets LIST existed before). Use pve_sdn_subnet_list to enumerate subnet ids first."""
+    _, api, _, _ = _proximo_server._svc()
+    return _audited("pve_sdn_subnet_get", f"sdn/vnets/{vnet}/subnets/{subnet}",
+                    lambda: sdn_subnet_get(api, vnet, subnet, pending, running))
+
+
+@tool()
+def pve_sdn_dry_run(
+    node: Annotated[str | None, Field(description="Node to render the preview against; defaults to the configured node.")] = None,
+) -> dict:
+    """READ-ONLY: preview what pve_sdn_apply would change — PVE's own rendered diff between the
+    CURRENT and PENDING SDN configuration ({frr-diff?, interfaces-diff?}, either may be absent).
+
+    `node` is required by PVE even though SDN config is cluster-scoped: the rendered result is
+    computed per-node from the same staged config, so the diff shown is that node's own view —
+    not a cluster-wide guarantee every node agrees."""
+    cfg, api, _, _ = _proximo_server._svc()
+    n = node or cfg.node
+    return _audited("pve_sdn_dry_run", f"sdn/dry-run/{n}", lambda: sdn_dry_run(api, node))
+
+
+@tool()
+def pve_sdn_zone_status_list(
+    node: Annotated[str | None, Field(description="Node to read zone apply-status on; defaults to the configured node.")] = None,
+) -> list[dict]:
+    """READ-ONLY: get the per-zone APPLY status (available/pending/error) on one node —
+    node-scoped, distinct from pve_sdn_zones_list (which lists CONFIG, not per-node status)."""
+    cfg, api, _, _ = _proximo_server._svc()
+    n = node or cfg.node
+    return _audited("pve_sdn_zone_status_list", f"nodes/{n}/sdn/zones",
+                    lambda: sdn_zone_status_list(api, node))
+
+
+@tool()
+def pve_sdn_zone_bridges(
+    zone: Annotated[str, Field(description='SDN zone id, or the reserved pseudo-zone name "localnetwork".')],
+    node: Annotated[str | None, Field(description="Node to read bridge membership on; defaults to the configured node.")] = None,
+) -> list[dict]:
+    """READ-ONLY: list the bridges (vnets) that are part of a zone on one node, with their
+    member ports (name, vmid/index for guest-attached ports, VLAN info on VLAN-aware bridges)."""
+    cfg, api, _, _ = _proximo_server._svc()
+    n = node or cfg.node
+    return _audited("pve_sdn_zone_bridges", f"nodes/{n}/sdn/zones/{zone}/bridges",
+                    lambda: sdn_zone_bridges(api, zone, node))
+
+
+@tool()
+def pve_sdn_zone_content(
+    zone: Annotated[str, Field(description="Existing SDN zone id.")],
+    node: Annotated[str | None, Field(description="Node to read zone content on; defaults to the configured node.")] = None,
+) -> list[dict]:
+    """READ-ONLY: list the vnets inside a zone with their per-vnet apply status on one node
+    ({vnet, status?, statusmsg?})."""
+    cfg, api, _, _ = _proximo_server._svc()
+    n = node or cfg.node
+    return _audited("pve_sdn_zone_content", f"nodes/{n}/sdn/zones/{zone}/content",
+                    lambda: sdn_zone_content(api, zone, node))
+
+
+@tool()
+def pve_sdn_zone_ip_vrf(
+    zone: Annotated[str, Field(description="Name of an EVPN zone.")],
+    node: Annotated[str | None, Field(description="Node to read the IP VRF on; defaults to the configured node.")] = None,
+) -> list[dict]:
+    """READ-ONLY: get the IP VRF routing table of an EVPN zone on one node (CIDR + nexthops +
+    protocol per entry). ADVERSARIAL: nexthops are peer-announced over the running routing
+    protocol — a compromised BGP/EVPN peer controls these bytes."""
+    cfg, api, _, _ = _proximo_server._svc()
+    n = node or cfg.node
+    return _audited("pve_sdn_zone_ip_vrf", f"nodes/{n}/sdn/zones/{zone}/ip-vrf",
+                    lambda: sdn_zone_ip_vrf(api, zone, node))
+
+
+@tool()
+def pve_sdn_vnet_mac_vrf(
+    vnet: Annotated[str, Field(description="SDN vnet name in an EVPN zone.")],
+    node: Annotated[str | None, Field(description="Node to read the MAC VRF on; defaults to the configured node.")] = None,
+) -> list[dict]:
+    """READ-ONLY: get the MAC VRF of a VNet in an EVPN zone on one node (ip/mac/nexthop per
+    entry). ADVERSARIAL: schema states this "self-originates or has learned via BGP" — a
+    genuinely mixed local/wire-learned channel."""
+    cfg, api, _, _ = _proximo_server._svc()
+    n = node or cfg.node
+    return _audited("pve_sdn_vnet_mac_vrf", f"nodes/{n}/sdn/vnets/{vnet}/mac-vrf",
+                    lambda: sdn_vnet_mac_vrf(api, vnet, node))
 
 
 # --- Network & SDN (REST API, MUTATION — confirm-gated) ---
@@ -389,21 +527,114 @@ def pve_network_apply(
 
 @tool()
 def pve_sdn_apply(
+    lock_token: Annotated[str | None, Field(description="SDN cluster lock token to use for this write, if one is held (from pve_sdn_lock_acquire).")] = None,
+    release_lock: Annotated[bool | None, Field(description="Whether PVE releases the lock automatically after a successful commit (only relevant when lock_token is given; PVE's own default is True — omit to use it).")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True applies pending SDN config cluster-wide.")] = False,
 ) -> dict:
     """MUTATION (HIGH RISK): apply pending SDN config changes (cluster-scoped).
 
     Stage zones/vnets/subnets first with pve_sdn_zone_create / pve_sdn_vnet_create /
     pve_sdn_subnet_create — this applies whatever is pending; for interface/bridge changes use
-    pve_network_apply instead. Dry-run by default — the PLAN surfaces pending zones/vnets.
-    confirm=True executes with no automatic undo, disrupting virtual networking for ALL guests
-    cluster-wide if misconfigured. May return a UPID (async) or None (sync) — outcome='submitted'
-    in either case.
+    pve_network_apply instead. Dry-run by default — the PLAN surfaces pending zones/vnets AND
+    cites pve_sdn_dry_run's rendered diff (fail-open — an unreachable dry-run degrades to an
+    honest note, never blocks this plan). confirm=True executes with no automatic undo (short of
+    pve_sdn_rollback, which discards PENDING changes only — it cannot revert an already-applied,
+    now-LIVE config), disrupting virtual networking for ALL guests cluster-wide if misconfigured.
+    May return a UPID (async) or None (sync) — outcome='submitted' in either case.
+
+    Wave 7a extension: pass lock_token/release_lock if you already hold a lock from
+    pve_sdn_lock_acquire. Both omitted: byte-for-byte the same call as before this extension.
+    lock_token is never written to the audit ledger (see network.py module docstring).
     """
     _, api, _, _ = _proximo_server._svc()
     plan = _plan("pve_sdn_apply", "cluster/sdn", lambda: plan_sdn_apply(api))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
     return _audited("pve_sdn_apply", "cluster/sdn",
-                    lambda: sdn_apply(api),
+                    lambda: sdn_apply(api, lock_token, release_lock),
                     mutation=True, outcome="submitted", detail={"confirmed": True})
+
+
+@tool()
+def pve_sdn_lock_acquire(
+    allow_pending: Annotated[bool | None, Field(description="True bypasses PVE's own default refusal to lock over already-dirty pending state. Never default this on.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True acquires the lock.")] = False,
+) -> dict:
+    """MUTATION: acquire the global SDN configuration lock (RISK_MEDIUM).
+
+    Blocks every OTHER legitimate SDN writer cluster-wide until released via
+    pve_sdn_lock_release (or automatically by pve_sdn_apply/pve_sdn_rollback's own release_lock
+    param) — a self-inflicted-DoS risk if you forget to release. Dry-run by default (returns a
+    PLAN — there is no read-only way to check if the lock is already held, so the plan is a pure
+    preview, not a live check). confirm=True acquires the lock and returns
+    {"status": "ok", "result": "<lock token>"}.
+
+    SECRET HANDLING: the token is a capability handle, not a password — it is returned ONCE in
+    `result` and is NEVER written to the audit ledger (mirrors pve_token_create's own secret
+    handling). Pass it as lock_token to subsequent SDN mutations, and to pve_sdn_lock_release /
+    pve_sdn_apply / pve_sdn_rollback to release it. If the token is lost (session death, forgotten
+    release), the only recovery is pve_sdn_lock_release(force=True) — HIGH risk, since it releases
+    without proof of ownership.
+    """
+    _, api, _, _ = _proximo_server._svc()
+    tgt = "cluster/sdn/lock"
+    plan = _plan("pve_sdn_lock_acquire", tgt, lambda: plan_sdn_lock_acquire(allow_pending))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    # SECRET HANDLING (mirrors pve_token_create): detail must NEVER contain the returned token —
+    # only {"confirmed": True, "allow_pending": ...}. The token flows to the caller via `result`.
+    return _audited("pve_sdn_lock_acquire", tgt,
+                    lambda: sdn_lock_acquire(api, allow_pending),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "allow_pending": allow_pending})
+
+
+@tool()
+def pve_sdn_lock_release(
+    lock_token: Annotated[str | None, Field(description="Lock token from pve_sdn_lock_acquire to release your own held lock.")] = None,
+    force: Annotated[bool | None, Field(description="True releases WITHOUT the token — can break a DIFFERENT caller's in-flight operation. Never default this on.")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True releases the lock.")] = False,
+) -> dict:
+    """MUTATION: release the global SDN configuration lock. Risk is CONDITIONAL on `force`: LOW
+    when releasing with your own token, HIGH when force=True (can break a different caller's
+    in-flight operation). Dry-run by default (returns a PLAN); confirm=True releases and returns
+    {"status": "ok", "result": None}. lock_token is never written to the audit ledger.
+    """
+    _, api, _, _ = _proximo_server._svc()
+    tgt = "cluster/sdn/lock"
+    plan = _plan("pve_sdn_lock_release", tgt, lambda: plan_sdn_lock_release(lock_token, force))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_lock_release", tgt,
+                    lambda: sdn_lock_release(api, lock_token, force),
+                    mutation=True, outcome="ok",
+                    detail={"confirmed": True, "force": force})
+
+
+@tool()
+def pve_sdn_rollback(
+    lock_token: Annotated[str | None, Field(description="SDN cluster lock token to use for this write, if one is held.")] = None,
+    release_lock: Annotated[bool | None, Field(description="Whether PVE releases the lock automatically after a successful rollback (only relevant when lock_token is given; PVE's own default is True — omit to use it).")] = None,
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN only; True discards all pending SDN config cluster-wide.")] = False,
+) -> dict:
+    """MUTATION: discard ALL pending SDN configuration changes cluster-wide — the plane's REAL
+    undo primitive (RISK_MEDIUM).
+
+    Bounded to the CONFIG plane only: never touches LIVE networking (that's pve_sdn_apply's job)
+    — discards every staged zone/vnet/subnet/controller/dns/ipam/fabric/prefix-list/route-map edit
+    at once, reverting to the applied state. NOTE: SDN config renders per-node; if a prior
+    pve_sdn_apply failed or was interrupted partway, the state this reverts to may reflect
+    cross-node inconsistency from that failed apply. Dry-run by default — the PLAN surfaces
+    currently-pending zones/vnets AND cites pve_sdn_dry_run's rendered diff (fail-open) as evidence
+    of what would be discarded. confirm=True executes and returns {"status": "ok", "result": None}.
+    No undo of its own — once rolled back, the discarded pending edits are gone (re-author them
+    from scratch). lock_token is never written to the audit ledger (see network.py module docstring).
+    """
+    _, api, _, _ = _proximo_server._svc()
+    tgt = "cluster/sdn/rollback"
+    plan = _plan("pve_sdn_rollback", tgt, lambda: plan_sdn_rollback(api))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pve_sdn_rollback", tgt,
+                    lambda: sdn_rollback(api, lock_token, release_lock),
+                    mutation=True, outcome="ok", detail={"confirmed": True})

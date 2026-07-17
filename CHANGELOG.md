@@ -4,6 +4,65 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-07-18
+
+**Ceph + SDN deep.** 603 → **715 tools**. The two planes hyperconverged operators asked for,
+both closed with exit-code-gated audits against the live schema (Ceph: 48/48 methods, 0
+undocumented; SDN: 90/90) — the exclusions are named directory stubs and one documented
+alias, not hand-waves.
+
+### Added
+- **The Ceph plane (42 tools).** Cluster status/metadata/flags, config db/raw/value, crush
+  map, log, rules, cmd-safety; mon/mgr/mds lifecycle; OSD lifecycle (create/destroy/in/out/
+  scrub, lv-info, metadata); pools, CephFS. Destroy/stop plans quote **Ceph's own
+  `cmd-safety` verdict** as fail-open advisory evidence — if Ceph says it isn't safe, the
+  preview says so before any confirm. Where the upstream enum has no check (mgr, pools),
+  the plan says that instead of inventing one. No rollback primitive exists on this plane
+  and every docstring says so.
+- **SDN deep (70 tools + 1 extension).** Controllers, DNS, IPAMs, fabrics (config + node
+  sub-family + status), vnet-scoped firewall (LIVE/immediate — explicitly NOT covered by
+  SDN rollback, and rated on the immediate-effect ladder), vnet IP mappings, prefix-lists,
+  route-maps — and the plane's own governance primitives as first-class tools: **dry-run**
+  (cited fail-open in apply/rollback plans), the **global SDN lock** (the token is handled
+  as a capability secret — never in the ledger, proven empirically across all 26 mutation
+  paths), and **rollback** — a real undo for staged SDN config, with the half-applied
+  multi-node case hedged honestly. `pve_sdn_apply` gains lock-token/release-lock.
+- **`taint.capture_adversarial_current()`** — plan-factory CAPTURE reads over adversarial
+  channels now set the sticky taint marker and provenance-stamp the captured content before
+  it reaches a plan preview or the ledger (born from an adversarial-review finding that
+  reproduced a live injection path; nested-tree and single-object variants included).
+
+### Changed
+- **The face contract, made structural** (prep for the 4th transport, #25). The choreography
+  both network faces copied line-for-line now lives in `proximo.webguard`, once:
+  `guard_middleware` (the one perimeter stack — TrustedHost → CrossOriginGuard →
+  Bearer-with-token, order is the contract), `read_face_env` (one reader for every face's
+  `PROXIMO_<FACE>_*` bind/auth env), `url_authority` (the IPv6-bracketing fix, previously
+  duplicated with its comment), and `apply_surfaces_or_exit` (registry scoping before serve,
+  refuse-startup on a bad surface name). `httpface.py` and `a2a/app.py` shrink to their
+  transport-specific parts; a new face mounts the same stack by calling the same functions.
+- **`tests/test_face_contract.py` (21 tests)** — transport-agnosticism enforced, not asserted:
+  no face may import a Proxmox backend or the service builders (`server._svc/_pbs/_pmg/_pdm`),
+  faces touch `server` only via the two sanctioned seams (`_apply_surfaces`, `_ledger`
+  rejection audits), tool-calling faces must route through `governed.call_governed`, both
+  factories must produce the identical guard stack in contract order, and a face-shaped module
+  (middleware/serve/Starlette) that isn't under the contract fails the suite.
+- **README rebuilt reader-first** (393 → ~280 lines): front-loaded, less scrolling to the
+  install line; the story unchanged, told once.
+- `mcp` pinned 1.28.0 → 1.28.1 (dependabot #27, reconciled into uv.lock + lockfiles).
+
+### Security
+- Adversarial review ran on **every chunk** of both waves and found real defects **every
+  time** — all fixed before this release, review records in the repo history. Highlights:
+  a zero-flags call that silently fired a real Ceph worker task (guarded); DNS `key` /
+  IPAM `token` now **stripped at the read layer** (the 0.21-era metrics idiom) *and*
+  redacted at plan/ledger time, with `url` userinfo masked (the 0.23 http-proxy shape);
+  the SDN lock token was echoing back through fabric config-read responses — stripped at
+  the read layer, proven at return/plan/raw-ledger-bytes layers.
+- **Honest state:** the Ceph and SDN-deep surfaces are schema-built and mock-tested
+  (9,182 tests) — **not yet live-proven**; per-tool docstrings state which claims are
+  hardware-verified and which are Smoke-confirm.
+
 ## [0.23.0] — 2026-07-15
 
 **The PBS plane closes.** 493 → **603 tools**. Every management endpoint Proxmox Backup Server's

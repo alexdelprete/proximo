@@ -6,8 +6,9 @@ The rules, mechanically:
 
   - README carries exactly ONE "New in <current>" callout — REPLACEd per release,
     never stacked.
-  - The "Status — the arena record" section holds at most 6 🩸 bullets and the top
-    one names the current version (older releases roll into the ``_Earlier:_`` line).
+  - The "Status — the arena record" section holds exactly ONE 🩸 bullet — the current
+    release (older releases live in CHANGELOG.md) — and the README stays under the
+    line fence (MAX_README_LINES).
   - Every TOTAL tool-count claim agrees with the canonical count (the LobeHub
     manifest's tools array). Scoped-registration *examples* ("that pair = 194
     tools") are exempt by their context markers.
@@ -32,7 +33,8 @@ import version_tools  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-MAX_STATUS_BULLETS = 6
+MAX_STATUS_BULLETS = 1  # 2026-07-16: Status carries ONLY the current release; history lives in CHANGELOG.md
+MAX_README_LINES = 300  # accretion fence — line-creep was invisible when only bullets counted (283 at 2026-07-16)
 TAGLINE_PHRASE = "hand the keys"
 TAGLINE_SURFACES = ("pyproject.toml", "server.json", "lhm.plugin.json")
 
@@ -50,7 +52,7 @@ _EXAMPLE_MARKERS = ("PROXIMO_SURFACES", "pair =")
 # (caught by the 2026-07-13 truth audit). Three-part versions only — "PVE 9.2",
 # "TLS 1.3", "Python 3.13" are platform versions, not release claims, and a dotted-quad
 # ("127.0.0.1") is an address, not a version — the lookarounds keep both out.
-VERSION_LITERAL_DOCS = ("VERIFY.md", "SECURITY.md", "THREAT_MODEL.md")
+VERSION_LITERAL_DOCS = ("VERIFY.md", "SECURITY.md", "docs/THREAT_MODEL.md")
 _SEMVER_LITERAL_RE = re.compile(r"(?<![\w.])v?(\d+\.\d+\.\d+)(?!\.\d)")
 
 
@@ -79,7 +81,7 @@ def check_status(text: str, current: str) -> list[str]:
     if len(bullets) > MAX_STATUS_BULLETS:
         problems.append(
             f"README Status has {len(bullets)} 🩸 bullets — max is {MAX_STATUS_BULLETS}; "
-            f"roll the oldest into the _Earlier:_ line."
+            f"REPLACE the bullet — older releases live in CHANGELOG.md, not the README."
         )
     if bullets[0].strip() != current:
         problems.append(
@@ -150,6 +152,13 @@ def check_repo(root: Path) -> list[str]:
 
     problems = check_new_in(readme, current)
     problems += check_status(readme, current)
+
+    readme_lines = readme.count("\n") + 1
+    if readme_lines > MAX_README_LINES:
+        problems.append(
+            f"README is {readme_lines} lines — the fence is {MAX_README_LINES}. "
+            f"Cut or move content (docs/, CHANGELOG); do not raise the fence casually."
+        )
 
     canonical = _canonical_tool_count(root)
     if canonical is not None:

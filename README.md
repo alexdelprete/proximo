@@ -17,7 +17,7 @@
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](./pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Glama](https://glama.ai/mcp/servers/john-broadway/proximo/badges/score.svg)](https://glama.ai/mcp/servers/john-broadway/proximo)
-[![MCP Badge](https://lobehub.com/badge/mcp/john-broadway-proximo?style=flat)](https://lobehub.com/mcp/john-broadway-proximo)
+[![LobeHub](https://img.shields.io/badge/LobeHub-listed-121212)](https://lobehub.com/mcp/john-broadway-proximo)
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> ·

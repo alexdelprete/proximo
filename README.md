@@ -7,17 +7,21 @@
 
 <!-- mcp-name: io.github.john-broadway/proximo-proxmox -->
 
-[![CI](https://github.com/john-broadway/proximo/actions/workflows/ci.yml/badge.svg)](https://github.com/john-broadway/proximo/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/john-broadway/proximo/actions/workflows/codeql.yml/badge.svg)](https://github.com/john-broadway/proximo/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/john-broadway/proximo/badge)](https://scorecard.dev/viewer/?uri=github.com/john-broadway/proximo)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13564/badge)](https://www.bestpractices.dev/projects/13564)
+<p align="center">
+  <a href="https://github.com/john-broadway/proximo/actions/workflows/ci.yml"><img src="https://github.com/john-broadway/proximo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/john-broadway/proximo/actions/workflows/codeql.yml"><img src="https://github.com/john-broadway/proximo/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/john-broadway/proximo/releases"><img src="https://img.shields.io/github/v/release/john-broadway/proximo" alt="Release"></a>
+  <a href="https://pypi.org/project/proximo-proxmox/"><img src="https://img.shields.io/pypi/v/proximo-proxmox" alt="PyPI"></a>
+  <a href="./pyproject.toml"><img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python 3.12+"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License Apache-2.0"></a>
+</p>
 
-[![Release](https://img.shields.io/github/v/release/john-broadway/proximo)](https://github.com/john-broadway/proximo/releases)
-[![PyPI](https://img.shields.io/pypi/v/proximo-proxmox)](https://pypi.org/project/proximo-proxmox/)
-[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](./pyproject.toml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![Glama](https://glama.ai/mcp/servers/john-broadway/proximo/badges/score.svg)](https://glama.ai/mcp/servers/john-broadway/proximo)
-[![LobeHub](https://img.shields.io/badge/LobeHub-listed-121212)](https://lobehub.com/mcp/john-broadway-proximo)
+<p align="center">
+  <a href="https://scorecard.dev/viewer/?uri=github.com/john-broadway/proximo"><img src="https://api.scorecard.dev/projects/github.com/john-broadway/proximo/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://www.bestpractices.dev/projects/13564"><img src="https://www.bestpractices.dev/projects/13564/badge" alt="OpenSSF Best Practices"></a>
+  <a href="https://glama.ai/mcp/servers/john-broadway/proximo"><img src="https://glama.ai/mcp/servers/john-broadway/proximo/badges/score.svg" alt="Glama score"></a>
+  <a href="https://lobehub.com/mcp/john-broadway-proximo"><img src="https://lobehub.com/badge/mcp/john-broadway-proximo?style=flat&v=3" alt="LobeHub — grade, tools, prompts"></a>
+</p>
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> ·

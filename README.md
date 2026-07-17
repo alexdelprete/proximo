@@ -34,9 +34,11 @@
   <a href="#documentation">Docs</a>
 </p>
 
-> **The Proxmox MCP you can hand the keys.**
+*Named for Proximo, the lanista of* Gladiator *— the story is the design, joint for joint.* He armed his fighter with exactly what he needed, never more, and answered for every move in the arena: a lanista, not a jailer. The Spaniard doesn't get his name up front — he **earns** it, by conduct, on the record: the helmet that comes off (truth said plainly, at cost — the "not yet proven, said plainly" section, and [`AGENTS.md`](./AGENTS.md) leading with Proximo's own sharp edges). His last act opened the cages, holding the wooden sword of his own freedom. *A tool should hope to end that well.*
 >
-> The others make you choose: a read-only inspector that's safe because it can't touch anything — or a loaded gun aimed at a cluster you care about. Proximo refuses the trade. Every dangerous move is **planned** (see the blast radius first) and **proven** (a tamper-evident record of every move), and **undoable wherever the platform can snapshot** (it snapshots *before* it acts) — trust built into the substrate, not bolted on after. **Hand an AI agent the keys; keep the receipts.**
+>*"Win the crowd and you will win your freedom."*
+>
+The others make you choose: a read-only inspector that's safe because it can't touch anything — or a loaded gun aimed at a cluster you care about. Proximo refuses the trade. Every dangerous move is **planned** (see the blast radius first) and **proven** (a tamper-evident record of every move), and **undoable wherever the platform can snapshot** (it snapshots *before* it acts) — trust built into the substrate, not bolted on after. **Hand an AI agent the keys; keep the receipts.**
 
 **Sovereign and agent-agnostic:** your metal, your token, a ledger you own — no cloud, no phone-home, no standing server unless you opt in. **Don't take our word for any of it — [verify it yourself](VERIFY.md).**
 
@@ -275,10 +277,6 @@ _Every release before it — every pillar, every redteam, every fix — lives in
 Apache-2.0 — chosen for the patent grant that suits infrastructure tooling. Full text in [`LICENSE`](./LICENSE).
 
 ## Credits
-
-*Named for Proximo, the lanista of* Gladiator *— the story is the design, joint for joint.* He armed his fighter with exactly what he needed, never more, and answered for every move in the arena: a lanista, not a jailer. The Spaniard doesn't get his name up front — he **earns** it, by conduct, on the record: the helmet that comes off (truth said plainly, at cost — the "not yet proven, said plainly" section, and [`AGENTS.md`](./AGENTS.md) leading with Proximo's own sharp edges). His last act opened the cages, holding the wooden sword of his own freedom. *A tool should hope to end that well.*
-
-> *"Win the crowd and you will win your freedom."*
 
 Built by **John Broadway** with **Claude** and **Maude** — a human–AI partnership, and the first thing we made on this box to give away to the world. **Claude Opus 4.8** built the trust pillars and the original tool surface and has carried the work since; **Claude Fable 5** ran the 101-agent release audit and the first publish. Every commit carries its co-author trailer.
 

@@ -11,6 +11,7 @@ the shortcut that would give a transport its own path.
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -68,17 +69,58 @@ def test_face_never_touches_core_internals(rel):
     assert not hits, f"{rel} reaches core internals ({hits}) — faces go through governed.call_governed."
 
 
+def _server_attr_uses(tree: ast.AST) -> set[str]:
+    """Attributes accessed on the name ``server`` — AST, not regex (0.24 review finding).
+
+    The old text scan needed per-SDK lookbehinds (``a2a.server.*`` / ``mcp.server.*``) and was
+    still foolable by any identifier merely ENDING in an excluded prefix. The AST kills the whole
+    false-positive class structurally: an SDK's ``x.server.y`` is an Attribute rooted at the name
+    ``x`` (or an ImportFrom with no Attribute node at all) — only proximo's imported ``server``
+    module appears as a bare ``Name('server')`` root.
+    """
+    return {
+        node.attr for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name) and node.value.id == "server"
+    }
+
+
 @pytest.mark.parametrize("rel", FACE_SOURCES)
 def test_face_server_seams_are_the_sanctioned_two(rel):
-    text = _source(rel)
-    # (?<!a2a\.)/(?<!mcp\.) — `a2a.server.*` / `mcp.server.*` are the SDKs' namespaces, not
-    # proximo's server module.
-    used = set(re.findall(r"(?<!a2a\.)(?<!mcp\.)\bserver\.(\w+)", text))
+    used = _server_attr_uses(ast.parse(_source(rel)))
     allowed = ALLOWED_SERVER_ATTRS | EXTRA_SERVER_ATTRS.get(rel, set())
     stray = used - allowed
     assert not stray, (
         f"{rel} uses server.{sorted(stray)} — a face may touch only "
         f"{sorted(allowed)}; everything else goes through the governed dispatch."
+    )
+
+
+def _roots_at_server(node: ast.expr) -> bool:
+    """True when *node* is ``server`` or a bare ``server.attr[.attr…]`` chain (no Call in it)."""
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return isinstance(node, ast.Name) and node.id == "server"
+
+
+@pytest.mark.parametrize("rel", FACE_SOURCES)
+def test_face_never_aliases_server(rel):
+    """Binding ``server`` (or a bare ``server.attr`` chain) to a name would let every later use
+    dodge the seam scan — the hop-off the 0.24 review called (``m = server.mcp``). Assignments
+    of call RESULTS stay legal (``app = server.mcp.streamable_http_app()`` binds a return value,
+    not the seam). A deliberate heuristic over assignment forms, not full dataflow — it refuses
+    the one laundering shape a reviewer actually named.
+    """
+    tree = ast.parse(_source(rel))
+    offending: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+            value = node.value
+            if value is not None and _roots_at_server(value):
+                offending.append(node.lineno)
+    assert not offending, (
+        f"{rel} lines {offending}: aliasing server (or a server.* attribute chain) hides seam "
+        f"usage from this contract — use server.<attr> directly at every site."
     )
 
 

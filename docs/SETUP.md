@@ -210,7 +210,9 @@ the bearer is checked on every op, plus a Host/DNS-rebind allowlist and a CSRF g
 `proximo-mcp-http` serves the MCP protocol itself over **Streamable HTTP** — the same FastMCP
 instance the stdio server runs, so there is no adapter layer and nothing to drift: it IS MCP, with
 the spine and your token's ACL inherited by construction. No third-party stdio→HTTP bridge, so the
-perimeter in the request path is **Proximo's own**, not a bridge's.
+perimeter in the request path is **Proximo's own**, not a bridge's. Error surfaces match stdio
+too: a failing tool returns the same MCP error text a stdio client would see (the REST face's
+sanitized `tool failed: <Type>` mapping is a REST-face behavior, not an MCP one).
 
 ```bash
 pip install "proximo-proxmox[mcp-http]"

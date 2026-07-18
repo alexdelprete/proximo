@@ -1,8 +1,10 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-wordmark-dark.svg">
-    <img alt="Proximo" src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-wordmark-light.svg" width="460">
-  </picture>
+  <a href="https://john-broadway.github.io/proximo/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-hero-dark.png">
+      <img alt="Proximo — hand your AI agent the keys: planned, proven, undone. Win the crowd and you will win your freedom." src="https://raw.githubusercontent.com/john-broadway/proximo/main/docs/brand/proximo-hero-light.png" width="880">
+    </picture>
+  </a>
 </p>
 
 <!-- mcp-name: io.github.john-broadway/proximo-proxmox -->
@@ -24,6 +26,7 @@
 </p>
 
 <p align="center">
+  <a href="https://john-broadway.github.io/proximo/">Enter the ludus ↗</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="docs/SETUP.md">Setup</a> ·
   <a href="#the-trust-layer--what-makes-proximo-different">Trust layer</a> ·
@@ -46,7 +49,7 @@ The others make you choose: a read-only inspector that's safe because it can't t
 <summary><b>Verify in 60 seconds</b> — three receipts, no trust required</summary>
 
 ```bash
-# 1. The tool count is real — ask the server itself, cold (=> 715).
+# 1. The tool count is real — ask the server itself, cold (=> 900).
 #    (in a clone of this repo, after `uv sync`)
 uv run python -c "import asyncio; from proximo import server; \
 print(len(asyncio.run(server.mcp.list_tools())))"
@@ -182,7 +185,7 @@ A second cut — `doctor` preflight, a destructive delete answered with a **PLAN
 
 Those backends are deliberately boring — anyone can call them. **The product is the trust layer over them.**
 
-715 tools is an estate, not a starting point. Where an operator actually starts:
+900 tools is an estate, not a starting point. Where an operator actually starts:
 
 | You want to… | Start with | Worth knowing |
 |---|---|---|
@@ -201,17 +204,17 @@ Every tool, grouped by surface, with typed inputs: [`docs/TOOLS.md`](docs/TOOLS.
 
 ## Install & run
 
-> 📦 **`0.24.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.24.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
+> 📦 **`0.25.0`** — on [PyPI](https://pypi.org/project/proximo-proxmox/), [GitHub](https://github.com/john-broadway/proximo/releases/tag/v0.25.0), and [GHCR](https://github.com/john-broadway/proximo/pkgs/container/proximo) (signed multi-arch image).
 >
-> **New in 0.24.0 — Ceph + SDN deep.** 603 → **715 tools**. The full Ceph plane (OSD/mon/mgr/mds
-> lifecycle, pools, CephFS — destroy previews quote Ceph's own `cmd-safety` verdict) and the deep
-> SDN surface (controllers, DNS, IPAMs, fabrics, vnet firewall, prefix-lists, route-maps — with
-> SDN `dry-run` in apply previews, the global lock as a never-ledgered capability token, and
-> `rollback` as a real undo for staged SDN config). Both planes closed by exit-code-gated audits
-> (48/48 + 90/90 methods, 0 undocumented). Schema-built, not yet live-proven — docstrings say which.
+> **New in 0.25.0 — the PMG plane closes; a fourth transport arrives.** 715 → **900 tools** — PMG
+> node admin, the full mail-plane config (LDAP/DKIM/TLS/ACME/PBS-remote), identity + cluster
+> bootstrap/join, quarantine + statistics; every one of PMG's 425 live API methods accounted for
+> by an exit-code-gated audit (0 undocumented). Proximo now governs the full PVE + PBS + PMG
+> surface through one trust core. Plus **native MCP over Streamable HTTP** (`proximo-mcp-http`,
+> the first community-contributed transport) — networked MCP clients, no third-party bridge, the
+> same webguard perimeter. Schema-built, not yet live-proven — docstrings say which.
 >
-> Recent: **0.23.0** — the PBS plane closed: 493 → 603, tape/S3/metrics/pull-push, coverage proven
-> by audit (349 endpoints, 0 gaps). See [SECURITY.md](SECURITY.md) for what each control honestly holds.
+> Recent: **0.24.0** — Ceph + SDN deep: 603 → 715, both planes closed by audit (48/48 + 90/90). See [SECURITY.md](SECURITY.md) for what each control honestly holds.
 
 Proximo runs **on your machine**, on demand — no daemon, no open port.
 
@@ -246,15 +249,15 @@ One container is the demo. A cluster is the point.
 
 ## Status — the arena record
 
-- 🩸 **0.24.0** — **Ceph + SDN deep**: 603 → **715 tools** — the full Ceph plane (destroys quote
-  Ceph's own cmd-safety verdict in the preview) and deep SDN (fabrics, vnet firewall, routing
-  policy, plus dry-run/lock/rollback as first-class governance). Both closed by exit-code-gated
-  audits (48/48 + 90/90, 0 undocumented). Every chunk adversarially reviewed; the reviews caught
-  real defects every time — including a lock-token echo — all fixed before ship.
+- 🩸 **0.25.0** — **the PMG plane closes; a fourth transport arrives**: 715 → **900 tools** — PMG
+  node admin, mail-plane config (LDAP/DKIM/TLS/ACME), identity + cluster bootstrap/join,
+  quarantine + statistics (all 425 PMG methods audited, 0 undocumented), plus native MCP over
+  Streamable HTTP — the first community-contributed transport, merged after a two-lens adversarial
+  review. Every chunk reviewed; three real Criticals caught (a dry-run blind to deletes, a sole-admin delete footgun, a hostile echo that nearly smuggled a peer's root password into the ledger); all fixed before ship.
 
 _Every release before it — every pillar, every redteam, every fix — lives in [`CHANGELOG.md`](./CHANGELOG.md)._
 
-**The numbers, honestly:** 715 MCP tools, proved in two deliberate layers — **9,100+ in-process tests** (ruff + pyright clean) pin every tool's shape, and a separate **live-smoke harness drives real Proxmox hardware**: a 3-node PVE 9.2 cluster, PBS 4.2, PMG 9.1, PDM 1.1.4, a real cross-datacenter move. The two are kept apart on purpose — passing shape tests never gets to masquerade as "works on a real host." And this workspace administers its own Proxmox estate through Proximo daily (dogfood). The **blast-radius engine** carries the destructive surface: across eleven op-classes it names the specific guests, nodes, principals, or disks at risk — nothing falls back to a bare confirm.
+**The numbers, honestly:** 900 MCP tools, proved in two deliberate layers — **11,000+ in-process tests** (ruff + pyright clean) pin every tool's shape, and a separate **live-smoke harness drives real Proxmox hardware**: a 3-node PVE 9.2 cluster, PBS 4.2, PMG 9.1, PDM 1.1.4, a real cross-datacenter move. The two are kept apart on purpose — passing shape tests never gets to masquerade as "works on a real host." And this workspace administers its own Proxmox estate through Proximo daily (dogfood). The **blast-radius engine** carries the destructive surface: across eleven op-classes it names the specific guests, nodes, principals, or disks at risk — nothing falls back to a bare confirm.
 
 **Proven live** (not mocks): the trust spine end-to-end; identity/storage/SDN/firewall/HA create→read→delete with the ledger verified throughout; offline + online live-migration and HA fencing (softdog) on a real 3-node cluster; full PBS/PMG/PDM planes including a real cross-datacenter move.
 **Not yet proven — said plainly:** *hardware*-watchdog fencing (needs physical iTCO/IPMI) and behavior at production scale. The unrecoverable ops (SDN *apply*, etc.) are deliberately never fired live — proven by plan, held back by design, not a gap. Per-surface detail: [`CHANGELOG.md`](./CHANGELOG.md).
@@ -267,7 +270,7 @@ _Every release before it — every pillar, every redteam, every fix — lives in
 | **[Verify](VERIFY.md)** | Every trust claim paired with the command that proves it — run them cold. |
 | **[Security](SECURITY.md)** | The two-deployment trust model, all ten controls, what each honestly holds, reporting. |
 | **[Threat model](docs/THREAT_MODEL.md)** | What Proximo defends against, what it doesn't, where the boundaries sit. |
-| **[Tools](docs/TOOLS.md)** | All 715 tools, grouped by surface, typed inputs. |
+| **[Tools](docs/TOOLS.md)** | All 900 tools, grouped by surface, typed inputs. |
 | **[Agents](AGENTS.md)** | The page written for the agent itself — Proximo's sharp edges, stated first. |
 | **[Known issues](docs/known-issues.md)** | What's broken or odd right now, said plainly. |
 | **[Contributing](.github/CONTRIBUTING.md)** | Dev setup, the CI gates, what a PR is expected to keep intact. |

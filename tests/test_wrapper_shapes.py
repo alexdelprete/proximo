@@ -406,6 +406,7 @@ SENTINELS: dict[str, Any] = {
     "address": "user@example.com",
     "email": "user@example.com",
     "pmail": "user@example.com",
+    "mail": "user@example.com",
     "service": "pveproxy",
     "timeframe": "hour",
     "timespan": 3600,  # PMG tracker/statistics range must be in [3600, 31622400]
@@ -531,18 +532,20 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
     # a WHO type). (pmg_what_group_create/update take no "type_" param — group-level, not typed.)
     "pmg_what_object_add": {"type_": "contenttype"},
     "pmg_what_object_update": {"type_": "contenttype"},
+    "pmg_what_object_get": {"type_": "contenttype"},
     # pmg_who_object_add/update take ONE value field matching `type_` — the others (domain, ip,
-    # cidr, mode, profile, group) are alternates for OTHER who-object types and are mutually
-    # irrelevant here; leave them unset so the plan reflects only the type_="email" + email pair.
+    # cidr, mode, profile, group, account) are alternates for OTHER who-object types and are
+    # mutually irrelevant here; leave them unset so the plan reflects only the type_="email" +
+    # email pair. `account` added Wave 8a (ldapuser extension) — same treatment.
     "pmg_who_object_add": {
         "domain": None, "regex": None, "ip": None, "cidr": None, "mode": None,
-        "profile": None, "group": None,
+        "profile": None, "group": None, "account": None,
     },
     "pmg_who_object_update": {
         "domain": None, "regex": None, "ip": None, "cidr": None, "mode": None,
-        "profile": None, "group": None,
+        "profile": None, "group": None, "account": None,
     },
-    # Action-object update/delete ids are compound "ogroup_objid" (e.g. "13_26"), NOT a bare
+    # Action-object update/delete/GET ids are compound "ogroup_objid" (e.g. "13_26"), NOT a bare
     # ruledb id — _check_action_object_id's own docstring example.
     "pmg_action_bcc_update": {"id_": "13_26"},
     "pmg_action_field_update": {"id_": "13_26"},
@@ -550,6 +553,12 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
     "pmg_action_disclaimer_update": {"id_": "13_26"},
     "pmg_action_removeattachments_update": {"id_": "13_26"},
     "pmg_action_delete": {"id_": "13_26"},
+    # Wave 8a: the 5 new action-object GET reads take the same compound id.
+    "pmg_action_bcc_get": {"id_": "13_26"},
+    "pmg_action_field_get": {"id_": "13_26"},
+    "pmg_action_notification_get": {"id_": "13_26"},
+    "pmg_action_disclaimer_get": {"id_": "13_26"},
+    "pmg_action_removeattachments_get": {"id_": "13_26"},
     # Replication id is "<vmid>-<n>" per _REPLICATION_ID_RE example in the source.
     "pve_replication_create": {"rep_id": "100-0"},
     "pve_replication_update": {"rep_id": "100-0"},
@@ -659,6 +668,55 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
         "directory": "https://sentinel-ca.example.com/directory",
         "tos_url": "https://sentinel-ca.example.com/tos",
     },
+    # PMG ACME (Wave 9g) mirrors pbs_acme_account_create's own https-only directory/tos_url
+    # override exactly (pmg._check_acme_directory_url, same review-finding-driven validator).
+    "pmg_acme_account_create": {
+        "directory": "https://sentinel-ca.example.com/directory",
+        "tos_url": "https://sentinel-ca.example.com/tos",
+    },
+    # PMG ACME tos/meta (Wave 9g) also validate "directory" https-only — same override reason as
+    # pbs_acme_tos/pmg_acme_account_create above (these are READ tools, exercised by the read
+    # sweep too, not just the mutating one).
+    "pmg_acme_tos": {"directory": "https://sentinel-ca.example.com/directory"},
+    "pmg_acme_meta": {"directory": "https://sentinel-ca.example.com/directory"},
+    # PMG ACME plugin "plugin_type" is a CLOSED enum {dns, standalone} (pmg._check_acme_
+    # challenge_type) — the generic alnum fallback ("sentinelplugintype") fails it; no global
+    # sentinel exists for this param name. pmg_acme_plugin_list's OWN "plugin_type" is the same
+    # enum used as a list-filter (a READ tool, exercised by the read sweep).
+    "pmg_acme_plugin_create": {"plugin_type": "dns"},
+    "pmg_acme_plugin_list": {"plugin_type": "dns"},
+    # PMG ACME plugin "delete" is a comma-joined STRING closed to THIS endpoint's own writable
+    # optional properties (pmg._check_acme_plugin_delete_props) — a DIVERGENCE from PBS's own
+    # list[str]-typed sibling (divergence #8, pmg.py's Wave 9g module section): the generic list
+    # fallback ([]) is the wrong TYPE here (this field is a string, not a list) and would fail
+    # validation regardless of content.
+    "pmg_acme_plugin_update": {"delete": "disable"},
+    # PMG node cert order/renew/revoke/custom-upload/custom-delete all take "cert_type", a
+    # CLOSED enum {api, smtp} (pmg._check_pmg_cert_type — PMG's own dual-cert-slot model, a
+    # divergence neither PVE nor PBS has) — the generic alnum fallback ("sentinelcerttype") fails
+    # it; no global sentinel exists for this param name.
+    "pmg_node_cert_acme_order": {"cert_type": "api"},
+    "pmg_node_cert_acme_renew": {"cert_type": "api"},
+    "pmg_node_cert_acme_revoke": {"cert_type": "api"},
+    "pmg_node_cert_custom_upload": {"cert_type": "api"},
+    "pmg_node_cert_custom_delete": {"cert_type": "api"},
+    # PMG identity (Wave 9h). "role" is a CLOSED enum {root, admin, helpdesk, qmanager, audit}
+    # (pmg_identity._check_role) — the generic alnum fallback ("sentinelrole") fails it; no global
+    # sentinel exists for this bare param name (only "roles"/"roleid" do, for other planes'
+    # differently-shaped role fields). "audit" is deliberately non-admin-equivalent here so the
+    # generic sweep exercises RULING 3's MEDIUM branch by default (the dedicated HIGH-branch
+    # coverage lives in tests/test_pmg_identity.py, which directly asserts role='admin'/'root'
+    # resolve to RISK_HIGH).
+    "pmg_access_user_create": {"role": "audit"},
+    "pmg_access_user_update": {"role": "audit"},
+    # "realm_type" is a CLOSED enum {oidc, pam, pmg} (pmg_identity._check_realm_type) — the
+    # generic alnum fallback ("sentinelrealmtype") fails it; PUT has no such param (create-only,
+    # Fact 10), so only realm_create needs the override.
+    "pmg_access_realm_create": {"realm_type": "oidc"},
+    # "tfa_type" is a CLOSED 4-member enum {totp, u2f, webauthn, recovery} — PMG has no 'yubico'
+    # (Fact 5, a genuine divergence from the PBS sibling's own 5-member enum); mirrors the
+    # existing "pbs_tfa_add": {"tfa_type": "totp"} override above for the identical param name.
+    "pmg_access_tfa_add": {"tfa_type": "totp"},
     # PBS tape hardware config (Wave 4a) "digest" needs the same 64-char lowercase-hex SHA-256
     # shape as pbs_notifications'/pbs_acme's own digest overrides above
     # (pbs_tape_config._check_digest) — the generic alnum fallback ("sentineldigest") fails it.
@@ -893,6 +951,64 @@ CUSTOM_KWARGS: dict[str, dict[str, Any]] = {
     "pve_sdn_fabric_update": {"protocol": "bgp", "options": {"asn": 65000}},
     "pve_sdn_fabric_node_create": {"protocol": "bgp"},
     "pve_sdn_fabric_node_update": {"protocol": "bgp", "options": {"ip": "10.99.99.1/24"}},
+    # PMG node ops odds (Wave 9b). "queue" is a 4-value enum (deferred/active/incoming/hold —
+    # pmg_node._check_queue), not a free identifier — the generic "sentinelqueue" fallback fails
+    # it on every postfix-queue tool. "action" on pmg_node_postfix_queue_action is the
+    # delete/deliver 2-value enum (pmg_node._check_postfix_queue_action), not a service-control
+    # verb (same reasoning as pmg_quarantine_action's own override above). "filename" on the
+    # backup tools must match PMG's own schema pattern (pmg_node._check_backup_filename:
+    # 'pmg-backup_[0-9A-Za-z_-]+.tgz') — the global "sentinel.iso" fallback (shaped for storage
+    # ISO tools) fails it.
+    "pmg_node_postfix_queue_list": {"queue": "deferred", "sortfield": "sender", "sortdir": "ASC"},
+    "pmg_node_postfix_queue_message_get": {"queue": "deferred"},
+    "pmg_node_postfix_queue_action": {"queue": "deferred", "action": "deliver"},
+    "pmg_node_postfix_queue_delete_queue": {"queue": "deferred"},
+    "pmg_node_postfix_queue_message_delete": {"queue": "deferred"},
+    "pmg_node_postfix_queue_message_deliver": {"queue": "deferred"},
+    "pmg_node_backup_delete": {"filename": "pmg-backup_sentinel.tgz"},
+    "pmg_node_backup_restore": {"filename": "pmg-backup_sentinel.tgz"},
+    # PMG LDAP profiles (Wave 9c). "mode" is the ldap/ldaps/ldap+starttls enum
+    # (pmg._check_ldap_mode) — the global "mode" sentinel ("snapshot", shaped for vzdump backup
+    # mode) fails it.
+    "pmg_ldap_profile_create": {"mode": "ldap"},
+    "pmg_ldap_profile_config_update": {"mode": "ldap"},
+    # PMG fetchmail (Wave 9c). "protocol" is the pop3/imap enum (pmg._check_fetchmail_protocol) —
+    # the global "protocol" sentinel ("smtp", shaped for the mail-transport plane) fails it.
+    # "target" must be an email address (pmg._check_email_address) — no global sentinel exists
+    # for this param name.
+    "pmg_fetchmail_create": {"protocol": "pop3", "target": "user@example.com"},
+    "pmg_fetchmail_update": {"protocol": "pop3", "target": "user@example.com"},
+    # PMG DKIM (Wave 9e). "keysize" has a schema-verified floor of 1024 bits
+    # (pmg._check_dkim_keysize) — there is no global "keysize" sentinel, and a generic
+    # small-int fallback would fail the >=1024 floor.
+    "pmg_dkim_selector_generate": {"keysize": 2048},
+    # PMG PBS remote config (Wave 9f). "fingerprint" needs the SAME 32-colon-separated-hex-byte-
+    # pair SHA-256 shape as pbs_s3/pbs_tape_media/sdn_objects's own fingerprint validators
+    # (pmg._check_pbs_remote_fingerprint) — the global "fingerprint" sentinel above
+    # ("AA:BB:CC:DD:EE:FF", only 6 pairs) is too short. "username" needs a `user@realm`/tokenid
+    # shape (pmg._check_pbs_remote_username, PMG's own schema pattern requires a literal '@') —
+    # the global "username" sentinel ("sentineluser", shaped for PVE/PBS's own userid-only fields)
+    # carries no '@' and fails it.
+    "pmg_pbs_remote_create": {"fingerprint": ":".join(["ab"] * 32), "username": "testuser@pbs"},
+    "pmg_pbs_remote_update": {"fingerprint": ":".join(["ab"] * 32), "username": "testuser@pbs"},
+    # PMG quarantine + statistics remainder (Wave 9j, THE FINAL CHUNK — closes the PMG plane).
+    # "list_" is the BL/WL enum (pmg._check_quarusers_list) — the generic alnum fallback
+    # ("sentinellist") fails it. "type_" on pmg_statistics_detail is the contact/sender/receiver
+    # enum (pmg._check_statistics_detail_type) — the GLOBAL "type_": "email" sentinel (shaped for
+    # an unrelated who-object type enum elsewhere in this file) fails it too. "day"/"month"/"year"
+    # (pmg._day_month_year_params, schema bounds 1-31/1-12/1900-3000) are new param names this
+    # sweep has never seen before — the generic int fallback (100) violates all three bounds
+    # simultaneously, so every tool that carries them needs an explicit in-range override.
+    # "hours"/"limit" on the two recent* reads (pmg._check_recent_hours/_check_recent_limit,
+    # schema bounds 1-24/1-50) hit the identical problem — the generic int fallback (100) is
+    # out of range for both.
+    "pmg_quarantine_users_list": {"list_": "BL"},
+    "pmg_statistics_contact": {"day": 15, "month": 6, "year": 2026},
+    "pmg_statistics_detail": {"type_": "contact", "day": 15, "month": 6, "year": 2026},
+    "pmg_statistics_maildistribution": {"day": 15, "month": 6, "year": 2026},
+    "pmg_statistics_rejectcount": {"day": 15, "month": 6, "year": 2026},
+    "pmg_statistics_recentreceivers": {"hours": 6, "limit": 10},
+    "pmg_statistics_recentsenders": {"hours": 6, "limit": 10},
 }
 
 # Parameters excluded from synthesis entirely (handled specially, or would only broaden/weaken
@@ -932,7 +1048,7 @@ IDENTITY_PARAMS = frozenset({
     "new_owner", "realm", "poolid", "pool", "path", "pos", "iface", "zone", "vnet", "subnet",
     "mapping_id", "metrics_id", "ep_type", "job_id", "rep_id", "domain", "domains",
     "transport", "mail_id", "mail_ids", "tracker_id", "sid", "resources", "rule", "plugin_id",
-    "auth_id", "account",
+    "auth_id", "account", "mail",
 })
 
 # Per-tool identity exemptions: a param IS identity-bearing in general, but for this specific

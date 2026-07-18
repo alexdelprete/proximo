@@ -2,26 +2,72 @@
 
 All notable changes to Proximo. Format loosely follows Keep a Changelog; versions are SemVer.
 
-## [Unreleased]
+## [0.25.0] — 2026-07-18
+
+**The PMG plane closes — and a fourth transport arrives.** 715 → **900 tools** (Wave 9, 10
+chunks). Every one of PMG's 425 live API methods is now accounted for by an exit-code-gated
+whole-plane audit: 351 covered in code + 74 documented dispositions (33 legacy-name aliases,
+30 directory stubs, 11 named exclusions), 0 undocumented. This is the last shallow plane —
+Proximo now governs the full PVE + PBS + PMG surface through one trust core. Alongside it, the
+first community-contributed transport: native MCP over Streamable HTTP.
 
 ### Added
-- **MCP over Streamable HTTP, natively** (upstream FR #25) — a new optional `proximo-mcp-http`
-  face (`pip install 'proximo-proxmox[mcp-http]'`) serves the SAME FastMCP instance the stdio
-  server runs over the MCP SDK's native Streamable HTTP transport, so networked MCP clients
-  (Claude Desktop/Code on another machine, web clients) no longer need a third-party stdio→HTTP
-  bridge that sits outside Proximo's perimeter. No adapter layer at all — it IS MCP, so the tool
-  registry, trust spine (PLAN/PROVE/UNDO, the gates), `PROXIMO_SURFACES` scoping, and the Proxmox
-  token scope are inherited by construction. Behind the shared `proximo.webguard` perimeter,
-  identical to the A2A/HTTP faces: fail-closed public bind (`PROXIMO_MCP_HTTP_TOKEN_FILE`,
-  refused without it on a non-localhost `PROXIMO_MCP_HTTP_HOST`), constant-time bearer on `/mcp`,
-  Host/DNS-rebind allowlist (`PROXIMO_MCP_HTTP_ALLOWED_HOSTS`), and the cross-origin (CSRF)
-  guard. Default `127.0.0.1:41243`, serving **stateless** (`stateless_http=True` — the upstream
-  maintainer's call on the FR: multi-client behind a proxy is the deployment model, and nothing
-  in the governed surface needs a session; opt out with `PROXIMO_MCP_HTTP_STATELESS=0`); opt-in
-  plain-JSON responses with `PROXIMO_MCP_HTTP_JSON=1`. The SDK's own DNS-rebind
-  layer is deliberately disabled in favor of the one authoritative webguard perimeter (two
-  driftable allowlists is how holes happen); proven end-to-end by the official MCP client in
-  `tests/test_mcphttp_e2e.py`.
+- **PMG node administration (43 tools).** Network interface CRUD + apply/reload/revert, DNS,
+  time, node config, certificate info, service lifecycle, subscription; tasks (stop/log),
+  syslog/report/journal (adversarial-classified free text), backup file list/create/restore,
+  postfix queue inspection + management, ClamAV/SpamAssassin signature updates.
+- **PMG mail-plane config (66 tools).** LDAP profiles + directory queries, fetchmail,
+  domains/transport/mynetworks completion, TLS policy + inbound-TLS domains, DKIM signing,
+  SpamAssassin custom scores, PBS remote config + node-side PBS backup jobs, ACME
+  accounts/plugins + node cert order/renew/revoke + custom-cert upload, mimetypes, regextest.
+- **PMG ruledb per-object reads + the global welcomelist + factory reset (15 tools, from the
+  Wave 8 groundwork carried in).**
+- **PMG identity (`pmg_identity.py`, 34 tools).** Auth realms, local users (role granted in
+  the create call — rated by whether that role is admin-equivalent), TFA, and the six
+  appliance-wide config singletons (admin/clamav/mail/spam-quarantine/virus-quarantine/
+  webauthn) plus **PMG cluster bootstrap/join** — the join transmits a peer master's root
+  credential in transit, held to a structural never-in-ledger guarantee.
+- **PMG quarantine + statistics completion (11 tools),** including the quarantine capability
+  link — a bearer-credential URL that reaches the caller but is redacted from its own audit
+  record (the trust core's first read-return redaction).
+- **MCP over Streamable HTTP, natively** (upstream FR #25, contributed by @alexdelprete) — a
+  new optional `proximo-mcp-http` face (`pip install 'proximo-proxmox[mcp-http]'`) serves the
+  SAME FastMCP instance the stdio server runs over the MCP SDK's native Streamable HTTP
+  transport, so networked MCP clients (Claude Desktop/Code on another machine, web clients) no
+  longer need a third-party stdio→HTTP bridge that sits outside Proximo's perimeter. No adapter
+  layer at all — it IS MCP, so the tool registry, trust spine (PLAN/PROVE/UNDO, the gates),
+  `PROXIMO_SURFACES` scoping, and the Proxmox token scope are inherited by construction. Behind
+  the shared `proximo.webguard` perimeter, identical to the A2A/HTTP faces: fail-closed public
+  bind (`PROXIMO_MCP_HTTP_TOKEN_FILE`, refused without it on a non-localhost
+  `PROXIMO_MCP_HTTP_HOST`), constant-time bearer on `/mcp`, Host/DNS-rebind allowlist
+  (`PROXIMO_MCP_HTTP_ALLOWED_HOSTS`), and the cross-origin (CSRF) guard. Default
+  `127.0.0.1:41243`, serving **stateless** (`stateless_http=True` — the upstream maintainer's
+  call on the FR: multi-client behind a proxy is the deployment model, and nothing in the
+  governed surface needs a session; opt out with `PROXIMO_MCP_HTTP_STATELESS=0`); opt-in
+  plain-JSON responses with `PROXIMO_MCP_HTTP_JSON=1`. The SDK's own DNS-rebind layer is
+  deliberately disabled in favor of the one authoritative webguard perimeter (two driftable
+  allowlists is how holes happen); proven end-to-end by the official MCP client in
+  `tests/test_mcphttp_e2e.py`, and merged after a two-lens adversarial review of the spine and
+  perimeter.
+- **The MCP-HTTP face's post-merge review findings, closed** (contributed by @alexdelprete,
+  PR #29): the transport-face seam contract moves from a regex scan to an **AST scan** —
+  structurally immune to the SDK-namespace false positives the regex needed lookbehinds for;
+  the mutating-tool end-to-end (`test_mcphttp_e2e.py`) drives a real MCP client through the
+  governed spine and asserts the plan and the ledger entry both fired; and the security docs
+  learn the third face. Folded in with the seam scan **hardened further** to also track import
+  aliases (`from proximo import server as srv`) and the dotted module path, plus an explicit
+  honesty test asserting what a static scan still cannot catch — a fully dynamic reach
+  (`getattr`/`sys.modules`), whose real defense stays code review, said plainly rather than
+  papered over.
+
+### Security
+- **Secret discipline across six new credential shapes** — LDAP bind passwords, fetchmail
+  passwords, PBS-remote password + encryption key, DKIM (server-generated, never returned),
+  ACME EAB HMAC key + DNS-plugin credential blobs + uploaded cert private keys, local-user
+  passwords, TFA recovery codes, OIDC client keys, and the cluster-join peer credential —
+  each proven never to reach the tamper-evident ledger by raw-byte sweeps, with the guarantee
+  verified as content-blind (a hostile server echo cannot smuggle a secret through a
+  free-form response field).
 
 ## [0.24.0] — 2026-07-18
 

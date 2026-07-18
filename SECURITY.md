@@ -249,7 +249,12 @@ access is broadest:
   Proxmox token scope apply identically, and there is no second mutate path. The surface is
   scoped only by `PROXIMO_SURFACES` + the token ACL, uniform for every transport. Auth bypass,
   header smuggling, rebind escape, a path that invokes a tool bypassing the spine, or a mutation
-  that fires without the tool's own confirm gate are all in scope.
+  that fires without the tool's own confirm gate are all in scope. One deliberate asymmetry: the
+  A2A/HTTP dispatch sanitizes a failing tool's error text before returning it (the exec plane's
+  raw exceptions can carry a command's argv or an SSH target); the MCP-HTTP face, being MCP
+  itself with no adapter layer, returns tool-error detail at the *stdio* level, unsanitized. It
+  is therefore not a regression over stdio — but a bearer token for the MCP-HTTP face carries the
+  same trust weight as local stdio access, so scope it and reach it accordingly.
 - **Secret handling.** Proximo takes its PVE token by path/env, never as a literal in a
   shell line. A path where a token, key, or other secret is logged, echoed into the
   audit ledger, or otherwise persisted in cleartext is in scope. At load time, every

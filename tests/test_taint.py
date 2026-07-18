@@ -31,6 +31,14 @@ _EXPECTED_ADVERSARIAL = frozenset({
     "pmg_tracker_list", "pmg_tracker_detail",
     "pmg_node_syslog",
     "pmg_statistics_sender", "pmg_statistics_receiver", "pmg_statistics_domains",
+    # PMG node ops odds (Wave 9b, 2026-07-17): free-text diagnostic/log dumps + mail metadata —
+    # see taint.py's own entry comment for the full argument.
+    "pmg_node_report", "pmg_node_journal", "pmg_node_task_log",
+    "pmg_node_postfix_queue_list", "pmg_node_postfix_queue_message_get",
+    # PMG LDAP profiles + fetchmail (Wave 9c, 2026-07-17): LDAP users/groups are pulled directly
+    # from the external directory — see taint.py's own entry comment for the full argument.
+    "pmg_ldap_users_list", "pmg_ldap_user_emails_get",
+    "pmg_ldap_groups_list", "pmg_ldap_group_members_get",
     # config free-text + logs
     "pve_node_syslog", "pve_node_journal", "pve_task_log", "pve_list_guests",
     "pve_guest_config_get", "pve_cluster_resources", "pve_snapshot_list",
@@ -49,6 +57,11 @@ _EXPECTED_ADVERSARIAL = frozenset({
     # PBS ACME (Wave 3b review finding, 2026-07-15): the PBS host fetches a CALLER-CHOSEN
     # directory URL and returns the response — content authored by whoever controls the URL.
     "pbs_acme_tos",
+    # PMG ACME (Wave 9g, 2026-07-17): pmg_acme_tos/pmg_acme_meta share the identical
+    # caller-chosen-directory-URL fetch shape as pbs_acme_tos above; pmg_acme_meta has no PBS
+    # equivalent at all (genuinely new this wave) but carries the same risk — see taint.py's own
+    # entry comment for the full argument.
+    "pmg_acme_tos", "pmg_acme_meta",
     # PBS tape drive/changer OPERATIONS (Wave 4c, 2026-07-15 full-surface campaign):
     # read-label/inventory/cartridge-memory carry the physical tape's own label-text / LTO MAM
     # attributes, no return-side pattern constraint in the schema. changer_status is a deliberate
@@ -142,6 +155,18 @@ _EXPECTED_ADVERSARIAL = frozenset({
     # 853-864, binding) — see taint.py's own entry comment + sdn_fabrics.py's module
     # docstring fact #3 for the full argument.
     "pve_sdn_fabric_status_neighbors", "pve_sdn_fabric_status_routes",
+    # PMG PBS remote config + node-side PBS backup jobs (Wave 9f, 2026-07-17): snapshot/backup-id
+    # labels are stored on the REMOTE PBS instance — externally-authored content, the
+    # pbs_snapshots_list cross-plane precedent — see taint.py's own entry comment for the full
+    # argument.
+    "pmg_node_pbs_snapshots_list", "pmg_node_pbs_snapshot_get",
+    # PMG quarantine + statistics remainder (Wave 9j, 2026-07-18, THE FINAL CHUNK — closes the
+    # PMG plane): full attacker-authored email content / attacker-controllable attachment
+    # filenames, and external address literals in the statistics return schema — see taint.py's
+    # own entry comment for the full per-tool argument.
+    "pmg_quarantine_content_get", "pmg_quarantine_attachments_list",
+    "pmg_statistics_contact", "pmg_statistics_detail",
+    "pmg_statistics_recentreceivers", "pmg_statistics_recentsenders",
 })
 
 

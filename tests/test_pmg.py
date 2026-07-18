@@ -15,6 +15,7 @@ Auth model: ticket-based (CONFIRMED against PMG 9.1).
 
 from __future__ import annotations
 
+import json
 import pathlib
 import tempfile
 import threading
@@ -30,48 +31,176 @@ from proximo.planning import RISK_HIGH, RISK_LOW, RISK_MEDIUM
 from proximo.pmg import (
     PmgBackend,
     PmgConfig,
+    _check_acme_account_name,
+    _check_acme_challenge_type,
+    _check_acme_contact,
+    _check_acme_directory_url,
+    _check_acme_plugin_api,
+    _check_acme_plugin_delete_props,
+    _check_acme_plugin_digest,
+    _check_acme_plugin_id,
+    _check_acme_plugin_nodes,
+    _check_acme_validation_delay,
     _check_action_object_id,
     _check_action_position,
     _check_backup_notify,
     _check_cidr,
+    _check_customscore_name,
+    _check_customscore_score,
+    _check_customscores_digest,
     _check_direction,
+    _check_dkim_keysize,
     _check_domain,
+    _check_email_address,
+    _check_fetchmail_id,
+    _check_fetchmail_interval,
+    _check_fetchmail_port,
+    _check_fetchmail_protocol,
+    _check_fetchmail_user,
+    _check_ldap_comment,
+    _check_ldap_config_digest,
+    _check_ldap_gid,
+    _check_ldap_mode,
+    _check_ldap_port,
+    _check_ldap_profile,
+    _check_ldap_server_address,
     _check_mail_id,
     _check_node,
     _check_ogroup,
+    _check_pbs_datastore,
+    _check_pbs_keep_count,
+    _check_pbs_remote_digest,
+    _check_pbs_remote_fingerprint,
+    _check_pbs_remote_id,
+    _check_pbs_remote_namespace,
+    _check_pbs_remote_port,
+    _check_pbs_remote_server,
+    _check_pbs_remote_username,
+    _check_pbs_snapshot_backup_id,
+    _check_pbs_snapshot_backup_time,
+    _check_pbs_timer_delay,
+    _check_pbs_timer_schedule,
+    _check_pmg_cert_type,
     _check_priority,
     _check_quarantine_type,
+    _check_quarusers_list,
+    _check_recent_hours,
+    _check_recent_limit,
+    _check_regextest_field,
     _check_rrddata_cf,
     _check_rrddata_timeframe,
     _check_ruledb_id,
     _check_service,
     _check_service_action,
+    _check_statistics_detail_type,
+    _check_tls_destination,
     _check_transport_protocol,
     _check_what_object_type,
     _check_who_object_type,
     access_permissions,
+    acme_account_create,
+    acme_account_delete,
+    acme_account_get,
+    acme_account_list,
+    acme_account_update,
+    acme_challenge_schema,
+    acme_directories,
+    acme_meta,
+    acme_plugin_create,
+    acme_plugin_delete,
+    acme_plugin_get,
+    acme_plugin_update,
+    acme_plugins_list,
+    acme_tos,
     action_bcc_create,
+    action_bcc_get,
     action_bcc_update,
     action_delete,
     action_disclaimer_create,
+    action_disclaimer_get,
     action_disclaimer_update,
     action_field_create,
+    action_field_get,
     action_field_update,
     action_notification_create,
+    action_notification_get,
     action_notification_update,
     action_objects_list,
     action_removeattachments_create,
+    action_removeattachments_get,
     action_removeattachments_update,
     backup_create,
+    customscores_apply,
+    customscores_create,
+    customscores_delete,
+    customscores_get,
+    customscores_list,
+    customscores_revert_all,
+    customscores_update,
+    dkim_domain_create,
+    dkim_domain_delete,
+    dkim_domain_get,
+    dkim_domain_update,
+    dkim_domains_list,
+    dkim_selector_generate,
+    dkim_selector_get,
+    dkim_selectors_list,
     domain_create,
     domain_delete,
+    domain_get,
+    domain_update,
     domains_list,
+    fetchmail_create,
+    fetchmail_delete,
+    fetchmail_get,
+    fetchmail_list,
+    fetchmail_update,
+    ldap_group_members_get,
+    ldap_groups_list,
+    ldap_profile_config_get,
+    ldap_profile_config_update,
+    ldap_profile_create,
+    ldap_profile_delete,
+    ldap_profile_sync,
+    ldap_profiles_list,
+    ldap_user_emails_get,
+    ldap_users_list,
+    mimetypes_list,
     mynetworks_add,
+    mynetworks_get,
+    mynetworks_list,
     mynetworks_remove,
+    mynetworks_update,
+    node_cert_acme_order,
+    node_cert_acme_renew,
+    node_cert_acme_revoke,
+    node_cert_custom_delete,
+    node_cert_custom_upload,
+    node_pbs_jobs_list,
+    node_pbs_snapshot_create,
+    node_pbs_snapshot_forget,
+    node_pbs_snapshot_get,
+    node_pbs_snapshot_restore,
+    node_pbs_snapshot_verify,
+    node_pbs_snapshots_list,
+    node_pbs_timer_create,
+    node_pbs_timer_delete,
+    node_pbs_timer_get,
     node_rrddata,
     node_status,
     node_syslog,
     node_version,
+    pbs_remote_create,
+    pbs_remote_delete,
+    pbs_remote_get,
+    pbs_remote_list,
+    pbs_remote_update,
+    plan_acme_account_create,
+    plan_acme_account_delete,
+    plan_acme_account_update,
+    plan_acme_plugin_create,
+    plan_acme_plugin_delete,
+    plan_acme_plugin_update,
     plan_action_bcc_create,
     plan_action_bcc_update,
     plan_action_delete,
@@ -84,16 +213,50 @@ from proximo.pmg import (
     plan_action_removeattachments_create,
     plan_action_removeattachments_update,
     plan_backup_create,
+    plan_customscores_apply,
+    plan_customscores_create,
+    plan_customscores_delete,
+    plan_customscores_revert_all,
+    plan_customscores_update,
+    plan_dkim_domain_create,
+    plan_dkim_domain_delete,
+    plan_dkim_domain_update,
+    plan_dkim_selector_generate,
     plan_domain_create,
     plan_domain_delete,
+    plan_domain_update,
+    plan_fetchmail_create,
+    plan_fetchmail_delete,
+    plan_fetchmail_update,
+    plan_ldap_profile_config_update,
+    plan_ldap_profile_create,
+    plan_ldap_profile_delete,
+    plan_ldap_profile_sync,
     plan_mynetworks_add,
     plan_mynetworks_remove,
+    plan_mynetworks_update,
+    plan_node_cert_acme_order,
+    plan_node_cert_acme_renew,
+    plan_node_cert_acme_revoke,
+    plan_node_cert_custom_delete,
+    plan_node_cert_custom_upload,
+    plan_node_pbs_snapshot_create,
+    plan_node_pbs_snapshot_forget,
+    plan_node_pbs_snapshot_restore,
+    plan_node_pbs_snapshot_verify,
+    plan_node_pbs_timer_create,
+    plan_node_pbs_timer_delete,
+    plan_pbs_remote_create,
+    plan_pbs_remote_delete,
+    plan_pbs_remote_update,
     plan_postfix_flush,
     plan_quarantine_action,
     plan_quarantine_blocklist_add,
     plan_quarantine_blocklist_remove,
+    plan_quarantine_sendlink,
     plan_quarantine_welcomelist_add,
     plan_quarantine_welcomelist_remove,
+    plan_ruledb_reset,
     plan_ruledb_rule_action_attach,
     plan_ruledb_rule_action_detach,
     plan_ruledb_rule_create,
@@ -109,8 +272,14 @@ from proximo.pmg import (
     plan_ruledb_rule_when_detach,
     plan_service_control,
     plan_spam_config_update,
+    plan_tls_inbound_domains_create,
+    plan_tls_inbound_domains_delete,
+    plan_tlspolicy_create,
+    plan_tlspolicy_delete,
+    plan_tlspolicy_update,
     plan_transport_create,
     plan_transport_delete,
+    plan_transport_update,
     plan_what_group_create,
     plan_what_group_delete,
     plan_what_group_update,
@@ -133,21 +302,29 @@ from proximo.pmg import (
     postfix_qshape,
     quarantine_action,
     quarantine_attachment,
+    quarantine_attachments_list,
     quarantine_blocklist_add,
     quarantine_blocklist_list,
     quarantine_blocklist_remove,
+    quarantine_content_get,
+    quarantine_link_get,
+    quarantine_sendlink,
     quarantine_spam,
     quarantine_spamstatus,
     quarantine_spamusers,
+    quarantine_users_list,
     quarantine_virus,
     quarantine_virusstatus,
     quarantine_welcomelist_add,
     quarantine_welcomelist_list,
     quarantine_welcomelist_remove,
+    regextest,
     relay_config,
     ruledb_digest,
+    ruledb_reset,
     ruledb_rule_action_attach,
     ruledb_rule_action_detach,
+    ruledb_rule_action_groups_list,
     ruledb_rule_actions_list,
     ruledb_rule_create,
     ruledb_rule_delete,
@@ -170,19 +347,36 @@ from proximo.pmg import (
     service_status,
     spam_config,
     spam_config_update,
+    statistics_contact,
+    statistics_detail,
     statistics_domains,
     statistics_mail,
     statistics_mailcount,
+    statistics_maildistribution,
     statistics_receiver,
     statistics_recent,
+    statistics_recentreceivers,
+    statistics_recentsenders,
+    statistics_rejectcount,
     statistics_sender,
     statistics_spamscores,
     statistics_virus,
     tasks_list,
+    tls_inbound_domains_create,
+    tls_inbound_domains_delete,
+    tls_inbound_domains_list,
+    tlspolicy_create,
+    tlspolicy_delete,
+    tlspolicy_get,
+    tlspolicy_list,
+    tlspolicy_update,
     tracker_detail,
     tracker_list,
     transport_create,
     transport_delete,
+    transport_get,
+    transport_list,
+    transport_update,
     what_group_create,
     what_group_delete,
     what_group_get,
@@ -191,6 +385,7 @@ from proximo.pmg import (
     what_groups_list,
     what_object_add,
     what_object_delete,
+    what_object_get,
     what_object_update,
     when_group_create,
     when_group_delete,
@@ -200,6 +395,7 @@ from proximo.pmg import (
     when_groups_list,
     when_object_add,
     when_object_delete,
+    when_object_get,
     when_object_update,
     who_group_create,
     who_group_delete,
@@ -209,6 +405,7 @@ from proximo.pmg import (
     who_groups_list,
     who_object_add,
     who_object_delete,
+    who_object_get,
     who_object_update,
 )
 
@@ -1623,6 +1820,363 @@ class TestMynetworksRemove:
             mynetworks_remove(api, "not-a-cidr")
 
 
+# ---------------------------------------------------------------------------
+# Wave 9d — mail routing config remainder: validators
+# ---------------------------------------------------------------------------
+
+class TestCheckTlsDestination:
+    def test_valid_plain_domain(self):
+        assert _check_tls_destination("example.com") == "example.com"
+
+    def test_valid_nexthop_with_brackets_and_port(self):
+        assert _check_tls_destination("[relay.example.com]:587") == "[relay.example.com]:587"
+
+    def test_rejects_empty(self):
+        with pytest.raises(ProximoError):
+            _check_tls_destination("")
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_tls_destination("relay/example.com")
+
+    def test_rejects_dotdot(self):
+        with pytest.raises(ProximoError):
+            _check_tls_destination("../etc")
+
+    def test_rejects_whitespace(self):
+        with pytest.raises(ProximoError):
+            _check_tls_destination("relay example.com")
+
+    def test_rejects_newline(self):
+        with pytest.raises(ProximoError):
+            _check_tls_destination("relay.example.com\n")
+
+
+class TestCheckRegextestField:
+    def test_accepts_within_bound(self):
+        assert _check_regextest_field("a" * 1024, "regex") == "a" * 1024
+
+    def test_rejects_over_bound(self):
+        with pytest.raises(ProximoError):
+            _check_regextest_field("a" * 1025, "regex")
+
+
+# ---------------------------------------------------------------------------
+# Wave 9d READ operations — URL shapes
+# ---------------------------------------------------------------------------
+
+class TestDomainGet:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        domain_get(api, "example.com")
+        assert api.seen["path"] == "/config/domains/example.com"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_invalid_domain(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            domain_get(api, "bad/domain")
+
+
+class TestTransportList:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(method="GET", path=path) or []
+        )
+        transport_list(api)
+        assert api.seen["path"] == "/config/transport"
+        assert api.seen["method"] == "GET"
+
+
+class TestTransportGet:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        transport_get(api, "example.com")
+        assert api.seen["path"] == "/config/transport/example.com"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_invalid_domain(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            transport_get(api, "bad/domain")
+
+
+class TestMynetworksList:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(method="GET", path=path) or []
+        )
+        mynetworks_list(api)
+        assert api.seen["path"] == "/config/mynetworks"
+        assert api.seen["method"] == "GET"
+
+
+class TestMynetworksGet:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        mynetworks_get(api, "10.0.0.0/8")
+        assert api.seen["path"] == "/config/mynetworks/10.0.0.0%2F8"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_invalid_cidr(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            mynetworks_get(api, "not-a-cidr")
+
+
+class TestTlspolicyList:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(method="GET", path=path) or []
+        )
+        tlspolicy_list(api)
+        assert api.seen["path"] == "/config/tlspolicy"
+        assert api.seen["method"] == "GET"
+
+
+class TestTlspolicyGet:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        tlspolicy_get(api, "example.com")
+        assert api.seen["path"] == "/config/tlspolicy/example.com"
+        assert api.seen["method"] == "GET"
+
+    def test_destination_is_url_encoded(self):
+        api = _api()
+        tlspolicy_get(api, "[relay.example.com]:587")
+        assert api.seen["path"] == "/config/tlspolicy/%5Brelay.example.com%5D%3A587"
+
+    def test_rejects_invalid_destination(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            tlspolicy_get(api, "bad/destination")
+
+
+class TestTlsInboundDomainsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(method="GET", path=path) or []
+        )
+        tls_inbound_domains_list(api)
+        assert api.seen["path"] == "/config/tls-inbound-domains"
+        assert api.seen["method"] == "GET"
+
+    def test_returns_list_of_strings(self):
+        api = _api()
+        api._get = lambda path, params=None: ["example.com", "other.example.com"]
+        result = tls_inbound_domains_list(api)
+        assert result == ["example.com", "other.example.com"]
+        assert all(isinstance(x, str) for x in result)
+
+
+class TestMimetypesList:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(method="GET", path=path) or []
+        )
+        mimetypes_list(api)
+        assert api.seen["path"] == "/config/mimetypes"
+        assert api.seen["method"] == "GET"
+
+
+class TestRegextest:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        regextest(api, "^foo", "foobar")
+        assert api.seen["path"] == "/config/regextest"
+        assert api.seen["method"] == "POST"
+
+    def test_body_includes_regex_and_text(self):
+        api = _api()
+        regextest(api, "^foo", "foobar")
+        assert api.seen["data"].get("regex") == "^foo"
+        assert api.seen["data"].get("text") == "foobar"
+
+    def test_rejects_regex_too_long(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            regextest(api, "a" * 1025, "text")
+
+    def test_rejects_text_too_long(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            regextest(api, "regex", "a" * 1025)
+
+
+# ---------------------------------------------------------------------------
+# Wave 9d MUTATION operations — body / path shapes
+# ---------------------------------------------------------------------------
+
+class TestDomainUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        domain_update(api, "example.com", "a comment")
+        assert api.seen["path"] == "/config/domains/example.com"
+        assert api.seen["method"] == "PUT"
+
+    def test_body_includes_only_comment(self):
+        api = _api()
+        domain_update(api, "example.com", "a comment")
+        assert api.seen["data"] == {"comment": "a comment"}
+
+    def test_empty_comment_allowed(self):
+        api = _api()
+        domain_update(api, "example.com", "")
+        assert api.seen["data"] == {"comment": ""}
+
+    def test_rejects_invalid_domain(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            domain_update(api, "bad/domain", "x")
+
+
+class TestTransportUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        transport_update(api, "example.com", host="relay2.example.com")
+        assert api.seen["path"] == "/config/transport/example.com"
+        assert api.seen["method"] == "PUT"
+
+    def test_body_omits_domain(self):
+        api = _api()
+        transport_update(api, "example.com", host="relay2.example.com")
+        assert "domain" not in api.seen["data"]
+        assert api.seen["data"] == {"host": "relay2.example.com"}
+
+    def test_body_includes_only_provided_fields(self):
+        api = _api()
+        transport_update(api, "example.com", comment="new comment", port=587)
+        assert api.seen["data"] == {"comment": "new comment", "port": 587}
+
+    def test_rejects_no_fields_provided(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            transport_update(api, "example.com")
+
+    def test_rejects_invalid_protocol(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            transport_update(api, "example.com", protocol="ftp")
+
+    def test_rejects_port_out_of_range(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            transport_update(api, "example.com", port=0)
+
+    def test_rejects_invalid_domain(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            transport_update(api, "bad/domain", comment="x")
+
+
+class TestMynetworksUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        mynetworks_update(api, "10.0.0.0/8", "internal net")
+        assert api.seen["path"] == "/config/mynetworks/10.0.0.0%2F8"
+        assert api.seen["method"] == "PUT"
+
+    def test_body_includes_only_comment(self):
+        api = _api()
+        mynetworks_update(api, "10.0.0.0/8", "internal net")
+        assert api.seen["data"] == {"comment": "internal net"}
+
+    def test_rejects_invalid_cidr(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            mynetworks_update(api, "not-a-cidr", "x")
+
+
+class TestTlspolicyCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        tlspolicy_create(api, "example.com", "secure")
+        assert api.seen["path"] == "/config/tlspolicy"
+        assert api.seen["method"] == "POST"
+
+    def test_body_includes_destination_and_policy(self):
+        api = _api()
+        tlspolicy_create(api, "example.com", "secure")
+        assert api.seen["data"] == {"destination": "example.com", "policy": "secure"}
+
+    def test_rejects_invalid_destination(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            tlspolicy_create(api, "bad/destination", "secure")
+
+    def test_rejects_empty_policy(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            tlspolicy_create(api, "example.com", "")
+
+
+class TestTlspolicyUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        tlspolicy_update(api, "example.com", "none")
+        assert api.seen["path"] == "/config/tlspolicy/example.com"
+        assert api.seen["method"] == "PUT"
+
+    def test_body_includes_only_policy(self):
+        api = _api()
+        tlspolicy_update(api, "example.com", "none")
+        assert api.seen["data"] == {"policy": "none"}
+
+    def test_rejects_empty_policy(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            tlspolicy_update(api, "example.com", "")
+
+
+class TestTlspolicyDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        tlspolicy_delete(api, "example.com")
+        assert api.seen["path"] == "/config/tlspolicy/example.com"
+        assert api.seen["method"] == "DELETE"
+
+    def test_rejects_invalid_destination(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            tlspolicy_delete(api, "bad/destination")
+
+
+class TestTlsInboundDomainsCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        tls_inbound_domains_create(api, "example.com")
+        assert api.seen["path"] == "/config/tls-inbound-domains"
+        assert api.seen["method"] == "POST"
+
+    def test_body_includes_domain(self):
+        api = _api()
+        tls_inbound_domains_create(api, "example.com")
+        assert api.seen["data"] == {"domain": "example.com"}
+
+    def test_rejects_invalid_domain(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            tls_inbound_domains_create(api, "bad/domain")
+
+
+class TestTlsInboundDomainsDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        tls_inbound_domains_delete(api, "example.com")
+        assert api.seen["path"] == "/config/tls-inbound-domains/example.com"
+        assert api.seen["method"] == "DELETE"
+
+    def test_rejects_invalid_domain(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            tls_inbound_domains_delete(api, "bad/domain")
+
+
 class TestSpamConfigUpdate:
     def test_uses_correct_path_and_method(self):
         api = _api()
@@ -1881,6 +2435,213 @@ class TestPlanMynetworksRemove:
             plan_mynetworks_remove("not-a-cidr")
 
 
+# ---------------------------------------------------------------------------
+# Wave 9d PLAN functions
+# ---------------------------------------------------------------------------
+
+class TestPlanDomainUpdate:
+    def test_risk_is_low(self):
+        p = plan_domain_update("example.com", "new comment")
+        assert p.risk == RISK_LOW
+
+    def test_action_string(self):
+        p = plan_domain_update("example.com", "new comment")
+        assert p.action == "pmg_domain_update"
+
+    def test_change_mentions_comment(self):
+        p = plan_domain_update("example.com", "new comment")
+        assert "new comment" in p.change
+
+    def test_rejects_invalid_domain(self):
+        with pytest.raises(ProximoError):
+            plan_domain_update("bad/domain", "x")
+
+
+class TestPlanTransportUpdate:
+    def test_risk_is_medium(self):
+        p = plan_transport_update("example.com", host="relay2.example.com")
+        assert p.risk == RISK_MEDIUM
+
+    def test_action_string(self):
+        p = plan_transport_update("example.com", host="relay2.example.com")
+        assert p.action == "pmg_transport_update"
+
+    def test_rejects_no_fields_provided(self):
+        with pytest.raises(ProximoError):
+            plan_transport_update("example.com")
+
+    def test_rejects_invalid_domain(self):
+        with pytest.raises(ProximoError):
+            plan_transport_update("bad/domain", comment="x")
+
+    def test_comment_only_blast_radius_notes_no_routing_effect(self):
+        p = plan_transport_update("example.com", comment="just a note")
+        joined = " ".join(p.blast_radius)
+        assert "comment-only" in joined.lower()
+
+    def test_host_change_blast_radius_warns_of_reroute(self):
+        p = plan_transport_update("example.com", host="relay2.example.com")
+        joined = " ".join(p.blast_radius).lower()
+        assert "rerouted" in joined or "reroute" in joined
+
+    def test_use_mx_only_change_blast_radius_warns_of_delivery_impact(self):
+        # use_mx is named in this function's OWN docstring in the same breath as host/port/
+        # protocol as delivery-affecting ("changing host/port/protocol/use_mx changes where mail
+        # ... is actually delivered") — but the reroute-warning check-set only tested
+        # {"host", "port", "protocol"}, dropping use_mx. A use_mx-only call must not produce a
+        # bare one-line preview with no operational warning at all.
+        p = plan_transport_update("example.com", use_mx=False)
+        assert len(p.blast_radius) > 1
+        joined = " ".join(p.blast_radius).lower()
+        assert "rerouted" in joined or "reroute" in joined or "delivered" in joined
+
+
+class TestPlanMynetworksUpdate:
+    def test_risk_is_low(self):
+        p = plan_mynetworks_update("10.0.0.0/8", "internal net")
+        assert p.risk == RISK_LOW
+
+    def test_action_string(self):
+        p = plan_mynetworks_update("10.0.0.0/8", "internal net")
+        assert p.action == "pmg_mynetworks_update"
+
+    def test_rejects_invalid_cidr(self):
+        with pytest.raises(ProximoError):
+            plan_mynetworks_update("not-a-cidr", "x")
+
+
+class TestPlanTlspolicyCreate:
+    def test_risk_is_medium(self):
+        p = plan_tlspolicy_create("example.com", "secure")
+        assert p.risk == RISK_MEDIUM
+
+    def test_action_string(self):
+        p = plan_tlspolicy_create("example.com", "secure")
+        assert p.action == "pmg_tlspolicy_create"
+
+    def test_downgrade_and_enforce_blast_radius_actually_differ_by_value(self):
+        # REPLACES the old `test_blast_radius_is_direction_aware`, which only asserted both
+        # "downgrade" and "tighten" appear for a SINGLE call (policy="none") — true of every
+        # call regardless of the value, since both words were always present as static
+        # boilerplate. This is the real diff: two opposite-direction calls must produce blast
+        # text that actually differs, each naming the correct direction for its own value.
+        p_down = plan_tlspolicy_create("example.com", "none")
+        p_up = plan_tlspolicy_create("example.com", "secure")
+        assert p_down.blast_radius != p_up.blast_radius
+
+        down_joined = " ".join(p_down.blast_radius).lower()
+        up_joined = " ".join(p_up.blast_radius).lower()
+
+        assert "downgrade" in down_joined
+        assert "enforces" not in down_joined
+
+        assert "enforces" in up_joined
+        assert "downgrade" not in up_joined
+
+    def test_unrecognized_policy_value_gets_honest_fallback_not_a_guessed_direction(self):
+        p = plan_tlspolicy_create("example.com", "bogus-tier")
+        joined = " ".join(p.blast_radius).lower()
+        assert "not a recognized" in joined or "unrecognized" in joined
+        assert "downgrade" not in joined
+        assert "enforces" not in joined
+
+    def test_rejects_invalid_destination(self):
+        with pytest.raises(ProximoError):
+            plan_tlspolicy_create("bad/destination", "secure")
+
+
+class TestPlanTlspolicyUpdate:
+    def test_risk_is_medium(self):
+        p = plan_tlspolicy_update("example.com", "none")
+        assert p.risk == RISK_MEDIUM
+
+    def test_action_string(self):
+        p = plan_tlspolicy_update("example.com", "none")
+        assert p.action == "pmg_tlspolicy_update"
+
+    def test_downgrade_and_enforce_blast_radius_actually_differ_by_value(self):
+        p_down = plan_tlspolicy_update("example.com", "none")
+        p_up = plan_tlspolicy_update("example.com", "secure")
+        assert p_down.blast_radius != p_up.blast_radius
+
+        down_joined = " ".join(p_down.blast_radius).lower()
+        up_joined = " ".join(p_up.blast_radius).lower()
+
+        assert "downgrade" in down_joined
+        assert "enforces" not in down_joined
+
+        assert "enforces" in up_joined
+        assert "downgrade" not in up_joined
+
+    def test_unrecognized_policy_value_gets_honest_fallback_not_a_guessed_direction(self):
+        p = plan_tlspolicy_update("example.com", "bogus-tier")
+        joined = " ".join(p.blast_radius).lower()
+        assert "not a recognized" in joined or "unrecognized" in joined
+        assert "downgrade" not in joined
+        assert "enforces" not in joined
+
+    def test_does_not_claim_a_before_after_delta_it_cannot_see(self):
+        # update is PURE (current={} always, no capture of the destination's PRIOR policy) — it
+        # must never claim a "downgrade FROM x" / "upgrade FROM x" delta it has no way to know.
+        # It may only state the RESULTING enforcement level this call sets, plus an explicit
+        # note that the prior level is not captured.
+        p = plan_tlspolicy_update("example.com", "none")
+        joined = " ".join(p.blast_radius).lower()
+        assert "from " not in joined
+        assert "prior" in joined or "not captured" in joined or "does not know" in joined
+
+    def test_rejects_invalid_destination(self):
+        with pytest.raises(ProximoError):
+            plan_tlspolicy_update("bad/destination", "none")
+
+
+class TestPlanTlspolicyDelete:
+    def test_risk_is_medium(self):
+        p = plan_tlspolicy_delete("example.com")
+        assert p.risk == RISK_MEDIUM
+
+    def test_action_string(self):
+        p = plan_tlspolicy_delete("example.com")
+        assert p.action == "pmg_tlspolicy_delete"
+
+    def test_rejects_invalid_destination(self):
+        with pytest.raises(ProximoError):
+            plan_tlspolicy_delete("bad/destination")
+
+
+class TestPlanTlsInboundDomainsCreate:
+    def test_risk_is_low(self):
+        p = plan_tls_inbound_domains_create("example.com")
+        assert p.risk == RISK_LOW
+
+    def test_action_string(self):
+        p = plan_tls_inbound_domains_create("example.com")
+        assert p.action == "pmg_tls_inbound_domains_create"
+
+    def test_rejects_invalid_domain(self):
+        with pytest.raises(ProximoError):
+            plan_tls_inbound_domains_create("bad/domain")
+
+
+class TestPlanTlsInboundDomainsDelete:
+    def test_risk_is_low(self):
+        p = plan_tls_inbound_domains_delete("example.com")
+        assert p.risk == RISK_LOW
+
+    def test_action_string(self):
+        p = plan_tls_inbound_domains_delete("example.com")
+        assert p.action == "pmg_tls_inbound_domains_delete"
+
+    def test_blast_radius_notes_security_loosening_direction(self):
+        p = plan_tls_inbound_domains_delete("example.com")
+        joined = " ".join(p.blast_radius).lower()
+        assert "loosen" in joined
+
+    def test_rejects_invalid_domain(self):
+        with pytest.raises(ProximoError):
+            plan_tls_inbound_domains_delete("bad/domain")
+
+
 class TestPlanSpamConfigUpdate:
     def test_risk_is_medium(self):
         p = plan_spam_config_update(bounce_score=5)
@@ -1934,7 +2695,10 @@ class TestPlanQuarantineWelcomelistRemove:
 
 class TestPlanServiceControl:
     def test_risk_is_medium(self):
-        p = plan_service_control("postfix", "stop")
+        # non-critical service — baseline MEDIUM tier. (Was "postfix" — updated by the
+        # Wave-9b-review MAJOR fix: stop of a mail-critical service is now RISK_HIGH here too,
+        # see TestPlanServiceControlMailCriticalStop below.)
+        p = plan_service_control("clamav", "stop")
         assert p.risk == RISK_MEDIUM
 
     def test_action_string(self):
@@ -1963,6 +2727,36 @@ class TestPlanServiceControl:
     def test_invalid_service_raises_proximo_error(self):
         with pytest.raises(ProximoError):
             plan_service_control("../../etc/passwd", "stop")
+
+
+class TestPlanServiceControlMailCriticalStop:
+    """Wave-9b-review MAJOR fix: `plan_service_control` and `pmg_node.py`'s `plan_service_stop`
+    both build a POST to the identical wire endpoint (/nodes/{node}/services/{service}/stop) for
+    the same (service, action="stop") inputs — they must agree on risk tier. Mirrors
+    `test_pmg_node.py::TestPlanServiceStop`'s own mail-critical/non-critical cases exactly."""
+
+    @pytest.mark.parametrize("service", ["postfix", "pmg-smtp-filter"])
+    def test_stop_mail_critical_service_is_high(self, service):
+        p = plan_service_control(service, "stop")
+        assert p.risk == RISK_HIGH
+
+    def test_stop_non_critical_service_stays_medium(self):
+        p = plan_service_control("clamav", "stop")
+        assert p.risk == RISK_MEDIUM
+
+    def test_start_mail_critical_service_stays_medium(self):
+        # only action="stop" is escalated — start/restart/reload of postfix are unaffected
+        p = plan_service_control("postfix", "start")
+        assert p.risk == RISK_MEDIUM
+
+    def test_restart_mail_critical_service_stays_medium(self):
+        p = plan_service_control("postfix", "restart")
+        assert p.risk == RISK_MEDIUM
+
+    def test_stop_mail_critical_blast_radius_mentions_mail_flow_critical(self):
+        p = plan_service_control("postfix", "stop")
+        text = " ".join(p.blast_radius).lower()
+        assert "mail-flow-critical" in text
 
 
 # ---------------------------------------------------------------------------
@@ -2955,6 +3749,12 @@ class TestCheckWhoObjectType:
         for t in ("email", "domain", "regex", "ip", "network", "ldap"):
             assert _check_who_object_type(t) == t
 
+    def test_accepts_ldapuser(self):
+        # Wave 8a: ldapuser is the 7th who-object type, additive to the pre-existing 6 (this test
+        # is NEW, appended alongside — test_accepts_all_valid_types above is byte-for-byte
+        # unchanged, proving the additive-compat claim rather than just asserting it).
+        assert _check_who_object_type("ldapuser") == "ldapuser"
+
     def test_rejects_invalid_type(self):
         with pytest.raises(ProximoError):
             _check_who_object_type("spf")
@@ -3226,6 +4026,24 @@ class TestWhoObjectAdd:
         assert api.seen["data"].get("profile") == "corp"
         assert api.seen["data"].get("group") == "admins"
 
+    def test_ldapuser_uses_correct_path(self):
+        # Wave 8a: ldapuser extension of _WHO_OBJECT_TYPES/_who_object_body — additive.
+        api = _api()
+        who_object_add(api, "2", "ldapuser", account="jdoe", profile="corp")
+        assert api.seen["path"] == "/config/ruledb/who/2/ldapuser"
+        assert api.seen["method"] == "POST"
+
+    def test_ldapuser_sends_account_and_profile_fields(self):
+        api = _api()
+        who_object_add(api, "2", "ldapuser", account="jdoe", profile="corp")
+        assert api.seen["data"].get("account") == "jdoe"
+        assert api.seen["data"].get("profile") == "corp"
+
+    def test_ldapuser_omits_account_when_none(self):
+        api = _api()
+        who_object_add(api, "2", "ldapuser", profile="corp")
+        assert "account" not in api.seen["data"]
+
     def test_rejects_invalid_type(self):
         api = _api()
         with pytest.raises(ProximoError):
@@ -3253,6 +4071,18 @@ class TestWhoObjectUpdate:
         api = _api()
         who_object_update(api, "2", "network", "7", cidr="192.168.0.0/16")
         assert api.seen["path"] == "/config/ruledb/who/2/network/7"
+
+    def test_ldapuser_uses_correct_path(self):
+        # Wave 8a: ldapuser extension — additive, existing types unaffected.
+        api = _api()
+        who_object_update(api, "2", "ldapuser", "9", account="jdoe2")
+        assert api.seen["path"] == "/config/ruledb/who/2/ldapuser/9"
+        assert api.seen["method"] == "PUT"
+
+    def test_ldapuser_sends_account_field(self):
+        api = _api()
+        who_object_update(api, "2", "ldapuser", "9", account="jdoe2")
+        assert api.seen["data"].get("account") == "jdoe2"
 
     def test_rejects_invalid_type(self):
         api = _api()
@@ -3500,6 +4330,25 @@ class TestPlanWhoObjectAdd:
         with pytest.raises(ProximoError):
             plan_who_object_add("mygroup", "email")
 
+    def test_accepts_ldapuser_account_kwarg(self):
+        # Wave 8a: additive signature extension — accepted without error, same as every other
+        # type-specific kwarg this PURE plan function already takes but doesn't render per-field.
+        p = plan_who_object_add("2", "ldapuser", account="jdoe")
+        assert p.risk == RISK_LOW
+
+    def test_note_for_ldap_says_pmgsh_verified(self):
+        # Regression: pre-existing 6 types (ldap included) are genuinely pmgsh-verified.
+        p = plan_who_object_add("2", "ldap", mode="dc", profile="corp")
+        assert "pmgsh-verified" in p.note
+        assert "Smoke-confirm" not in p.note
+
+    def test_note_for_ldapuser_says_smoke_confirm_not_pmgsh_verified(self):
+        # Wave 8a: ldapuser is schema-verified only, never live-tested — note must reflect that.
+        p = plan_who_object_add("2", "ldapuser", account="jdoe", profile="corp")
+        assert "Smoke-confirm" in p.note
+        assert "not yet live-tested" in p.note
+        assert "pmgsh-verified" not in p.note
+
 
 class TestPlanWhoObjectUpdate:
     def test_risk_is_medium(self):
@@ -3534,6 +4383,25 @@ class TestPlanWhoObjectUpdate:
     def test_blast_radius_discloses_new_value(self):
         p = plan_who_object_update("2", "email", "5", email="attacker@evil.example")
         assert any("attacker@evil.example" in entry for entry in p.blast_radius)
+
+    def test_ldapuser_account_discloses_in_blast_radius(self):
+        # Wave 8a: account is threaded into _who_object_body, so the update preview shows it
+        # the same way email/domain/etc. already do.
+        p = plan_who_object_update("2", "ldapuser", "9", account="jdoe2")
+        assert any("jdoe2" in entry for entry in p.blast_radius)
+
+    def test_note_for_ldap_says_pmgsh_verified(self):
+        # Regression: pre-existing 6 types (ldap included) are genuinely pmgsh-verified.
+        p = plan_who_object_update("2", "ldap", "9", mode="dc", profile="corp")
+        assert "pmgsh-verified" in p.note
+        assert "Smoke-confirm" not in p.note
+
+    def test_note_for_ldapuser_says_smoke_confirm_not_pmgsh_verified(self):
+        # Wave 8a: ldapuser is schema-verified only, never live-tested — note must reflect that.
+        p = plan_who_object_update("2", "ldapuser", "9", account="jdoe2", profile="corp")
+        assert "Smoke-confirm" in p.note
+        assert "not yet live-tested" in p.note
+        assert "pmgsh-verified" not in p.note
 
 
 class TestPlanWhoObjectDelete:
@@ -5018,3 +5886,3661 @@ class TestLowFindingDocHonesty20260710:
             desc = tools[name].description.lower()
             assert "numeric id" in desc, f"{name} must document ogroup as a numeric ID"
             assert "object group name" not in desc, f"{name} still says 'object group name'"
+
+
+# ---------------------------------------------------------------------------
+# W6a (Wave 8a): ruledb per-object reads + the direct rule<->action-group read + RuleDB
+# factory reset. See proximo/pmg.py's own W6a section header for the coordinator rulings
+# (.scratch/2026-07-15-full-surface-campaign.md, "Wave 8 decomposition").
+# ---------------------------------------------------------------------------
+
+class TestWhoObjectGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        who_object_get(api, "2", "email", "5")
+        assert api.seen["path"] == "/config/ruledb/who/2/email/5"
+        assert api.seen["method"] == "GET"
+
+    def test_ldapuser_uses_correct_path(self):
+        api = _api()
+        who_object_get(api, "2", "ldapuser", "9")
+        assert api.seen["path"] == "/config/ruledb/who/2/ldapuser/9"
+
+    def test_rejects_invalid_type(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            who_object_get(api, "2", "spf", "5")
+
+    def test_rejects_non_numeric_ogroup(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            who_object_get(api, "mygroup", "email", "5")
+
+    def test_rejects_non_numeric_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            who_object_get(api, "2", "email", "obj-abc")
+
+    def test_falls_back_to_empty_dict(self):
+        api = _api()
+        api._get = lambda path, params=None: None
+        result = who_object_get(api, "2", "email", "5")
+        assert result == {}
+
+
+class TestWhatObjectGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        what_object_get(api, "8", "contenttype", "3")
+        assert api.seen["path"] == "/config/ruledb/what/8/contenttype/3"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_invalid_type(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            what_object_get(api, "8", "bogus", "3")
+
+    def test_rejects_non_numeric_ogroup(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            what_object_get(api, "mygroup", "contenttype", "3")
+
+    def test_rejects_non_numeric_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            what_object_get(api, "8", "contenttype", "obj-abc")
+
+    def test_falls_back_to_empty_dict(self):
+        api = _api()
+        api._get = lambda path, params=None: None
+        result = what_object_get(api, "8", "contenttype", "3")
+        assert result == {}
+
+
+class TestWhenObjectGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        when_object_get(api, "4", "6")
+        assert api.seen["path"] == "/config/ruledb/when/4/timeframe/6"
+        assert api.seen["method"] == "GET"
+
+    def test_no_type_param(self):
+        # 'when' has only one object type (timeframe) — mirrors when_object_add's signature.
+        import inspect
+        sig = inspect.signature(when_object_get)
+        assert "type_" not in sig.parameters
+
+    def test_rejects_non_numeric_ogroup(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            when_object_get(api, "mygroup", "6")
+
+    def test_rejects_non_numeric_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            when_object_get(api, "4", "obj-abc")
+
+    def test_falls_back_to_empty_dict(self):
+        api = _api()
+        api._get = lambda path, params=None: None
+        result = when_object_get(api, "4", "6")
+        assert result == {}
+
+
+class TestActionBccGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        action_bcc_get(api, "13_26")
+        assert api.seen["path"] == "/config/ruledb/action/bcc/13_26"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_non_compound_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            action_bcc_get(api, "26")
+
+
+class TestActionFieldGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        action_field_get(api, "13_27")
+        assert api.seen["path"] == "/config/ruledb/action/field/13_27"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_non_compound_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            action_field_get(api, "27")
+
+
+class TestActionNotificationGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        action_notification_get(api, "13_28")
+        assert api.seen["path"] == "/config/ruledb/action/notification/13_28"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_non_compound_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            action_notification_get(api, "28")
+
+
+class TestActionDisclaimerGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        action_disclaimer_get(api, "13_29")
+        assert api.seen["path"] == "/config/ruledb/action/disclaimer/13_29"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_non_compound_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            action_disclaimer_get(api, "29")
+
+
+class TestActionRemoveattachmentsGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        action_removeattachments_get(api, "13_30")
+        assert api.seen["path"] == "/config/ruledb/action/removeattachments/13_30"
+        assert api.seen["method"] == "GET"
+
+    def test_rejects_non_compound_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            action_removeattachments_get(api, "30")
+
+
+class TestRuledbRuleActionGroupsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, method="GET") or []
+        )
+        ruledb_rule_action_groups_list(api, "100")
+        assert api.seen["path"] == "/config/ruledb/rules/100/action"
+        assert api.seen["method"] == "GET"
+
+    def test_returns_bare_id_list(self):
+        api = _api()
+        api._get = lambda path, params=None: [{"id": 7}]
+        result = ruledb_rule_action_groups_list(api, "100")
+        assert result == [{"id": 7}]
+
+    def test_id_interpolated(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path) or []
+        )
+        ruledb_rule_action_groups_list(api, "500")
+        assert "500" in api.seen["path"]
+
+    def test_rejects_invalid_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            ruledb_rule_action_groups_list(api, "bad/id")
+
+    def test_distinct_from_plural_workarounds_config_path(self):
+        # Sanity: reads the SINGULAR /action endpoint directly — never rule's /config (the plural
+        # ruledb_rule_actions_list's own path, which this function does NOT touch).
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path) or []
+        )
+        ruledb_rule_action_groups_list(api, "100")
+        assert not api.seen["path"].endswith("/config")
+        assert api.seen["path"].endswith("/action")
+
+
+class TestRuledbReset:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        ruledb_reset(api)
+        assert api.seen["path"] == "/config/ruledb"
+        assert api.seen["method"] == "POST"
+
+    def test_sends_empty_body(self):
+        api = _api()
+        ruledb_reset(api)
+        assert api.seen["data"] == {}
+
+
+class TestPlanRuledbReset:
+    """plan_ruledb_reset is NOT pure — it captures the current scope via 5 best-effort reads.
+    The fake here is path-aware (unlike _api(), which returns one fixed value for every GET)."""
+
+    @staticmethod
+    def _capturing_api(gets: dict | None = None, raise_on: set | None = None):
+        gets = gets or {}
+        raise_on = raise_on or set()
+
+        def fake_get(path, params=None):
+            if path in raise_on:
+                raise ProximoError(f"simulated capture failure for {path}")
+            return gets.get(path, [])
+
+        return SimpleNamespace(_get=fake_get)
+
+    def test_risk_is_high(self):
+        api = self._capturing_api()
+        p = plan_ruledb_reset(api)
+        assert p.risk == RISK_HIGH
+
+    def test_action_and_target(self):
+        api = self._capturing_api()
+        p = plan_ruledb_reset(api)
+        assert p.action == "pmg_ruledb_reset"
+        assert p.target == "pmg/config/ruledb"
+
+    def test_first_blast_line_states_no_undo(self):
+        api = self._capturing_api()
+        p = plan_ruledb_reset(api)
+        assert p.blast_radius[0] == "Proximo has NO undo for this; take pmg_backup_create first."
+
+    def test_toll_line_reflects_captured_counts(self):
+        api = self._capturing_api(gets={
+            "/config/ruledb/rules": [{"id": 1}, {"id": 2}],
+            "/config/ruledb/who": [{"id": 1}],
+            "/config/ruledb/what": [{"id": 1}, {"id": 2}, {"id": 3}],
+            "/config/ruledb/when": [],
+            "/config/ruledb/action/objects": [{"id": 1}],
+        })
+        p = plan_ruledb_reset(api)
+        toll = p.blast_radius[1]
+        assert "2 rules" in toll
+        assert "1 who" in toll
+        assert "3 what" in toll
+        assert "0 when" in toll
+        assert "1 action objects" in toll
+
+    def test_complete_true_when_all_captures_succeed(self):
+        api = self._capturing_api()
+        p = plan_ruledb_reset(api)
+        assert p.complete is True
+
+    def test_degrades_honestly_on_capture_failure(self):
+        api = self._capturing_api(
+            gets={"/config/ruledb/rules": [{"id": 1}]},
+            raise_on={"/config/ruledb/who"},
+        )
+        p = plan_ruledb_reset(api)
+        assert p.complete is False
+        assert any("who_groups count capture failed" in note for note in p.blast_radius)
+        # the plan still renders — HIGH risk, first line intact — even with a partial capture
+        assert p.risk == RISK_HIGH
+        assert p.blast_radius[0] == "Proximo has NO undo for this; take pmg_backup_create first."
+
+    def test_unknown_count_rendered_honestly_in_toll(self):
+        api = self._capturing_api(raise_on={"/config/ruledb/what"})
+        p = plan_ruledb_reset(api)
+        assert "an unknown number of what" in p.blast_radius[1]
+
+    def test_current_carries_the_captured_counts(self):
+        api = self._capturing_api(gets={"/config/ruledb/rules": [{"id": 1}]})
+        p = plan_ruledb_reset(api)
+        assert p.current["rules"] == 1
+
+
+# ===========================================================================
+# Wave 9c: LDAP profiles + fetchmail
+# ===========================================================================
+
+class TestCheckLdapProfile:
+    def test_accepts_valid(self):
+        assert _check_ldap_profile("my-ad_1") == "my-ad_1"
+
+    def test_rejects_leading_hyphen(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_profile("-bad")
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_profile("a/b")
+
+    def test_rejects_trailing_newline(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_profile("profile\n")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_profile("a" * 65)
+
+
+class TestCheckLdapMode:
+    def test_accepts_each_valid_mode(self):
+        for m in ("ldap", "ldaps", "ldap+starttls"):
+            assert _check_ldap_mode(m) == m
+
+    def test_rejects_unknown_mode(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_mode("ldapz")
+
+
+class TestCheckLdapPort:
+    def test_accepts_boundary_values(self):
+        assert _check_ldap_port(1) == 1
+        assert _check_ldap_port(65535) == 65535
+
+    def test_rejects_zero(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_port(0)
+
+    def test_rejects_out_of_range(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_port(65536)
+
+    def test_rejects_non_integer(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_port("not-a-port")
+
+
+class TestCheckLdapServerAddress:
+    def test_accepts_reasonable_address(self):
+        assert _check_ldap_server_address("ldap.example.com", "server1") == "ldap.example.com"
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_server_address("a" * 257, "server1")
+
+
+class TestCheckLdapComment:
+    def test_accepts_reasonable_comment(self):
+        assert _check_ldap_comment("a directory profile") == "a directory profile"
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_comment("a" * 4097)
+
+
+class TestCheckLdapConfigDigest:
+    def test_none_passes_through(self):
+        assert _check_ldap_config_digest(None) is None
+
+    def test_accepts_reasonable_digest(self):
+        assert _check_ldap_config_digest("abc123") == "abc123"
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_config_digest("a" * 65)
+
+
+class TestCheckEmailAddress:
+    def test_accepts_valid_email(self):
+        assert _check_email_address("user@example.com") == "user@example.com"
+
+    def test_rejects_missing_at(self):
+        with pytest.raises(ProximoError):
+            _check_email_address("not-an-email")
+
+    def test_rejects_too_short(self):
+        with pytest.raises(ProximoError):
+            _check_email_address("a@")
+
+    def test_rejects_whitespace(self):
+        with pytest.raises(ProximoError):
+            _check_email_address("user @example.com")
+
+    def test_rejects_slash_in_domain(self):
+        with pytest.raises(ProximoError):
+            _check_email_address("user@exa/mple.com")
+
+
+class TestCheckLdapGid:
+    def test_accepts_integer_string(self):
+        assert _check_ldap_gid("42") == 42
+
+    def test_accepts_int(self):
+        assert _check_ldap_gid(42) == 42
+
+    def test_rejects_non_integer(self):
+        with pytest.raises(ProximoError):
+            _check_ldap_gid("not-a-number")
+
+
+class TestCheckFetchmailId:
+    def test_accepts_alnum(self):
+        assert _check_fetchmail_id("Ab12") == "Ab12"
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_fetchmail_id("a" * 17)
+
+    def test_rejects_special_chars(self):
+        with pytest.raises(ProximoError):
+            _check_fetchmail_id("has-dash")
+
+
+class TestCheckFetchmailProtocol:
+    def test_accepts_pop3_and_imap(self):
+        assert _check_fetchmail_protocol("pop3") == "pop3"
+        assert _check_fetchmail_protocol("imap") == "imap"
+
+    def test_rejects_smtp(self):
+        with pytest.raises(ProximoError):
+            _check_fetchmail_protocol("smtp")
+
+
+class TestCheckFetchmailPort:
+    def test_accepts_boundary_values(self):
+        assert _check_fetchmail_port(1) == 1
+        assert _check_fetchmail_port(65535) == 65535
+
+    def test_rejects_out_of_range(self):
+        with pytest.raises(ProximoError):
+            _check_fetchmail_port(0)
+
+
+class TestCheckFetchmailInterval:
+    def test_accepts_boundary_values(self):
+        assert _check_fetchmail_interval(1) == 1
+        assert _check_fetchmail_interval(2016) == 2016
+
+    def test_rejects_out_of_range(self):
+        with pytest.raises(ProximoError):
+            _check_fetchmail_interval(2017)
+        with pytest.raises(ProximoError):
+            _check_fetchmail_interval(0)
+
+
+class TestCheckFetchmailUser:
+    def test_accepts_reasonable_user(self):
+        assert _check_fetchmail_user("alice") == "alice"
+
+    def test_rejects_empty(self):
+        with pytest.raises(ProximoError):
+            _check_fetchmail_user("")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_fetchmail_user("a" * 65)
+
+
+# ---------------------------------------------------------------------------
+# LDAP profile backend functions
+# ---------------------------------------------------------------------------
+
+class TestLdapProfilesList:
+    def test_uses_correct_path(self):
+        api = _api()
+        ldap_profiles_list(api)
+        assert api.seen["path"] == "/config/ldap"
+        assert api.seen["method"] == "GET"
+
+
+class TestLdapProfileConfigGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        ldap_profile_config_get(api, "my-ad")
+        assert api.seen["path"] == "/config/ldap/my-ad/config"
+
+    def test_strips_bindpw_defensively(self):
+        """THE SECRET CONTRACT: even though the schema is bare (returns: {}), bindpw is stripped
+        regardless if the fake backend hands one back."""
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "profile": "my-ad", "server1": "ldap.example.com", "bindpw": "sentinel-leaked-bindpw",
+        })
+        result = ldap_profile_config_get(api, "my-ad")
+        assert "bindpw" not in result
+        assert result["profile"] == "my-ad"
+
+    def test_rejects_invalid_profile(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            ldap_profile_config_get(api, "bad/profile")
+
+
+class TestLdapProfileCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        ldap_profile_create(api, "my-ad", "ldap.example.com")
+        assert api.seen["path"] == "/config/ldap"
+        assert api.seen["method"] == "POST"
+
+    def test_required_fields_in_body(self):
+        api = _api()
+        ldap_profile_create(api, "my-ad", "ldap.example.com")
+        assert api.seen["data"] == {"profile": "my-ad", "server1": "ldap.example.com"}
+
+    def test_bindpw_forwarded_raw_on_the_wire(self):
+        """The mutation must actually work — bindpw IS sent to PMG (never-in-ledger is a
+        ledger/Plan-surface concern, not a wire-forwarding one)."""
+        api = _api()
+        ldap_profile_create(api, "my-ad", "ldap.example.com", bindpw="sentinel-bindpw")
+        assert api.seen["data"]["bindpw"] == "sentinel-bindpw"
+
+    def test_optional_fields_omitted_when_none(self):
+        api = _api()
+        ldap_profile_create(api, "my-ad", "ldap.example.com")
+        assert "mode" not in api.seen["data"]
+        assert "bindpw" not in api.seen["data"]
+
+    def test_optional_fields_included_when_given(self):
+        api = _api()
+        ldap_profile_create(
+            api, "my-ad", "ldap.example.com", mode="ldaps", port=636, verify=True, disable=False,
+        )
+        assert api.seen["data"]["mode"] == "ldaps"
+        assert api.seen["data"]["port"] == 636
+        assert api.seen["data"]["verify"] is True
+        assert api.seen["data"]["disable"] is False
+
+    def test_rejects_invalid_mode(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            ldap_profile_create(api, "my-ad", "ldap.example.com", mode="bogus")
+
+
+class TestLdapProfileDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        ldap_profile_delete(api, "my-ad")
+        assert api.seen["path"] == "/config/ldap/my-ad"
+        assert api.seen["method"] == "DELETE"
+
+
+class TestLdapProfileConfigUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        ldap_profile_config_update(api, "my-ad", comment="updated")
+        assert api.seen["path"] == "/config/ldap/my-ad/config"
+        assert api.seen["method"] == "PUT"
+
+    def test_requires_at_least_one_field(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            ldap_profile_config_update(api, "my-ad")
+
+    def test_delete_alone_satisfies_the_guard(self):
+        api = _api()
+        ldap_profile_config_update(api, "my-ad", delete="comment")
+        assert api.seen["data"]["delete"] == "comment"
+
+    def test_bindpw_forwarded_raw_on_the_wire(self):
+        api = _api()
+        ldap_profile_config_update(api, "my-ad", bindpw="sentinel-bindpw")
+        assert api.seen["data"]["bindpw"] == "sentinel-bindpw"
+
+    def test_digest_forwarded_when_given(self):
+        api = _api()
+        ldap_profile_config_update(api, "my-ad", comment="x", digest="abc123")
+        assert api.seen["data"]["digest"] == "abc123"
+
+    def test_digest_omitted_when_none(self):
+        api = _api()
+        ldap_profile_config_update(api, "my-ad", comment="x")
+        assert "digest" not in api.seen["data"]
+
+    def test_rejects_invalid_port(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            ldap_profile_config_update(api, "my-ad", port=99999)
+
+
+class TestLdapProfileSync:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        ldap_profile_sync(api, "my-ad")
+        assert api.seen["path"] == "/config/ldap/my-ad/sync"
+        assert api.seen["method"] == "POST"
+
+    def test_sends_empty_body(self):
+        api = _api()
+        ldap_profile_sync(api, "my-ad")
+        assert api.seen["data"] == {}
+
+
+class TestLdapUsersList:
+    def test_uses_correct_path(self):
+        api = _api()
+        ldap_users_list(api, "my-ad")
+        assert api.seen["path"] == "/config/ldap/my-ad/users"
+
+
+class TestLdapUserEmailsGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        ldap_user_emails_get(api, "my-ad", "user@example.com")
+        assert api.seen["path"] == "/config/ldap/my-ad/users/user@example.com"
+
+    def test_rejects_invalid_email(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            ldap_user_emails_get(api, "my-ad", "not-an-email")
+
+
+class TestLdapGroupsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        ldap_groups_list(api, "my-ad")
+        assert api.seen["path"] == "/config/ldap/my-ad/groups"
+
+
+class TestLdapGroupMembersGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        ldap_group_members_get(api, "my-ad", 42)
+        assert api.seen["path"] == "/config/ldap/my-ad/groups/42"
+
+    def test_accepts_string_gid(self):
+        api = _api()
+        ldap_group_members_get(api, "my-ad", "42")
+        assert api.seen["path"] == "/config/ldap/my-ad/groups/42"
+
+
+# ---------------------------------------------------------------------------
+# fetchmail backend functions
+# ---------------------------------------------------------------------------
+
+class TestFetchmailList:
+    def test_uses_correct_path(self):
+        api = _api()
+        fetchmail_list(api)
+        assert api.seen["path"] == "/config/fetchmail"
+
+    def test_strips_pass_mandatorily(self):
+        """THE SECRET CONTRACT: pass is CONFIRMED echoed on the live list schema — mandatory
+        strip, not defensive."""
+        api = SimpleNamespace(_get=lambda path, params=None: [
+            {"id": "abc123", "server": "mail.example.com", "pass": "sentinel-leaked-pass"},
+        ])
+        result = fetchmail_list(api)
+        assert len(result) == 1
+        assert "pass" not in result[0]
+        assert result[0]["id"] == "abc123"
+
+
+class TestFetchmailGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        fetchmail_get(api, "abc123")
+        assert api.seen["path"] == "/config/fetchmail/abc123"
+
+    def test_strips_pass_mandatorily(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "id": "abc123", "server": "mail.example.com", "pass": "sentinel-leaked-pass",
+        })
+        result = fetchmail_get(api, "abc123")
+        assert "pass" not in result
+        assert result["id"] == "abc123"
+
+    def test_rejects_invalid_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            fetchmail_get(api, "has-a-dash")
+
+
+class TestFetchmailCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        fetchmail_create(api, "mail.example.com", "alice", "sentinel-pass", "user@example.com", "pop3")
+        assert api.seen["path"] == "/config/fetchmail"
+        assert api.seen["method"] == "POST"
+
+    def test_required_fields_in_body(self):
+        api = _api()
+        fetchmail_create(api, "mail.example.com", "alice", "sentinel-pass", "user@example.com", "pop3")
+        assert api.seen["data"] == {
+            "server": "mail.example.com", "user": "alice", "pass": "sentinel-pass",
+            "target": "user@example.com", "protocol": "pop3",
+        }
+
+    def test_pass_forwarded_raw_on_the_wire(self):
+        api = _api()
+        fetchmail_create(api, "mail.example.com", "alice", "sentinel-pass", "user@example.com", "imap")
+        assert api.seen["data"]["pass"] == "sentinel-pass"
+
+    def test_optional_fields_included_when_given(self):
+        api = _api()
+        fetchmail_create(
+            api, "mail.example.com", "alice", "sentinel-pass", "user@example.com", "pop3",
+            enable=True, interval=5, keep=True, port=995, ssl=True,
+        )
+        assert api.seen["data"]["enable"] is True
+        assert api.seen["data"]["interval"] == 5
+        assert api.seen["data"]["keep"] is True
+        assert api.seen["data"]["port"] == 995
+        assert api.seen["data"]["ssl"] is True
+
+    def test_rejects_invalid_protocol(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            fetchmail_create(api, "mail.example.com", "alice", "sentinel-pass", "user@example.com", "smtp")
+
+    def test_rejects_invalid_target(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            fetchmail_create(api, "mail.example.com", "alice", "sentinel-pass", "not-an-email", "pop3")
+
+
+class TestFetchmailUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        fetchmail_update(api, "abc123", server="mail2.example.com")
+        assert api.seen["path"] == "/config/fetchmail/abc123"
+        assert api.seen["method"] == "PUT"
+
+    def test_requires_at_least_one_field(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            fetchmail_update(api, "abc123")
+
+    def test_pass_forwarded_raw_on_the_wire(self):
+        api = _api()
+        fetchmail_update(api, "abc123", password="sentinel-newpass")
+        assert api.seen["data"]["pass"] == "sentinel-newpass"
+
+    def test_rejects_invalid_protocol(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            fetchmail_update(api, "abc123", protocol="smtp")
+
+
+class TestFetchmailDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        fetchmail_delete(api, "abc123")
+        assert api.seen["path"] == "/config/fetchmail/abc123"
+        assert api.seen["method"] == "DELETE"
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — LDAP
+# ---------------------------------------------------------------------------
+
+class TestPlanLdapProfileCreate:
+    def test_risk_is_medium(self):
+        p = plan_ldap_profile_create("my-ad", "ldap.example.com")
+        assert p.risk == RISK_MEDIUM
+
+    def test_bindpw_never_appears_in_plan(self):
+        p = plan_ldap_profile_create("my-ad", "ldap.example.com", bindpw="sentinel-bindpw")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-bindpw" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_non_secret_field_visible(self):
+        p = plan_ldap_profile_create("my-ad", "ldap.example.com", comment="a directory")
+        dumped = json.dumps(p.as_dict())
+        assert "a directory" in dumped
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_ldap_profile_create("my-ad", "ldap.example.com")
+        assert p.current == {}
+
+
+class TestPlanLdapProfileDelete:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_ldap_profile_delete(api, "my-ad")
+        assert p.risk == RISK_MEDIUM
+
+    def test_captures_current_config_redacted(self):
+        """ldap_profile_config_get already strips bindpw entirely at the read layer (mandatory/
+        defensive) — the plan's own _redact_ldap_secrets is belt-and-suspenders for THIS call
+        chain; the observable proof is that bindpw is simply absent, never echoed raw."""
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "profile": "my-ad", "server1": "ldap.example.com", "bindpw": "sentinel-bindpw",
+        })
+        p = plan_ldap_profile_delete(api, "my-ad")
+        assert "bindpw" not in p.current
+        assert p.current["server1"] == "ldap.example.com"
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-bindpw" not in dumped
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_ldap_profile_delete(api, "my-ad")
+        assert p.complete is False
+        assert any("prior value UNKNOWN" in line for line in p.blast_radius)
+
+
+class TestPlanLdapProfileConfigUpdate:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_ldap_profile_config_update(api, "my-ad", comment="updated")
+        assert p.risk == RISK_MEDIUM
+
+    def test_requires_at_least_one_field(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        with pytest.raises(ProximoError):
+            plan_ldap_profile_config_update(api, "my-ad")
+
+    def test_bindpw_never_appears_in_plan(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_ldap_profile_config_update(api, "my-ad", bindpw="sentinel-bindpw")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-bindpw" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_captured_current_redacted_even_when_secret_bearing(self):
+        """Defense-in-depth: even if the read layer's own strip regressed, the plan factory
+        redacts AGAIN on capture."""
+        api = SimpleNamespace(_get=lambda path, params=None: {"bindpw": "sentinel-leaked-capture"})
+        p = plan_ldap_profile_config_update(api, "my-ad", comment="updated")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-leaked-capture" not in dumped
+
+    def test_delete_disclosed_in_change_text(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_ldap_profile_config_update(api, "my-ad", delete="comment")
+        assert "-comment" in p.change
+
+
+class TestPlanLdapProfileSync:
+    def test_risk_is_medium(self):
+        p = plan_ldap_profile_sync("my-ad")
+        assert p.risk == RISK_MEDIUM
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_ldap_profile_sync("my-ad")
+        assert p.current == {}
+
+    def test_profile_named_in_change(self):
+        p = plan_ldap_profile_sync("my-ad")
+        assert "my-ad" in p.change
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — fetchmail
+# ---------------------------------------------------------------------------
+
+class TestPlanFetchmailCreate:
+    def test_risk_is_medium(self):
+        p = plan_fetchmail_create("mail.example.com", "alice", "sentinel-pass", "user@example.com", "pop3")
+        assert p.risk == RISK_MEDIUM
+
+    def test_pass_never_appears_in_plan(self):
+        p = plan_fetchmail_create("mail.example.com", "alice", "sentinel-pass", "user@example.com", "pop3")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-pass" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_non_secret_fields_visible(self):
+        p = plan_fetchmail_create("mail.example.com", "alice", "sentinel-pass", "user@example.com", "pop3")
+        dumped = json.dumps(p.as_dict())
+        assert "mail.example.com" in dumped
+        assert "alice" in dumped
+        assert "user@example.com" in dumped
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_fetchmail_create("mail.example.com", "alice", "sentinel-pass", "user@example.com", "pop3")
+        assert p.current == {}
+
+
+class TestPlanFetchmailUpdate:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_fetchmail_update(api, "abc123", server="mail2.example.com")
+        assert p.risk == RISK_MEDIUM
+
+    def test_requires_at_least_one_field(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        with pytest.raises(ProximoError):
+            plan_fetchmail_update(api, "abc123")
+
+    def test_pass_never_appears_in_plan(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_fetchmail_update(api, "abc123", password="sentinel-newpass")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-newpass" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_captured_current_redacted_even_when_secret_bearing(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {"pass": "sentinel-leaked-capture"})
+        p = plan_fetchmail_update(api, "abc123", server="mail2.example.com")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-leaked-capture" not in dumped
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_fetchmail_update(api, "abc123", server="mail2.example.com")
+        assert p.complete is False
+
+
+class TestPlanFetchmailDelete:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_fetchmail_delete(api, "abc123")
+        assert p.risk == RISK_MEDIUM
+
+    def test_captures_current_config_redacted(self):
+        """fetchmail_get already strips pass entirely at the read layer (MANDATORY, confirmed
+        echoed) — the plan's own _redact_fetchmail_secrets is belt-and-suspenders for THIS call
+        chain; the observable proof is that pass is simply absent, never echoed raw."""
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "id": "abc123", "server": "mail.example.com", "pass": "sentinel-bindpw",
+        })
+        p = plan_fetchmail_delete(api, "abc123")
+        assert "pass" not in p.current
+        assert p.current["server"] == "mail.example.com"
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-bindpw" not in dumped
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_fetchmail_delete(api, "abc123")
+        assert p.complete is False
+
+
+# ===========================================================================
+# Wave 9e: DKIM + customscores
+# ===========================================================================
+
+class TestCheckCustomscoreName:
+    def test_accepts_valid(self):
+        assert _check_customscore_name("MY_RULE-1.x") == "MY_RULE-1.x"
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_customscore_name("a/b")
+
+    def test_rejects_empty(self):
+        with pytest.raises(ProximoError):
+            _check_customscore_name("")
+
+    def test_rejects_space(self):
+        with pytest.raises(ProximoError):
+            _check_customscore_name("has space")
+
+    def test_rejects_trailing_newline(self):
+        with pytest.raises(ProximoError):
+            _check_customscore_name("RULE\n")
+
+
+class TestCheckCustomscoresDigest:
+    def test_none_passes_through(self):
+        assert _check_customscores_digest(None) is None
+
+    def test_accepts_reasonable_digest(self):
+        assert _check_customscores_digest("abc123") == "abc123"
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_customscores_digest("a" * 65)
+
+
+class TestCheckCustomscoreScore:
+    def test_accepts_int(self):
+        assert _check_customscore_score(5) == 5.0
+
+    def test_accepts_float(self):
+        assert _check_customscore_score(-2.5) == -2.5
+
+    def test_accepts_numeric_string(self):
+        assert _check_customscore_score("3.2") == 3.2
+
+    def test_rejects_non_numeric(self):
+        with pytest.raises(ProximoError):
+            _check_customscore_score("not-a-number")
+
+
+class TestCheckDkimKeysize:
+    def test_accepts_minimum(self):
+        assert _check_dkim_keysize(1024) == 1024
+
+    def test_accepts_larger(self):
+        assert _check_dkim_keysize(2048) == 2048
+
+    def test_rejects_below_minimum(self):
+        with pytest.raises(ProximoError):
+            _check_dkim_keysize(1023)
+
+    def test_rejects_non_integer(self):
+        with pytest.raises(ProximoError):
+            _check_dkim_keysize("not-a-number")
+
+
+# ---------------------------------------------------------------------------
+# DKIM backend functions
+# ---------------------------------------------------------------------------
+
+class TestDkimDomainsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        dkim_domains_list(api)
+        assert api.seen["path"] == "/config/dkim/domains"
+        assert api.seen["method"] == "GET"
+
+
+class TestDkimDomainGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        dkim_domain_get(api, "example.com")
+        assert api.seen["path"] == "/config/dkim/domains/example.com"
+
+    def test_rejects_invalid_domain(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            dkim_domain_get(api, "bad/domain")
+
+
+class TestDkimDomainCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        dkim_domain_create(api, "example.com")
+        assert api.seen["path"] == "/config/dkim/domains"
+        assert api.seen["method"] == "POST"
+
+    def test_required_field_in_body(self):
+        api = _api()
+        dkim_domain_create(api, "example.com")
+        assert api.seen["data"] == {"domain": "example.com"}
+
+    def test_comment_included_when_given(self):
+        api = _api()
+        dkim_domain_create(api, "example.com", comment="primary")
+        assert api.seen["data"]["comment"] == "primary"
+
+    def test_comment_omitted_when_none(self):
+        api = _api()
+        dkim_domain_create(api, "example.com")
+        assert "comment" not in api.seen["data"]
+
+
+class TestDkimDomainUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        dkim_domain_update(api, "example.com", "updated")
+        assert api.seen["path"] == "/config/dkim/domains/example.com"
+        assert api.seen["method"] == "PUT"
+
+    def test_domain_not_resent_in_body(self):
+        api = _api()
+        dkim_domain_update(api, "example.com", "updated")
+        assert api.seen["data"] == {"comment": "updated"}
+
+
+class TestDkimDomainDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        dkim_domain_delete(api, "example.com")
+        assert api.seen["path"] == "/config/dkim/domains/example.com"
+        assert api.seen["method"] == "DELETE"
+
+
+class TestDkimSelectorGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        dkim_selector_get(api)
+        assert api.seen["path"] == "/config/dkim/selector"
+        assert api.seen["method"] == "GET"
+
+    def test_no_private_key_field_invented(self):
+        """THE NON-SECRET CONTRACT: the fake backend hands back exactly the schema-typed fields
+        — no private key field exists anywhere in this shape, and this function does not
+        strip/invent one (there is nothing to strip: fact #1)."""
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "keysize": 2048, "record": "v=DKIM1;...", "selector": "mail",
+        })
+        result = dkim_selector_get(api)
+        assert result == {"keysize": 2048, "record": "v=DKIM1;...", "selector": "mail"}
+
+
+class TestDkimSelectorsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        dkim_selectors_list(api)
+        assert api.seen["path"] == "/config/dkim/selectors"
+
+
+class TestDkimSelectorGenerate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        dkim_selector_generate(api, "mail", 2048)
+        assert api.seen["path"] == "/config/dkim/selector"
+        assert api.seen["method"] == "POST"
+
+    def test_required_fields_in_body(self):
+        api = _api()
+        dkim_selector_generate(api, "mail", 2048)
+        assert api.seen["data"] == {"selector": "mail", "keysize": 2048}
+
+    def test_force_included_when_given(self):
+        api = _api()
+        dkim_selector_generate(api, "mail", 2048, force=True)
+        assert api.seen["data"]["force"] is True
+
+    def test_force_omitted_when_none(self):
+        api = _api()
+        dkim_selector_generate(api, "mail", 2048)
+        assert "force" not in api.seen["data"]
+
+    def test_rejects_keysize_below_minimum(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            dkim_selector_generate(api, "mail", 512)
+
+
+# ---------------------------------------------------------------------------
+# customscores backend functions
+# ---------------------------------------------------------------------------
+
+class TestCustomscoresList:
+    def test_uses_correct_path(self):
+        api = _api()
+        customscores_list(api)
+        assert api.seen["path"] == "/config/customscores"
+        assert api.seen["method"] == "GET"
+
+
+class TestCustomscoresGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        customscores_get(api, "MY_RULE")
+        assert api.seen["path"] == "/config/customscores/MY_RULE"
+
+    def test_rejects_invalid_name(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            customscores_get(api, "bad name")
+
+
+class TestCustomscoresCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        customscores_create(api, "MY_RULE", 3.0)
+        assert api.seen["path"] == "/config/customscores"
+        assert api.seen["method"] == "POST"
+
+    def test_required_fields_in_body(self):
+        api = _api()
+        customscores_create(api, "MY_RULE", 3.0)
+        assert api.seen["data"] == {"name": "MY_RULE", "score": 3.0}
+
+    def test_optional_fields_included_when_given(self):
+        api = _api()
+        customscores_create(api, "MY_RULE", 3.0, comment="a rule", digest="abc123")
+        assert api.seen["data"]["comment"] == "a rule"
+        assert api.seen["data"]["digest"] == "abc123"
+
+    def test_optional_fields_omitted_when_none(self):
+        api = _api()
+        customscores_create(api, "MY_RULE", 3.0)
+        assert "comment" not in api.seen["data"]
+        assert "digest" not in api.seen["data"]
+
+    def test_rejects_invalid_name(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            customscores_create(api, "bad name", 3.0)
+
+    def test_rejects_non_numeric_score(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            customscores_create(api, "MY_RULE", "not-a-number")
+
+
+class TestCustomscoresUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        customscores_update(api, "MY_RULE", 4.0)
+        assert api.seen["path"] == "/config/customscores/MY_RULE"
+        assert api.seen["method"] == "PUT"
+
+    def test_name_not_resent_in_body(self):
+        api = _api()
+        customscores_update(api, "MY_RULE", 4.0)
+        assert api.seen["data"] == {"score": 4.0}
+
+    def test_digest_forwarded_when_given(self):
+        api = _api()
+        customscores_update(api, "MY_RULE", 4.0, digest="abc123")
+        assert api.seen["data"]["digest"] == "abc123"
+
+    def test_digest_omitted_when_none(self):
+        api = _api()
+        customscores_update(api, "MY_RULE", 4.0)
+        assert "digest" not in api.seen["data"]
+
+
+class TestCustomscoresDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        customscores_delete(api, "MY_RULE")
+        assert api.seen["path"] == "/config/customscores/MY_RULE"
+        assert api.seen["method"] == "DELETE"
+
+    def test_digest_forwarded_as_query_param(self):
+        api = _api()
+        customscores_delete(api, "MY_RULE", digest="abc123")
+        assert api.seen["params"] == {"digest": "abc123"}
+
+    def test_no_params_when_digest_none(self):
+        api = _api()
+        customscores_delete(api, "MY_RULE")
+        assert api.seen["params"] == {}
+
+
+class TestCustomscoresRevertAll:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        customscores_revert_all(api)
+        assert api.seen["path"] == "/config/customscores"
+        assert api.seen["method"] == "DELETE"
+
+    def test_sends_no_params(self):
+        api = _api()
+        customscores_revert_all(api)
+        assert api.seen["params"] == {}
+
+
+class TestCustomscoresApply:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        customscores_apply(api)
+        assert api.seen["path"] == "/config/customscores"
+        assert api.seen["method"] == "PUT"
+
+    def test_empty_body_by_default(self):
+        api = _api()
+        customscores_apply(api)
+        assert api.seen["data"] == {}
+
+    def test_digest_and_restart_daemon_forwarded(self):
+        api = _api()
+        customscores_apply(api, digest="abc123", restart_daemon=True)
+        assert api.seen["data"] == {"digest": "abc123", "restart-daemon": True}
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — DKIM
+# ---------------------------------------------------------------------------
+
+class TestPlanDkimDomainCreate:
+    def test_risk_is_low(self):
+        p = plan_dkim_domain_create("example.com")
+        assert p.risk == RISK_LOW
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_dkim_domain_create("example.com")
+        assert p.current == {}
+
+    def test_domain_named_in_change(self):
+        p = plan_dkim_domain_create("example.com")
+        assert "example.com" in p.change
+
+
+class TestPlanDkimDomainUpdate:
+    def test_risk_is_low(self):
+        p = plan_dkim_domain_update("example.com", "updated")
+        assert p.risk == RISK_LOW
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_dkim_domain_update("example.com", "updated")
+        assert p.current == {}
+
+
+class TestPlanDkimDomainDelete:
+    def test_risk_is_medium(self):
+        p = plan_dkim_domain_delete("example.com")
+        assert p.risk == RISK_MEDIUM
+
+    def test_blast_radius_states_signing_stops(self):
+        p = plan_dkim_domain_delete("example.com")
+        joined = " ".join(p.blast_radius).lower()
+        assert "no longer dkim-signed" in joined
+
+
+class TestPlanDkimSelectorGenerate:
+    def _api(self, current=None):
+        current = {} if current is None else current
+        return SimpleNamespace(_get=lambda path, params=None: current)
+
+    def test_risk_is_medium(self):
+        p = plan_dkim_selector_generate(self._api(), "mail", 2048)
+        assert p.risk == RISK_MEDIUM
+
+    def test_captures_current_selector(self):
+        api = self._api({"selector": "mail", "keysize": 2048, "record": "v=DKIM1..."})
+        p = plan_dkim_selector_generate(api, "mail", 2048)
+        assert p.current["selector"] == "mail"
+
+    def test_blast_radius_states_upstream_warning(self):
+        p = plan_dkim_selector_generate(self._api(), "mail", 2048)
+        joined = " ".join(p.blast_radius).lower()
+        assert "all future mail will be signed with the new key" in joined
+
+    def test_blast_radius_states_rotation_impact_on_capture_success(self):
+        api = self._api({"selector": "mail", "keysize": 2048, "record": "v=DKIM1..."})
+        p = plan_dkim_selector_generate(api, "mail", 2048)
+        joined = " ".join(p.blast_radius).lower()
+        assert "rotates the signing selector" in joined
+        assert "previous selector" in joined
+        assert "validation" in joined
+        assert p.complete is True
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_dkim_selector_generate(api, "mail", 2048)
+        joined = " ".join(p.blast_radius).lower()
+        assert "current selector unavailable" in joined
+        assert p.complete is False
+
+    def test_rejects_keysize_below_minimum(self):
+        with pytest.raises(ProximoError):
+            plan_dkim_selector_generate(self._api(), "mail", 512)
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — customscores
+# ---------------------------------------------------------------------------
+
+class TestPlanCustomscoresCreate:
+    def test_risk_is_low(self):
+        p = plan_customscores_create("MY_RULE", 3.0)
+        assert p.risk == RISK_LOW
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_customscores_create("MY_RULE", 3.0)
+        assert p.current == {}
+
+    def test_positive_score_states_toward_spam(self):
+        p = plan_customscores_create("MY_RULE", 3.0)
+        joined = " ".join(p.blast_radius).lower()
+        assert "more spam-like" in joined
+
+    def test_negative_score_states_toward_ham(self):
+        p = plan_customscores_create("MY_RULE", -3.0)
+        joined = " ".join(p.blast_radius).lower()
+        assert "less spam-like" in joined
+
+    def test_zero_score_states_neutral(self):
+        p = plan_customscores_create("MY_RULE", 0)
+        joined = " ".join(p.blast_radius).lower()
+        assert "neutral" in joined
+
+
+class TestPlanCustomscoresUpdate:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_customscores_update(api, "MY_RULE", 4.0)
+        assert p.risk == RISK_MEDIUM
+
+    def test_raising_score_states_toward_spam(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {"name": "MY_RULE", "score": 2.0})
+        p = plan_customscores_update(api, "MY_RULE", 5.0)
+        joined = " ".join(p.blast_radius).lower()
+        assert "raises" in joined
+        assert "toward spam" in joined
+
+    def test_lowering_score_states_toward_ham(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {"name": "MY_RULE", "score": 5.0})
+        p = plan_customscores_update(api, "MY_RULE", 2.0)
+        joined = " ".join(p.blast_radius).lower()
+        assert "lowers" in joined
+        assert "toward ham" in joined
+
+    def test_captures_current_score(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {"name": "MY_RULE", "score": 2.0})
+        p = plan_customscores_update(api, "MY_RULE", 5.0)
+        assert p.current["score"] == 2.0
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_customscores_update(api, "MY_RULE", 5.0)
+        assert p.complete is False
+        joined = " ".join(p.blast_radius).lower()
+        assert "prior value unknown" in joined
+
+
+class TestPlanCustomscoresDelete:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_customscores_delete(api, "MY_RULE")
+        assert p.risk == RISK_MEDIUM
+
+    def test_captures_current_score(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {"name": "MY_RULE", "score": 2.0})
+        p = plan_customscores_delete(api, "MY_RULE")
+        assert p.current["score"] == 2.0
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_customscores_delete(api, "MY_RULE")
+        assert p.complete is False
+
+
+class TestPlanCustomscoresRevertAll:
+    def test_risk_is_medium(self):
+        p = plan_customscores_revert_all()
+        assert p.risk == RISK_MEDIUM
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_customscores_revert_all()
+        assert p.current == {}
+
+    def test_blast_radius_states_all_rules(self):
+        p = plan_customscores_revert_all()
+        joined = " ".join(p.blast_radius).lower()
+        assert "every custom score" in joined
+
+
+class TestPlanCustomscoresApply:
+    def test_risk_is_medium(self):
+        p = plan_customscores_apply()
+        assert p.risk == RISK_MEDIUM
+
+    def test_restart_daemon_true_discloses_interruption(self):
+        p = plan_customscores_apply(restart_daemon=True)
+        joined = " ".join(p.blast_radius).lower()
+        assert "restart" in joined
+
+    def test_restart_daemon_none_discloses_necessary_warning(self):
+        p = plan_customscores_apply()
+        joined = " ".join(p.blast_radius).lower()
+        assert "necessary for the changes to work" in joined
+
+
+# ===========================================================================
+# Wave 9f: PBS remote config + node-side PBS backup jobs
+# ===========================================================================
+
+class TestCheckPbsRemoteId:
+    def test_accepts_valid(self):
+        assert _check_pbs_remote_id("my-pbs_1") == "my-pbs_1"
+
+    def test_rejects_leading_hyphen(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_id("-bad")
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_id("a/b")
+
+    def test_rejects_trailing_newline(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_id("remote\n")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_id("a" * 65)
+
+
+class TestCheckPbsDatastore:
+    def test_accepts_valid(self):
+        assert _check_pbs_datastore("ds1") == "ds1"
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_datastore("a/b")
+
+    def test_rejects_leading_hyphen(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_datastore("-bad")
+
+
+class TestCheckPbsRemoteServer:
+    def test_accepts_reasonable_address(self):
+        assert _check_pbs_remote_server("pbs.example.com") == "pbs.example.com"
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_server("a" * 257)
+
+
+class TestCheckPbsRemoteUsername:
+    def test_accepts_valid(self):
+        assert _check_pbs_remote_username("user@pbs") == "user@pbs"
+
+    def test_rejects_missing_at(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_username("nouser")
+
+    def test_rejects_too_short(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_username("a@")
+
+    def test_rejects_whitespace(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_username("user @pbs")
+
+
+class TestCheckPbsRemoteFingerprint:
+    def test_accepts_valid(self):
+        fp = ":".join(["ab"] * 32)
+        assert _check_pbs_remote_fingerprint(fp) == fp
+
+    def test_rejects_too_short(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_fingerprint("AA:BB:CC")
+
+    def test_rejects_non_hex(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_fingerprint(":".join(["zz"] * 32))
+
+
+class TestCheckPbsRemotePort:
+    def test_accepts_boundary_values(self):
+        assert _check_pbs_remote_port(1) == 1
+        assert _check_pbs_remote_port(65535) == 65535
+
+    def test_rejects_zero(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_port(0)
+
+    def test_rejects_out_of_range(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_port(65536)
+
+    def test_rejects_non_integer(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_port("not-a-port")
+
+
+class TestCheckPbsRemoteNamespace:
+    def test_accepts_empty_root(self):
+        assert _check_pbs_remote_namespace("") == ""
+
+    def test_accepts_single_level(self):
+        assert _check_pbs_remote_namespace("tenant-a") == "tenant-a"
+
+    def test_accepts_nested_levels(self):
+        assert _check_pbs_remote_namespace("tenant-a/site-1") == "tenant-a/site-1"
+
+    def test_accepts_max_depth_eight_levels(self):
+        ns = "/".join(["a"] * 8)
+        assert _check_pbs_remote_namespace(ns) == ns
+
+    def test_rejects_too_many_levels(self):
+        ns = "/".join(["a"] * 9)
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_namespace(ns)
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_namespace("a" * 257)
+
+    def test_accepts_boundary_length(self):
+        ns = "a" * 256
+        assert _check_pbs_remote_namespace(ns) == ns
+
+    def test_rejects_leading_slash(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_namespace("/tenant-a")
+
+    def test_accepts_trailing_slash_per_schema_pattern(self):
+        """The schema's own pattern's final segment is OPTIONAL after the repeated 'seg/' group,
+        so a trailing slash is technically schema-legal (e.g. 'a/' = one 'seg/' repetition + an
+        empty optional final segment) — a real quirk of the given pattern, not invented leniency;
+        verified directly against the raw regex, not assumed."""
+        assert _check_pbs_remote_namespace("tenant-a/") == "tenant-a/"
+
+    def test_rejects_double_slash(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_namespace("tenant-a//site-1")
+
+    def test_rejects_space(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_namespace("tenant a")
+
+    def test_rejects_segment_starting_with_hyphen(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_namespace("-tenant")
+
+
+class TestCheckPbsKeepCount:
+    def test_accepts_zero(self):
+        assert _check_pbs_keep_count(0, "keep-last") == 0
+
+    def test_accepts_positive(self):
+        assert _check_pbs_keep_count(5, "keep-last") == 5
+
+    def test_rejects_negative(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_keep_count(-1, "keep-last")
+
+    def test_rejects_non_integer(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_keep_count("nope", "keep-last")
+
+
+class TestCheckPbsRemoteDigest:
+    def test_none_passes_through(self):
+        assert _check_pbs_remote_digest(None) is None
+
+    def test_accepts_reasonable_digest(self):
+        assert _check_pbs_remote_digest("abc123") == "abc123"
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_remote_digest("a" * 65)
+
+
+class TestCheckPbsSnapshotBackupId:
+    def test_accepts_hostname(self):
+        assert _check_pbs_snapshot_backup_id("myhost") == "myhost"
+
+    def test_rejects_empty(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_snapshot_backup_id("")
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_snapshot_backup_id("a/b")
+
+    def test_rejects_dotdot(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_snapshot_backup_id("..")
+
+    def test_rejects_control_chars(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_snapshot_backup_id("bad\nid")
+
+
+class TestCheckPbsSnapshotBackupTime:
+    def test_accepts_rfc3339_string(self):
+        assert _check_pbs_snapshot_backup_time("2026-07-17T00:00:00Z") == "2026-07-17T00:00:00Z"
+
+    def test_accepts_int_coerced_to_string(self):
+        """This chunk's schema types backup-time a STRING, unlike pbs.py's own epoch-int
+        convention — an int is still accepted (coerced via str()) since PMG's own wire format is
+        forgiving, but the validated value returned is the string form."""
+        assert _check_pbs_snapshot_backup_time(1700000000) == "1700000000"
+
+    def test_rejects_empty(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_snapshot_backup_time("")
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_snapshot_backup_time("a/b")
+
+    def test_rejects_control_chars(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_snapshot_backup_time("bad\ntime")
+
+
+class TestCheckPbsTimerSchedule:
+    def test_accepts_daily(self):
+        assert _check_pbs_timer_schedule("daily") == "daily"
+
+    def test_accepts_oncalendar_syntax(self):
+        assert _check_pbs_timer_schedule("Mon *-*-* 02:00:00") == "Mon *-*-* 02:00:00"
+
+    def test_rejects_bad_chars(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_timer_schedule("bad;schedule")
+
+
+class TestCheckPbsTimerDelay:
+    def test_accepts_valid(self):
+        assert _check_pbs_timer_delay("5min") == "5min"
+
+    def test_rejects_bad_chars(self):
+        with pytest.raises(ProximoError):
+            _check_pbs_timer_delay("5;min")
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — PBS remote config
+# ---------------------------------------------------------------------------
+
+class TestPbsRemoteList:
+    def test_uses_correct_path(self):
+        api = _api()
+        pbs_remote_list(api)
+        assert api.seen["path"] == "/config/pbs"
+
+    def test_strips_secrets_mandatorily(self):
+        """THE SECRET CONTRACT: password/encryption-key CONFIRMED echoed on the live list
+        schema — mandatory strip, not defensive."""
+        api = SimpleNamespace(_get=lambda path, params=None: [
+            {"remote": "r1", "server": "pbs.example.com",
+             "password": "sentinel-leaked-password", "encryption-key": "sentinel-leaked-enckey"},
+        ])
+        result = pbs_remote_list(api)
+        assert len(result) == 1
+        assert "password" not in result[0]
+        assert "encryption-key" not in result[0]
+        assert result[0]["remote"] == "r1"
+
+    def test_fingerprint_and_master_pubkey_pass_through(self):
+        """fingerprint/master-pubkey are PUBLIC — never stripped."""
+        api = SimpleNamespace(_get=lambda path, params=None: [
+            {"remote": "r1", "fingerprint": "AA:BB", "master-pubkey": "sentinel-pubkey-pem"},
+        ])
+        result = pbs_remote_list(api)
+        assert result[0]["fingerprint"] == "AA:BB"
+        assert result[0]["master-pubkey"] == "sentinel-pubkey-pem"
+
+
+class TestPbsRemoteGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        pbs_remote_get(api, "r1")
+        assert api.seen["path"] == "/config/pbs/r1"
+
+    def test_strips_secrets_defensively(self):
+        """The single-item schema is bare (returns: {}) — defensive strip regardless."""
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "remote": "r1", "password": "sentinel-leaked-password",
+            "encryption-key": "sentinel-leaked-enckey",
+        })
+        result = pbs_remote_get(api, "r1")
+        assert "password" not in result
+        assert "encryption-key" not in result
+        assert result["remote"] == "r1"
+
+    def test_rejects_invalid_remote(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            pbs_remote_get(api, "bad/remote")
+
+
+class TestPbsRemoteCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        pbs_remote_create(api, "r1", "ds1", "pbs.example.com")
+        assert api.seen["path"] == "/config/pbs"
+        assert api.seen["method"] == "POST"
+
+    def test_required_fields_in_body(self):
+        api = _api()
+        pbs_remote_create(api, "r1", "ds1", "pbs.example.com")
+        assert api.seen["data"] == {"remote": "r1", "datastore": "ds1", "server": "pbs.example.com"}
+
+    def test_password_forwarded_raw_on_the_wire(self):
+        api = _api()
+        pbs_remote_create(api, "r1", "ds1", "pbs.example.com", password="sentinel-pw")
+        assert api.seen["data"]["password"] == "sentinel-pw"
+
+    def test_encryption_key_forwarded_raw_on_the_wire(self):
+        api = _api()
+        pbs_remote_create(api, "r1", "ds1", "pbs.example.com", encryption_key="autogen")
+        assert api.seen["data"]["encryption-key"] == "autogen"
+
+    def test_optional_fields_included_when_given(self):
+        api = _api()
+        pbs_remote_create(
+            api, "r1", "ds1", "pbs.example.com", port=8008, username="user@pbs",
+            fingerprint=":".join(["ab"] * 32), keep_daily=7, notify="error", disable=False,
+            namespace="tenant-a",
+        )
+        assert api.seen["data"]["port"] == 8008
+        assert api.seen["data"]["username"] == "user@pbs"
+        assert api.seen["data"]["fingerprint"] == ":".join(["ab"] * 32)
+        assert api.seen["data"]["keep-daily"] == 7
+        assert api.seen["data"]["notify"] == "error"
+        assert api.seen["data"]["disable"] is False
+        assert api.seen["data"]["namespace"] == "tenant-a"
+
+    def test_optional_fields_omitted_when_none(self):
+        api = _api()
+        pbs_remote_create(api, "r1", "ds1", "pbs.example.com")
+        assert "password" not in api.seen["data"]
+        assert "port" not in api.seen["data"]
+        assert "namespace" not in api.seen["data"]
+
+    def test_rejects_invalid_notify(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            pbs_remote_create(api, "r1", "ds1", "pbs.example.com", notify="sometimes")
+
+    def test_rejects_invalid_namespace(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            pbs_remote_create(api, "r1", "ds1", "pbs.example.com", namespace="/leading-slash")
+
+
+class TestPbsRemoteUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        pbs_remote_update(api, "r1", server="pbs2.example.com")
+        assert api.seen["path"] == "/config/pbs/r1"
+        assert api.seen["method"] == "PUT"
+
+    def test_requires_at_least_one_field(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            pbs_remote_update(api, "r1")
+
+    def test_password_forwarded_raw_on_the_wire(self):
+        api = _api()
+        pbs_remote_update(api, "r1", password="sentinel-newpw")
+        assert api.seen["data"]["password"] == "sentinel-newpw"
+
+    def test_encryption_key_forwarded_raw_on_the_wire(self):
+        api = _api()
+        pbs_remote_update(api, "r1", encryption_key="sentinel-enckey")
+        assert api.seen["data"]["encryption-key"] == "sentinel-enckey"
+
+    def test_delete_forwarded(self):
+        api = _api()
+        pbs_remote_update(api, "r1", delete="comment")
+        assert api.seen["data"]["delete"] == "comment"
+
+    def test_digest_forwarded(self):
+        api = _api()
+        pbs_remote_update(api, "r1", server="pbs2.example.com", digest="abc123")
+        assert api.seen["data"]["digest"] == "abc123"
+
+    def test_remote_not_resent_in_body(self):
+        api = _api()
+        pbs_remote_update(api, "r1", server="pbs2.example.com")
+        assert "remote" not in api.seen["data"]
+
+    def test_namespace_forwarded_raw_on_the_wire(self):
+        api = _api()
+        pbs_remote_update(api, "r1", namespace="tenant-a")
+        assert api.seen["data"]["namespace"] == "tenant-a"
+
+    def test_namespace_alone_satisfies_at_least_one_field(self):
+        """namespace-only update must NOT raise the 'requires at least one field' error —
+        partial-update semantics must treat namespace like any other optional field."""
+        api = _api()
+        pbs_remote_update(api, "r1", namespace="tenant-a")
+        assert api.seen["data"] == {"namespace": "tenant-a"}
+
+    def test_rejects_invalid_namespace(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            pbs_remote_update(api, "r1", namespace="bad//ns")
+
+
+class TestPbsRemoteDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        pbs_remote_delete(api, "r1")
+        assert api.seen["path"] == "/config/pbs/r1"
+        assert api.seen["method"] == "DELETE"
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — node-side PBS backup jobs
+# ---------------------------------------------------------------------------
+
+class TestNodePbsJobsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        node_pbs_jobs_list(api, "pmg1")
+        assert api.seen["path"] == "/nodes/pmg1/pbs"
+
+    def test_strips_secrets_mandatorily(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [
+            {"remote": "r1", "password": "sentinel-leaked-password",
+             "encryption-key": "sentinel-leaked-enckey"},
+        ])
+        result = node_pbs_jobs_list(api, "pmg1")
+        assert "password" not in result[0]
+        assert "encryption-key" not in result[0]
+
+
+class TestNodePbsSnapshotsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        node_pbs_snapshots_list(api, "pmg1", "r1")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/snapshot"
+
+
+class TestNodePbsSnapshotCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_pbs_snapshot_create(api, "pmg1", "r1")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/snapshot"
+        assert api.seen["method"] == "POST"
+
+    def test_optional_fields_included_when_given(self):
+        api = _api()
+        node_pbs_snapshot_create(api, "pmg1", "r1", notify="always", statistic=False)
+        assert api.seen["data"]["notify"] == "always"
+        assert api.seen["data"]["statistic"] is False
+
+    def test_optional_fields_omitted_when_none(self):
+        api = _api()
+        node_pbs_snapshot_create(api, "pmg1", "r1")
+        assert api.seen["data"] == {}
+
+
+class TestNodePbsSnapshotGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        node_pbs_snapshot_get(api, "pmg1", "r1", "myhost")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/snapshot/myhost"
+
+    def test_rejects_invalid_backup_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            node_pbs_snapshot_get(api, "pmg1", "r1", "../etc")
+
+
+class TestNodePbsSnapshotForget:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_pbs_snapshot_forget(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/snapshot/myhost/2026-07-17T00:00:00Z"
+        assert api.seen["method"] == "DELETE"
+
+
+class TestNodePbsSnapshotRestore:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_pbs_snapshot_restore(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/snapshot/myhost/2026-07-17T00:00:00Z"
+        assert api.seen["method"] == "POST"
+
+    def test_sends_all_three_flags_explicitly(self):
+        api = _api()
+        node_pbs_snapshot_restore(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert api.seen["data"] == {"config": False, "database": True, "statistic": False}
+
+    def test_custom_flags_forwarded(self):
+        api = _api()
+        node_pbs_snapshot_restore(
+            api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z",
+            config=True, database=False, statistic=True,
+        )
+        assert api.seen["data"] == {"config": True, "database": False, "statistic": True}
+
+
+class TestNodePbsSnapshotVerify:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_pbs_snapshot_verify(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/snapshot/myhost/2026-07-17T00:00:00Z/verify"
+        assert api.seen["method"] == "POST"
+
+
+class TestNodePbsTimerGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        node_pbs_timer_get(api, "pmg1", "r1")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/timer"
+
+
+class TestNodePbsTimerCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_pbs_timer_create(api, "pmg1", "r1")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/timer"
+        assert api.seen["method"] == "POST"
+
+    def test_optional_fields_included_when_given(self):
+        api = _api()
+        node_pbs_timer_create(api, "pmg1", "r1", schedule="weekly", delay="10min")
+        assert api.seen["data"]["schedule"] == "weekly"
+        assert api.seen["data"]["delay"] == "10min"
+
+    def test_optional_fields_omitted_when_none(self):
+        api = _api()
+        node_pbs_timer_create(api, "pmg1", "r1")
+        assert api.seen["data"] == {}
+
+
+class TestNodePbsTimerDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_pbs_timer_delete(api, "pmg1", "r1")
+        assert api.seen["path"] == "/nodes/pmg1/pbs/r1/timer"
+        assert api.seen["method"] == "DELETE"
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — PBS remote config
+# ---------------------------------------------------------------------------
+
+class TestPlanPbsRemoteCreate:
+    def test_risk_is_medium(self):
+        p = plan_pbs_remote_create("r1", "ds1", "pbs.example.com")
+        assert p.risk == RISK_MEDIUM
+
+    def test_secrets_never_appear_in_plan(self):
+        p = plan_pbs_remote_create(
+            "r1", "ds1", "pbs.example.com",
+            password="sentinel-pw", encryption_key="sentinel-enckey",
+        )
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-pw" not in dumped
+        assert "sentinel-enckey" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_fingerprint_and_master_pubkey_visible(self):
+        fp = ":".join(["ab"] * 32)
+        p = plan_pbs_remote_create(
+            "r1", "ds1", "pbs.example.com", fingerprint=fp, master_pubkey="sentinel-pubkey",
+        )
+        dumped = json.dumps(p.as_dict())
+        assert fp in dumped
+        assert "sentinel-pubkey" in dumped
+
+    def test_autogen_encryption_key_discloses_capture_warning(self):
+        p = plan_pbs_remote_create("r1", "ds1", "pbs.example.com", encryption_key="autogen")
+        joined = " ".join(p.blast_radius).lower()
+        assert "autogen" in joined
+        assert "never" in joined
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_pbs_remote_create("r1", "ds1", "pbs.example.com")
+        assert p.current == {}
+
+    def test_namespace_visible_not_redacted(self):
+        """namespace is a plain identifier, not a secret — it must show as-is in the plan."""
+        p = plan_pbs_remote_create("r1", "ds1", "pbs.example.com", namespace="tenant-a")
+        dumped = json.dumps(p.as_dict())
+        assert "tenant-a" in dumped
+
+
+class TestPlanPbsRemoteUpdate:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_pbs_remote_update(api, "r1", server="pbs2.example.com")
+        assert p.risk == RISK_MEDIUM
+
+    def test_requires_at_least_one_field(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        with pytest.raises(ProximoError):
+            plan_pbs_remote_update(api, "r1")
+
+    def test_secrets_never_appear_in_plan(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_pbs_remote_update(api, "r1", password="sentinel-newpw")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-newpw" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_captured_current_redacted_even_when_secret_bearing(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "remote": "r1", "password": "sentinel-leaked-capture",
+        })
+        p = plan_pbs_remote_update(api, "r1", server="pbs2.example.com")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-leaked-capture" not in dumped
+
+    def test_delete_disclosed_in_change_text(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_pbs_remote_update(api, "r1", delete="comment")
+        assert "-comment" in p.change
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_pbs_remote_update(api, "r1", server="pbs2.example.com")
+        assert p.complete is False
+
+    def test_namespace_visible_not_redacted(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_pbs_remote_update(api, "r1", namespace="tenant-a")
+        dumped = json.dumps(p.as_dict())
+        assert "tenant-a" in dumped
+
+
+class TestPlanPbsRemoteDelete:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_pbs_remote_delete(api, "r1")
+        assert p.risk == RISK_MEDIUM
+
+    def test_captures_current_config_redacted(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "remote": "r1", "server": "pbs.example.com", "password": "sentinel-pw",
+        })
+        p = plan_pbs_remote_delete(api, "r1")
+        assert "password" not in p.current
+        assert p.current["server"] == "pbs.example.com"
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-pw" not in dumped
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_pbs_remote_delete(api, "r1")
+        assert p.complete is False
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — node-side PBS backup jobs
+# ---------------------------------------------------------------------------
+
+class TestPlanNodePbsSnapshotCreate:
+    def test_risk_is_medium(self):
+        p = plan_node_pbs_snapshot_create("pmg1", "r1")
+        assert p.risk == RISK_MEDIUM
+
+    def test_discloses_prune_side_effect(self):
+        p = plan_node_pbs_snapshot_create("pmg1", "r1")
+        joined = " ".join(p.blast_radius).lower()
+        assert "prune" in joined
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_node_pbs_snapshot_create("pmg1", "r1")
+        assert p.current == {}
+
+
+class TestPlanNodePbsSnapshotForget:
+    def test_risk_is_high(self):
+        p = plan_node_pbs_snapshot_forget("pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert p.risk == RISK_HIGH
+
+    def test_discloses_permanent_deletion(self):
+        p = plan_node_pbs_snapshot_forget("pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        joined = " ".join(p.blast_radius).lower()
+        assert "permanently deletes" in joined
+
+
+class TestPlanNodePbsSnapshotRestore:
+    def test_risk_is_high(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_pbs_snapshot_restore(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert p.risk == RISK_HIGH
+
+    def test_states_no_undo_first(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_pbs_snapshot_restore(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert "no undo" in p.blast_radius[0].lower()
+
+    def test_captures_ruledb_counts_when_database_true(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [1, 2, 3])
+        p = plan_node_pbs_snapshot_restore(
+            api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z", database=True,
+        )
+        assert p.current["rules"] == 3
+
+    def test_database_false_skips_ruledb_capture(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [1, 2, 3])
+        p = plan_node_pbs_snapshot_restore(
+            api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z", database=False,
+        )
+        assert p.current == {}
+        joined = " ".join(p.blast_radius).lower()
+        assert "left untouched" in joined
+
+    def test_config_true_discloses_system_config_scope(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_pbs_snapshot_restore(
+            api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z", config=True,
+        )
+        joined = " ".join(p.blast_radius).lower()
+        assert "system configuration" in joined
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_node_pbs_snapshot_restore(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert p.complete is False
+
+    def test_states_target_not_found_when_snapshot_missing(self):
+        """Mirrors plan_backup_restore's (9b) own existence pre-check, extended to the remote
+        snapshot lookup (node_pbs_snapshot_get) — a missing target must be disclosed, not
+        silently skipped (the Minor-1 fix: the docstring's 'mirrors ... exactly' claim now holds
+        for the existence check too, not just the first blast_radius line)."""
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_pbs_snapshot_restore(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        joined = " ".join(p.blast_radius).lower()
+        assert "not found" in joined
+
+    def test_no_not_found_warning_when_snapshot_exists(self):
+        def fake_get(path, params=None):
+            if path == "/nodes/pmg1/pbs/r1/snapshot/myhost":
+                return [{"backup-time": "2026-07-17T00:00:00Z"}]
+            return []
+        api = SimpleNamespace(_get=fake_get)
+        p = plan_node_pbs_snapshot_restore(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        joined = " ".join(p.blast_radius).lower()
+        assert "not found" not in joined
+
+    def test_existence_check_failure_alone_marks_incomplete(self):
+        """Even when the ruledb capture succeeds, a failed existence check alone must degrade
+        `complete` honestly — the two reads are independent, mirroring plan_backup_restore's own
+        'best-effort, degrades honestly' existence-check discipline."""
+        def fake_get(path, params=None):
+            if path == "/nodes/pmg1/pbs/r1/snapshot/myhost":
+                raise ProximoError("simulated read failure")
+            return [1, 2, 3]
+        api = SimpleNamespace(_get=fake_get)
+        p = plan_node_pbs_snapshot_restore(api, "pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert p.complete is False
+        assert p.current["rules"] == 3
+
+
+class TestPlanNodePbsSnapshotVerify:
+    def test_risk_is_low(self):
+        p = plan_node_pbs_snapshot_verify("pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        assert p.risk == RISK_LOW
+
+    def test_non_destructive_stated(self):
+        p = plan_node_pbs_snapshot_verify("pmg1", "r1", "myhost", "2026-07-17T00:00:00Z")
+        joined = " ".join(p.blast_radius).lower()
+        assert "non-destructive" in joined
+
+
+class TestPlanNodePbsTimerCreate:
+    def test_risk_is_low(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_node_pbs_timer_create(api, "pmg1", "r1")
+        assert p.risk == RISK_LOW
+
+    def test_flags_existing_timer(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {"schedule": "daily"})
+        p = plan_node_pbs_timer_create(api, "pmg1", "r1")
+        joined = " ".join(p.blast_radius).lower()
+        assert "already appears configured" in joined
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_node_pbs_timer_create(api, "pmg1", "r1")
+        assert p.complete is False
+
+
+class TestPlanNodePbsTimerDelete:
+    def test_risk_is_low(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_node_pbs_timer_delete(api, "pmg1", "r1")
+        assert p.risk == RISK_LOW
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_node_pbs_timer_delete(api, "pmg1", "r1")
+        assert p.complete is False
+
+
+# ---------------------------------------------------------------------------
+# Wave 9g: ACME accounts/plugins + node cert order/renew/revoke + custom-cert upload
+# ---------------------------------------------------------------------------
+
+class TestCheckAcmeAccountName:
+    def test_accepts_valid(self):
+        assert _check_acme_account_name("default") == "default"
+        assert _check_acme_account_name("my.account-1") == "my.account-1"
+
+    def test_rejects_leading_dot(self):
+        with pytest.raises(ProximoError):
+            _check_acme_account_name(".bad")
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_acme_account_name("a/b")
+
+    def test_rejects_trailing_newline(self):
+        with pytest.raises(ProximoError):
+            _check_acme_account_name("default\n")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_acme_account_name("a" * 257)
+
+
+class TestCheckAcmePluginId:
+    def test_accepts_valid(self):
+        assert _check_acme_plugin_id("my_plugin.1") == "my_plugin.1"
+
+    def test_rejects_slash(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_id("a/b")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_id("a" * 65)
+
+
+class TestCheckAcmeChallengeType:
+    def test_accepts_dns(self):
+        assert _check_acme_challenge_type("dns") == "dns"
+
+    def test_accepts_standalone(self):
+        assert _check_acme_challenge_type("standalone") == "standalone"
+
+    def test_rejects_unknown(self):
+        with pytest.raises(ProximoError):
+            _check_acme_challenge_type("http-01")
+
+
+class TestCheckAcmePluginApi:
+    def test_accepts_valid(self):
+        assert _check_acme_plugin_api("cf") == "cf"
+        assert _check_acme_plugin_api("route53") == "route53"
+
+    def test_rejects_uppercase(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_api("CF")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_api("a" * 65)
+
+    def test_rejects_whitespace(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_api("c f")
+
+
+class TestCheckAcmeContact:
+    def test_accepts_bare_email(self):
+        assert _check_acme_contact("user@example.com") == "user@example.com"
+
+    def test_accepts_mailto_prefix(self):
+        assert _check_acme_contact("mailto:user@example.com") == "mailto:user@example.com"
+
+    def test_accepts_comma_separated_list(self):
+        v = "mailto:a@example.com,mailto:b@example.com"
+        assert _check_acme_contact(v) == v
+
+    def test_rejects_missing_at(self):
+        with pytest.raises(ProximoError):
+            _check_acme_contact("not-an-email")
+
+    def test_rejects_whitespace(self):
+        with pytest.raises(ProximoError):
+            _check_acme_contact("user @example.com")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_acme_contact("a@" + "b" * 1025)
+
+
+class TestCheckAcmeDirectoryUrl:
+    def test_accepts_https(self):
+        url = "https://acme-v02.api.letsencrypt.org/directory"
+        assert _check_acme_directory_url(url, "directory") == url
+
+    def test_rejects_http(self):
+        """STRICTER THAN SCHEMA BY CHOICE — schema permits http, this validator does not
+        (mirrors pbs_acme.py's own review-finding-driven https-only enforcement)."""
+        with pytest.raises(ProximoError):
+            _check_acme_directory_url("http://example.com/directory", "directory")
+
+    def test_rejects_whitespace(self):
+        with pytest.raises(ProximoError):
+            _check_acme_directory_url("https://example.com/ bad", "directory")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_acme_directory_url("https://example.com/" + "a" * 512, "directory")
+
+
+class TestCheckAcmePluginDigest:
+    def test_accepts_none(self):
+        assert _check_acme_plugin_digest(None) is None
+
+    def test_accepts_valid(self):
+        assert _check_acme_plugin_digest("abc123") == "abc123"
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_digest("a" * 65)
+
+
+class TestCheckAcmePluginNodes:
+    def test_accepts_single_node(self):
+        assert _check_acme_plugin_nodes("pmg1") == "pmg1"
+
+    def test_accepts_comma_separated(self):
+        assert _check_acme_plugin_nodes("pmg1,pmg2") == "pmg1,pmg2"
+
+    def test_rejects_empty_segment(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_nodes("pmg1,,pmg2")
+
+    def test_rejects_invalid_node_name(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_nodes("pmg1,bad/node")
+
+
+class TestCheckAcmePluginDeleteProps:
+    def test_accepts_single_valid_prop(self):
+        assert _check_acme_plugin_delete_props("disable") == "disable"
+
+    def test_accepts_comma_separated_valid_props(self):
+        v = "disable,validation-delay"
+        assert _check_acme_plugin_delete_props(v) == v
+
+    def test_rejects_empty(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_delete_props("")
+
+    def test_rejects_unknown_property(self):
+        """Closed to THIS endpoint's own writable optional properties — 'id'/'type'/'digest'/
+        'delete' are not themselves deletable."""
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_delete_props("comment")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ProximoError):
+            _check_acme_plugin_delete_props("disable," * 1000)
+
+
+class TestCheckAcmeValidationDelay:
+    def test_accepts_valid(self):
+        assert _check_acme_validation_delay(30) == 30
+        assert _check_acme_validation_delay(0) == 0
+        assert _check_acme_validation_delay(172800) == 172800
+
+    def test_rejects_negative(self):
+        with pytest.raises(ProximoError):
+            _check_acme_validation_delay(-1)
+
+    def test_rejects_over_max(self):
+        with pytest.raises(ProximoError):
+            _check_acme_validation_delay(172801)
+
+    def test_rejects_float(self):
+        with pytest.raises(ProximoError):
+            _check_acme_validation_delay(12.9)
+
+    def test_rejects_bool(self):
+        with pytest.raises(ProximoError):
+            _check_acme_validation_delay(True)
+
+
+class TestCheckPmgCertType:
+    def test_accepts_api(self):
+        assert _check_pmg_cert_type("api") == "api"
+
+    def test_accepts_smtp(self):
+        assert _check_pmg_cert_type("smtp") == "smtp"
+
+    def test_rejects_unknown(self):
+        with pytest.raises(ProximoError):
+            _check_pmg_cert_type("web")
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — ACME accounts
+# ---------------------------------------------------------------------------
+
+class TestAcmeAccountList:
+    def test_uses_correct_path(self):
+        api = _api()
+        acme_account_list(api)
+        assert api.seen["path"] == "/config/acme/account"
+
+    def test_strips_secrets_defensively(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [
+            {"name": "default", "eab-hmac-key": "sentinel-leaked-key", "eab-kid": "sentinel-leaked-kid"},
+        ])
+        result = acme_account_list(api)
+        assert "eab-hmac-key" not in result[0]
+        assert "eab-kid" not in result[0]
+        assert result[0]["name"] == "default"
+
+
+class TestAcmeAccountGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        acme_account_get(api, "default")
+        assert api.seen["path"] == "/config/acme/account/default"
+
+    def test_defaults_to_default_account(self):
+        api = _api()
+        acme_account_get(api)
+        assert api.seen["path"] == "/config/acme/account/default"
+
+    def test_strips_secrets_defensively(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "directory": "https://example.com/directory",
+            "eab-hmac-key": "sentinel-leaked-key", "eab-kid": "sentinel-leaked-kid",
+        })
+        result = acme_account_get(api, "default")
+        assert "eab-hmac-key" not in result
+        assert "eab-kid" not in result
+        assert result["directory"] == "https://example.com/directory"
+
+    def test_rejects_invalid_name(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            acme_account_get(api, "bad/name")
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — ACME plugins
+# ---------------------------------------------------------------------------
+
+class TestAcmePluginsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        acme_plugins_list(api)
+        assert api.seen["path"] == "/config/acme/plugins"
+
+    def test_forwards_type_filter(self):
+        api = _api()
+        acme_plugins_list(api, plugin_type="dns")
+        assert api.seen["params"]["type"] == "dns"
+
+    def test_no_filter_when_omitted(self):
+        api = _api()
+        acme_plugins_list(api)
+        assert not api.seen["params"]
+
+    def test_strips_data_defensively(self):
+        """PMG's own list is schema-confirmed THIN/id-only (does NOT echo `data` per the schema)
+        — stripped anyway per the mature post-9c-review discipline."""
+        api = SimpleNamespace(_get=lambda path, params=None: [
+            {"plugin": "p1", "data": "sentinel-leaked-data-blob"},
+        ])
+        result = acme_plugins_list(api)
+        assert "data" not in result[0]
+        assert result[0]["plugin"] == "p1"
+
+
+class TestAcmePluginGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        acme_plugin_get(api, "p1")
+        assert api.seen["path"] == "/config/acme/plugins/p1"
+
+    def test_strips_data_defensively(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "plugin": "p1", "data": "sentinel-leaked-data-blob",
+        })
+        result = acme_plugin_get(api, "p1")
+        assert "data" not in result
+        assert result["plugin"] == "p1"
+
+    def test_rejects_invalid_id(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            acme_plugin_get(api, "bad/id")
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — ACME CA metadata (tos/meta/directories/challenge-schema)
+# ---------------------------------------------------------------------------
+
+class TestAcmeTos:
+    def test_uses_correct_path(self):
+        api = _api()
+        acme_tos(api)
+        assert api.seen["path"] == "/config/acme/tos"
+
+    def test_forwards_directory(self):
+        api = _api()
+        acme_tos(api, directory="https://example.com/directory")
+        assert api.seen["params"]["directory"] == "https://example.com/directory"
+
+    def test_rejects_http_directory(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            acme_tos(api, directory="http://example.com/directory")
+
+
+class TestAcmeMeta:
+    def test_uses_correct_path(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        acme_meta(api)
+
+    def test_forwards_directory(self):
+        seen = {}
+
+        def fake_get(path, params=None):
+            seen["path"] = path
+            seen["params"] = params
+            return {}
+        api = SimpleNamespace(_get=fake_get)
+        acme_meta(api, directory="https://example.com/directory")
+        assert seen["path"] == "/config/acme/meta"
+        assert seen["params"]["directory"] == "https://example.com/directory"
+
+    def test_rejects_http_directory(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        with pytest.raises(ProximoError):
+            acme_meta(api, directory="http://example.com/directory")
+
+
+class TestAcmeDirectories:
+    def test_uses_correct_path(self):
+        api = _api()
+        acme_directories(api)
+        assert api.seen["path"] == "/config/acme/directories"
+
+
+class TestAcmeChallengeSchema:
+    def test_uses_correct_path(self):
+        api = _api()
+        acme_challenge_schema(api)
+        assert api.seen["path"] == "/config/acme/challenge-schema"
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — ACME account mutations
+# ---------------------------------------------------------------------------
+
+class TestAcmeAccountCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        acme_account_create(api, "mailto:a@example.com")
+        assert api.seen["path"] == "/config/acme/account"
+        assert api.seen["method"] == "POST"
+
+    def test_contact_in_body(self):
+        api = _api()
+        acme_account_create(api, "mailto:a@example.com")
+        assert api.seen["data"]["contact"] == "mailto:a@example.com"
+
+    def test_eab_fields_forwarded_raw_on_the_wire(self):
+        api = _api()
+        acme_account_create(
+            api, "mailto:a@example.com", eab_hmac_key="sentinel-hmac", eab_kid="sentinel-kid",
+        )
+        assert api.seen["data"]["eab-hmac-key"] == "sentinel-hmac"
+        assert api.seen["data"]["eab-kid"] == "sentinel-kid"
+
+    def test_name_omitted_lets_pmg_default(self):
+        api = _api()
+        acme_account_create(api, "mailto:a@example.com")
+        assert "name" not in api.seen["data"]
+
+    def test_name_forwarded_when_given(self):
+        api = _api()
+        acme_account_create(api, "mailto:a@example.com", name="custom")
+        assert api.seen["data"]["name"] == "custom"
+
+    def test_rejects_invalid_directory(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            acme_account_create(api, "mailto:a@example.com", directory="http://example.com/directory")
+
+    def test_rejects_invalid_contact(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            acme_account_create(api, "not-an-email")
+
+
+class TestAcmeAccountUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        acme_account_update(api, "default", contact="mailto:new@example.com")
+        assert api.seen["path"] == "/config/acme/account/default"
+        assert api.seen["method"] == "PUT"
+
+    def test_no_guard_on_empty_update(self):
+        """Deliberate exception: PMG's own schema states omitting contact triggers a CA refresh
+        — NOT an error, unlike this codebase's usual 'at least one field' guard."""
+        api = _api()
+        acme_account_update(api, "default")
+        assert api.seen["data"] == {}
+
+    def test_contact_forwarded_raw_on_the_wire(self):
+        api = _api()
+        acme_account_update(api, "default", contact="mailto:new@example.com")
+        assert api.seen["data"]["contact"] == "mailto:new@example.com"
+
+
+class TestAcmeAccountDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        acme_account_delete(api, "default")
+        assert api.seen["path"] == "/config/acme/account/default"
+        assert api.seen["method"] == "DELETE"
+
+    def test_force_forwarded_when_true(self):
+        api = _api()
+        acme_account_delete(api, "default", force=True)
+        assert api.seen["params"]["force"] == 1
+
+    def test_force_omitted_when_false(self):
+        api = _api()
+        acme_account_delete(api, "default", force=False)
+        assert api.seen["params"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — ACME plugin mutations
+# ---------------------------------------------------------------------------
+
+class TestAcmePluginCreate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        acme_plugin_create(api, "p1", "dns")
+        assert api.seen["path"] == "/config/acme/plugins"
+        assert api.seen["method"] == "POST"
+
+    def test_required_fields_in_body(self):
+        api = _api()
+        acme_plugin_create(api, "p1", "dns")
+        assert api.seen["data"] == {"id": "p1", "type": "dns"}
+
+    def test_data_forwarded_raw_on_the_wire(self):
+        api = _api()
+        acme_plugin_create(api, "p1", "dns", data="sentinel-b64-blob")
+        assert api.seen["data"]["data"] == "sentinel-b64-blob"
+
+    def test_dns_api_maps_to_api_field(self):
+        api = _api()
+        acme_plugin_create(api, "p1", "dns", dns_api="cf")
+        assert api.seen["data"]["api"] == "cf"
+
+    def test_optional_fields_included_when_given(self):
+        api = _api()
+        acme_plugin_create(api, "p1", "dns", disable=True, nodes="pmg1", validation_delay=60)
+        assert api.seen["data"]["disable"] is True
+        assert api.seen["data"]["nodes"] == "pmg1"
+        assert api.seen["data"]["validation-delay"] == 60
+
+    def test_rejects_invalid_plugin_type(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            acme_plugin_create(api, "p1", "http-01")
+
+    def test_rejects_invalid_validation_delay(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            acme_plugin_create(api, "p1", "dns", validation_delay=999999)
+
+
+class TestAcmePluginUpdate:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        acme_plugin_update(api, "p1", disable=True)
+        assert api.seen["path"] == "/config/acme/plugins/p1"
+        assert api.seen["method"] == "PUT"
+
+    def test_digest_forwarded(self):
+        api = _api()
+        acme_plugin_update(api, "p1", digest="abc123")
+        assert api.seen["data"]["digest"] == "abc123"
+
+    def test_delete_forwarded(self):
+        api = _api()
+        acme_plugin_update(api, "p1", delete="disable")
+        assert api.seen["data"]["delete"] == "disable"
+
+    def test_rejects_invalid_delete_prop(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            acme_plugin_update(api, "p1", delete="comment")
+
+    def test_id_not_resent_in_body(self):
+        api = _api()
+        acme_plugin_update(api, "p1", disable=True)
+        assert "id" not in api.seen["data"]
+
+
+class TestAcmePluginDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        acme_plugin_delete(api, "p1")
+        assert api.seen["path"] == "/config/acme/plugins/p1"
+        assert api.seen["method"] == "DELETE"
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — node cert order/renew/revoke (ACME-issued)
+# ---------------------------------------------------------------------------
+
+class TestNodeCertAcmeOrder:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_cert_acme_order(api, "pmg1", "api")
+        assert api.seen["path"] == "/nodes/pmg1/certificates/acme/api"
+        assert api.seen["method"] == "POST"
+
+    def test_force_forwarded(self):
+        api = _api()
+        node_cert_acme_order(api, "pmg1", "api", force=True)
+        assert api.seen["data"]["force"] == 1
+
+    def test_rejects_invalid_cert_type(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            node_cert_acme_order(api, "pmg1", "web")
+
+
+class TestNodeCertAcmeRenew:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_cert_acme_renew(api, "pmg1", "smtp")
+        assert api.seen["path"] == "/nodes/pmg1/certificates/acme/smtp"
+        assert api.seen["method"] == "PUT"
+
+
+class TestNodeCertAcmeRevoke:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_cert_acme_revoke(api, "pmg1", "api")
+        assert api.seen["path"] == "/nodes/pmg1/certificates/acme/api"
+        assert api.seen["method"] == "DELETE"
+
+
+# ---------------------------------------------------------------------------
+# Backend functions — node custom-cert upload/delete
+# ---------------------------------------------------------------------------
+
+class TestNodeCertCustomUpload:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_cert_custom_upload(api, "pmg1", "api", "CERTDATA", "KEYDATA")
+        assert api.seen["path"] == "/nodes/pmg1/certificates/custom/api"
+        assert api.seen["method"] == "POST"
+
+    def test_certificates_and_key_forwarded_raw_on_the_wire(self):
+        api = _api()
+        node_cert_custom_upload(api, "pmg1", "api", "CERTDATA", "KEYDATA")
+        assert api.seen["data"]["certificates"] == "CERTDATA"
+        assert api.seen["data"]["key"] == "KEYDATA"
+
+    def test_force_and_restart_forwarded(self):
+        api = _api()
+        node_cert_custom_upload(api, "pmg1", "api", "CERTDATA", "KEYDATA", force=True, restart=True)
+        assert api.seen["data"]["force"] == 1
+        assert api.seen["data"]["restart"] == 1
+
+    def test_rejects_invalid_cert_type(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            node_cert_custom_upload(api, "pmg1", "web", "CERTDATA", "KEYDATA")
+
+
+class TestNodeCertCustomDelete:
+    def test_uses_correct_path_and_method(self):
+        api = _api()
+        node_cert_custom_delete(api, "pmg1", "smtp")
+        assert api.seen["path"] == "/nodes/pmg1/certificates/custom/smtp"
+        assert api.seen["method"] == "DELETE"
+
+    def test_restart_forwarded_when_true(self):
+        api = _api()
+        node_cert_custom_delete(api, "pmg1", "api", restart=True)
+        assert api.seen["params"]["restart"] == 1
+
+    def test_restart_omitted_when_false(self):
+        api = _api()
+        node_cert_custom_delete(api, "pmg1", "api", restart=False)
+        assert api.seen["params"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — ACME accounts
+# ---------------------------------------------------------------------------
+
+class TestPlanAcmeAccountCreate:
+    def test_risk_is_medium(self):
+        p = plan_acme_account_create("mailto:a@example.com")
+        assert p.risk == RISK_MEDIUM
+
+    def test_secrets_never_appear_in_plan(self):
+        p = plan_acme_account_create(
+            "mailto:a@example.com", eab_hmac_key="sentinel-hmac", eab_kid="sentinel-kid",
+        )
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-hmac" not in dumped
+        assert "sentinel-kid" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_contact_visible_not_redacted(self):
+        p = plan_acme_account_create("mailto:a@example.com")
+        dumped = json.dumps(p.as_dict())
+        assert "mailto:a@example.com" in dumped
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_acme_account_create("mailto:a@example.com")
+        assert p.current == {}
+
+    def test_rejects_invalid_directory(self):
+        with pytest.raises(ProximoError):
+            plan_acme_account_create("mailto:a@example.com", directory="http://example.com/directory")
+
+
+class TestPlanAcmeAccountUpdate:
+    def test_risk_is_low(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_acme_account_update(api, "default", contact="mailto:new@example.com")
+        assert p.risk == RISK_LOW
+
+    def test_no_guard_when_contact_omitted(self):
+        """Deliberate exception (divergence #11) — no ProximoError raised."""
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_acme_account_update(api, "default")
+        assert "refresh" in p.change.lower()
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_acme_account_update(api, "default", contact="mailto:new@example.com")
+        assert p.complete is False
+
+    def test_captured_current_redacted_even_when_secret_bearing(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "directory": "https://example.com/directory", "eab-hmac-key": "sentinel-leaked",
+        })
+        p = plan_acme_account_update(api, "default", contact="mailto:new@example.com")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-leaked" not in dumped
+
+
+class TestPlanAcmeAccountDelete:
+    def test_risk_is_high(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_acme_account_delete(api, "default")
+        assert p.risk == RISK_HIGH
+
+    def test_discloses_irreversible(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_acme_account_delete(api, "default")
+        assert "irreversible" in p.change.lower()
+
+    def test_captures_current_config_redacted(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "directory": "https://example.com/directory", "eab-hmac-key": "sentinel-leaked",
+        })
+        p = plan_acme_account_delete(api, "default")
+        assert "eab-hmac-key" not in p.current
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-leaked" not in dumped
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_acme_account_delete(api, "default")
+        assert p.complete is False
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — ACME plugins
+# ---------------------------------------------------------------------------
+
+class TestPlanAcmePluginCreate:
+    def test_risk_is_medium(self):
+        p = plan_acme_plugin_create("p1", "dns")
+        assert p.risk == RISK_MEDIUM
+
+    def test_secrets_never_appear_in_plan(self):
+        p = plan_acme_plugin_create("p1", "dns", data="sentinel-b64-blob")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-b64-blob" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_rejects_invalid_plugin_type(self):
+        with pytest.raises(ProximoError):
+            plan_acme_plugin_create("p1", "http-01")
+
+
+class TestPlanAcmePluginUpdate:
+    def test_risk_is_medium(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_acme_plugin_update(api, "p1", disable=True)
+        assert p.risk == RISK_MEDIUM
+
+    def test_secrets_never_appear_in_plan(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_acme_plugin_update(api, "p1", data="sentinel-b64-blob")
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-b64-blob" not in dumped
+        assert "[redacted]" in dumped
+
+    def test_captured_current_redacted_even_when_secret_bearing(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "plugin": "p1", "data": "sentinel-leaked-capture",
+        })
+        p = plan_acme_plugin_update(api, "p1", disable=True)
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-leaked-capture" not in dumped
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_acme_plugin_update(api, "p1", disable=True)
+        assert p.complete is False
+
+    def test_rejects_invalid_delete_prop(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        with pytest.raises(ProximoError):
+            plan_acme_plugin_update(api, "p1", delete="comment")
+
+
+class TestPlanAcmePluginDelete:
+    def test_risk_is_high(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {})
+        p = plan_acme_plugin_delete(api, "p1")
+        assert p.risk == RISK_HIGH
+
+    def test_captures_current_config_redacted(self):
+        api = SimpleNamespace(_get=lambda path, params=None: {
+            "plugin": "p1", "data": "sentinel-leaked",
+        })
+        p = plan_acme_plugin_delete(api, "p1")
+        assert "data" not in p.current
+        dumped = json.dumps(p.as_dict())
+        assert "sentinel-leaked" not in dumped
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_acme_plugin_delete(api, "p1")
+        assert p.complete is False
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — node cert order/renew/revoke (ACME-issued)
+# ---------------------------------------------------------------------------
+
+class TestPlanNodeCertAcmeOrder:
+    def test_risk_is_medium(self):
+        p = plan_node_cert_acme_order("pmg1", "api")
+        assert p.risk == RISK_MEDIUM
+
+    def test_api_slot_names_web_ui(self):
+        p = plan_node_cert_acme_order("pmg1", "api")
+        assert "management-api" in p.change.lower()
+
+    def test_smtp_slot_names_mail_tls(self):
+        p = plan_node_cert_acme_order("pmg1", "smtp")
+        assert "smtp" in p.change.lower()
+
+    def test_no_capture_current_is_empty(self):
+        p = plan_node_cert_acme_order("pmg1", "api")
+        assert p.current == {}
+
+
+class TestPlanNodeCertAcmeRenew:
+    def test_risk_is_medium(self):
+        p = plan_node_cert_acme_renew("pmg1", "api")
+        assert p.risk == RISK_MEDIUM
+
+
+class TestPlanNodeCertAcmeRevoke:
+    def test_risk_is_high(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_cert_acme_revoke(api, "pmg1", "api")
+        assert p.risk == RISK_HIGH
+
+    def test_discloses_irreversible(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_cert_acme_revoke(api, "pmg1", "api")
+        assert "irreversible" in p.change.lower()
+
+    def test_captures_cert_info_as_evidence(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [{"fingerprint": "AA:BB"}])
+        p = plan_node_cert_acme_revoke(api, "pmg1", "api")
+        assert p.current["certificates"] == [{"fingerprint": "AA:BB"}]
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_node_cert_acme_revoke(api, "pmg1", "api")
+        assert p.complete is False
+
+
+# ---------------------------------------------------------------------------
+# Plan factories — node custom-cert upload/delete
+# ---------------------------------------------------------------------------
+
+class TestPlanNodeCertCustomUpload:
+    def test_risk_is_high(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_cert_custom_upload(api, "CERTDATA", "pmg1", "api")
+        assert p.risk == RISK_HIGH
+
+    def test_key_never_appears_anywhere(self):
+        """UNCONDITIONAL redaction — `key` is never even a parameter to this function."""
+        import inspect
+        assert "key" not in inspect.signature(plan_node_cert_custom_upload).parameters
+
+    def test_api_slot_names_web_ui_lockout(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_cert_custom_upload(api, "CERTDATA", "pmg1", "api")
+        joined = " ".join(p.risk_reasons).lower()
+        assert "web ui" in joined or "lock" in joined
+
+    def test_smtp_slot_names_mail_tls_breakage(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [])
+        p = plan_node_cert_custom_upload(api, "CERTDATA", "pmg1", "smtp")
+        joined = " ".join(p.risk_reasons).lower()
+        assert "mail" in joined or "smtp" in joined
+
+    def test_captures_cert_info_as_evidence(self):
+        api = SimpleNamespace(_get=lambda path, params=None: [{"fingerprint": "AA:BB"}])
+        p = plan_node_cert_custom_upload(api, "CERTDATA", "pmg1", "api")
+        assert p.current["certificates"] == [{"fingerprint": "AA:BB"}]
+
+    def test_degrades_honestly_on_capture_failure(self):
+        def raising_get(path, params=None):
+            raise ProximoError("simulated read failure")
+        api = SimpleNamespace(_get=raising_get)
+        p = plan_node_cert_custom_upload(api, "CERTDATA", "pmg1", "api")
+        assert p.complete is False
+
+
+class TestPlanNodeCertCustomDelete:
+    def test_risk_is_medium(self):
+        p = plan_node_cert_custom_delete("pmg1", "api")
+        assert p.risk == RISK_MEDIUM
+
+    def test_discloses_recoverable(self):
+        p = plan_node_cert_custom_delete("pmg1", "api")
+        assert "recoverable" in p.note.lower()
+
+
+# ===========================================================================
+# Wave 9j (2026-07-18, THE FINAL CHUNK — closes the PMG plane): quarantine + statistics
+# remainder. See pmg.py's own "Wave 9j" module section for the full RULING 4 / taint argument.
+# ===========================================================================
+
+
+class TestCheckQuarusersList:
+    def test_valid_values_pass(self):
+        for v in ("BL", "WL"):
+            assert _check_quarusers_list(v) == v
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(ProximoError):
+            _check_quarusers_list("XX")
+
+    def test_lowercase_raises(self):
+        with pytest.raises(ProximoError):
+            _check_quarusers_list("bl")
+
+
+class TestCheckStatisticsDetailType:
+    def test_valid_values_pass(self):
+        for v in ("contact", "sender", "receiver"):
+            assert _check_statistics_detail_type(v) == v
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(ProximoError):
+            _check_statistics_detail_type("domain")
+
+
+class TestCheckRecentHours:
+    def test_valid_bounds_pass(self):
+        assert _check_recent_hours(1) == 1
+        assert _check_recent_hours(24) == 24
+        assert _check_recent_hours("12") == 12
+
+    def test_below_min_raises(self):
+        with pytest.raises(ProximoError):
+            _check_recent_hours(0)
+
+    def test_above_max_raises(self):
+        with pytest.raises(ProximoError):
+            _check_recent_hours(25)
+
+    def test_non_int_raises(self):
+        with pytest.raises(ProximoError):
+            _check_recent_hours("bad")
+
+
+class TestCheckRecentLimit:
+    def test_valid_bounds_pass(self):
+        assert _check_recent_limit(1) == 1
+        assert _check_recent_limit(50) == 50
+
+    def test_below_min_raises(self):
+        with pytest.raises(ProximoError):
+            _check_recent_limit(0)
+
+    def test_above_max_raises(self):
+        with pytest.raises(ProximoError):
+            _check_recent_limit(51)
+
+    def test_non_int_raises(self):
+        with pytest.raises(ProximoError):
+            _check_recent_limit("bad")
+
+
+class TestQuarantineUsersList:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or []
+        )
+        quarantine_users_list(api)
+        assert api.seen["path"] == "/quarantine/quarusers"
+
+    def test_no_list_filter_sends_no_params(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params) or []
+        )
+        quarantine_users_list(api)
+        assert api.seen["params"] is None
+
+    def test_list_filter_forwarded(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        quarantine_users_list(api, list_="WL")
+        assert api.seen["params"].get("list") == "WL"
+
+    def test_invalid_list_filter_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            quarantine_users_list(api, list_="bogus")
+
+
+class TestQuarantineContentGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or {}
+        )
+        quarantine_content_get(api, "C1R1T1700000000")
+        assert api.seen["path"] == "/quarantine/content"
+
+    def test_id_sent_as_param(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or {}
+        )
+        quarantine_content_get(api, "C1R1T1700000000")
+        assert api.seen["params"].get("id") == "C1R1T1700000000"
+
+    def test_images_true_sends_1(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or {}
+        )
+        quarantine_content_get(api, "abc123", images=True)
+        assert api.seen["params"].get("images") == 1
+
+    def test_images_false_sends_0(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or {}
+        )
+        quarantine_content_get(api, "abc123", images=False)
+        assert api.seen["params"].get("images") == 0
+
+    def test_raw_omitted_when_none(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or {}
+        )
+        quarantine_content_get(api, "abc123")
+        assert "raw" not in api.seen["params"]
+
+    def test_raw_true_sends_1(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or {}
+        )
+        quarantine_content_get(api, "abc123", raw=True)
+        assert api.seen["params"].get("raw") == 1
+
+    def test_invalid_id_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            quarantine_content_get(api, "not/valid")
+
+    def test_falsy_empty_dict_return_passes_through(self):
+        api = _api()
+        api._get = lambda path, params=None: None
+        assert quarantine_content_get(api, "abc123") == {}
+
+
+class TestQuarantineAttachmentsList:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or []
+        )
+        quarantine_attachments_list(api, "abc123")
+        assert api.seen["path"] == "/quarantine/listattachments"
+
+    def test_id_sent_as_param(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        quarantine_attachments_list(api, "abc123")
+        assert api.seen["params"].get("id") == "abc123"
+
+    def test_invalid_id_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            quarantine_attachments_list(api, "bad id with spaces")
+
+    def test_falsy_none_return_becomes_empty_list(self):
+        api = _api()
+        api._get = lambda path, params=None: None
+        assert quarantine_attachments_list(api, "abc123") == []
+
+
+class TestQuarantineLinkGet:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or {"link": "https://sentinel/link"}
+        )
+        quarantine_link_get(api, "user@example.com")
+        assert api.seen["path"] == "/quarantine/link"
+
+    def test_mail_sent_as_param(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or {}
+        )
+        quarantine_link_get(api, "user@example.com")
+        assert api.seen["params"].get("mail") == "user@example.com"
+
+    def test_invalid_mail_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            quarantine_link_get(api, "not-an-email")
+
+    def test_link_value_reaches_the_caller(self):
+        """THE SECRET must reach the caller (it's the whole point of the tool) — only the
+        LEDGER redaction (RULING 4) forbids it from being logged, proven separately in
+        tests/test_confirm_sweep_pmg_quarantine_statistics.py."""
+        api = _api()
+        api._get = lambda path, params=None: {"link": "https://pmg.example.com/quarantine?t=SECRETTOKEN"}
+        result = quarantine_link_get(api, "user@example.com")
+        assert result["link"] == "https://pmg.example.com/quarantine?t=SECRETTOKEN"
+
+    def test_falsy_none_return_becomes_empty_dict(self):
+        api = _api()
+        api._get = lambda path, params=None: None
+        assert quarantine_link_get(api, "user@example.com") == {}
+
+
+class TestQuarantineSendlink:
+    def test_uses_correct_path(self):
+        api = _api()
+        quarantine_sendlink(api, "user@example.com")
+        assert api.seen["path"] == "/quarantine/sendlink"
+        assert api.seen["method"] == "POST"
+
+    def test_mail_sent_in_body(self):
+        api = _api()
+        quarantine_sendlink(api, "user@example.com")
+        assert api.seen["data"] == {"mail": "user@example.com"}
+
+    def test_invalid_mail_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            quarantine_sendlink(api, "not-an-email")
+
+
+class TestPlanQuarantineSendlink:
+    def test_risk_is_low(self):
+        p = plan_quarantine_sendlink("user@example.com")
+        assert p.risk == RISK_LOW
+
+    def test_change_mentions_mail(self):
+        p = plan_quarantine_sendlink("user@example.com")
+        assert "user@example.com" in p.change
+
+    def test_blast_radius_mentions_bearer_credential(self):
+        p = plan_quarantine_sendlink("user@example.com")
+        joined = " ".join(p.blast_radius).lower()
+        assert "credential" in joined or "access" in joined
+
+    def test_risk_reasons_cite_no_revert(self):
+        p = plan_quarantine_sendlink("user@example.com")
+        joined = " ".join(p.risk_reasons).lower()
+        assert "recall" in joined or "revert" in joined
+
+    def test_invalid_mail_raises(self):
+        with pytest.raises(ProximoError):
+            plan_quarantine_sendlink("not-an-email")
+
+    def test_action_and_target(self):
+        p = plan_quarantine_sendlink("user@example.com")
+        assert p.action == "pmg_quarantine_sendlink"
+        assert p.target == "quarantine/sendlink"
+
+
+class TestStatisticsContact:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or []
+        )
+        statistics_contact(api)
+        assert api.seen["path"] == "/statistics/contact"
+
+    def test_no_params_sends_none(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params) or []
+        )
+        statistics_contact(api)
+        assert api.seen["params"] is None
+
+    def test_maps_start_to_starttime(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_contact(api, start=1717000000)
+        assert api.seen["params"].get("starttime") == 1717000000
+
+    def test_filter_forwarded(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_contact(api, filter_="evil.example")
+        assert api.seen["params"].get("filter") == "evil.example"
+
+    def test_orderby_forwarded(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_contact(api, orderby='{"property":"contact"}')
+        assert api.seen["params"].get("orderby") == '{"property":"contact"}'
+
+    def test_day_month_year_forwarded(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_contact(api, day=15, month=6, year=2026)
+        assert api.seen["params"]["day"] == 15
+        assert api.seen["params"]["month"] == 6
+        assert api.seen["params"]["year"] == 2026
+
+    def test_day_out_of_range_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_contact(api, day=32)
+
+    def test_month_out_of_range_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_contact(api, month=13)
+
+    def test_year_out_of_range_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_contact(api, year=1800)
+
+
+class TestStatisticsDetail:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or []
+        )
+        statistics_detail(api, "user@example.com", "sender")
+        assert api.seen["path"] == "/statistics/detail"
+
+    def test_address_and_type_always_sent(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_detail(api, "user@example.com", "receiver")
+        assert api.seen["params"]["address"] == "user@example.com"
+        assert api.seen["params"]["type"] == "receiver"
+
+    def test_invalid_address_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_detail(api, "not-an-email", "sender")
+
+    def test_invalid_type_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_detail(api, "user@example.com", "domain")
+
+    def test_day_month_year_forwarded(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_detail(api, "user@example.com", "contact", day=1, month=1, year=2020)
+        assert api.seen["params"]["day"] == 1
+        assert api.seen["params"]["month"] == 1
+        assert api.seen["params"]["year"] == 2020
+
+
+class TestStatisticsMaildistribution:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or []
+        )
+        statistics_maildistribution(api)
+        assert api.seen["path"] == "/statistics/maildistribution"
+
+    def test_no_params_sends_none(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params) or []
+        )
+        statistics_maildistribution(api)
+        assert api.seen["params"] is None
+
+    def test_day_month_year_forwarded(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_maildistribution(api, day=15, month=6, year=2026)
+        assert api.seen["params"]["day"] == 15
+        assert api.seen["params"]["month"] == 6
+        assert api.seen["params"]["year"] == 2026
+
+    def test_month_out_of_range_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_maildistribution(api, month=0)
+
+
+class TestStatisticsRecentreceivers:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or []
+        )
+        statistics_recentreceivers(api)
+        assert api.seen["path"] == "/statistics/recentreceivers"
+
+    def test_defaults_hours_12_limit_5(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_recentreceivers(api)
+        assert api.seen["params"] == {"hours": 12, "limit": 5}
+
+    def test_explicit_hours_and_limit_forwarded(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_recentreceivers(api, hours=3, limit=20)
+        assert api.seen["params"] == {"hours": 3, "limit": 20}
+
+    def test_hours_out_of_range_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_recentreceivers(api, hours=25)
+
+    def test_limit_out_of_range_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_recentreceivers(api, limit=51)
+
+
+class TestStatisticsRecentsenders:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or []
+        )
+        statistics_recentsenders(api)
+        assert api.seen["path"] == "/statistics/recentsenders"
+
+    def test_defaults_hours_12_limit_5(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_recentsenders(api)
+        assert api.seen["params"] == {"hours": 12, "limit": 5}
+
+    def test_hours_out_of_range_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_recentsenders(api, hours=0)
+
+    def test_limit_out_of_range_raises(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_recentsenders(api, limit=0)
+
+
+class TestStatisticsRejectcount:
+    def test_uses_correct_path(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(path=path, params=params) or []
+        )
+        statistics_rejectcount(api)
+        assert api.seen["path"] == "/statistics/rejectcount"
+
+    def test_always_sends_timespan(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_rejectcount(api)
+        assert api.seen["params"].get("timespan") == 3600
+
+    def test_maps_start_to_starttime(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_rejectcount(api, start=1717000000)
+        assert api.seen["params"].get("starttime") == 1717000000
+
+    def test_day_month_year_forwarded(self):
+        api = _api()
+        api._get = lambda path, params=None: (
+            api.seen.update(params=params or {}) or []
+        )
+        statistics_rejectcount(api, day=15, month=6, year=2026)
+        assert api.seen["params"]["day"] == 15
+        assert api.seen["params"]["month"] == 6
+        assert api.seen["params"]["year"] == 2026
+
+    def test_rejects_non_int_timespan(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_rejectcount(api, timespan="bad")
+
+    def test_rejects_timespan_below_min(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_rejectcount(api, timespan=100)
+
+    def test_rejects_timespan_above_max(self):
+        api = _api()
+        with pytest.raises(ProximoError):
+            statistics_rejectcount(api, timespan=99999999)

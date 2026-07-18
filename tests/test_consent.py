@@ -253,7 +253,14 @@ async def test_no_registered_tool_accepts_a_caller_supplied_consent_id():
     # content the caller SUPPLIES to PBS, not a Proximo-level consent-grant token the caller could
     # use to bypass this server's own out-of-band CONSENT gate (consent.py). Narrowly exempted,
     # not silenced globally.
-    exempt = {"pbs_node_config_set": {"consent_text"}}
+    # pmg_config_admin_update(consent_text): the IDENTICAL coincidental-collision shape, one
+    # plane over — PMG's own PUT /config/admin `consent-text` field ("Consent text that is
+    # displayed before logging in", Wave 9i full-surface campaign, pmg_identity.py). Same
+    # reasoning as the PBS entry above: real appliance config content, not a consent-grant token.
+    exempt = {
+        "pbs_node_config_set": {"consent_text"},
+        "pmg_config_admin_update": {"consent_text"},
+    }
     tools = await server.mcp.list_tools()
     offenders = []
     for t in tools:

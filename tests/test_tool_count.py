@@ -32,7 +32,251 @@ from pathlib import Path
 
 import proximo.server as server
 
-EXPECTED_TOOL_COUNT = 715  # +15 (Wave 7d — SDN fabrics, the FINAL chunk of Wave 7, new
+EXPECTED_TOOL_COUNT = 900  # +11 (Wave 9j — PMG quarantine + statistics remainder, the FINAL
+# chunk that CLOSES the PMG plane, extends pmg.py/tools/pmg_mail.py, campaign RULING 4 +
+# RULING 5): 10 reads — pmg_quarantine_users_list, pmg_quarantine_content_get (ADVERSARIAL),
+# pmg_quarantine_attachments_list (ADVERSARIAL), pmg_quarantine_link_get (RULING 4 — its return
+# is a bearer-credential-equivalent, never-in-ledger on the read's own logged return),
+# pmg_statistics_contact (ADVERSARIAL), pmg_statistics_detail (ADVERSARIAL),
+# pmg_statistics_maildistribution, pmg_statistics_recentreceivers (ADVERSARIAL),
+# pmg_statistics_recentsenders (ADVERSARIAL), pmg_statistics_rejectcount — + 1 mutation —
+# pmg_quarantine_sendlink (LOW, sends a REAL email containing a quarantine login link, matches
+# pbs_notification_target_test's precedent). See pmg.py's own "Wave 9j" module section +
+# tests/test_confirm_sweep_pmg_quarantine_statistics.py for the full argument.
+# Was 889 after Wave 9i — +18 (Wave 9i — PMG global appliance config + cluster bootstrap/join,
+# extends pmg_identity.py/tools/pmg_identity.py, campaign RULING 1 + RULING 5): 8 reads —
+# pmg_config_admin_get, pmg_config_clamav_get, pmg_config_spamquar_get, pmg_config_virusquar_get,
+# pmg_config_tfa_webauthn_get, pmg_cluster_join_info, pmg_cluster_nodes_list, pmg_cluster_status
+# — + 10 mutations — pmg_config_admin_update/pmg_config_clamav_update/pmg_config_mail_update
+# (GET already shipped as pmg_relay_config)/pmg_config_spamquar_update/
+# pmg_config_virusquar_update (all MEDIUM, digest-gated 64-char SHA256, direction-aware:
+# demo=True/clamav=False in admin; scan-limit narrowing/archiveblockencrypted in clamav;
+# tls=False/spf=False/relay-smarthost-change in mail; quarantinelink=True/authmode-weakening in
+# spamquar; allowhrefs=True in virusquar)/pmg_config_tfa_webauthn_update (MEDIUM, digest-gated
+# but SHA1 40-char — a genuine divergence from the other 5 families — id/origin/rp changes
+# flagged with upstream's own break-credentials wording) + the wave's DANGER item, RULING 1
+# (binding, all 4 cluster mutations BUILT): pmg_cluster_create/pmg_cluster_join (RISK_HIGH,
+# unconditional — first blast_radius line states plainly no undo + no visibility into
+# un-clustering, unlike pmg_ruledb_reset there is NO backup-and-restore escape hatch; join's
+# password is the TARGET MASTER's own third-party superuser credential, never-in-ledger, the
+# plan factory never receives it at all)/pmg_cluster_node_add/pmg_cluster_update_fingerprints
+# (RISK_MEDIUM — bookkeeping, not identity fusion). Exactly the 14 methods classified
+# "chunk": "9i" PLUS the 4 methods classified "class": "cluster-ruling" in
+# .scratch/sdd/wave-9-classification.json — no more, no fewer. cluster create/join return a
+# schema-ambiguous string (UPID vs. plain status) -> outcome="submitted" + ledger detail.raw_result,
+# mirroring pmg_node_network_reload's established idiom exactly.
+# Was 871 after Wave 9h (below) — +16 (Wave 9h — PMG identity: auth-realm, local users, TFA — NEW
+# modules pmg_identity.py + tools/pmg_identity.py, campaign RULING 5, since 9g confirmed the
+# module was still unbuilt): 6 reads — pmg_access_realm_list, pmg_access_realm_get,
+# pmg_access_user_get, pmg_access_tfa_list, pmg_access_tfa_user_list, pmg_access_tfa_get — + 10
+# mutations — pmg_access_realm_create/_update (MEDIUM, client-key never-in-ledger)/_delete
+# (MEDIUM, no digest param — schema-verified), pmg_access_user_create/_update (RULING 3:
+# CONDITIONAL MEDIUM/HIGH — HIGH when role is admin-equivalent 'root'/'admin', MEDIUM otherwise
+# 'helpdesk'/'qmanager'/'audit'; password/crypt_pass/keys never-in-ledger — THREE user secrets,
+# 'keys' [yubico] a genuine find beyond the draft's password/crypt_pass pair)/_delete (MEDIUM,
+# last-admin-equivalent-account footgun warning, reuses the shipped access_permissions read;
+# Wave 9h REVIEW Critical fix: an unresolvable role from a schema-thin capture now fails open
+# to the same warning via the access_permissions list, rather than silently reading as
+# non-admin), pmg_access_user_unlock_tfa (HIGH — escalated from this chunk's original MEDIUM
+# by the Wave 9h REVIEW, Major 1, to match the shipped PBS twin's RISK_HIGH for the identical
+# wire endpoint; no argued PMG-specific reason it's less dangerous),
+# pmg_access_tfa_add (MEDIUM, recovery codes never-in-ledger on the CREATE RESPONSE)/_update
+# (MEDIUM)/_delete (HIGH — matches the shipped PBS twin exactly, a reasoned upward divergence
+# from the draft's own un-argued MEDIUM guess). Exactly the 16 methods classified "chunk": "9h" in
+# .scratch/sdd/wave-9-classification.json — no more, no fewer. KEY REUSE: mirrors the shipped
+# pbs_access.py (Wave 2a/2b) risk/taint/secret idiom everywhere the planes match; PMG-vs-PBS
+# divergences argued in pmg_identity.py's own module section (12 facts) include: PMG's realm
+# endpoint is UNIFIED with `type` as a discriminator ({oidc,pam,pmg}, no ad/ldap) vs PBS's 5
+# separate per-type endpoints; PMG's TFA type enum has only 4 members (no yubico); PMG's user
+# PUT/DELETE carry NO digest param at all (PBS's do); PMG's single-TFA-entry reads are richly
+# typed (PBS's is null-typed).
+# Was 855 after Wave 9g (below) — +19 (Wave 9g — PMG ACME accounts/plugins + node cert order/renew/
+# revoke + custom-cert upload, extends pmg.py/tools/pmg_mail.py per campaign RULING 5): 8 reads —
+# pmg_acme_account_list, pmg_acme_account_get, pmg_acme_plugin_list, pmg_acme_plugin_get,
+# pmg_acme_tos, pmg_acme_meta, pmg_acme_directories, pmg_acme_challenge_schema — + 11 mutations —
+# pmg_acme_account_create (MEDIUM), pmg_acme_account_update (LOW), pmg_acme_account_delete (HIGH
+# — DEACTIVATES at the CA, mirrors pbs_acme_account_delete/acme_certs.py), pmg_acme_plugin_create/
+# _update (MEDIUM), pmg_acme_plugin_delete (HIGH — breaks auto-renewal), pmg_node_cert_acme_order/
+# _renew (MEDIUM — CA-validated, install-on-success only), pmg_node_cert_acme_revoke (HIGH,
+# IRREVERSIBLE — the tool PBS never shipped), pmg_node_cert_custom_upload (HIGH, no undo — matches
+# pve_node_cert_upload/pbs_node_cert_upload, NOT downgraded despite the draft's own hedge),
+# pmg_node_cert_custom_delete (MEDIUM, recoverable). Exactly the 19 methods classified
+# "chunk": "9g" in .scratch/sdd/wave-9-classification.json — no more, no fewer. KEY REUSE: mirrors
+# the shipped pbs_acme.py (Wave 3b)/acme_certs.py idiom; PMG-vs-PBS/PVE divergences (11, argued in
+# pmg.py's own Wave 9g module section) include: PMG HAS node cert revoke (PBS doesn't); PMG's node
+# cert endpoints carry a real dual {api,smtp} cert-type path segment (neither PVE nor PBS has
+# this); PMG's account create/update/delete AND node cert order/renew/revoke all declare a bare
+# STRING return (PBS's account trio is null; PVE's cert trio is a confirmed UPID) — treated with
+# outcome="submitted" + raw_result honesty, never assumed. THE SECRET CONTRACT: `eab-hmac-key`/
+# `eab-kid` (account) and `data` (plugin, DNS-API credential blob) DEFENSIVELY stripped on every
+# read (both schema-thin/unconfirmed — a divergence from PBS's own MANDATORY strip, since PMG's
+# plugin list is schema-confirmed THIN/id-only, unlike PBS's rich list); never-in-ledger on write.
+# Custom-cert `key` (PEM private key, REQUIRED per PMG's schema) UNCONDITIONALLY redacted — no
+# read on this plane ever returns raw key material. `pmg_acme_tos`/`pmg_acme_meta` ADVERSARIAL
+# (caller-chosen CA directory URL fetch, https-only validated, mirrors pbs_acme_tos — `meta` has
+# no PBS equivalent at all, a genuinely new read this wave).
+# Was 836 after Wave 9f — PMG PBS remote config + node-side PBS backup jobs,
+# extends pmg.py/tools/pmg_mail.py per campaign RULING 5): pmg_pbs_remote_list, pmg_pbs_remote_get,
+# pmg_node_pbs_jobs_list (3 reads) + pmg_pbs_remote_create, pmg_pbs_remote_update (2 MEDIUM —
+# create/update a PERSISTENT CREDENTIAL-BEARING link to an external PBS instance, mirrors
+# pbs_remote_create/pbs_s3_client_create) + pmg_pbs_remote_delete (1 MEDIUM, mirrors
+# pbs_remote_delete) + pmg_node_pbs_snapshots_list, pmg_node_pbs_snapshot_get (2 ADVERSARIAL reads
+# — remote-authored snapshot labels) + pmg_node_pbs_snapshot_create (1 MEDIUM — backup + configured
+# prune, mirrors plan_pbs_job_run's 'sync' tier) + pmg_node_pbs_snapshot_forget (1 HIGH, no undo,
+# mirrors pbs_snapshot_delete) + pmg_node_pbs_snapshot_restore (1 HIGH, no undo, mirrors
+# pmg_node_backup_restore extended to a remote source) + pmg_node_pbs_snapshot_verify (1 LOW,
+# mirrors pbs_verify_start) + pmg_node_pbs_timer_get (1 read) + pmg_node_pbs_timer_create,
+# pmg_node_pbs_timer_delete (2 LOW, mirror pbs_job_create/pbs_job_delete). Exactly the 15 methods
+# classified "chunk": "9f" in .scratch/sdd/wave-9-classification.json — no more, no fewer. THE
+# SECRET CONTRACT: `password`/`encryption-key` CONFIRMED echoing on BOTH list forms (GET
+# /config/pbs, GET /nodes/{node}/pbs) — MANDATORY read-strip; DEFENSIVE strip on the single-item
+# GET (bare schema); never-in-ledger on write (both fields, plus a possible server-generated
+# encryption-key in the create/update RESPONSE when encryption_key='autogen'). `fingerprint`/
+# `master-pubkey` are PUBLIC, pass through unredacted.
+# Was 821 after Wave 9e — PMG DKIM + customscores, extends pmg.py/
+# tools/pmg_mail.py per campaign RULING 5): pmg_dkim_domains_list, pmg_dkim_domain_get,
+# pmg_dkim_selector_get, pmg_dkim_selectors_list, pmg_customscores_list, pmg_customscores_get (6
+# reads) + pmg_dkim_domain_create, pmg_dkim_domain_update, pmg_dkim_domain_delete (3 LOW
+# comment-only/additive mutations) + pmg_dkim_selector_generate (1 MEDIUM — rotates the DKIM
+# signing key; PMG's own warning "All future mail will be signed with the new key!"; matches the
+# already-shipped bindpw/fetchmail-password rotation MEDIUM precedent, not a HIGH-class
+# destructive event) + pmg_customscores_create (1 LOW, additive) + pmg_customscores_update,
+# pmg_customscores_delete (2 MEDIUM, digest-gated — update CAPTURES the prior score to state a
+# real raise/lower delta) + pmg_customscores_revert_all, pmg_customscores_apply (2 MEDIUM bulk
+# mutations — apply is digest-gated, returns an ambiguous string, outcome="submitted" mirroring
+# pmg_node_network_reload). Exactly the 15 methods classified "chunk": "9e" in
+# .scratch/sdd/wave-9-classification.json — no more, no fewer. NO secret-shaped field anywhere in
+# this chunk (checked every param/return property individually) — DKIM's private key is
+# server-generated and NEVER returned by any read (the DNS TXT record is PUBLIC by design, not a
+# secret); `digest` (customscores only) is an optimistic-concurrency token. All 15 REVIEWED_TRUSTED.
+# Was 806 after Wave 9d — PMG mail routing config remainder, extends pmg.py/
+# tools/pmg_mail.py per campaign RULING 5): pmg_domain_get, pmg_transport_list,
+# pmg_transport_get, pmg_mynetworks_list, pmg_mynetworks_get, pmg_tlspolicy_list,
+# pmg_tlspolicy_get, pmg_tls_inbound_domains_list, pmg_mimetypes_list, pmg_regextest (10 reads —
+# regextest is POST-verbed but a pure evaluator, classified by EFFECT not verb, so it carries no
+# PLAN/confirm ceremony either, same as the other 9 reads) + pmg_domain_update,
+# pmg_mynetworks_update (2 LOW comment-only full-replace mutations) + pmg_transport_update
+# (1 MEDIUM partial-update mutation, at-least-one-field guard) + pmg_tlspolicy_create,
+# pmg_tlspolicy_update, pmg_tlspolicy_delete (3 MEDIUM direction-aware mutations — TLS policy can
+# tighten or loosen enforcement depending on the value) + pmg_tls_inbound_domains_create (1 LOW,
+# tightens security), pmg_tls_inbound_domains_delete (1 LOW mechanically but LOOSENS security,
+# direction called out in the docstring). Exactly the 18 methods classified "chunk": "9d" in
+# .scratch/sdd/wave-9-classification.json — no more, no fewer. No secret-shaped field anywhere
+# in this chunk (checked every param/return property individually) — all 18 REVIEWED_TRUSTED.
+# Was 788 after Wave 9c — PMG LDAP profiles + fetchmail, extends pmg.py/
+# tools/pmg_mail.py per campaign RULING 5): pmg_ldap_profiles_list, pmg_ldap_profile_config_get
+# (2 reads) + pmg_ldap_profile_create, pmg_ldap_profile_delete, pmg_ldap_profile_config_update,
+# pmg_ldap_profile_sync (4 mutations, all MEDIUM) + pmg_ldap_users_list,
+# pmg_ldap_user_emails_get, pmg_ldap_groups_list, pmg_ldap_group_members_get (4
+# ADVERSARIAL reads — directory-sourced content) + pmg_fetchmail_list, pmg_fetchmail_get (2
+# reads, `pass` MANDATORILY stripped — CONFIRMED echoed on both) + pmg_fetchmail_create,
+# pmg_fetchmail_update, pmg_fetchmail_delete (3 mutations, all MEDIUM). Secret contract: LDAP
+# bindpw never-in-ledger on write + defensive read-strip on the single-profile GET (schema-thin,
+# unconfirmed); fetchmail pass MANDATORY read-strip on both reads (schema-rich, confirmed) +
+# never-in-ledger on write.
+# Was 773 after Wave 9b — PMG node ops odds: task-stop/task-log/task-status,
+# report, journal, backup files (list/delete/restore), Postfix queue (list/message-get/action/
+# delete-all/delete-queue/message-delete/message-deliver), Postfix address-verify-cache discard,
+# ClamAV/SpamAssassin signature-DB reads+updates, and the 4 named service-lifecycle verbs —
+# SAME module as 9a, pmg_node.py/tools/pmg_node.py): pmg_node_task_log, pmg_node_task_status,
+# pmg_node_report, pmg_node_journal, pmg_node_backup_list, pmg_node_postfix_queue_list,
+# pmg_node_postfix_queue_message_get, pmg_node_clamav_database_get,
+# pmg_node_spamassassin_rules_get (9 reads) + pmg_node_task_stop, pmg_node_backup_delete,
+# pmg_node_backup_restore, pmg_node_postfix_queue_action, pmg_node_postfix_queue_delete_all,
+# pmg_node_postfix_queue_delete_queue, pmg_node_postfix_queue_message_delete,
+# pmg_node_postfix_queue_message_deliver, pmg_node_postfix_discard_verify_cache,
+# pmg_node_clamav_database_update, pmg_node_spamassassin_rules_update, pmg_node_service_start,
+# pmg_node_service_stop, pmg_node_service_restart, pmg_node_service_reload (15 mutations).
+# Exactly the 24 methods classified "chunk": "9b" in .scratch/sdd/wave-9-classification.json —
+# no more, no fewer. Schema-verified divergences/facts from the draft (pmg_node.py module
+# docstring's chunk 9b facts, full detail there): (14) pmg_node_task_log is ADVERSARIAL — a
+# DIVERGENCE from the draft's own REVIEWED_TRUSTED guess, matching pve_task_log/
+# pbs_node_task_log's free-text-log-line precedent instead; pmg_node_task_status stays
+# REVIEWED_TRUSTED (no free text). (16) backup filename schema PATTERN
+# ('pmg-backup_[0-9A-Za-z_-]+.tgz') diverges from the LIST endpoint's own description prose
+# ("proxmox-backup_{DATE}.tgz") — pattern is authoritative. (17)/(18) pmg_node_backup_restore is
+# RISK_HIGH with NO undo, reusing pmg.py's own plan_ruledb_reset capture helper verbatim (its
+# database=True default replaces the identical ruledb region factory-reset wipes); its
+# ambiguous-string return records outcome="submitted" (the more rigorous Wave-9a-established
+# standard), a KNOWN, argued divergence from the older pmg_backup_create/pmg_service_control
+# tools' "ok" convention for the identical ambiguous-string shape (not silently fixed in those
+# other files). (19) the 4 service_start/stop/restart/reload tools hit literally-named schema
+# endpoints distinct from the already-shipped generic pmg_service_control dispatcher — built
+# anyway since the classification artifact tracks the literal endpoints as their own region.
+# (20) pmg_node_service_stop is conditional RISK_HIGH (postfix/pmg-smtp-filter) / RISK_MEDIUM
+# (all other services) — RULING 3's conditional-tier precedent, no invented fifth tier. (21)
+# pmg_node_postfix_queue_action mirrors pmg.py's own plan_quarantine_action's conditional
+# delete=HIGH/deliver=MEDIUM dichotomy exactly. (22) both postfix_queue_delete_all (bare, all 4
+# queues) and postfix_queue_delete_queue (one named queue) are RISK_HIGH — "queue-delete-all
+# class", unconditional full wipes, unlike the ID-bounded postfix_queue_action/
+# _message_delete. (23) postfix_queue_message_deliver is RISK_LOW, mirroring the already-shipped
+# pmg_postfix_flush's own LOW rating exactly (same "attempt delivery" semantics, scoped to one
+# message). (24) journal's since/until are int|None from the start (PMG's own schema; does NOT
+# repeat the logged pre-existing PVE since/until-str bug). (25) no secret-shaped field exists
+# anywhere in this chunk's schema — the wave's secret density lives in chunks 9c/9f/9g/9h.
+# Taint: 5 ADVERSARIAL (pmg_node_report, pmg_node_journal, pmg_node_task_log,
+# pmg_node_postfix_queue_list, pmg_node_postfix_queue_message_get — free-text/mail-metadata
+# content) + 19 REVIEWED_TRUSTED (structured metadata/config, ambiguous-string mutation returns
+# with no attacker-shapeable content documented). Was 749 after Wave 9a — PMG node core:
+# network/dns/time/node-config/certs-info/services/subscription, NEW pmg_node.py/
+# tools/pmg_node.py — coordinator RULING 5, pmg.py was already 5409 lines pre-Wave-9):
+# pmg_node_network_list, pmg_node_network_get,
+# pmg_node_dns_get, pmg_node_time_get, pmg_node_config_get, pmg_node_certificates_info,
+# pmg_node_services_list, pmg_node_subscription_get (8 reads) + pmg_node_network_create,
+# pmg_node_network_update, pmg_node_network_delete, pmg_node_network_revert,
+# pmg_node_network_reload, pmg_node_dns_set, pmg_node_time_set, pmg_node_config_set,
+# pmg_node_subscription_set, pmg_node_subscription_check, pmg_node_subscription_delete
+# (11 mutations). Exactly the 19 methods classified "chunk": "9a" in
+# .scratch/sdd/wave-9-classification.json — no more, no fewer. Schema-verified divergences from
+# the draft (`.scratch/sdd/wave-9-draft-decomposition.md` §2 chunk 9a): (1) network create/update
+# both require `type` (matches PVE, not PBS's optional) — update auto-injects the CURRENT type via
+# a network_get read when the caller omits it, but (unlike PVE's stricter refusal) forwards an
+# explicit caller-supplied type as a genuine change, a builder judgment call since nothing in
+# PMG's schema documents type as immutable; (2) the network list `?type=` filter enum
+# (any_bridge) DIFFERS from the create/update value enum (unknown) — validated against two
+# separate sets; (3) `pmg_node_network_revert` rated LOW here, not the draft's guessed MEDIUM —
+# functionally identical to PBS's/PVE's own "safe undo, live config untouched" revert, argued
+# not silently overridden; (4) `search` is schema-REQUIRED on DNS write (unlike the existing PVE/
+# PBS tools on this codebase, which treat it as optional); (5) PMG's node /config is a narrow
+# ACME-only block (acme/acmedomain[n]/digest), not PBS's richer general-settings block at the
+# same path; (6) `pmg_node_network_reload`'s bare PUT returns a schema-confirmed STRING (not
+# null) — whether it's a UPID or a plain status message is unresolved from schema alone and the
+# docstring says so; (7) subscription `key` is defensively stripped on read (schema-thin, echo
+# unconfirmed either way, mirrors pbs_config.py's `_strip_password` idiom). Taint: all 19
+# REVIEWED_TRUSTED — every read is operator-authored structured config (network/dns/time/acme
+# domain-mapping/cert public-data/service-list/subscription-status), no attacker-shapeable free
+# text on this chunk (postfix queue / journal / report — the ADVERSARIAL candidates on this plane
+# — are chunk 9b, not built here). Was 730 after Wave 8b — PMG GLOBAL welcomelist, new
+# pmg_welcomelist.py/tools/pmg_welcomelist.py — separate module, no ogroup concept on this plane):
+# pmg_welcomelist_objects_list, pmg_welcomelist_object_get (2 reads) +
+# pmg_welcomelist_object_add, pmg_welcomelist_object_update, pmg_welcomelist_object_delete
+# (3 mutations, coordinator RULING 3: MEDIUM create/update — no bind/activate gate, live
+# cluster-wide the instant it lands, argued a tier above the per-user
+# pmg_quarantine_welcomelist_add precedent's LOW; LOW delete — removing a bypass is protective,
+# an argued asymmetry from ruledb who/what object delete's own MEDIUM). Naming (coordinator
+# RULING 5): kept pmg_welcomelist_* (the schema's own vocabulary) despite sitting one word from
+# the already-shipped, semantically different pmg_quarantine_welcomelist_add/list/remove
+# (per-mailbox quarantine bypass) — mandatory disambiguation lines added to both families'
+# docstrings, including a doc-only reverse-cross-reference diff on the 3 shipped
+# pmg_quarantine_welcomelist_* tools in tools/pmg_mail.py. Every typed-object GET/list-all is
+# schema-thin ({id: <type>} only) — docstrings say so, no richer return-shape invented. Was 725
+# after Wave 8a — PMG ruledb per-object reads + ldapuser + the direct
+# rule<->action-group read + RuleDB factory reset, new pmg.py W6a section +
+# tools/pmg_rules.py): pmg_who_object_get, pmg_what_object_get, pmg_when_object_get,
+# pmg_action_bcc_get, pmg_action_field_get, pmg_action_notification_get,
+# pmg_action_disclaimer_get, pmg_action_removeattachments_get,
+# pmg_ruledb_rule_action_groups_list (9 reads) + pmg_ruledb_reset (1 mutation, RISK_HIGH — the
+# wave's only above-MEDIUM rating, coordinator RULING 1: build it, plan CAPTURES current scope +
+# states "no undo" as its first line). PLUS 2 signature extensions (NOT counted as new tools):
+# pmg_who_object_add/pmg_who_object_update gain type_='ldapuser' + an 'account' kwarg
+# (additive-compat — the 6 pre-existing type values and their tests are unchanged). Naming
+# (coordinator RULING 2): pmg_ruledb_rule_action_groups_list deliberately breaks sibling-naming
+# symmetry with from_list/to_list/what_list/when_list to avoid a one-letter typo collision with
+# the already-shipped, differently-shaped pmg_ruledb_rule_actions_list (plural — reads /config
+# and extracts an embedded, unverified 'action' key; this new tool reads the direct singular
+# /config/ruledb/rules/{id}/action endpoint instead). Every per-object GET on this whole region
+# is schema-thin ({id: <type>} only) — docstrings say so, no richer return-shape invented. Was
+# 715 after Wave 7d — SDN fabrics, the FINAL chunk of Wave 7, new
 # sdn_fabrics.py/tools/pve_sdn_fabrics.py): pve_sdn_fabrics_all, pve_sdn_fabrics_list,
 # pve_sdn_fabric_get, pve_sdn_fabric_nodes_list_all, pve_sdn_fabric_nodes_list,
 # pve_sdn_fabric_node_get, pve_sdn_fabric_status_interfaces, pve_sdn_fabric_status_neighbors,

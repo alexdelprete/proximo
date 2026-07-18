@@ -118,6 +118,32 @@ ADVERSARIAL_TOOLS: frozenset[str] = frozenset({
     "pmg_tracker_list", "pmg_tracker_detail",
     "pmg_node_syslog",
     "pmg_statistics_sender", "pmg_statistics_receiver", "pmg_statistics_domains",
+    # Wave 9b (2026-07-17): PMG node ops odds (pmg_node.py chunk 9b). `pmg_node_report`/
+    # `pmg_node_journal` are free-text diagnostic/log dumps — exact pbs_node_report/
+    # pve_node_journal/pbs_node_journal precedent. `pmg_node_task_log` is a DIVERGENCE from the
+    # Wave 9 draft's own REVIEWED_TRUSTED guess ("task metadata, not mail content") — the
+    # schema's own {n, t} shape carries free-text log lines, matching pve_task_log/
+    # pbs_node_task_log exactly (NOT here: pmg_node_task_status — {pid, status} carries no free
+    # text, REVIEWED_TRUSTED below, matching both planes' own task_status). `pmg_node_
+    # postfix_queue_list`/`pmg_node_postfix_queue_message_get` carry mail metadata (sender/
+    # receiver/reason, schema's own sortfield enum) and full message content respectively —
+    # attacker-shapeable, matching the pmg_quarantine_content_get family's reasoning one plane
+    # over. See pmg_node.py module docstring's chunk 9b facts #14/#25 for the full argument.
+    "pmg_node_report", "pmg_node_journal", "pmg_node_task_log",
+    "pmg_node_postfix_queue_list", "pmg_node_postfix_queue_message_get",
+    # Wave 9c (2026-07-17): PMG LDAP profiles + fetchmail (extends pmg.py/tools/pmg_mail.py).
+    # `pmg_ldap_users_list`/`pmg_ldap_user_emails_get`/`pmg_ldap_groups_list`/
+    # `pmg_ldap_group_members_get` return content PULLED FROM THE EXTERNAL LDAP DIRECTORY
+    # (account/dn/pmail/email/gid — literal directory entries, not anything PMG's own operator
+    # typed) — whoever controls that directory (or an entry within it) controls these bytes, the
+    # same "externally-authored content over an operator-configured channel" reasoning that
+    # landed `pbs_remote_scan`/`pve_ceph_metadata` here. NOT here: the LDAP profile CRUD/config/
+    # sync tools and the fetchmail CRUD tools — all REVIEWED_TRUSTED below (operator-authored
+    # config; `bindpw`/`pass` are a secret-HANDLING concern, argued in pmg.py's Wave 9c module
+    # section, not a taint/content-trust one — the same orthogonal-axes precedent as
+    # sdn_objects.py's dns/ipam reads).
+    "pmg_ldap_users_list", "pmg_ldap_user_emails_get",
+    "pmg_ldap_groups_list", "pmg_ldap_group_members_get",
     # config free-text + logs: operator-set, but free-text fields a guest/attacker can shape
     "pve_node_syslog", "pve_node_journal", "pve_task_log", "pve_list_guests",
     "pve_guest_config_get", "pve_cluster_resources", "pve_snapshot_list",
@@ -136,6 +162,13 @@ ADVERSARIAL_TOOLS: frozenset[str] = frozenset({
     # CALLER-CHOSEN directory URL and returns the response text — the content source is
     # whoever controls that URL, a more direct version of the changelog rationale above.
     "pbs_acme_tos",
+    # Wave 9g (2026-07-17): PMG's own `pmg_acme_tos`/`pmg_acme_meta` share the identical
+    # caller-chosen-`directory`-URL fetch shape as `pbs_acme_tos` above — the PMG host makes the
+    # outbound fetch and the response content is authored by whoever controls that URL.
+    # `pmg_acme_meta` has NO PBS equivalent at all (a genuinely new PMG-only endpoint, not a
+    # parity gap) but carries the exact same directory-fetch risk, so it's classified the same
+    # way. See pmg.py's own "Wave 9g" module section for the full argument.
+    "pmg_acme_tos", "pmg_acme_meta",
     # Wave 2c (2026-07-15): PBS node OS admin — same rationale as pve_node_syslog/journal/
     # pve_task_log above: free-text logs carry externally-authored bytes (attacker-influenced
     # process/service output can land in a task log or the system journal).
@@ -326,6 +359,46 @@ ADVERSARIAL_TOOLS: frozenset[str] = frozenset({
     # grouping per the draft's own Fact #17). See sdn_fabrics.py's module docstring fact #3
     # for the full argument and the strike-and-correct note.
     "pve_sdn_fabric_status_neighbors", "pve_sdn_fabric_status_routes",
+    # Wave 9f (2026-07-17): PMG PBS remote config + node-side PBS backup jobs (extends pmg.py/
+    # tools/pmg_mail.py). `pmg_node_pbs_snapshots_list`/`pmg_node_pbs_snapshot_get` return
+    # backup-id/backup-time/verification labels stored on the REMOTE PBS instance — whoever wrote
+    # those backups (or compromised the remote) controls these strings, the exact
+    # `pbs_snapshots_list` cross-plane precedent. NOT here (REVIEWED_TRUSTED instead, after the
+    # mandatory/defensive secret-strip): `pmg_pbs_remote_list`/`_get`, `pmg_node_pbs_jobs_list` —
+    # operator-authored config, same channel as this file's other config-CRUD families; `password`/
+    # `encryption-key` are a secret-HANDLING concern (pmg.py's Wave 9f module section), not a
+    # taint/content-trust one, the same orthogonal-axes precedent as sdn_objects.py's dns/ipam
+    # reads.
+    "pmg_node_pbs_snapshots_list", "pmg_node_pbs_snapshot_get",
+    # Wave 9j (2026-07-18, THE FINAL CHUNK — closes the PMG plane): quarantine + statistics
+    # remainder (extends pmg.py/tools/pmg_mail.py). `pmg_quarantine_content_get`/
+    # `pmg_quarantine_attachments_list` carry full attacker-authored email content (subject/
+    # from/sender/header/raw-body-prefix) and attacker-controllable attachment filenames,
+    # respectively — direct siblings of the already-ADVERSARIAL pmg_quarantine_spam/virus/
+    # attachment family. `pmg_statistics_contact`/`pmg_statistics_detail`/
+    # `pmg_statistics_recentreceivers`/`pmg_statistics_recentsenders` each carry a literal
+    # EXTERNAL address field in their return schema (`contact`; `sender`/`receiver`;
+    # `receiver`; `sender`, respectively) — MATCH-TWINS to the already-ADVERSARIAL
+    # `pmg_statistics_sender`/`pmg_statistics_receiver`/`pmg_statistics_domains` above (the 9e
+    # review's own "ratings consistent with shipped twins" law, applied here to taint). NOT
+    # here (REVIEWED_TRUSTED instead): `pmg_quarantine_link_get` — the returned `link` is
+    # PMG-GENERATED, not attacker content (a SECRET-handling concern instead — RULING 4, pmg.py's
+    # own Wave 9j module section, an orthogonal axis from taint); `pmg_quarantine_users_list` —
+    # TRUSTED despite also returning address fields (not like pmg_statistics_receiver, which IS
+    # ADVERSARIAL). The distinguishing axis: quarantine_users_list enumerates *config state* —
+    # which mailboxes have operator-curated BL/WL settings — while statistics_receiver returns
+    # *traffic-derived content* (any address that received scanned mail). An attacker can flood
+    # statistics_receiver but cannot cause a new address to appear in users_list; only admin or
+    # the mailbox owner's own self-service action can. Config-enumeration (admin-scoped,
+    # operator-driven) vs. traffic-content (external-authored) is the real axis.
+    # `pmg_quarantine_sendlink` — a mutation whose own return is `null`;
+    # `pmg_statistics_maildistribution`/`pmg_statistics_rejectcount` — both SCHEMA-CONFIRMED pure
+    # aggregate-numeric fields only (checked field-by-field: hour/time index + in/out/spam/virus/
+    # bounce/RBL/PREGREET counts, zero address or free-text field anywhere), twins of the
+    # already-REVIEWED_TRUSTED `pmg_statistics_mailcount`.
+    "pmg_quarantine_content_get", "pmg_quarantine_attachments_list",
+    "pmg_statistics_contact", "pmg_statistics_detail",
+    "pmg_statistics_recentreceivers", "pmg_statistics_recentsenders",
 })
 
 

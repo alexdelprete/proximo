@@ -404,6 +404,226 @@ REVIEWED_TRUSTED: frozenset[str] = frozenset({
     'pve_sdn_fabric_nodes_list_all', 'pve_sdn_fabric_nodes_list', 'pve_sdn_fabric_node_get',
     'pve_sdn_fabric_node_create', 'pve_sdn_fabric_node_update', 'pve_sdn_fabric_node_delete',
     'pve_sdn_fabric_status_interfaces',
+    # Wave 8a (2026-07-17): PMG ruledb per-object reads + the direct rule<->action-group read +
+    # RuleDB factory reset. The 9 reads are all operator-authored, closed-shape content: who/
+    # what-object match criteria (email/domain/regex/ip/cidr/ldap-mode/account — the same channel
+    # already REVIEWED_TRUSTED for pmg_who_object_add/pmg_what_object_add); when-object is a pure
+    # H:i schedule; the 5 action-object reads are operator-authored templates/targets (bcc target,
+    # header field/value, notification subject/body, disclaimer text, removeattachments
+    # replacement text — matching the already-shipped action_*_create/update tools' own
+    # REVIEWED_TRUSTED classification just above). pmg_ruledb_rule_action_groups_list returns bare
+    # [{id: int}], the identical shape/trust level as the already-REVIEWED_TRUSTED
+    # pmg_ruledb_rule_from_list/to_list/what_list/when_list siblings. pmg_ruledb_reset (the
+    # mutation, RISK_HIGH) returns null (schema-verified) — no content channel to classify either
+    # way, REVIEWED_TRUSTED regardless of its blast radius (taint classifies the RETURN channel,
+    # not the mutation's consequences, same rule established since Wave 4c/4d). None of the 9
+    # reads carry wire-learned or externally-authored bytes — none belong in
+    # taint.ADVERSARIAL_TOOLS.
+    'pmg_who_object_get', 'pmg_what_object_get', 'pmg_when_object_get',
+    'pmg_action_bcc_get', 'pmg_action_field_get', 'pmg_action_notification_get',
+    'pmg_action_disclaimer_get', 'pmg_action_removeattachments_get',
+    'pmg_ruledb_rule_action_groups_list', 'pmg_ruledb_reset',
+    # Wave 8b (2026-07-17): PMG GLOBAL welcomelist (new pmg_welcomelist.py/tools/
+    # pmg_welcomelist.py — separate module, no ogroup concept on this plane at all). The 2 reads
+    # (pmg_welcomelist_objects_list/pmg_welcomelist_object_get) are operator-authored match
+    # criteria (email/domain/regex/ip/cidr) — the same channel already REVIEWED_TRUSTED for
+    # pmg_who_object_get/pmg_what_object_get above. The 3 mutations
+    # (pmg_welcomelist_object_add/_update/_delete) carry no content channel to classify either
+    # way — REVIEWED_TRUSTED regardless of their MEDIUM/MEDIUM/LOW blast radius (taint classifies
+    # the RETURN channel, not the mutation's consequences, same rule since Wave 4c/4d). NOT the
+    # same family as pmg_quarantine_welcomelist_add/remove above (also REVIEWED_TRUSTED, but
+    # per-mailbox — pmg_quarantine_welcomelist_list is the one ADVERSARIAL sibling, in
+    # taint.ADVERSARIAL_TOOLS, unaffected by this wave) — these 5 are the GLOBAL admin welcomelist.
+    'pmg_welcomelist_objects_list', 'pmg_welcomelist_object_get',
+    'pmg_welcomelist_object_add', 'pmg_welcomelist_object_update', 'pmg_welcomelist_object_delete',
+    # Wave 9a (2026-07-17): PMG node core — network/dns/time/node-config/certs-info/services/
+    # subscription (new pmg_node.py/tools/pmg_node.py). All 8 reads are operator-authored
+    # structured config: network list/get (interface config, schema-thin but no attacker channel
+    # documented), dns/time/config (ACME account/domain-mapping only) reads, certificates_info
+    # (PUBLIC cert data — pem/fingerprint/subject/issuer/san — no private key field, schema-
+    # verified field-by-field), services_list (systemd service names), subscription_get (`key`
+    # defensively stripped at the read layer regardless of schema silence, matching
+    # pbs_config.py's `_strip_password` idiom — a secret-handling concern, not a taint one, same
+    # orthogonal-axes precedent as sdn_objects.py's dns/ipam reads). All 11 mutations return
+    # either `null` or (network_reload only) a schema-confirmed plain STRING with no attacker-
+    # shapeable content documented (Smoke-confirm whether it's a UPID or a status message; either
+    # way it carries no external/guest-authored bytes) — no content channel to classify either
+    # way, REVIEWED_TRUSTED regardless of blast radius (taint classifies the RETURN channel, not
+    # the mutation's consequences, same rule since Wave 4c/4d).
+    'pmg_node_network_list', 'pmg_node_network_get', 'pmg_node_dns_get', 'pmg_node_time_get',
+    'pmg_node_config_get', 'pmg_node_certificates_info', 'pmg_node_services_list',
+    'pmg_node_subscription_get',
+    'pmg_node_network_create', 'pmg_node_network_update', 'pmg_node_network_delete',
+    'pmg_node_network_revert', 'pmg_node_network_reload', 'pmg_node_dns_set', 'pmg_node_time_set',
+    'pmg_node_config_set', 'pmg_node_subscription_set', 'pmg_node_subscription_check',
+    'pmg_node_subscription_delete',
+    # Wave 9b (2026-07-17): PMG node ops odds (pmg_node.py chunk 9b). NOT here (in
+    # taint.ADVERSARIAL_TOOLS instead): pmg_node_report, pmg_node_journal, pmg_node_task_log,
+    # pmg_node_postfix_queue_list, pmg_node_postfix_queue_message_get — free-text/mail-metadata
+    # content, see taint.py's own entry comment for the full argument. task_status carries only
+    # {pid, status} — no free text. backup_list's filenames are schema-pattern-bounded, not free
+    # text. clamav/spamassassin reads are structured version/count metadata from local DB files,
+    # no attacker-shapeable channel. All 15 mutations here return either `null` or a
+    # schema-confirmed ambiguous STRING (backup_restore, clamav_database_update,
+    # spamassassin_rules_update, service_{start,stop,restart,reload}) with no attacker-shapeable
+    # content documented — REVIEWED_TRUSTED regardless of blast radius (taint classifies the
+    # RETURN channel, not the mutation's consequences).
+    'pmg_node_task_status',
+    'pmg_node_backup_list', 'pmg_node_backup_delete', 'pmg_node_backup_restore',
+    'pmg_node_postfix_queue_action', 'pmg_node_postfix_queue_delete_all',
+    'pmg_node_postfix_queue_delete_queue', 'pmg_node_postfix_queue_message_delete',
+    'pmg_node_postfix_queue_message_deliver', 'pmg_node_postfix_discard_verify_cache',
+    'pmg_node_clamav_database_get', 'pmg_node_clamav_database_update',
+    'pmg_node_spamassassin_rules_get', 'pmg_node_spamassassin_rules_update',
+    'pmg_node_service_start', 'pmg_node_service_stop', 'pmg_node_service_restart',
+    'pmg_node_service_reload', 'pmg_node_task_stop',
+    # Wave 9c (2026-07-17): PMG LDAP profiles + fetchmail (extends pmg.py/tools/pmg_mail.py).
+    # LDAP profile CRUD/config/sync reads+mutations are operator-authored config, same channel as
+    # the already-REVIEWED_TRUSTED `pmg_domain_*`/`pmg_transport_*` families in this same file;
+    # `bindpw` is defensively/mandatorily stripped at the read layer and unconditionally redacted
+    # in every Plan/ledger surface (a secret-HANDLING concern, not a taint one — see pmg.py's Wave
+    # 9c module section). Fetchmail CRUD is the same class (operator-authored mail-source config);
+    # `pass` is MANDATORILY stripped at the read layer (CONFIRMED echoed on both list and
+    # single-item schemas) and unconditionally redacted in every Plan/ledger surface. NOT here (in
+    # taint.ADVERSARIAL_TOOLS instead): pmg_ldap_users_list, pmg_ldap_user_emails_get,
+    # pmg_ldap_groups_list, pmg_ldap_group_members_get — directory-sourced, externally-authored
+    # content (see taint.py's own entry comment for the full argument).
+    'pmg_ldap_profiles_list', 'pmg_ldap_profile_config_get',
+    'pmg_ldap_profile_create', 'pmg_ldap_profile_delete', 'pmg_ldap_profile_config_update',
+    'pmg_ldap_profile_sync',
+    'pmg_fetchmail_list', 'pmg_fetchmail_get',
+    'pmg_fetchmail_create', 'pmg_fetchmail_update', 'pmg_fetchmail_delete',
+    # Wave 9d (2026-07-17): PMG mail routing config remainder (extends pmg.py/tools/pmg_mail.py
+    # — same file as the already-REVIEWED_TRUSTED pmg_domain_*/pmg_transport_*/pmg_mynetworks_*
+    # families above). All 18 tools are operator-authored config CRUD or static catalog data —
+    # no secret-shaped field and no externally-authored content channel anywhere in this chunk
+    # (checked every param/return property individually; see pmg.py's Wave 9d module section
+    # fact #1). pmg_regextest tests a CALLER-supplied regex/text pair server-side — caller ==
+    # operator here (not an attacker-controlled channel), matching this campaign's own
+    # channel-not-verb classification discipline.
+    'pmg_domain_get', 'pmg_domain_update',
+    'pmg_transport_list', 'pmg_transport_get', 'pmg_transport_update',
+    'pmg_mynetworks_list', 'pmg_mynetworks_get', 'pmg_mynetworks_update',
+    'pmg_tlspolicy_list', 'pmg_tlspolicy_get', 'pmg_tlspolicy_create',
+    'pmg_tlspolicy_update', 'pmg_tlspolicy_delete',
+    'pmg_tls_inbound_domains_list', 'pmg_tls_inbound_domains_create',
+    'pmg_tls_inbound_domains_delete',
+    'pmg_mimetypes_list', 'pmg_regextest',
+    # Wave 9e (2026-07-17): PMG DKIM + customscores (extends pmg.py/tools/pmg_mail.py). NO
+    # secret-shaped field anywhere in this chunk (checked every param/return property
+    # individually) — DKIM's private signing key is generated server-side and NEVER returned by
+    # any read (only the PUBLIC key, rendered as a DNS TXT record, is readable — public by
+    # design, not a secret); customscores' `digest` is an optimistic-concurrency token, not a
+    # secret. All 15 are operator-authored config CRUD — no externally-authored content channel.
+    'pmg_dkim_domains_list', 'pmg_dkim_domain_get', 'pmg_dkim_domain_create',
+    'pmg_dkim_domain_update', 'pmg_dkim_domain_delete',
+    'pmg_dkim_selector_get', 'pmg_dkim_selector_generate', 'pmg_dkim_selectors_list',
+    'pmg_customscores_list', 'pmg_customscores_get', 'pmg_customscores_create',
+    'pmg_customscores_update', 'pmg_customscores_delete', 'pmg_customscores_revert_all',
+    'pmg_customscores_apply',
+    # Wave 9f (2026-07-17): PMG PBS remote config + node-side PBS backup jobs (extends pmg.py/
+    # tools/pmg_mail.py). `pmg_pbs_remote_list`/`_get`/`pmg_node_pbs_jobs_list` are
+    # operator-authored config, secret-stripped at the read layer (password/encryption-key —
+    # MANDATORY on both list forms, DEFENSIVE on the single-item read; a secret-HANDLING concern,
+    # not a taint one, argued in pmg.py's Wave 9f module section). The remote create/update/delete
+    # mutations and the node-side snapshot create/forget/restore/verify + timer create/delete
+    # mutations all return either `null`, a schema-confirmed-ambiguous STRING, or a small typed
+    # dict with no free-text/externally-authored field — REVIEWED_TRUSTED regardless of blast
+    # radius (taint classifies the RETURN channel, not the mutation's consequences, the standing
+    # rule since Wave 4c/4d). NOT here (in taint.ADVERSARIAL_TOOLS instead):
+    # `pmg_node_pbs_snapshots_list`, `pmg_node_pbs_snapshot_get` — remote-authored snapshot labels.
+    'pmg_pbs_remote_list', 'pmg_pbs_remote_get', 'pmg_pbs_remote_create',
+    'pmg_pbs_remote_update', 'pmg_pbs_remote_delete',
+    'pmg_node_pbs_jobs_list',
+    'pmg_node_pbs_snapshot_create', 'pmg_node_pbs_snapshot_forget',
+    'pmg_node_pbs_snapshot_restore', 'pmg_node_pbs_snapshot_verify',
+    'pmg_node_pbs_timer_get', 'pmg_node_pbs_timer_create', 'pmg_node_pbs_timer_delete',
+    # PMG ACME accounts/plugins + node cert order/renew/revoke + custom-cert upload (Wave 9g,
+    # 2026-07-17, extends pmg.py/tools/pmg_mail.py). Account/plugin list+get are
+    # operator-authored config, defensively secret-stripped at the read layer (eab-hmac-key/
+    # eab-kid/data — a secret-HANDLING concern, not a taint one, argued in pmg.py's Wave 9g
+    # module section). Every mutation's return is either `null`, a schema-confirmed-ambiguous
+    # STRING, or (custom-cert-upload) a small typed object of PUBLIC cert material only —
+    # REVIEWED_TRUSTED regardless of blast radius (taint classifies the RETURN channel, not the
+    # mutation's consequences, the standing rule since Wave 4c/4d). `directories`/
+    # `challenge_schema` are PMG's own static built-in catalogs, no caller-influenced URL. NOT
+    # here (in taint.ADVERSARIAL_TOOLS instead): `pmg_acme_tos`, `pmg_acme_meta` — both fetch a
+    # caller-chosen CA directory URL live.
+    'pmg_acme_account_list', 'pmg_acme_account_get', 'pmg_acme_account_create',
+    'pmg_acme_account_update', 'pmg_acme_account_delete',
+    'pmg_acme_plugin_list', 'pmg_acme_plugin_get', 'pmg_acme_plugin_create',
+    'pmg_acme_plugin_update', 'pmg_acme_plugin_delete',
+    'pmg_acme_directories', 'pmg_acme_challenge_schema',
+    'pmg_node_cert_acme_order', 'pmg_node_cert_acme_renew', 'pmg_node_cert_acme_revoke',
+    'pmg_node_cert_custom_upload', 'pmg_node_cert_custom_delete',
+    # PMG identity: auth-realm, local users, TFA (Wave 9h, 2026-07-17, NEW pmg_identity.py +
+    # tools/pmg_identity.py). All 16 tools are structured, operator-authored config/identity data
+    # — no attacker-shapeable free text (unlike pmg_ldap_users_list/etc above, which are
+    # directory-sourced). Reads return realm comment/type, user comment/role/enable, or TFA entry
+    # metadata (created/description/enable/id/type) — never a secret (password/crypt_pass/keys/
+    # client-key are all defensively stripped or never echoed at the read layer, a
+    # secret-HANDLING concern argued in pmg_identity.py's own module section, not a taint one).
+    # TFA add's one-time 'recovery' codes and the TFA/user step-up 'password' are handled the same
+    # way — never-in-ledger, not a taint concern (the RETURN CHANNEL here is always a small typed
+    # object/list, never free text).
+    # Wave 9h REVIEW (Major 2) — the OIDC autocreate/username-claim angle, examined explicitly
+    # rather than left silent: an OIDC realm's `username-claim` can derive a PMG userid from an
+    # EXTERNAL IdP claim at login (Fact 11), so a later pmg_access_user_get/realm_get read on such
+    # an account surfaces IdP-influenced identifier content. Still REVIEWED_TRUSTED, not
+    # overturned, because (1) the surfaced content is one validated narrow identifier string
+    # (pmg-userid format, 4-64 chars), not the unbounded free text pmg_ldap_users_list's directory
+    # dump carries; (2) no schema field here documents PMG copying OTHER arbitrary IdP claims into
+    # a free-text profile field (comment/email/firstname/lastname are caller-supplied, never
+    # IdP-populated per the schema); (3) the authority angle of autocreate-role (Fact 11) is a
+    # separate, already-argued concern about future GRANTED PERMISSIONS, not this content
+    # question. Full argument: pmg_identity.py's own "TAINT CLASSIFICATION" module-docstring
+    # section. Narrower than a blanket claim — a future schema field echoing free-text IdP claims
+    # verbatim would need reclassification to ADVERSARIAL.
+    'pmg_access_realm_list', 'pmg_access_realm_get', 'pmg_access_realm_create',
+    'pmg_access_realm_update', 'pmg_access_realm_delete',
+    'pmg_access_user_get', 'pmg_access_user_create', 'pmg_access_user_update',
+    'pmg_access_user_delete', 'pmg_access_user_unlock_tfa',
+    'pmg_access_tfa_list', 'pmg_access_tfa_user_list', 'pmg_access_tfa_get',
+    'pmg_access_tfa_add', 'pmg_access_tfa_update', 'pmg_access_tfa_delete',
+    # PMG global appliance config + cluster bootstrap/join (Wave 9i, 2026-07-18, extends
+    # pmg_identity.py/tools/pmg_identity.py). All 18 tools are structured, operator-authored
+    # appliance config or cluster topology/verification material — no attacker-shapeable free
+    # text. The 5 config-family reads (admin/clamav/spamquar/virusquar/tfa-webauthn) are
+    # schema-thin appliance settings, not mail content; the 6 config-family updates return
+    # `null`/synchronous "ok" — the RETURN channel never carries external bytes. The 3 cluster
+    # reads (join-info/nodes/status) return ONLY public verification material by design
+    # (fingerprint/SSH host+root PUBLIC keys/ip/name/type — argued in pmg_identity.py's own
+    # Fact 17, the same reasoning class as a TLS cert fingerprint being safe to return
+    # unredacted). The 4 cluster mutations (create/join/node_add/update_fingerprints, RULING 1)
+    # return either a schema-ambiguous status STRING (create/join — not attacker-influenced, PMG
+    # generates it itself), a thin real node list (`{cid}` per item, node_add), or null
+    # (update_fingerprints) — never free text an attacker could shape. join's `password`
+    # (a third-party credential) and the 6 config families' secret-SHAPED `http_proxy` are
+    # secret-HANDLING concerns (never-in-ledger / masked), argued in pmg_identity.py's own
+    # module section, not a taint one.
+    'pmg_config_admin_get', 'pmg_config_admin_update',
+    'pmg_config_clamav_get', 'pmg_config_clamav_update',
+    'pmg_config_mail_update',
+    'pmg_config_spamquar_get', 'pmg_config_spamquar_update',
+    'pmg_config_virusquar_get', 'pmg_config_virusquar_update',
+    'pmg_config_tfa_webauthn_get', 'pmg_config_tfa_webauthn_update',
+    'pmg_cluster_join_info', 'pmg_cluster_nodes_list', 'pmg_cluster_status',
+    'pmg_cluster_create', 'pmg_cluster_join', 'pmg_cluster_node_add',
+    'pmg_cluster_update_fingerprints',
+    # Quarantine + statistics remainder (Wave 9j, 2026-07-18, THE FINAL CHUNK — closes the PMG
+    # plane, extends pmg.py/tools/pmg_mail.py). `pmg_quarantine_link_get`'s return is a
+    # bearer-credential-equivalent (RULING 4) — a SECRET-handling concern (never-in-ledger on
+    # the read's own logged return, pmg.py's own Wave 9j module section), not a taint one: the
+    # link is PMG-generated, never attacker content. `pmg_quarantine_users_list` lists PMG's own
+    # per-mailbox BL/WL config (operator-managed, not mail content). `pmg_quarantine_sendlink`'s
+    # own return is `null` (a mutation; the REAL email it sends never transits this tool's
+    # response). `pmg_statistics_maildistribution`/`pmg_statistics_rejectcount` are pure
+    # aggregate-numeric twins of the already-REVIEWED_TRUSTED `pmg_statistics_mailcount` (see
+    # taint.py's own Wave 9j comment for the full per-tool argument, including which siblings
+    # went to ADVERSARIAL instead: content_get/attachments_list/contact/detail/
+    # recentreceivers/recentsenders).
+    'pmg_quarantine_link_get', 'pmg_quarantine_users_list', 'pmg_quarantine_sendlink',
+    'pmg_statistics_maildistribution', 'pmg_statistics_rejectcount',
     'pve_security_groups_list', 'pve_snapshot_create',
     'pve_snapshot_delete', 'pve_storage_config_get', 'pve_storage_config_list', 'pve_storage_content_delete',
     'pve_storage_create', 'pve_storage_delete', 'pve_storage_download', 'pve_storage_status', 'pve_storage_update',

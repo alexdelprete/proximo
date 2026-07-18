@@ -14,6 +14,9 @@ from proximo.pmg import (
     action_bcc_create as pmg_action_bcc_create_op,
 )
 from proximo.pmg import (
+    action_bcc_get as pmg_action_bcc_get_op,
+)
+from proximo.pmg import (
     action_bcc_update as pmg_action_bcc_update_op,
 )
 from proximo.pmg import (
@@ -23,10 +26,16 @@ from proximo.pmg import (
     action_disclaimer_create as pmg_action_disclaimer_create_op,
 )
 from proximo.pmg import (
+    action_disclaimer_get as pmg_action_disclaimer_get_op,
+)
+from proximo.pmg import (
     action_disclaimer_update as pmg_action_disclaimer_update_op,
 )
 from proximo.pmg import (
     action_field_create as pmg_action_field_create_op,
+)
+from proximo.pmg import (
+    action_field_get as pmg_action_field_get_op,
 )
 from proximo.pmg import (
     action_field_update as pmg_action_field_update_op,
@@ -35,10 +44,16 @@ from proximo.pmg import (
     action_notification_create as pmg_action_notification_create_op,
 )
 from proximo.pmg import (
+    action_notification_get as pmg_action_notification_get_op,
+)
+from proximo.pmg import (
     action_notification_update as pmg_action_notification_update_op,
 )
 from proximo.pmg import (
     action_removeattachments_create as pmg_action_removeattachments_create_op,
+)
+from proximo.pmg import (
+    action_removeattachments_get as pmg_action_removeattachments_get_op,
 )
 from proximo.pmg import (
     action_removeattachments_update as pmg_action_removeattachments_update_op,
@@ -75,6 +90,9 @@ from proximo.pmg import (
 )
 from proximo.pmg import (
     plan_action_removeattachments_update as pmg_plan_action_removeattachments_update,
+)
+from proximo.pmg import (
+    plan_ruledb_reset as pmg_plan_ruledb_reset,
 )
 from proximo.pmg import (
     plan_ruledb_rule_action_attach as pmg_plan_ruledb_rule_action_attach,
@@ -170,10 +188,16 @@ from proximo.pmg import (
     plan_who_object_update as pmg_plan_who_object_update,
 )
 from proximo.pmg import (
+    ruledb_reset as pmg_ruledb_reset_op,
+)
+from proximo.pmg import (
     ruledb_rule_action_attach as pmg_ruledb_rule_action_attach_op,
 )
 from proximo.pmg import (
     ruledb_rule_action_detach as pmg_ruledb_rule_action_detach_op,
+)
+from proximo.pmg import (
+    ruledb_rule_action_groups_list as pmg_ruledb_rule_action_groups_list_op,
 )
 from proximo.pmg import (
     ruledb_rule_create as pmg_ruledb_rule_create_op,
@@ -224,6 +248,9 @@ from proximo.pmg import (
     what_object_delete as pmg_what_object_delete_op,
 )
 from proximo.pmg import (
+    what_object_get as pmg_what_object_get_op,
+)
+from proximo.pmg import (
     what_object_update as pmg_what_object_update_op,
 )
 from proximo.pmg import (
@@ -242,6 +269,9 @@ from proximo.pmg import (
     when_object_delete as pmg_when_object_delete_op,
 )
 from proximo.pmg import (
+    when_object_get as pmg_when_object_get_op,
+)
+from proximo.pmg import (
     when_object_update as pmg_when_object_update_op,
 )
 from proximo.pmg import (
@@ -258,6 +288,9 @@ from proximo.pmg import (
 )
 from proximo.pmg import (
     who_object_delete as pmg_who_object_delete_op,
+)
+from proximo.pmg import (
+    who_object_get as pmg_who_object_get_op,
 )
 from proximo.pmg import (
     who_object_update as pmg_who_object_update_op,
@@ -503,15 +536,16 @@ def pmg_when_group_delete(
 @tool()
 def pmg_who_object_add(
     ogroup: Annotated[str, Field(description="Numeric 'who' object group ID (e.g. '2') from pmg_who_groups_list.")],
-    type_: Annotated[str, Field(description="Object type: email|domain|regex|ip|network|ldap — selects which sub-path/fields apply.")],
+    type_: Annotated[str, Field(description="Object type: email|domain|regex|ip|network|ldap|ldapuser — selects which sub-path/fields apply.")],
     email: Annotated[str | None, Field(description="Email address to match; required when type_='email'.")] = None,
     domain: Annotated[str | None, Field(description="Domain to match; required when type_='domain'.")] = None,
     regex: Annotated[str | None, Field(description="Regex pattern to match; required when type_='regex'.")] = None,
     ip: Annotated[str | None, Field(description="IP address to match; required when type_='ip'.")] = None,
     cidr: Annotated[str | None, Field(description="CIDR network to match; required when type_='network'.")] = None,
     mode: Annotated[str | None, Field(description="LDAP lookup mode; used when type_='ldap'.")] = None,
-    profile: Annotated[str | None, Field(description="LDAP profile name; used when type_='ldap'.")] = None,
+    profile: Annotated[str | None, Field(description="LDAP profile name; used for type_='ldap'; REQUIRED (with account) when type_='ldapuser'.")] = None,
     group: Annotated[str | None, Field(description="LDAP group name; used when type_='ldap'.")] = None,
+    account: Annotated[str | None, Field(description="LDAP user account name; required when type_='ldapuser' (Wave 8a).")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (LOW): add an object to a PMG RuleDB 'who' object group. Dry-run by default.
@@ -527,7 +561,7 @@ def pmg_who_object_add(
                  lambda: pmg_plan_who_object_add(
                      ogroup, type_,
                      email=email, domain=domain, regex=regex, ip=ip,
-                     cidr=cidr, mode=mode, profile=profile, group=group,
+                     cidr=cidr, mode=mode, profile=profile, group=group, account=account,
                  ))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
@@ -535,7 +569,7 @@ def pmg_who_object_add(
                     lambda: pmg_who_object_add_op(
                         pmg, ogroup, type_,
                         email=email, domain=domain, regex=regex, ip=ip,
-                        cidr=cidr, mode=mode, profile=profile, group=group,
+                        cidr=cidr, mode=mode, profile=profile, group=group, account=account,
                     ),
                     mutation=True, outcome="ok",
                     detail={"confirmed": True, "ogroup": ogroup, "type": type_})
@@ -544,7 +578,7 @@ def pmg_who_object_add(
 @tool()
 def pmg_who_object_update(
     ogroup: Annotated[str, Field(description="Numeric 'who' object group ID (e.g. '2') from pmg_who_groups_list.")],
-    type_: Annotated[str, Field(description="Object type: email|domain|regex|ip|network|ldap — selects which sub-path/fields apply.")],
+    type_: Annotated[str, Field(description="Object type: email|domain|regex|ip|network|ldap|ldapuser — selects which sub-path/fields apply.")],
     id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_who_group_objects.")],
     email: Annotated[str | None, Field(description="New email address; used when type_='email'.")] = None,
     domain: Annotated[str | None, Field(description="New domain; used when type_='domain'.")] = None,
@@ -552,8 +586,9 @@ def pmg_who_object_update(
     ip: Annotated[str | None, Field(description="New IP address; used when type_='ip'.")] = None,
     cidr: Annotated[str | None, Field(description="New CIDR network; used when type_='network'.")] = None,
     mode: Annotated[str | None, Field(description="LDAP lookup mode; used when type_='ldap'.")] = None,
-    profile: Annotated[str | None, Field(description="LDAP profile name; used when type_='ldap'.")] = None,
+    profile: Annotated[str | None, Field(description="LDAP profile name; used for type_='ldap'; REQUIRED (with account) when type_='ldapuser'.")] = None,
     group: Annotated[str | None, Field(description="LDAP group name; used when type_='ldap'.")] = None,
+    account: Annotated[str | None, Field(description="New LDAP user account name; used when type_='ldapuser' (Wave 8a).")] = None,
     confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the mutation.")] = False,
 ) -> dict:
     """MUTATION (MEDIUM): update an object in a PMG RuleDB 'who' object group. Dry-run by default.
@@ -568,7 +603,7 @@ def pmg_who_object_update(
                  lambda: pmg_plan_who_object_update(
                      ogroup, type_, id_,
                      email=email, domain=domain, regex=regex, ip=ip,
-                     cidr=cidr, mode=mode, profile=profile, group=group,
+                     cidr=cidr, mode=mode, profile=profile, group=group, account=account,
                  ))
     if not confirm:
         return {"status": "plan", **plan.as_dict()}
@@ -576,14 +611,14 @@ def pmg_who_object_update(
                     lambda: pmg_who_object_update_op(
                         pmg, ogroup, type_, id_,
                         email=email, domain=domain, regex=regex, ip=ip,
-                        cidr=cidr, mode=mode, profile=profile, group=group,
+                        cidr=cidr, mode=mode, profile=profile, group=group, account=account,
                     ),
                     mutation=True, outcome="ok",
                     detail={k: v for k, v in
                             {"confirmed": True, "ogroup": ogroup, "type": type_, "id": id_,
                              "email": email, "domain": domain, "regex": regex, "ip": ip,
                              "cidr": cidr, "mode": mode, "profile": profile,
-                             "group": group}.items() if v is not None})
+                             "group": group, "account": account}.items() if v is not None})
 
 
 @tool()
@@ -608,6 +643,24 @@ def pmg_who_object_delete(
                     lambda: pmg_who_object_delete_op(pmg, ogroup, id_),
                     mutation=True, outcome="ok",
                     detail={"confirmed": True, "ogroup": ogroup, "id": id_})
+
+
+@tool()
+def pmg_who_object_get(
+    ogroup: Annotated[str, Field(description="Numeric 'who' object group ID (e.g. '2') from pmg_who_groups_list.")],
+    type_: Annotated[str, Field(description="Object type: email|domain|regex|ip|network|ldap|ldapuser — selects which sub-path applies.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_who_group_objects.")],
+) -> dict:
+    """READ-ONLY: get a PMG RuleDB 'who' object's settings. Needs PROXIMO_PMG_* config.
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm). PMG's own schema types
+    only {id: int} in the return for this endpoint; the real runtime response is presumably
+    richer (type-specific fields like email/domain/account), not asserted here. ogroup/id_ are
+    numeric ID strings from pmg_who_groups_list / pmg_who_group_objects.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_who_object_get", f"pmg/config/ruledb/who/{ogroup}/{type_}/{id_}",
+                    lambda: pmg_who_object_get_op(pmg, ogroup, type_, id_))
 
 
 # ---------------------------------------------------------------------------
@@ -727,6 +780,24 @@ def pmg_what_object_delete(
                     detail={"confirmed": True, "ogroup": ogroup, "id": id_})
 
 
+@tool()
+def pmg_what_object_get(
+    ogroup: Annotated[str, Field(description="Numeric 'what' object group ID (e.g. '8') from pmg_what_groups_list.")],
+    type_: Annotated[str, Field(description="Object type: contenttype|matchfield|spamfilter|virusfilter|filenamefilter|archivefilter|archivefilenamefilter.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_what_group_objects.")],
+) -> dict:
+    """READ-ONLY: get a PMG RuleDB 'what' object's settings. Needs PROXIMO_PMG_* config.
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm). PMG's own schema types
+    only {id: int} in the return for this endpoint; the real runtime response is presumably
+    richer (type-specific fields), not asserted here. ogroup/id_ are numeric ID strings from
+    pmg_what_groups_list / pmg_what_group_objects.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_what_object_get", f"pmg/config/ruledb/what/{ogroup}/{type_}/{id_}",
+                    lambda: pmg_what_object_get_op(pmg, ogroup, type_, id_))
+
+
 # ---------------------------------------------------------------------------
 # W5c: WHEN-object CRUD tools
 # ---------------------------------------------------------------------------
@@ -807,6 +878,24 @@ def pmg_when_object_delete(
                     detail={"confirmed": True, "ogroup": ogroup, "id": id_})
 
 
+@tool()
+def pmg_when_object_get(
+    ogroup: Annotated[str, Field(description="Numeric 'when' object group ID (e.g. '4') from pmg_when_groups_list.")],
+    id_: Annotated[str, Field(description="Object ID (numeric string) from pmg_when_group_objects.")],
+) -> dict:
+    """READ-ONLY: get a PMG RuleDB 'when' (timeframe) object's settings. Needs PROXIMO_PMG_* config.
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm). Unlike who/what, 'when'
+    has only ONE object type (timeframe) — no type_ param, mirrors pmg_when_object_add. PMG's own
+    schema types only {id: int} in the return; the real response is presumably richer (start/end
+    H:i fields), not asserted here. ogroup/id_ are numeric ID strings from pmg_when_groups_list /
+    pmg_when_group_objects.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_when_object_get", f"pmg/config/ruledb/when/{ogroup}/timeframe/{id_}",
+                    lambda: pmg_when_object_get_op(pmg, ogroup, id_))
+
+
 # ---------------------------------------------------------------------------
 # W5c: ACTION CRUD tools
 # ---------------------------------------------------------------------------
@@ -869,6 +958,21 @@ def pmg_action_bcc_update(
 
 
 @tool()
+def pmg_action_bcc_get(
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+) -> dict:
+    """READ-ONLY: get a BCC action object's settings from the PMG RuleDB. Needs PROXIMO_PMG_* config.
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm). PMG's own schema types
+    only {id: string} in the return; the real response is presumably richer (target/name/info/
+    original), not asserted here. id_ comes from pmg_action_objects_list.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_action_bcc_get", f"pmg/config/ruledb/action/bcc/{id_}",
+                    lambda: pmg_action_bcc_get_op(pmg, id_))
+
+
+@tool()
 def pmg_action_field_create(
     name: Annotated[str, Field(description="Name for the new field-modification action object.")],
     field: Annotated[str, Field(description="Mail header field to set.")],
@@ -923,6 +1027,21 @@ def pmg_action_field_update(
                     detail={k: v for k, v in
                             {"confirmed": True, "id": id_, "name": name, "field": field,
                              "value": value, "info": info}.items() if v is not None})
+
+
+@tool()
+def pmg_action_field_get(
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+) -> dict:
+    """READ-ONLY: get a field-modification action object's settings from the PMG RuleDB. Needs PROXIMO_PMG_* config.
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm). PMG's own schema types
+    only {id: string} in the return; the real response is presumably richer (field/value/info),
+    not asserted here. id_ comes from pmg_action_objects_list.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_action_field_get", f"pmg/config/ruledb/action/field/{id_}",
+                    lambda: pmg_action_field_get_op(pmg, id_))
 
 
 @tool()
@@ -994,6 +1113,22 @@ def pmg_action_notification_update(
 
 
 @tool()
+def pmg_action_notification_get(
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+) -> dict:
+    """READ-ONLY: get a notification action object's settings from the PMG RuleDB. Needs PROXIMO_PMG_* config.
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm). PMG's own schema types
+    only {id: string} in the return; the real response is presumably richer (to/subject/body/
+    info/attach — all operator-authored notification-template content, not attacker-echoed mail
+    content), not asserted here. id_ comes from pmg_action_objects_list.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_action_notification_get", f"pmg/config/ruledb/action/notification/{id_}",
+                    lambda: pmg_action_notification_get_op(pmg, id_))
+
+
+@tool()
 def pmg_action_disclaimer_create(
     name: Annotated[str, Field(description="Name for the new disclaimer action object.")],
     disclaimer: Annotated[str, Field(description="Disclaimer text to append/prepend to mail.")],
@@ -1060,6 +1195,22 @@ def pmg_action_disclaimer_update(
 
 
 @tool()
+def pmg_action_disclaimer_get(
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+) -> dict:
+    """READ-ONLY: get a disclaimer action object's settings from the PMG RuleDB. Needs PROXIMO_PMG_* config.
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm). PMG's own schema types
+    only {id: string} in the return; the real response is presumably richer (disclaimer text is
+    operator-authored, not attacker-echoed mail content), not asserted here. id_ comes from
+    pmg_action_objects_list.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_action_disclaimer_get", f"pmg/config/ruledb/action/disclaimer/{id_}",
+                    lambda: pmg_action_disclaimer_get_op(pmg, id_))
+
+
+@tool()
 def pmg_action_removeattachments_create(
     name: Annotated[str, Field(description="Name for the new remove-attachments action object.")],
     text: Annotated[str, Field(description="Replacement text inserted in place of removed attachments.")],
@@ -1123,6 +1274,22 @@ def pmg_action_removeattachments_update(
                             {"confirmed": True, "id": id_, "name": name, "text": text,
                              "info": info, "all": all_, "quarantine": quarantine}.items()
                             if v is not None})
+
+
+@tool()
+def pmg_action_removeattachments_get(
+    id_: Annotated[str, Field(description="Compound action object ID (e.g. '13_26') from pmg_action_objects_list.")],
+) -> dict:
+    """READ-ONLY: get a remove-attachments action object's settings from the PMG RuleDB. Needs PROXIMO_PMG_* config.
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm). PMG's own schema types
+    only {id: string} in the return; the real response is presumably richer (replacement text is
+    operator-authored, not attacker-echoed mail content), not asserted here. id_ comes from
+    pmg_action_objects_list.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_action_removeattachments_get", f"pmg/config/ruledb/action/removeattachments/{id_}",
+                    lambda: pmg_action_removeattachments_get_op(pmg, id_))
 
 
 @tool()
@@ -1502,3 +1669,63 @@ def pmg_ruledb_rule_action_detach(
                     lambda: pmg_ruledb_rule_action_detach_op(pmg, id_, ogroup),
                     mutation=True, outcome="ok",
                     detail={"confirmed": True, "id": id_, "ogroup": ogroup})
+
+
+# ---------------------------------------------------------------------------
+# W6a (Wave 8a): the direct singular rule<->action-group read + RuleDB factory reset.
+# See proximo/pmg.py's own W6a section header for the coordinator rulings this implements
+# (RULING 1 — factory reset built RISK_HIGH; RULING 2 — the naming-symmetry-breaking name below).
+# ---------------------------------------------------------------------------
+
+@tool()
+def pmg_ruledb_rule_action_groups_list(
+    id_: Annotated[str, Field(description="RuleDB rule ID (positive integer string, e.g. '100').")],
+) -> list[dict]:
+    """READ-ONLY: list the action-group ids DIRECTLY attached to a PMG RuleDB rule. Needs PROXIMO_PMG_* config.
+
+    Reads the singular GET /config/ruledb/rules/{id}/action endpoint PMG's own apidoc describes as
+    "Get 'action' group list" — returns bare [{"id": <int>}], the same shape/trust level as the
+    already-shipped pmg_ruledb_rule_from_list/to_list/what_list/when_list siblings.
+
+    NOT THE SAME as pmg_ruledb_rule_actions_list (plural name, shipped earlier): that tool reads
+    the rule's /config and extracts an embedded 'action' key whose presence in the real PMG
+    response is UNVERIFIED (see that tool's own corrected docstring — Wave 8a). THIS tool reads
+    the direct singular endpoint and returns exactly what it says, no config-embed indirection.
+    The one-letter closeness to pmg_ruledb_rule_actions_list is a real typo-collision risk —
+    this name was deliberately chosen over the sibling-symmetric "pmg_ruledb_rule_action_list" to
+    make the two tools visually distinct (coordinator RULING 2).
+
+    Wave 8a, schema-verified path — not yet live-verified (Smoke-confirm).
+    id_: rule ID (e.g. '100') from pmg_ruledb_rules_list.
+    """
+    _, pmg = _proximo_server._pmg()
+    return _audited("pmg_ruledb_rule_action_groups_list", f"pmg/config/ruledb/rules/{id_}/action",
+                    lambda: pmg_ruledb_rule_action_groups_list_op(pmg, id_))
+
+
+@tool()
+def pmg_ruledb_reset(
+    confirm: Annotated[bool, Field(description="False (default) returns a dry-run PLAN; True executes the FACTORY RESET.")] = False,
+) -> dict:
+    """MUTATION (HIGH): factory-reset the ENTIRE PMG RuleDB. Dry-run by default.
+
+    Wipes EVERY rule, every who/what/when object group, and every action object back to PMG
+    factory defaults — in one call. Proximo has NO undo for this: no staged/pending state to
+    discard first, no dry-run companion upstream, no scoping parameter accepted (PMG's own schema
+    takes zero params). Take pmg_backup_create first.
+
+    The dry-run PLAN captures the current scope (rule count, who/what/when group counts, action
+    object count) via 5 best-effort reads and renders the toll before you confirm — a capture-read
+    failure degrades to an honest note rather than blocking the plan (PMG may be partially
+    unreachable and the plan still needs to render). confirm=True executes and returns
+    {"status": "ok", "result": None} — PMG's own schema declares this call synchronous (returns
+    null), never "submitted".
+    """
+    _, pmg = _proximo_server._pmg()
+    tgt = "pmg/config/ruledb"
+    plan = _plan("pmg_ruledb_reset", tgt, lambda: pmg_plan_ruledb_reset(pmg))
+    if not confirm:
+        return {"status": "plan", **plan.as_dict()}
+    return _audited("pmg_ruledb_reset", tgt,
+                    lambda: pmg_ruledb_reset_op(pmg),
+                    mutation=True, outcome="ok", detail={"confirmed": True})

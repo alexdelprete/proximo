@@ -436,9 +436,21 @@ async def test_pmg_tools_registered_with_fastmcp():
         "pmg_ruledb_rule_when_detach",
         "pmg_ruledb_rule_action_attach",
         "pmg_ruledb_rule_action_detach",
+        # W6a (Wave 8a) reads
+        "pmg_who_object_get",
+        "pmg_what_object_get",
+        "pmg_when_object_get",
+        "pmg_action_bcc_get",
+        "pmg_action_field_get",
+        "pmg_action_notification_get",
+        "pmg_action_disclaimer_get",
+        "pmg_action_removeattachments_get",
+        "pmg_ruledb_rule_action_groups_list",
+        # W6a (Wave 8a) mutation
+        "pmg_ruledb_reset",
     }
     assert pmg_tools <= tools, f"missing from MCP surface: {pmg_tools - tools}"
-    assert len(pmg_tools) == 103
+    assert len(pmg_tools) == 113
 
 
 # --- W3: read tool audited as non-mutation ----------------------------------

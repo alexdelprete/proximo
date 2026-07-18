@@ -968,6 +968,92 @@ _READ_ONLY_TOOLS = frozenset({
     "pve_sdn_fabric_nodes_list_all", "pve_sdn_fabric_nodes_list", "pve_sdn_fabric_node_get",
     "pve_sdn_fabric_status_interfaces", "pve_sdn_fabric_status_neighbors",
     "pve_sdn_fabric_status_routes",
+    # PMG ruledb per-object reads + the direct rule<->action-group read (Wave 8a, full-surface
+    # campaign) — read-only tools (no confirm param). NOT here: pmg_ruledb_reset — the wave's
+    # one new mutation, confirm-gated like every other mutation on this plane.
+    "pmg_who_object_get", "pmg_what_object_get", "pmg_when_object_get",
+    "pmg_action_bcc_get", "pmg_action_field_get", "pmg_action_notification_get",
+    "pmg_action_disclaimer_get", "pmg_action_removeattachments_get",
+    "pmg_ruledb_rule_action_groups_list",
+    # PMG GLOBAL welcomelist reads (Wave 8b, full-surface campaign) — read-only tools (no confirm
+    # param). NOT here: pmg_welcomelist_object_add/_update/_delete — all confirm-gated mutations.
+    "pmg_welcomelist_objects_list", "pmg_welcomelist_object_get",
+    # PMG node core reads (Wave 9a, full-surface campaign) — read-only tools (no confirm param).
+    # NOT here: pmg_node_network_create/update/delete/revert/reload, pmg_node_dns_set,
+    # pmg_node_time_set, pmg_node_config_set, pmg_node_subscription_set/check/delete — all
+    # confirm-gated mutations.
+    "pmg_node_network_list", "pmg_node_network_get", "pmg_node_dns_get", "pmg_node_time_get",
+    "pmg_node_config_get", "pmg_node_certificates_info", "pmg_node_services_list",
+    "pmg_node_subscription_get",
+    # PMG node ops odds reads (Wave 9b, full-surface campaign) — read-only tools (no confirm
+    # param). NOT here: pmg_node_task_stop, pmg_node_backup_delete/_restore,
+    # pmg_node_postfix_queue_action/_delete_all/_delete_queue/_message_delete/_message_deliver,
+    # pmg_node_postfix_discard_verify_cache, pmg_node_clamav_database_update,
+    # pmg_node_spamassassin_rules_update, pmg_node_service_start/_stop/_restart/_reload — all
+    # confirm-gated mutations.
+    "pmg_node_task_log", "pmg_node_task_status", "pmg_node_report", "pmg_node_journal",
+    "pmg_node_backup_list", "pmg_node_postfix_queue_list", "pmg_node_postfix_queue_message_get",
+    "pmg_node_clamav_database_get", "pmg_node_spamassassin_rules_get",
+    # PMG LDAP profiles + fetchmail reads (Wave 9c, full-surface campaign) — read-only tools (no
+    # confirm param). NOT here: pmg_ldap_profile_create/_delete/_config_update/_sync,
+    # pmg_fetchmail_create/_update/_delete — all confirm-gated mutations.
+    "pmg_ldap_profiles_list", "pmg_ldap_profile_config_get",
+    "pmg_ldap_users_list", "pmg_ldap_user_emails_get",
+    "pmg_ldap_groups_list", "pmg_ldap_group_members_get",
+    "pmg_fetchmail_list", "pmg_fetchmail_get",
+    # PMG mail routing config remainder (Wave 9d, full-surface campaign) — read-only tools (no
+    # confirm param). pmg_regextest is POST-verbed but classified by EFFECT not verb (a pure
+    # evaluator, no PMG state read or written — pmg.py Wave 9d module section fact #6), so it
+    # carries no confirm gate either, same as the 9 GET-verbed reads below it. NOT here:
+    # pmg_domain_update, pmg_transport_update, pmg_mynetworks_update, pmg_tlspolicy_create/
+    # _update/_delete, pmg_tls_inbound_domains_create/_delete — all confirm-gated mutations.
+    "pmg_domain_get", "pmg_transport_list", "pmg_transport_get",
+    "pmg_mynetworks_list", "pmg_mynetworks_get",
+    "pmg_tlspolicy_list", "pmg_tlspolicy_get",
+    "pmg_tls_inbound_domains_list", "pmg_mimetypes_list", "pmg_regextest",
+    # PMG DKIM + customscores (Wave 9e, full-surface campaign) — read-only tools (no confirm
+    # param). NOT here: pmg_dkim_domain_create/_update/_delete, pmg_dkim_selector_generate,
+    # pmg_customscores_create/_update/_delete/_revert_all/_apply — all confirm-gated mutations.
+    "pmg_dkim_domains_list", "pmg_dkim_domain_get",
+    "pmg_dkim_selector_get", "pmg_dkim_selectors_list",
+    "pmg_customscores_list", "pmg_customscores_get",
+    # PMG PBS remote config + node-side PBS backup jobs (Wave 9f, full-surface campaign) —
+    # read-only tools (no confirm param). NOT here: pmg_pbs_remote_create/_update/_delete,
+    # pmg_node_pbs_snapshot_create/_forget/_restore/_verify, pmg_node_pbs_timer_create/_delete —
+    # all confirm-gated mutations.
+    "pmg_pbs_remote_list", "pmg_pbs_remote_get",
+    "pmg_node_pbs_jobs_list", "pmg_node_pbs_snapshots_list", "pmg_node_pbs_snapshot_get",
+    "pmg_node_pbs_timer_get",
+    # PMG ACME accounts/plugins + CA metadata (Wave 9g, full-surface campaign) — read-only tools
+    # (no confirm param). NOT here: pmg_acme_account_create/_update/_delete,
+    # pmg_acme_plugin_create/_update/_delete, pmg_node_cert_acme_order/_renew/_revoke,
+    # pmg_node_cert_custom_upload/_delete — all confirm-gated mutations.
+    "pmg_acme_account_list", "pmg_acme_account_get",
+    "pmg_acme_plugin_list", "pmg_acme_plugin_get",
+    "pmg_acme_tos", "pmg_acme_meta", "pmg_acme_directories", "pmg_acme_challenge_schema",
+    # PMG identity: auth-realm, local users, TFA (Wave 9h, full-surface campaign) — read-only
+    # tools (no confirm param). NOT here: pmg_access_realm_create/_update/_delete,
+    # pmg_access_user_create/_update/_delete/_unlock_tfa, pmg_access_tfa_add/_update/_delete —
+    # all confirm-gated mutations.
+    "pmg_access_realm_list", "pmg_access_realm_get", "pmg_access_user_get",
+    "pmg_access_tfa_list", "pmg_access_tfa_user_list", "pmg_access_tfa_get",
+    # PMG global appliance config + cluster bootstrap/join (Wave 9i, full-surface campaign) —
+    # read-only tools (no confirm param). NOT here: pmg_config_admin_update/_clamav_update/
+    # _mail_update/_spamquar_update/_virusquar_update/_tfa_webauthn_update, pmg_cluster_create/
+    # _join/_node_add/_update_fingerprints — all confirm-gated mutations.
+    "pmg_config_admin_get", "pmg_config_clamav_get", "pmg_config_spamquar_get",
+    "pmg_config_virusquar_get", "pmg_config_tfa_webauthn_get",
+    "pmg_cluster_join_info", "pmg_cluster_nodes_list", "pmg_cluster_status",
+    # PMG quarantine + statistics remainder (Wave 9j, THE FINAL CHUNK — closes the PMG plane,
+    # full-surface campaign) — read-only tools (no confirm param). NOT here:
+    # pmg_quarantine_sendlink — the one confirm-gated mutation in this chunk (sends a REAL
+    # email). pmg_quarantine_link_get IS here despite RULING 4 (its return is a
+    # bearer-credential-equivalent) — it is still a plain GET with no state change; the secret
+    # concern is ledger-redaction, not a confirm gate (see pmg.py's own Wave 9j module section).
+    "pmg_quarantine_users_list", "pmg_quarantine_content_get",
+    "pmg_quarantine_attachments_list", "pmg_quarantine_link_get",
+    "pmg_statistics_contact", "pmg_statistics_detail", "pmg_statistics_maildistribution",
+    "pmg_statistics_recentreceivers", "pmg_statistics_recentsenders", "pmg_statistics_rejectcount",
 })
 
 

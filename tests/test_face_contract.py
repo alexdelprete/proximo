@@ -69,25 +69,56 @@ def test_face_never_touches_core_internals(rel):
     assert not hits, f"{rel} reaches core internals ({hits}) — faces go through governed.call_governed."
 
 
-def _server_attr_uses(tree: ast.AST) -> set[str]:
-    """Attributes accessed on the name ``server`` — AST, not regex (0.24 review finding).
+def _server_module_names(tree: ast.AST) -> set[str]:
+    """Every local name bound to proximo's ``server`` module.
 
-    The old text scan needed per-SDK lookbehinds (``a2a.server.*`` / ``mcp.server.*``) and was
-    still foolable by any identifier merely ENDING in an excluded prefix. The AST kills the whole
-    false-positive class structurally: an SDK's ``x.server.y`` is an Attribute rooted at the name
-    ``x`` (or an ImportFrom with no Attribute node at all) — only proximo's imported ``server``
-    module appears as a bare ``Name('server')`` root.
+    The bare AST check keys off ``Name('server')`` — but a face could import the module under
+    another name (``from proximo import server as srv``) or reach it by its dotted path
+    (``import proximo.server``) and touch the seam without the token ``server`` ever appearing.
+    This resolves those bindings so ``srv.mcp`` / ``proximo.server.mcp`` read as seams too. Only
+    proximo imports are tracked — an SDK's own ``from mcp import server`` is a different module
+    and is intentionally NOT bound.
+    """
+    names = {"server"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "proximo" or (node.module is None and (node.level or 0) >= 1):
+                names |= {a.asname or "server" for a in node.names if a.name == "server"}
+        elif isinstance(node, ast.Import):
+            names |= {a.asname for a in node.names if a.name == "proximo.server" and a.asname}
+    return names
+
+
+def _is_server_ref(node: ast.AST, names: set[str]) -> bool:
+    """*node* refers to proximo's server module: a tracked name, or the dotted ``proximo.server``."""
+    if isinstance(node, ast.Name):
+        return node.id in names
+    return (
+        isinstance(node, ast.Attribute) and node.attr == "server"
+        and isinstance(node.value, ast.Name) and node.value.id == "proximo"
+    )
+
+
+def _server_attr_uses(tree: ast.AST, names: set[str]) -> set[str]:
+    """Attributes touched on proximo's ``server`` module — AST, not regex (0.24 review finding).
+
+    The AST closes the false-POSITIVE class the old text scan suffered (an SDK's ``x.server.y`` is
+    rooted at its own name ``x``, never a bare ``server``), and ``names`` closes the cheap
+    false-NEGATIVES a static scan CAN resolve — the import alias and the dotted module path. What
+    stays open — a fully dynamic reach (``getattr(server, ...)``, ``sys.modules[...]``) — is
+    documented and asserted in ``test_seam_detector_scope_is_honest``; the real defense there is
+    code review, not this test. An honest heuristic, not a sandbox.
     """
     return {
         node.attr for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name) and node.value.id == "server"
+        if isinstance(node, ast.Attribute) and _is_server_ref(node.value, names)
     }
 
 
 @pytest.mark.parametrize("rel", FACE_SOURCES)
 def test_face_server_seams_are_the_sanctioned_two(rel):
-    used = _server_attr_uses(ast.parse(_source(rel)))
+    tree = ast.parse(_source(rel))
+    used = _server_attr_uses(tree, _server_module_names(tree))
     allowed = ALLOWED_SERVER_ATTRS | EXTRA_SERVER_ATTRS.get(rel, set())
     stray = used - allowed
     assert not stray, (
@@ -96,11 +127,15 @@ def test_face_server_seams_are_the_sanctioned_two(rel):
     )
 
 
-def _roots_at_server(node: ast.expr) -> bool:
-    """True when *node* is ``server`` or a bare ``server.attr[.attr…]`` chain (no Call in it)."""
+def _roots_at_server(node: ast.expr, names: set[str]) -> bool:
+    """True when *node* is a server reference or a bare ``server.attr[.attr…]`` chain (no Call)."""
+    if _is_server_ref(node, names):
+        return True
     while isinstance(node, ast.Attribute):
         node = node.value
-    return isinstance(node, ast.Name) and node.id == "server"
+        if _is_server_ref(node, names):
+            return True
+    return False
 
 
 @pytest.mark.parametrize("rel", FACE_SOURCES)
@@ -108,20 +143,43 @@ def test_face_never_aliases_server(rel):
     """Binding ``server`` (or a bare ``server.attr`` chain) to a name would let every later use
     dodge the seam scan — the hop-off the 0.24 review called (``m = server.mcp``). Assignments
     of call RESULTS stay legal (``app = server.mcp.streamable_http_app()`` binds a return value,
-    not the seam). A deliberate heuristic over assignment forms, not full dataflow — it refuses
-    the one laundering shape a reviewer actually named.
+    not the seam). A deliberate heuristic over assignment forms, not full dataflow.
     """
     tree = ast.parse(_source(rel))
-    offending: list[int] = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
-            value = node.value
-            if value is not None and _roots_at_server(value):
-                offending.append(node.lineno)
+    names = _server_module_names(tree)
+    offending = [
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr))
+        and node.value is not None and _roots_at_server(node.value, names)
+    ]
     assert not offending, (
         f"{rel} lines {offending}: aliasing server (or a server.* attribute chain) hides seam "
         f"usage from this contract — use server.<attr> directly at every site."
     )
+
+
+def test_seam_detector_scope_is_honest():
+    """What the AST seam scan catches — and, said plainly, what it does not. The gap is asserted
+    rather than hidden, so nobody mistakes a heuristic for a sandbox (the regex version drew the
+    same honest line; the AST moves the import-alias and dotted-path cases onto the caught side).
+    """
+    def attrs(src: str) -> set[str]:
+        tree = ast.parse(src)
+        return _server_attr_uses(tree, _server_module_names(tree))
+
+    # CAUGHT — a future face written any of these ways still trips the contract:
+    assert attrs("server.mcp.call_tool()") == {"mcp"}                           # the bare seam
+    assert attrs("from proximo import server as srv\nsrv._svc()") == {"_svc"}   # import alias
+    assert attrs("import proximo.server\nproximo.server._pbs()") == {"_pbs"}    # dotted path
+    assert attrs("import proximo.server as ps\nps._pmg()") == {"_pmg"}          # aliased dotted
+    # NOT a false positive — SDK namespaces and call results stay excused:
+    assert attrs("from mcp.server.transport_security import TransportSecuritySettings") == set()
+    assert attrs("app = server.mcp.streamable_http_app()") == {"mcp"}
+
+    # NOT CAUGHT — a static scan cannot resolve a fully dynamic reach. Documented, not hidden:
+    # the real defense against these is code review, not this test.
+    assert attrs("m = getattr(server, 'mcp')\nm.call_tool()") == set()
+    assert attrs("import sys\nsys.modules['proximo.server'].mcp.call_tool()") == set()
 
 
 def test_tool_calling_faces_route_through_governed():

@@ -31,11 +31,12 @@ _TOKEN_FILE_ENV = "PROXIMO_MCP_HTTP_TOKEN_FILE"  # noqa: S105 -- env var NAME, n
 _MCP_PATH = "/mcp"  # the SDK's default streamable-HTTP path, pinned explicitly (the guards match it)
 
 _TRUEISH = frozenset({"1", "true", "yes", "on"})
+_FALSISH = frozenset({"0", "false", "no", "off"})
 
 
 def build_app(url: str | None = None, *, token: str | None = None,
               allowed_hosts: list[str] | None = None,
-              stateless: bool = False, json_response: bool = False):
+              stateless: bool = True, json_response: bool = False):
     """Build the Proximo MCP-over-streamable-HTTP ASGI application.
 
     Args:
@@ -48,7 +49,9 @@ def build_app(url: str | None = None, *, token: str | None = None,
         allowed_hosts: Host allowlist for the DNS-rebind guard (all modes). Defaults to the served
                host + loopback forms. ``["*"]`` only behind a trusted reverse-proxy (warns).
         stateless: Serve in the SDK's stateless mode (no per-session state; each request is
-               self-contained). Useful behind load balancers / for many independent clients.
+               self-contained). Default TRUE — the maintainer's call on FR #25: multi-client
+               behind a proxy is the deployment model this face exists for, and nothing in the
+               governed surface needs a session. Pass False for session-stateful serving.
         json_response: Answer POSTs with plain JSON bodies instead of an SSE stream, for clients
                that prefer it.
 
@@ -150,7 +153,9 @@ def main() -> None:
     allowed = os.environ.get("PROXIMO_MCP_HTTP_ALLOWED_HOSTS", "")
     allowed_hosts = [h.strip() for h in allowed.split(",") if h.strip()] or None
 
-    stateless = os.environ.get("PROXIMO_MCP_HTTP_STATELESS", "").strip().lower() in _TRUEISH
+    # Stateless is the DEFAULT (FR #25 maintainer decision) — opt out with
+    # PROXIMO_MCP_HTTP_STATELESS=0/false/no/off for session-stateful serving.
+    stateless = os.environ.get("PROXIMO_MCP_HTTP_STATELESS", "").strip().lower() not in _FALSISH
     json_response = os.environ.get("PROXIMO_MCP_HTTP_JSON", "").strip().lower() in _TRUEISH
 
     # Bracket bare IPv6 hosts for the URL authority (same fix as the A2A/HTTP entries — an

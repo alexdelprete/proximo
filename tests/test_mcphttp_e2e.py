@@ -53,6 +53,8 @@ async def _drive(app, headers=None):
 
 
 async def test_mcp_client_end_to_end_no_token(tmp_path, monkeypatch):
+    # Defaults — which means STATELESS (`stateless_http=True`, the FR #25 maintainer decision:
+    # multi-client behind a proxy is the deployment model; the governed surface needs no session).
     _configure_env(tmp_path, monkeypatch)
     await _drive(build_app())
 
@@ -64,7 +66,13 @@ async def test_mcp_client_end_to_end_with_bearer(tmp_path, monkeypatch):
     await _drive(build_app(token="s3cret"), headers={"Authorization": "Bearer s3cret"})
 
 
-async def test_stateless_json_mode_end_to_end(tmp_path, monkeypatch):
-    # The load-balancer-friendly posture: stateless sessions + plain-JSON responses.
+async def test_stateful_opt_out_end_to_end(tmp_path, monkeypatch):
+    # The opt-out posture (PROXIMO_MCP_HTTP_STATELESS=0): real per-session state still works.
     _configure_env(tmp_path, monkeypatch)
-    await _drive(build_app(stateless=True, json_response=True))
+    await _drive(build_app(stateless=False))
+
+
+async def test_json_response_mode_end_to_end(tmp_path, monkeypatch):
+    # Plain-JSON responses instead of SSE, for clients that prefer it.
+    _configure_env(tmp_path, monkeypatch)
+    await _drive(build_app(json_response=True))

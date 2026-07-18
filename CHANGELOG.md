@@ -15,8 +15,10 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
   identical to the A2A/HTTP faces: fail-closed public bind (`PROXIMO_MCP_HTTP_TOKEN_FILE`,
   refused without it on a non-localhost `PROXIMO_MCP_HTTP_HOST`), constant-time bearer on `/mcp`,
   Host/DNS-rebind allowlist (`PROXIMO_MCP_HTTP_ALLOWED_HOSTS`), and the cross-origin (CSRF)
-  guard. Default `127.0.0.1:41243`; opt-in stateless / plain-JSON modes for load-balanced
-  deployments (`PROXIMO_MCP_HTTP_STATELESS` / `PROXIMO_MCP_HTTP_JSON`). The SDK's own DNS-rebind
+  guard. Default `127.0.0.1:41243`, serving **stateless** (`stateless_http=True` — the upstream
+  maintainer's call on the FR: multi-client behind a proxy is the deployment model, and nothing
+  in the governed surface needs a session; opt out with `PROXIMO_MCP_HTTP_STATELESS=0`); opt-in
+  plain-JSON responses with `PROXIMO_MCP_HTTP_JSON=1`. The SDK's own DNS-rebind
   layer is deliberately disabled in favor of the one authoritative webguard perimeter (two
   driftable allowlists is how holes happen); proven end-to-end by the official MCP client in
   `tests/test_mcphttp_e2e.py`.

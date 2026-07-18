@@ -3,10 +3,11 @@
 Transport-agnosticism is only real if it's enforced. Every network face must (1) route tool
 calls through ``governed.call_governed``/``list_governed`` — never import a Proxmox backend or
 call the service builders directly, (2) touch ``server`` only for the two sanctioned seams
-(``_apply_surfaces`` registry scoping, ``_ledger`` rejection audits), and (3) mount the ONE
-shared perimeter stack from ``webguard.guard_middleware``, in its contract order. A new face
-(e.g. MCP over streamable HTTP) inherits the spine by following these imports; this test
-refuses the shortcut that would give a transport its own path.
+(``_apply_surfaces`` registry scoping, ``_ledger`` rejection audits) plus any per-face seam
+granted explicitly in EXTRA_SERVER_ATTRS (today: ``server.mcp`` for the MCP-native face, which
+serves the spine's own protocol and so has nothing to adapt), and (3) mount the ONE shared
+perimeter stack from ``webguard.guard_middleware``, in its contract order. This test refuses
+the shortcut that would give a transport its own path.
 """
 from __future__ import annotations
 
@@ -29,6 +30,8 @@ FACE_SOURCES = (
     "a2a/signing.py",
     "a2a/__main__.py",
     "a2a/__init__.py",
+    "mcphttp.py",
+    "_mcp_http_entry.py",
 )
 
 # A face must never reach these — they are the core's internals, behind the governed dispatch.
@@ -46,6 +49,13 @@ FORBIDDEN = (
 # The ONLY server attributes a face may touch (the two sanctioned seams).
 ALLOWED_SERVER_ATTRS = {"_apply_surfaces", "_ledger"}
 
+# Per-face EXTRA seams, granted individually so the global set stays tight. The MCP-HTTP face's
+# whole purpose is serving the FastMCP instance over the SDK's native transport — `server.mcp`
+# IS the spine (governed.call_governed itself delegates to server.mcp.call_tool), so serving it
+# is not a bypass; it is the one face with nothing to adapt. No other face gets this seam: a
+# foreign-protocol face (REST, A2A) touching server.mcp would be skipping governed dispatch.
+EXTRA_SERVER_ATTRS = {"mcphttp.py": {"mcp"}}
+
 
 def _source(rel: str) -> str:
     return (SRC / rel).read_text(encoding="utf-8")
@@ -61,12 +71,14 @@ def test_face_never_touches_core_internals(rel):
 @pytest.mark.parametrize("rel", FACE_SOURCES)
 def test_face_server_seams_are_the_sanctioned_two(rel):
     text = _source(rel)
-    # (?<!a2a\.) — `a2a.server.*` is the A2A SDK's namespace, not proximo's server module.
-    used = set(re.findall(r"(?<!a2a\.)\bserver\.(\w+)", text))
-    stray = used - ALLOWED_SERVER_ATTRS
+    # (?<!a2a\.)/(?<!mcp\.) — `a2a.server.*` / `mcp.server.*` are the SDKs' namespaces, not
+    # proximo's server module.
+    used = set(re.findall(r"(?<!a2a\.)(?<!mcp\.)\bserver\.(\w+)", text))
+    allowed = ALLOWED_SERVER_ATTRS | EXTRA_SERVER_ATTRS.get(rel, set())
+    stray = used - allowed
     assert not stray, (
         f"{rel} uses server.{sorted(stray)} — a face may touch only "
-        f"{sorted(ALLOWED_SERVER_ATTRS)}; everything else goes through the governed dispatch."
+        f"{sorted(allowed)}; everything else goes through the governed dispatch."
     )
 
 
@@ -98,9 +110,10 @@ def _middleware_names(app) -> list[str]:
 
 
 def test_faces_mount_the_same_perimeter_in_contract_order():
-    """Both factories produce the identical guard stack — the faces cannot drift."""
+    """Every factory produces the identical guard stack — the faces cannot drift."""
     a2a_app_mod = pytest.importorskip("proximo.a2a.app")
     from proximo.httpface import build_app as build_http
+    from proximo.mcphttp import build_app as build_mcp_http
 
     with_token = ["TrustedHostMiddleware", "CrossOriginGuardMiddleware", "BearerAuthMiddleware"]
     without = ["TrustedHostMiddleware", "CrossOriginGuardMiddleware"]
@@ -109,3 +122,6 @@ def test_faces_mount_the_same_perimeter_in_contract_order():
     assert _middleware_names(build_http()) == without
     assert _middleware_names(a2a_app_mod.build_app(token="sentinel-token")) == with_token
     assert _middleware_names(a2a_app_mod.build_app()) == without
+    # The MCP-HTTP face mounts the stack onto the SDK-built app — same contract, same order.
+    assert _middleware_names(build_mcp_http(token="sentinel-token")) == with_token
+    assert _middleware_names(build_mcp_http()) == without

@@ -4,6 +4,23 @@ All notable changes to Proximo. Format loosely follows Keep a Changelog; version
 
 ## [Unreleased]
 
+### Added
+- **MCP over Streamable HTTP, natively** (upstream FR #25) — a new optional `proximo-mcp-http`
+  face (`pip install 'proximo-proxmox[mcp-http]'`) serves the SAME FastMCP instance the stdio
+  server runs over the MCP SDK's native Streamable HTTP transport, so networked MCP clients
+  (Claude Desktop/Code on another machine, web clients) no longer need a third-party stdio→HTTP
+  bridge that sits outside Proximo's perimeter. No adapter layer at all — it IS MCP, so the tool
+  registry, trust spine (PLAN/PROVE/UNDO, the gates), `PROXIMO_SURFACES` scoping, and the Proxmox
+  token scope are inherited by construction. Behind the shared `proximo.webguard` perimeter,
+  identical to the A2A/HTTP faces: fail-closed public bind (`PROXIMO_MCP_HTTP_TOKEN_FILE`,
+  refused without it on a non-localhost `PROXIMO_MCP_HTTP_HOST`), constant-time bearer on `/mcp`,
+  Host/DNS-rebind allowlist (`PROXIMO_MCP_HTTP_ALLOWED_HOSTS`), and the cross-origin (CSRF)
+  guard. Default `127.0.0.1:41243`; opt-in stateless / plain-JSON modes for load-balanced
+  deployments (`PROXIMO_MCP_HTTP_STATELESS` / `PROXIMO_MCP_HTTP_JSON`). The SDK's own DNS-rebind
+  layer is deliberately disabled in favor of the one authoritative webguard perimeter (two
+  driftable allowlists is how holes happen); proven end-to-end by the official MCP client in
+  `tests/test_mcphttp_e2e.py`.
+
 ## [0.24.0] — 2026-07-18
 
 **Ceph + SDN deep.** 603 → **715 tools**. The two planes hyperconverged operators asked for,

@@ -220,6 +220,7 @@ uvx proximo-proxmox            # zero-install run (PyPI package: proximo-proxmox
 # or: pip install proximo-proxmox            the MCP core
 # or: pip install "proximo-proxmox[a2a]"     + the optional A2A face
 # or: pip install "proximo-proxmox[http]"    + the optional HTTP/OpenAPI face
+# or: pip install "proximo-proxmox[mcp-http]" + the optional MCP-over-streamable-HTTP face
 # or, from source:  git clone https://github.com/john-broadway/proximo.git && cd proximo && uv pip install -e .
 ```
 
@@ -231,7 +232,7 @@ Wire it into your MCP client as the command `proximo`, with the `PROXIMO_*` env 
 >
 > **Big surface, scoped context:** you don't have to load the whole estate. `PROXIMO_SURFACES=pve,exec` registers only those planes (that pair = 202 tools) — unpicked planes never touch your context window; `audit_verify` always stays; a typo'd surface refuses startup.
 
-**The network faces (experimental, opt-in):** `proximo-a2a` speaks Agent2Agent; `proximo-http` serves plain HTTP + generated `/openapi.json` for no-code clients. Both serve the full surface through the **same governed dispatch** as MCP — no second code path, trust spine and token scope inherited. Fail-closed perimeter: loopback, bearer-token required off-localhost, DNS-rebind and CSRF defended. Details: [SECURITY.md](SECURITY.md).
+**The network faces (experimental, opt-in):** `proximo-a2a` speaks Agent2Agent; `proximo-http` serves plain HTTP + generated `/openapi.json` for no-code clients; `proximo-mcp-http` serves **MCP itself over Streamable HTTP** (the SDK's native transport) for networked MCP clients — no third-party stdio→HTTP bridge, so the perimeter stays Proximo's. All serve the full surface through the **same spine** as MCP — no second code path, trust spine and token scope inherited. Fail-closed perimeter: loopback, bearer-token required off-localhost, DNS-rebind and CSRF defended. Details: [SECURITY.md](SECURITY.md).
 
 ## At scale
 

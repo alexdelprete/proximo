@@ -1,6 +1,6 @@
-"""Shared fail-closed perimeter for Proximo's network faces (A2A, HTTP).
+"""Shared fail-closed perimeter for Proximo's network faces (A2A, HTTP, MCP-over-streamable-HTTP).
 
-Both faces are network CONTROL PLANES over Proxmox, so they share one hardening contract —
+The faces are network CONTROL PLANES over Proxmox, so they share one hardening contract —
 extracted here (starlette-only, no a2a-sdk import) so it cannot drift between transports,
 for the same reason ``governed.call_governed`` is shared:
 
@@ -9,7 +9,8 @@ for the same reason ``governed.call_governed`` is shared:
   - Tokens are loaded run-but-not-read, by file path from an env var; a configured-but-broken
     token file fails LOUD, never silently unauthenticated.
   - Bearer comparison is constant-time; protected paths are chosen per-face (A2A guards its
-    RPC endpoint, HTTP guards /tools/*) while discovery stays readable pre-auth.
+    RPC endpoint, HTTP guards /tools/*, MCP-HTTP guards /mcp) while discovery stays readable
+    pre-auth.
 """
 
 from __future__ import annotations

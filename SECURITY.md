@@ -237,17 +237,19 @@ access is broadest:
 - **The in-container exec edge.** `PROXIMO_ENABLE_EXEC=1` enables `ssh → pct exec`,
   which is near-root on the host. It's opt-in and fail-closed behind a CTID allowlist —
   any allowlist bypass, or a way to reach exec without the flag, is high severity.
-- **The network faces (A2A and HTTP).** The two optional network servers — `proximo-a2a`
-  (Agent2Agent) and `proximo-http` (HTTP/OpenAPI) — share one fail-closed perimeter
-  (`proximo.webguard`): both refuse non-localhost binds without a bearer token, and both
-  enforce a Host/DNS-rebind allowlist (`PROXIMO_A2A_ALLOWED_HOSTS` / `PROXIMO_HTTP_ALLOWED_HOSTS`).
-  Both serve the FULL governed tool surface through the SAME shared dispatch
-  (`proximo.governed.call_governed`) — the same `mcp.call_tool` spine path an MCP client takes,
-  so PLAN-by-default, PROVE, UNDO, the gates, and the Proxmox token scope apply identically, and
-  there is no second mutate path. The surface is scoped only by `PROXIMO_SURFACES` + the token
-  ACL, uniform for every transport. Auth bypass, header smuggling, rebind escape, a path that
-  invokes a tool bypassing `call_governed`, or a mutation that fires without the tool's own
-  confirm gate are all in scope.
+- **The network faces (A2A, HTTP, and MCP-over-streamable-HTTP).** The three optional network
+  servers — `proximo-a2a` (Agent2Agent), `proximo-http` (HTTP/OpenAPI), and `proximo-mcp-http`
+  (the MCP Streamable HTTP transport) — share one fail-closed perimeter (`proximo.webguard`):
+  all refuse non-localhost binds without a bearer token, and all enforce a Host/DNS-rebind
+  allowlist (`PROXIMO_A2A_ALLOWED_HOSTS` / `PROXIMO_HTTP_ALLOWED_HOSTS` /
+  `PROXIMO_MCP_HTTP_ALLOWED_HOSTS`). All serve the FULL governed tool surface through the SAME
+  spine path an MCP client takes — A2A and HTTP via the shared dispatch
+  (`proximo.governed.call_governed`, the same `mcp.call_tool` path), the MCP-HTTP face by
+  serving the FastMCP instance itself — so PLAN-by-default, PROVE, UNDO, the gates, and the
+  Proxmox token scope apply identically, and there is no second mutate path. The surface is
+  scoped only by `PROXIMO_SURFACES` + the token ACL, uniform for every transport. Auth bypass,
+  header smuggling, rebind escape, a path that invokes a tool bypassing the spine, or a mutation
+  that fires without the tool's own confirm gate are all in scope.
 - **Secret handling.** Proximo takes its PVE token by path/env, never as a literal in a
   shell line. A path where a token, key, or other secret is logged, echoed into the
   audit ledger, or otherwise persisted in cleartext is in scope. At load time, every

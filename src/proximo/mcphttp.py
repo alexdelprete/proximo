@@ -7,7 +7,9 @@ bridge. Those bridges sit OUTSIDE Proximo's perimeter — whatever auth/rebind/C
 then the bridge's, not Proximo's (upstream FR #25). Here every call lands on ``server.mcp`` itself:
 the identical tool registry, trust spine (PLAN-by-default, PROVE, UNDO, the gates), and Proxmox
 token scope a stdio client gets. There is no adapter layer at all — not even ``governed`` — so this
-face cannot diverge from MCP: it IS MCP. (``server.mcp`` is this face's sanctioned seam, beside the
+face cannot diverge from MCP: it IS MCP. That includes error surfaces: a failing tool returns the
+same MCP error text a stdio client sees — the REST face's sanitized ``tool failed: <Type>`` mapping
+is a ``governed`` behavior and does not apply here. (``server.mcp`` is this face's sanctioned seam, beside the
 two every face gets — see ``tests/test_face_contract.py``: the other faces adapt a foreign protocol
 onto the spine through ``governed``; this face serves the spine's native protocol, so the instance
 itself is the only possible mouth.)

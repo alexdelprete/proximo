@@ -72,7 +72,8 @@ grep -rEoh 'https?://[a-zA-Z0-9._~:/?#@!$&*+,;=-]+' src/proximo --include='*.py'
 
 Everything it prints is one of: an **`example.*` placeholder or `localhost` doc example**
 in a docstring or config sample, a **loopback bind default** (`127.0.0.1`) for the
-optional A2A and HTTP network faces, or the **print-only** `hello` links. Those are
+optional A2A, HTTP, and MCP-over-streamable-HTTP network faces, or the **print-only**
+`hello` links. Those are
 never fetched — `hello.py` builds URLs as *strings it prints*, and says so in its own
 docstring ("print-only; sends nothing"). Nothing here calls out to us.
 

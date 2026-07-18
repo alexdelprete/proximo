@@ -254,7 +254,7 @@ access is broadest:
   shell line. A path where a token, key, or other secret is logged, echoed into the
   audit ledger, or otherwise persisted in cleartext is in scope. At load time, every
   secret file referenced by path — the PVE/PBS/PDM tokens, the PMG password, the audit
-  HMAC key, the A2A/HTTP bearer tokens, and the A2A signing key — is refused if
+  HMAC key, the A2A/HTTP/MCP-HTTP bearer tokens, and the A2A signing key — is refused if
   group/other can access it (`mode & 0o077`): a mis-deployed `0644` secret fails loud
   with the `chmod 600` fix, not silently. A way to load a secret past that guard on a
   POSIX box is in scope.
